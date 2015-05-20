@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/cache/snapshot_file_set.hpp"
 
@@ -91,6 +104,25 @@ ErrorCode SnapshotFileSet::read_page(storage::SnapshotPagePointer page_id, void*
   return kErrorCodeOk;
 }
 
+ErrorCode SnapshotFileSet::read_pages(
+  storage::SnapshotPagePointer page_id_begin,
+  uint32_t page_count,
+  void* out) {
+  fs::DirectIoFile* file;
+  CHECK_ERROR_CODE(get_or_open_file(page_id_begin, &file));
+  storage::SnapshotLocalPageId local_page_id_begin
+    = storage::extract_local_page_id_from_snapshot_pointer(page_id_begin);
+  CHECK_ERROR_CODE(
+    file->seek(local_page_id_begin * sizeof(storage::Page), fs::DirectIoFile::kDirectIoSeekSet));
+  CHECK_ERROR_CODE(file->read_raw(sizeof(storage::Page) * page_count, out));
+#ifndef NDEBUG
+  storage::Page* pages = reinterpret_cast<storage::Page*>(out);
+  for (uint32_t i = 0; i < page_count; ++i) {
+    ASSERT_ND(pages[i].get_header().page_id_ == page_id_begin + i);
+  }
+#endif  // NDEBUG
+  return kErrorCodeOk;
+}
 
 std::ostream& operator<<(std::ostream& o, const SnapshotFileSet& v) {
   o << "<SnapshotFileSet>";

@@ -1,13 +1,25 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 
 // Just testing an expected thing.
-#include <xmmintrin.h>
-
 #include <iostream>
 
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/aligned_memory.hpp"
@@ -23,12 +35,18 @@ uint64_t run(bool prefetch, const char* blocks, const uint32_t* rands) {
     const char* block = blocks + ((rands[i % kRands] & 0xFFF) << 12);
     // 813ms vs 238ms. expected.
     if (prefetch) {
+      foedus::assorted::prefetch_cacheline(block + 0x180);
+      foedus::assorted::prefetch_cacheline(block + 0x3C0);
+      foedus::assorted::prefetch_cacheline(block + 0x840);
+      foedus::assorted::prefetch_cacheline(block + 0xC80);
+      /*
       const ::_mm_hint hint = ::_MM_HINT_T0;
       // ::_mm_hint hint = ::_MM_HINT_NTA;  // this one has much less difference.
       ::_mm_prefetch(block + 0x180, hint);
       ::_mm_prefetch(block + 0x3C0, hint);
       ::_mm_prefetch(block + 0x840, hint);
       ::_mm_prefetch(block + 0xC80, hint);
+      */
       // the following makes it 2x slower, thus prefetch size is actually 64 bytes
       // ::_mm_prefetch(block + 0x180, hint);
       // ::_mm_prefetch(block + 0x380, hint);

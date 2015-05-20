@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_SEQUENTIAL_SEQUENTIAL_STORAGE_HPP_
 #define FOEDUS_STORAGE_SEQUENTIAL_SEQUENTIAL_STORAGE_HPP_
@@ -11,7 +24,6 @@
 #include "foedus/attachable.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -71,9 +83,6 @@ class SequentialStorage CXX11_FINAL : public Storage<SequentialStorageControlBlo
   // TODO(Hideaki) Scan-access methods
 
   friend std::ostream& operator<<(std::ostream& o, const SequentialStorage& v);
-
-  /** Implementation of Composer::replace_pointers() */
-  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
 };
 }  // namespace sequential
 }  // namespace storage

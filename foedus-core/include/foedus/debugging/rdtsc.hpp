@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_DEBUGGING_RDTSC_HPP_
 #define FOEDUS_DEBUGGING_RDTSC_HPP_
@@ -18,12 +31,20 @@ namespace debugging {
 /**
  * @brief Returns the current CPU cycle via x86 RDTSC.
  * @ingroup DEBUGGING
- * @todo ARMv8 equivalent of RDTSC??
  */
 inline uint64_t get_rdtsc() {
+#ifndef __aarch64__
+  // x86.
   uint32_t low, high;
   asm volatile("rdtsc" : "=a" (low), "=d" (high));
   return (static_cast<uint64_t>(high) << 32) | low;
+#else  // __aarch64__
+  // AArch64. "cntvct_el0" gives read-only physical 64bit timer.
+  // http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488d/ch09s03s01.html
+  uint64_t ret;
+  asm volatile("isb; mrs %0, cntvct_el0" : "=r" (ret));
+  return ret;
+#endif  // __aarch64__
 }
 
 /**

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <stdint.h>
 #include <gtest/gtest.h>
@@ -22,14 +35,14 @@ void* to_ptr(int val) {
   return reinterpret_cast<void*>(static_cast<uintptr_t>(val));
 }
 
-XctAccess create_access(int i) {
-  XctAccess access;
+ReadXctAccess create_access(int i) {
+  ReadXctAccess access;
   access.observed_owner_id_.set(i * 20, i * 12);
   access.storage_id_ = i * 1234U;
   access.owner_id_address_ = reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 8452));
   return access;
 }
-void verify_access(const XctAccess &access, int i) {
+void verify_access(const ReadXctAccess &access, int i) {
   XctId tmp;
   tmp.set(i * 20, i * 12);
   EXPECT_TRUE(access.observed_owner_id_ == tmp);
@@ -38,23 +51,23 @@ void verify_access(const XctAccess &access, int i) {
 }
 
 TEST(XctAccessTest, CompareReadSet) {
-  XctAccess set1 = create_access(3);
-  XctAccess set2 = create_access(4);
+  ReadXctAccess set1 = create_access(3);
+  ReadXctAccess set2 = create_access(4);
 
-  EXPECT_TRUE(XctAccess::compare(set1, set2));
-  EXPECT_FALSE(XctAccess::compare(set2, set1));
-  EXPECT_FALSE(XctAccess::compare(set1, set1));
-  EXPECT_FALSE(XctAccess::compare(set2, set2));
+  EXPECT_TRUE(ReadXctAccess::compare(set1, set2));
+  EXPECT_FALSE(ReadXctAccess::compare(set2, set1));
+  EXPECT_FALSE(ReadXctAccess::compare(set1, set1));
+  EXPECT_FALSE(ReadXctAccess::compare(set2, set2));
 
   set2 = create_access(2);
-  EXPECT_FALSE(XctAccess::compare(set1, set2));
-  EXPECT_TRUE(XctAccess::compare(set2, set1));
-  EXPECT_FALSE(XctAccess::compare(set1, set1));
-  EXPECT_FALSE(XctAccess::compare(set2, set2));
+  EXPECT_FALSE(ReadXctAccess::compare(set1, set2));
+  EXPECT_TRUE(ReadXctAccess::compare(set2, set1));
+  EXPECT_FALSE(ReadXctAccess::compare(set1, set1));
+  EXPECT_FALSE(ReadXctAccess::compare(set2, set2));
 }
 
 TEST(XctAccessTest, SortReadSet) {
-  XctAccess sets[7];
+  ReadXctAccess sets[7];
   sets[0] = create_access(19);
   sets[1] = create_access(4);
   sets[2] = create_access(7);
@@ -70,7 +83,7 @@ TEST(XctAccessTest, SortReadSet) {
   verify_access(sets[5], 20);
   verify_access(sets[6], 11);
 
-  std::sort(sets, sets + 7, XctAccess::compare);
+  std::sort(sets, sets + 7, ReadXctAccess::compare);
   verify_access(sets[0], 4);
   verify_access(sets[1], 7);
   verify_access(sets[2], 9);
@@ -83,7 +96,7 @@ TEST(XctAccessTest, SortReadSet) {
 TEST(XctAccessTest, RandomReadSet) {
   const int kSize = 200;
   const int kSwapCount = 400;
-  XctAccess sets[kSize];
+  ReadXctAccess sets[kSize];
   for (int i = 0; i < kSize; ++i) {
     sets[i] = create_access(i + 12);
   }
@@ -91,7 +104,7 @@ TEST(XctAccessTest, RandomReadSet) {
   for (int i = 0; i < kSwapCount; ++i) {
     std::swap(sets[rnd.uniform_within(0, kSize - 1)], sets[rnd.uniform_within(0, kSize - 1)]);
   }
-  std::sort(sets, sets + kSize, XctAccess::compare);
+  std::sort(sets, sets + kSize, ReadXctAccess::compare);
   for (int i = 0; i < kSize; ++i) {
     verify_access(sets[i], i + 12);
   }

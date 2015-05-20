@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_SOC_SHARED_MEMORY_REPO_HPP_
 #define FOEDUS_SOC_SHARED_MEMORY_REPO_HPP_
@@ -8,6 +21,7 @@
 #include <stdint.h>
 
 #include <cstring>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
@@ -16,6 +30,7 @@
 #include "foedus/error_stack.hpp"
 #include "foedus/module_type.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/protected_boundary.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/shared_memory.hpp"
@@ -212,6 +227,7 @@ struct GlobalMemoryAnchors {
     kStorageManagerMemorySize = 1 << 12,
     kXctManagerMemorySize = 1 << 12,
     kStorageMemorySize = 1 << 12,
+    kMaxBoundaries = 1 << 7,
   };
 
   GlobalMemoryAnchors() { clear(); }
@@ -223,9 +239,9 @@ struct GlobalMemoryAnchors {
   GlobalMemoryAnchors& operator=(const GlobalMemoryAnchors &other) CXX11_FUNC_DELETE;
 
   /** The beginning of global memory is an XML-serialized EngineOption. The byte size. */
-  uint64_t  options_xml_length_;
+  uint64_t        options_xml_length_;
   /** The xml itself. not null terminated. */
-  char*     options_xml_;
+  char*           options_xml_;
 
   /**
    * This tiny piece of memory contains the current status of the master engine and
@@ -281,6 +297,13 @@ struct GlobalMemoryAnchors {
    * The size is SocOptions::shared_user_memory_size_kb_.
    */
   void*                                     user_memory_;
+
+  /** sanity check boundaries to detect bogus memory accesses that overrun a memory region */
+  assorted::ProtectedBoundary*              protected_boundaries_[kMaxBoundaries];
+  /** To be a POD, we avoid vector and instead uses a fix-sized array */
+  uint32_t                                  protected_boundaries_count_;
+  /** whether we have invoked mprotect on them */
+  bool                                      protected_boundaries_needs_release_;
 };
 
 /**
@@ -294,10 +317,13 @@ struct NodeMemoryAnchors {
     kLogReducerMemorySize = 1 << 12,
     kLoggerMemorySize = 1 << 21,
     kProcManagerMemorySize = 1 << 12,
+    kMaxBoundaries = 1 << 12,
   };
 
-  NodeMemoryAnchors() { std::memset(this, 0, sizeof(*this)); }
+  NodeMemoryAnchors() { clear(); }
   ~NodeMemoryAnchors() { deallocate_arrays(); }
+  void clear() { std::memset(this, 0, sizeof(*this)); }
+
   // No copying
   NodeMemoryAnchors(const NodeMemoryAnchors &other) CXX11_FUNC_DELETE;
   NodeMemoryAnchors& operator=(const NodeMemoryAnchors &other) CXX11_FUNC_DELETE;
@@ -364,6 +390,13 @@ struct NodeMemoryAnchors {
    * Anchors for each thread. Index is node-local thread ordinal.
    */
   ThreadMemoryAnchors*  thread_anchors_;
+
+  /** sanity check boundaries to detect bogus memory accesses that overrun a memory region */
+  assorted::ProtectedBoundary*              protected_boundaries_[kMaxBoundaries];
+  /** To be a POD, we avoid vector and instead uses a fix-sized array */
+  uint32_t                                  protected_boundaries_count_;
+  /** whether we have invoked mprotect on them */
+  bool                                      protected_boundaries_needs_release_;
 };
 
 /**
@@ -522,8 +555,48 @@ class SharedMemoryRepo CXX11_FINAL {
   // this is just one contiguous memory. no anchors needed.
 
   void init_empty(const EngineOptions& options);
-  void set_global_memory_anchors(uint64_t xml_size, const EngineOptions& options);
-  void set_node_memory_anchors(SocId node, const EngineOptions& options);
+
+  void set_global_memory_anchors(
+    uint64_t xml_size,
+    const EngineOptions& options,
+    bool reset_boundaries);
+  void put_global_memory_boundary(
+    uint64_t* position,
+    const std::string& name,
+    bool reset_boundaries) {
+    char* base = global_memory_.get_block();
+    assorted::ProtectedBoundary* boundary
+      = reinterpret_cast<assorted::ProtectedBoundary*>(base + (*position));
+    if (reset_boundaries) {
+      boundary->reset(name);
+    }
+    uint32_t next_index = global_memory_anchors_.protected_boundaries_count_;
+    ASSERT_ND(next_index < GlobalMemoryAnchors::kMaxBoundaries);
+    global_memory_anchors_.protected_boundaries_[next_index] = boundary;
+    ++global_memory_anchors_.protected_boundaries_count_;
+    *position += sizeof(assorted::ProtectedBoundary);
+  }
+
+  void set_node_memory_anchors(SocId node, const EngineOptions& options, bool reset_boundaries);
+  void put_node_memory_boundary(
+    SocId node,
+    uint64_t* position,
+    const std::string& name,
+    bool reset_boundaries) {
+    char* base = node_memories_[node].get_block();
+    assorted::ProtectedBoundary* boundary
+      = reinterpret_cast<assorted::ProtectedBoundary*>(base + (*position));
+    if (reset_boundaries) {
+      boundary->reset(name);
+    }
+    uint32_t next_index = node_memory_anchors_[node].protected_boundaries_count_;
+    ASSERT_ND(next_index < NodeMemoryAnchors::kMaxBoundaries);
+    node_memory_anchors_[node].protected_boundaries_[next_index] = boundary;
+    ++node_memory_anchors_[node].protected_boundaries_count_;
+    *position += sizeof(assorted::ProtectedBoundary);
+  }
+
+
   static uint64_t calculate_global_memory_size(uint64_t xml_size, const EngineOptions& options);
   static uint64_t calculate_node_memory_size(const EngineOptions& options);
 

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_SEQUENTIAL_SEQUENTIAL_STORAGE_PIMPL_HPP_
 #define FOEDUS_STORAGE_SEQUENTIAL_SEQUENTIAL_STORAGE_PIMPL_HPP_
@@ -17,7 +30,6 @@
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
-#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -87,7 +99,7 @@ struct SequentialStorageControlBlock final {
  *  \li For scanning threads (which only rarely occur and are fundamentally slow anyways),
  * we take an exclusive lock. Further, the scanning thread must wait until all other threads
  * did NOT start before the scanning thread take lock. (otherwise serializability is not
- * guaranteed). We will have something like Xct::InCommitLogEpochGuard for this purpose.
+ * guaranteed). We will have something like Xct::InCommitEpochGuard for this purpose.
  * As scanning threads are rare, they can wait for a while, so it's okay for other threads
  * to complete at least one transacion before they get aware of the lock.
  *  \li However, the above requirement is not mandatory if the scanning threads are running in
@@ -157,8 +169,6 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
     xct::XctId owner_id,
     const void *payload,
     uint16_t payload_count);
-
-  ErrorStack replace_pointers(const Composer::ReplacePointersArguments& args);
 
   /**
    * @brief Traverse all pages and call back the handler for every page.

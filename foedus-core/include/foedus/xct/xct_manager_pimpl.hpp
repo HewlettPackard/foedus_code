@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_XCT_XCT_MANAGER_PIMPL_HPP_
 #define FOEDUS_XCT_XCT_MANAGER_PIMPL_HPP_
@@ -10,8 +23,8 @@
 #include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
@@ -28,12 +41,10 @@ struct XctManagerControlBlock {
 
   void initialize() {
     current_global_epoch_advanced_.initialize();
-    epoch_advance_wakeup_.initialize();
+    epoch_chime_wakeup_.initialize();
     new_transaction_paused_ = false;
   }
   void uninitialize() {
-    epoch_advance_wakeup_.uninitialize();
-    current_global_epoch_advanced_.uninitialize();
   }
 
   /**
@@ -56,12 +67,12 @@ struct XctManagerControlBlock {
   std::atomic<Epoch::EpochInteger>  requested_global_epoch_;
 
   /** Fired (broadcast) whenever current_global_epoch_ is advanced. */
-  soc::SharedCond                   current_global_epoch_advanced_;
+  soc::SharedPolling                current_global_epoch_advanced_;
 
-  /** Fired to wakeup epoch_advance_thread_ */
-  soc::SharedCond                   epoch_advance_wakeup_;
-  /** Protected by the mutex in epoch_advance_wakeup_ */
-  std::atomic<bool>                 epoch_advance_thread_terminate_requested_;
+  /** Fired to wakeup epoch_chime_thread_ */
+  soc::SharedPolling                epoch_chime_wakeup_;
+  /** Protected by the mutex in epoch_chime_wakeup_ */
+  std::atomic<bool>                 epoch_chime_terminate_requested_;
 
   /**
    * @brief If true, all new requests to begin_xct() will be paused until this becomes false.
@@ -109,9 +120,10 @@ class XctManagerPimpl final : public DefaultInitializable {
   ErrorCode   abort_xct(thread::Thread* context);
 
   ErrorCode   wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds);
+  void        set_requested_global_epoch(Epoch request);
   void        advance_current_global_epoch();
-  void        wait_for_current_global_epoch(Epoch target_epoch);
-  void        wakeup_epoch_advance_thread();
+  void        wait_for_current_global_epoch(Epoch target_epoch, int64_t wait_microseconds);
+  void        wakeup_epoch_chime_thread();
 
   /**
    * @brief precommit_xct() if the transaction is read-only
@@ -126,6 +138,11 @@ class XctManagerPimpl final : public DefaultInitializable {
    * See [TU2013] for the full protocol in this case.
    */
   bool        precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch);
+
+  /** used from precommit_xct_lock() to track moved record */
+  bool        precommit_xct_lock_track_write(WriteXctAccess* entry);
+  /** used from verification methods to track moved record */
+  bool        precommit_xct_verify_track_read(ReadXctAccess* entry);
   /**
    * @brief Phase 1 of precommit_xct()
    * @param[in] context thread context
@@ -171,12 +188,14 @@ class XctManagerPimpl final : public DefaultInitializable {
   void        precommit_xct_unlock(thread::Thread* context);
 
   /**
-   * @brief Main routine for epoch_advance_thread_.
+   * @brief Main routine for epoch_chime_thread_.
    * @details
    * This method keeps advancing global_epoch with the interval configured in XctOptions.
    * This method exits when this object's uninitialize() is called.
    */
-  void        handle_epoch_advance();
+  void        handle_epoch_chime();
+  /** Makes sure all worker threads will commit with an epoch larger than grace_epoch. */
+  void        handle_epoch_chime_wait_grace_period(Epoch grace_epoch);
   bool        is_stop_requested() const;
 
   /** Pause all begin_xct until you call resume_accepting_xct() */
@@ -189,10 +208,10 @@ class XctManagerPimpl final : public DefaultInitializable {
   XctManagerControlBlock*       control_block_;
 
   /**
-   * This thread keeps advancing the current_global_epoch_ and durable_global_epoch_.
+   * This thread keeps advancing the current_global_epoch_.
    * Launched only in master engine.
    */
-  std::thread epoch_advance_thread_;
+  std::thread epoch_chime_thread_;
 };
 static_assert(
   sizeof(XctManagerControlBlock) <= soc::GlobalMemoryAnchors::kXctManagerMemorySize,

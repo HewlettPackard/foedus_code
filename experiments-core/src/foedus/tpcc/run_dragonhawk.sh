@@ -3,8 +3,8 @@
 warehouses=192
 loggers_per_node=2
 volatile_pool_size=16
-snapshot_pool_size=8
-reducer_buffer_size=16
+snapshot_pool_size=2
+reducer_buffer_size=1
 duration_micro=10000000
 thread_per_node=12
 numa_nodes=16

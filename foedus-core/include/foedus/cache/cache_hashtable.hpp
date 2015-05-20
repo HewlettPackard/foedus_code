@@ -1,12 +1,24 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_CACHE_CACHE_HASHTABLE_HPP_
 #define FOEDUS_CACHE_CACHE_HASHTABLE_HPP_
 
 #include <stdint.h>
-#include <xmmintrin.h>
 
 #include <iosfwd>
 
@@ -220,6 +232,10 @@ struct CacheOverflowEntry CXX11_FINAL {
  */
 class CacheHashtable CXX11_FINAL {
  public:
+  enum Constants {
+    /** Max size for find_batch() */
+    kMaxFindBatchSize = 32,
+  };
   CacheHashtable(BucketId physical_buckets, uint16_t numa_node);
 
   /**
@@ -241,6 +257,21 @@ class CacheHashtable CXX11_FINAL {
    * we just get a bit slower. No correctness issue.
    */
   ContentId find(storage::SnapshotPagePointer page_id) const ALWAYS_INLINE;
+
+  /**
+   * @brief Batched version of find().
+   * @param[in] batch_size Batch size. Must be kMaxFindBatchSize or less.
+   * @param[in] page_ids Array of Page IDs to look for, size=batch_size
+   * @param[out] out Output
+   * @return Only possible error is kErrorCodeInvalidParameter for too large batch_size
+   * @details
+   * This might perform much faster because of parallel prefetching, SIMD-ized hash
+   * calculattion (planned, not implemented yet) etc.
+   */
+  ErrorCode find_batch(
+    uint16_t batch_size,
+    const storage::SnapshotPagePointer* page_ids,
+    ContentId* out) const;
 
   /**
    * @brief Called when a cached page is not found.
@@ -291,6 +322,8 @@ class CacheHashtable CXX11_FINAL {
 
   /** only for debugging. don't call this in a race */
   ErrorStack verify_single_thread() const;
+
+  const CacheBucket& get_bucket(BucketId bucket_id) const { return buckets_[bucket_id]; }
 
   struct Stat {
     uint32_t normal_entries_;

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_ARRAY_LOG_TYPES_HPP_
 #define FOEDUS_STORAGE_ARRAY_LOG_TYPES_HPP_
@@ -62,6 +75,28 @@ struct ArrayCommonUpdateLogType : public log::RecordLogType {
   LOG_TYPE_NO_CONSTRUCT(ArrayCommonUpdateLogType)
   ArrayOffset     offset_;            // +8 => 24
   // payload_offset_ is also a common property, but we can't include it here for alignment.
+
+  /**
+   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of key and xct_id.
+   * @pre this->is_valid(), other.is_valid()
+   * @pre this->get_ordinal() != 0, other.get_ordinal() != 0
+   */
+  inline static int compare_logs(
+    const ArrayCommonUpdateLogType* left,
+    const ArrayCommonUpdateLogType* right) ALWAYS_INLINE {
+    ASSERT_ND(left->header_.storage_id_ == right->header_.storage_id_);
+    if (left == right) {
+      return 0;
+    }
+    if (left->offset_ != right->offset_) {
+      if (left->offset_ < right->offset_) {
+        return -1;
+      } else {
+        return 1;
+      }
+    }
+    return left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
+  }
 };
 
 /**

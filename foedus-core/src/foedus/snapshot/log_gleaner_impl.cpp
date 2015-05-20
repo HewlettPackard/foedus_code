@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/snapshot/log_gleaner_impl.hpp"
 
@@ -21,6 +34,7 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/memory/memory_id.hpp"
+#include "foedus/snapshot/log_gleaner_resource.hpp"
 #include "foedus/snapshot/log_mapper_impl.hpp"
 #include "foedus/snapshot/log_reducer_impl.hpp"
 #include "foedus/snapshot/snapshot.hpp"
@@ -35,8 +49,12 @@
 namespace foedus {
 namespace snapshot {
 
-LogGleaner::LogGleaner(Engine* engine, const Snapshot& new_snapshot)
+LogGleaner::LogGleaner(
+  Engine* engine,
+  LogGleanerResource* gleaner_resource,
+  const Snapshot& new_snapshot)
   : LogGleanerRef(engine),
+    gleaner_resource_(gleaner_resource),
     new_snapshot_(new_snapshot) {
 }
 
@@ -195,29 +213,18 @@ ErrorStack LogGleaner::construct_root_pages() {
     buffers.push_back(reducer.get_root_info_pages());
   }
 
-  // Combining the root page info doesn't require much memory, so this size should be enough.
-  memory::AlignedMemory work_memory;
-  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-
   // composers read snapshot files.
   cache::SnapshotFileSet fileset(engine_);
   CHECK_ERROR(fileset.initialize());
   UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
 
   // composers need SnapshotWriter to write out to.
-  // As construct_root() just writes out root pages, it won't require large buffer.
-  // Especially, no buffer for intermediate pages required.
-  memory::AlignedMemory writer_pool_memory;
-  writer_pool_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-  memory::AlignedMemory writer_intermediate_memory;
-  writer_intermediate_memory.alloc(1U << 12, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-
   SnapshotWriter snapshot_writer(
     engine_,
     0,
     get_snapshot_id(),
-    &writer_pool_memory,
-    &writer_intermediate_memory,
+    &gleaner_resource_->writer_pool_memory_,
+    &gleaner_resource_->writer_intermediate_memory_,
     true);  // we append to the node-0 snapshot file.
   CHECK_ERROR(snapshot_writer.open());
 
@@ -266,7 +273,7 @@ ErrorStack LogGleaner::construct_root_pages() {
       &fileset,
       &tmp_array[0],
       input_count,
-      &work_memory,
+      gleaner_resource_,
       &new_root_page_pointer};
     CHECK_ERROR(composer.construct_root(args));
     ASSERT_ND(new_root_page_pointer > 0);

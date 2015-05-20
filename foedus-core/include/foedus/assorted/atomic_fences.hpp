@@ -1,15 +1,22 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
 #define FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
-
-#include "foedus/cxx11.hpp"
-
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-#include <atomic>  // NOLINT(build/include_order) Needs the macro before include.
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
 /**
  * @file foedus/assorted/atomic_fences.hpp
@@ -18,40 +25,12 @@
  * @details
  * Especially on TSO architecture like x86, most memory fence is trivial thus supposedly very fast.
  * Invoking a non-inlined function for memory fence is thus not ideal.
- * The followins \e define memory fences for public headers that need them for inline methods.
- * cpp and private headers can anyway invoke std::atomic_thread_fence.
+ * The followings \e define memory fences for public headers that need them for inline methods.
+ * We use gcc's builtin (__atomic_thread_fence) to avoid C++11 code. Kind of stupid, but
+ * this also works on AArch64. We can add ifdef for clang later.
  */
-#ifdef __x86_64
-// SPARC might be also TSO (SPARC "TSO mode"), but we don't care SPARC anyways.
-// ARM is not TSO.
-#define TOTAL_STORE_ORDER_CPU
-#endif  // __x86_64
 namespace foedus {
 namespace assorted {
-
-/**
- * cpp implementation in case the caller disables c++11 and also the architecture is non-TSO.
- * This causes one function call overhead, so avoid using these if possible.
- */
-void memory_fence_acquire_impl();
-void memory_fence_release_impl();
-void memory_fence_acq_rel_impl();
-void memory_fence_consume_impl();
-void memory_fence_seq_cst_impl();
-// "_relaxed" ommitted.
-
-/**
- * @brief Prohibits read/write reordering by compiler, which is sufficient for most (except seq_cst)
- * memory fence semantics on TSO architecture (eg x86).
- * @ingroup ASSORTED
- */
-inline void prohibit_compiler_reorder() {
-#ifdef __x86_64
-  asm volatile("" ::: "memory");  // basically no-op
-#else  // __x86_64
-  // TODO(Hideaki) ARMv8? anyway this is not enough on non-TSO..
-#endif  // __x86_64
-}
 
 /**
  * @brief Equivalent to std::atomic_thread_fence(std::memory_order_acquire).
@@ -62,15 +41,7 @@ inline void prohibit_compiler_reorder() {
  * visible in this thread.
  */
 inline void memory_fence_acquire() {
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  std::atomic_thread_fence(std::memory_order_acquire);  // basically no-op in TSO
-#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef TOTAL_STORE_ORDER_CPU
-  prohibit_compiler_reorder();
-#else  // TOTAL_STORE_ORDER_CPU
-  memory_fence_acquire_impl();
-#endif  // TOTAL_STORE_ORDER_CPU
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  ::__atomic_thread_fence(__ATOMIC_ACQUIRE);
 }
 
 /**
@@ -82,15 +53,7 @@ inline void memory_fence_acquire() {
  * location.
  */
 inline void memory_fence_release() {
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  std::atomic_thread_fence(std::memory_order_release);  // basically no-op in TSO
-#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef TOTAL_STORE_ORDER_CPU
-  prohibit_compiler_reorder();
-#else  // TOTAL_STORE_ORDER_CPU
-  memory_fence_release_impl();
-#endif  // TOTAL_STORE_ORDER_CPU
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  ::__atomic_thread_fence(__ATOMIC_RELEASE);
 }
 
 /**
@@ -101,15 +64,7 @@ inline void memory_fence_release() {
  * location and a store operation with this memory order performs the release operation.
  */
 inline void memory_fence_acq_rel() {
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  std::atomic_thread_fence(std::memory_order_acq_rel);  // basically no-op in TSO
-#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef TOTAL_STORE_ORDER_CPU
-  prohibit_compiler_reorder();
-#else  // TOTAL_STORE_ORDER_CPU
-  memory_fence_acq_rel_impl();
-#endif  // TOTAL_STORE_ORDER_CPU
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  ::__atomic_thread_fence(__ATOMIC_ACQ_REL);
 }
 
 /**
@@ -121,15 +76,7 @@ inline void memory_fence_acq_rel() {
  * operation become visible to this thread.
  */
 inline void memory_fence_consume() {
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  std::atomic_thread_fence(std::memory_order_consume);  // basically no-op in TSO
-#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-#ifdef TOTAL_STORE_ORDER_CPU
-  prohibit_compiler_reorder();
-#else  // TOTAL_STORE_ORDER_CPU
-  memory_fence_consume_impl();
-#endif  // TOTAL_STORE_ORDER_CPU
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  ::__atomic_thread_fence(__ATOMIC_CONSUME);
 }
 
 /**
@@ -140,13 +87,7 @@ inline void memory_fence_consume() {
  * modifications in the same order.
  */
 inline void memory_fence_seq_cst() {
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  std::atomic_thread_fence(std::memory_order_seq_cst);  // compiled into mfence etc
-#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-  // This one has to be really a mfence call even in x86. It's anyway expensive,
-  // so a function call overhead doesn't matter.
-  memory_fence_seq_cst_impl();
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  ::__atomic_thread_fence(__ATOMIC_SEQ_CST);
 }
 
 }  // namespace assorted

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
 
@@ -25,7 +38,7 @@ namespace masstree {
 
 ErrorStack MasstreeStoragePimpl::verify_single_thread(thread::Thread* context) {
   MasstreeIntermediatePage* layer_root;
-  WRAP_ERROR_CODE(get_first_root(context, &layer_root));
+  WRAP_ERROR_CODE(get_first_root(context, false, &layer_root));
   CHECK_AND_ASSERT(!layer_root->is_border());  // root of first layer is always intermediate page
   CHECK_ERROR(verify_single_thread_layer(context, 0, layer_root));
   return kRetOk;
@@ -62,6 +75,8 @@ ErrorStack verify_page_basic(
   CHECK_AND_ASSERT(!page->is_locked());
   CHECK_AND_ASSERT(!page->is_retired());
   CHECK_AND_ASSERT(page->header().get_page_type() == page_type);
+  CHECK_AND_ASSERT(page->is_border() || page->get_btree_level() > 0);
+  CHECK_AND_ASSERT(!page->is_border() || page->get_btree_level() == 0);
   CHECK_AND_ASSERT(page->get_low_fence() == low_fence);
   CHECK_AND_ASSERT(page->get_high_fence() == high_fence.slice_);
   CHECK_AND_ASSERT(page->is_high_fence_supremum() == high_fence.supremum_);
@@ -146,10 +161,11 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
       }
       CHECK_AND_ASSERT(!minipage.pointers_[j].is_both_null());
       MasstreePage* next;
-      // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
+      // TASK(Hideaki) probably two versions: always follow volatile vs snapshot
       // so far check volatile only
       WRAP_ERROR_CODE(follow_page(context, true, &minipage.pointers_[j], &next));
       CHECK_AND_ASSERT(next->get_layer() == page->get_layer());
+      CHECK_AND_ASSERT(next->get_btree_level() + 1U == page->get_btree_level());
       if (next->is_border()) {
         CHECK_ERROR(verify_single_thread_border(
           context,
@@ -223,12 +239,15 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
     CHECK_AND_ASSERT(slice >= low_fence);
     CHECK_AND_ASSERT(slice < high_fence.slice_ || page->is_high_fence_supremum());
     if (page->does_point_to_layer(i)) {
+      CHECK_AND_ASSERT(page->get_owner_id(i)->xct_id_.is_next_layer());
       CHECK_AND_ASSERT(!page->get_next_layer(i)->is_both_null());
       MasstreePage* next;
-      // TODO(Hideaki) probably two versions: always follow volatile vs snapshot
+      // TASK(Hideaki) probably two versions: always follow volatile vs snapshot
       // so far check volatile only
       WRAP_ERROR_CODE(follow_page(context, true, page->get_next_layer(i), &next));
       CHECK_ERROR(verify_single_thread_layer(context, page->get_layer() + 1, next));
+    } else {
+      CHECK_AND_ASSERT(!page->get_owner_id(i)->xct_id_.is_next_layer());
     }
   }
 

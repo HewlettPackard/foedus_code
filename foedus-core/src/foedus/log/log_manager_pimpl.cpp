@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/log/log_manager_pimpl.hpp"
 
@@ -120,7 +133,7 @@ ErrorStack LogManagerPimpl::initialize_once() {
     for (auto j = 0; j < loggers_per_node_; ++j) {
       Logger* logger = loggers_[j];
       init_threads.push_back(std::thread([logger]() {
-        COERCE_ERROR(logger->initialize());  // TODO(Hideaki) collect errors
+        COERCE_ERROR(logger->initialize());  // TASK(Hideaki) collect errors
       }));
     }
     LOG(INFO) << "Launched threads to initialize loggers in node-" << node << ". waiting..";
@@ -190,9 +203,9 @@ ErrorStack LogManagerPimpl::refresh_global_durable_epoch() {
 
     // set durable_global_epoch_ within the SharedCond's mutex scope, and then broadcast.
     // this is required to avoid lost signals.
-    soc::SharedMutexScope cond_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
     control_block_->durable_global_epoch_ = min_durable_epoch.value();
-    control_block_->durable_global_epoch_advanced_.broadcast(&cond_guard);
+    assorted::memory_fence_release();
+    control_block_->durable_global_epoch_advanced_.signal();
   }
   return kRetOk;
 }
@@ -225,11 +238,11 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
     if (wait_microseconds <= 0)  {
       // set durable_global_epoch_ within the SharedCond's mutex scope, and then wait.
       // this is required to avoid lost signals.
-      soc::SharedMutexScope wait_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
+      uint64_t demand = control_block_->durable_global_epoch_advanced_.acquire_ticket();
       if (commit_epoch <= get_durable_global_epoch()) {
         break;
       }
-      control_block_->durable_global_epoch_advanced_.wait(&wait_guard);
+      control_block_->durable_global_epoch_advanced_.wait(demand);
       continue;
     }
 
@@ -239,13 +252,13 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
     }
 
     {
-      soc::SharedMutexScope wait_guard(control_block_->durable_global_epoch_advanced_.get_mutex());
+      uint64_t demand = control_block_->durable_global_epoch_advanced_.acquire_ticket();
       if (commit_epoch <= get_durable_global_epoch()) {
         break;
       }
       control_block_->durable_global_epoch_advanced_.timedwait(
-        &wait_guard,
-        wait_microseconds * 1000ULL);  // a bit lazy. we sleep longer in case of spurrious wakeup
+        demand,
+        wait_microseconds);  // a bit lazy. we sleep longer in case of spurrious wakeup
     }
   }
 
@@ -254,9 +267,9 @@ ErrorCode LogManagerPimpl::wait_until_durable(Epoch commit_epoch, int64_t wait_m
 }
 void LogManagerPimpl::announce_new_durable_global_epoch(Epoch new_epoch) {
   ASSERT_ND(new_epoch >= Epoch(control_block_->durable_global_epoch_));
-  soc::SharedMutexScope scope(control_block_->durable_global_epoch_advanced_.get_mutex());
   control_block_->durable_global_epoch_ = new_epoch.value();
-  control_block_->durable_global_epoch_advanced_.broadcast(&scope);
+  assorted::memory_fence_release();
+  control_block_->durable_global_epoch_advanced_.signal();
 }
 
 

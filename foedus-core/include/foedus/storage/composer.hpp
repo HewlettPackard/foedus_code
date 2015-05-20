@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_COMPOSER_HPP_
 #define FOEDUS_STORAGE_COMPOSER_HPP_
@@ -64,6 +77,8 @@ namespace storage {
  * These are written to the snapshot pointer part of DualPagePointer so that transactions
  * can start using the snapshot pages.
  * Composers also drop volatile pointers if possible, reducing pressures to volatile page pool.
+ * This volatile-drop is carefully done after pausing all transactions because we have to make sure
+ * no transactions are newly installing a volatile page while we are dropping its parent.
  *
  * @par Shared memory, No virtual methods
  * Like Partitioner, no virtual methods allowed. We just do switch-case.
@@ -75,11 +90,6 @@ class Composer CXX11_FINAL {
   Engine*   get_engine() { return engine_; }
   StorageId get_storage_id() const { return storage_id_; }
   StorageType get_storage_type() const { return storage_type_; }
-
-  /** Returns the size of working memory this composer needs in compose(). */
-  uint64_t    get_required_work_memory_size_compose(
-    snapshot::SortedBuffer**  log_streams,
-    uint32_t                  log_streams_count);
 
   /** Arguments for compose() */
   struct ComposeArguments {
@@ -93,6 +103,11 @@ class Composer CXX11_FINAL {
     uint32_t                          log_streams_count_;
     /** Working memory to be used in this method. Automatically expand if needed. */
     memory::AlignedMemory*            work_memory_;
+    /**
+     * All log entries in this inputs are assured to be after this epoch.
+     * Also, it is assured to be within 2^16 from this epoch.
+     */
+    Epoch                             base_epoch_;
     /**
      * [OUT] Returns pointers and related information that is required
      * to construct the root page. The data format depends on the composer. In all implementations,
@@ -115,8 +130,8 @@ class Composer CXX11_FINAL {
     const Page* const*                root_info_pages_;
     /** Number of root info pages. */
     uint32_t                          root_info_pages_count_;
-    /** Working memory to be used in this method. Automatically expand if needed. */
-    memory::AlignedMemory*            work_memory_;
+    /** All pre-allocated resouces to help run construct_root(), such as memory buffers. */
+    snapshot::LogGleanerResource*     gleaner_resource_;
     /** [OUT] Returns pointer to new root snapshot page/ */
     SnapshotPagePointer*              new_root_page_pointer_;
   };
@@ -129,16 +144,14 @@ class Composer CXX11_FINAL {
    */
   ErrorStack  construct_root(const ConstructRootArguments& args);
 
-  /** Arguments for replace_pointers() */
-  struct ReplacePointersArguments {
+  /** Arguments for drop_volatiles() */
+  struct DropVolatilesArguments {
     /** The new snapshot. All newly created snapshot pages are of this snapshot */
     snapshot::Snapshot            snapshot_;
-    /** To read the new snapshot. */
-    cache::SnapshotFileSet*       snapshot_files_;
-    /** Pointer to new root snapshot page */
-    SnapshotPagePointer           new_root_page_pointer_;
-    /** Working memory to be used in this method. Automatically expand if needed. */
-    memory::AlignedMemory*        work_memory_;
+    /** if partitioned_drop_ is true, the partition this thread should drop volatile pages from */
+    uint16_t                      my_partition_;
+    /** if true, one thread for each partition will invoke drop_volatiles() */
+    bool                          partitioned_drop_;
     /**
      * Caches dropped pages to avoid returning every single page.
      * This is an array of PagePoolOffsetChunk whose index is node ID.
@@ -146,33 +159,70 @@ class Composer CXX11_FINAL {
      * volatile pool when it becomes full or after processing all storages.
      */
     memory::PagePoolOffsetChunk*  dropped_chunks_;
-    /** [OUT] Number of snapshot pages that were installed */
-    uint64_t*                     installed_count_;
     /** [OUT] Number of volatile pages that were dropped */
     uint64_t*                     dropped_count_;
 
     /**
      * Returns (might cache) the given pointer to volatile pool.
      */
-    void drop_volatile_page(VolatilePagePointer pointer) const;
-    /** Same as snapshot_files_->read_page(pointer, out) */
-    ErrorCode read_snapshot_page(SnapshotPagePointer pointer, void* out) const;
+    void drop(Engine* engine, VolatilePagePointer pointer) const;
+  };
+  /** Retrun value of drop_volatiles() */
+  struct DropResult {
+    explicit DropResult(const DropVolatilesArguments& args) {
+      max_observed_ = args.snapshot_.valid_until_epoch_;  // min value to make store_max easier.
+      dropped_all_ = true;  // "so far". zero-inspected, thus zero-failure.
+    }
+    inline void combine(const DropResult& other) {
+      max_observed_.store_max(other.max_observed_);
+      dropped_all_ &= other.dropped_all_;
+    }
+
+    inline void on_rec_observed(Epoch epoch) {
+      if (epoch > max_observed_) {
+        max_observed_ = epoch;
+        dropped_all_ = false;
+      }
+    }
+
+    friend std::ostream&    operator<<(std::ostream& o, const DropResult& v);
+
+    /**
+     * the largest Epoch it observed recursively. The page is dropped only if the return value
+     * is ==args.snapshot_.valid_until_epoch_. If some record under this contains larger (newer)
+     * epoch, it returns that epoch. For ease of store_max, the returned epoch
+     * is adjusted to args.snapshot_.valid_until_epoch_ if it's smaller than that.
+     * Note that not all volatile pages might be dropped even if this is equal to
+     * snapshot_.valid_until_epoch_ (eg no new modifications, but keep-volatile policy
+     * told us to keep the volatile page).
+     * Use dropped_all_ for that purpose.
+     */
+    Epoch max_observed_;
+    /** Whether all volatile pages under the page was dropped. */
+    bool  dropped_all_;
+    bool  padding_[3];
   };
 
   /**
-   * @brief Installs new snapshot pages and drops volatile pages that
-   * have not been modified since the snapshotted epoch.
+   * @brief Drops volatile pages that have not been modified since the snapshotted epoch.
    * @details
    * This is called after pausing transaction executions, so this method does not worry about
    * concurrent reads/writes while running this. Otherwise this method becomes
    * very complex and/or expensive. It's just milliseconds for each several minutes, so should
    * be fine to pause transactions.
    * Also, this method is best-effort in many aspects. It might not drop some volatile pages
-   * that were not logically modified, or it might not install some of snapshot pages to pointers
-   * in volatile pages. In long run, it will be done at next snapshot,
+   * that were not logically modified. In long run, it will be done at next snapshot,
    * so it's okay to be opportunistic.
    */
-  ErrorStack  replace_pointers(const ReplacePointersArguments& args);
+  DropResult drop_volatiles(const DropVolatilesArguments& args);
+
+  /**
+   * This is additionally called when no partitions observed any new modifications.
+   * Only in this case, we can drop the root volatile page. Further, we can also drop
+   * all the descendent volatile pages safely in this case.
+   * Remember these methods are called within xct pausing.
+   */
+  void drop_root_volatile(const DropVolatilesArguments& args);
 
   friend std::ostream&    operator<<(std::ostream& o, const Composer& v);
 

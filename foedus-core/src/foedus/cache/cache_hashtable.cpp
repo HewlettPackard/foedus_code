@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 
 #include "foedus/cache/cache_hashtable.hpp"
@@ -359,6 +372,71 @@ CacheHashtable::Stat CacheHashtable::get_stat_single_thread() const {
   return result;
 }
 
+
+ErrorCode CacheHashtable::find_batch(
+  uint16_t batch_size,
+  const storage::SnapshotPagePointer* page_ids,
+  ContentId* out) const {
+  if (batch_size == 0) {
+    return kErrorCodeOk;
+  }
+  ASSERT_ND(batch_size <= kMaxFindBatchSize);
+  if (UNLIKELY(batch_size > kMaxFindBatchSize)) {
+    return kErrorCodeInvalidParameter;
+  }
+
+  // first, calculate hash values and prefetch
+  BucketId bucket_numbers[kMaxFindBatchSize];
+  for (uint16_t b = 0; b < batch_size; ++b) {
+    if (page_ids[b] == 0) {
+      continue;
+    } else if (b > 0 && page_ids[b - 1] == page_ids[b]) {
+      continue;
+    }
+
+    bucket_numbers[b] = get_bucket_number(page_ids[b]);
+    ASSERT_ND(bucket_numbers[b] < get_logical_buckets());
+    // we prefetch up to 128 bytes (16 entries).
+    assorted::prefetch_cachelines(buckets_ + bucket_numbers[b], 2);
+  }
+
+  for (uint16_t b = 0; b < batch_size; ++b) {
+    out[b] = 0;
+    if (page_ids[b] == 0) {
+      continue;
+    } else if (b > 0 && page_ids[b - 1] == page_ids[b]) {
+      out[b] = out[b - 1];
+      continue;
+    }
+
+    PageIdTag tag = HashFunc::get_tag(page_ids[b]);
+    ASSERT_ND(tag != 0);
+    BucketId bucket_number = bucket_numbers[b];
+    for (uint16_t i = 0; i < kHopNeighbors; ++i) {
+      const CacheBucket& bucket = buckets_[bucket_number + i];
+      if (bucket.get_tag() == tag) {
+        // found (probably)!
+        refcounts_[bucket_number + i].increment();
+        out[b] = bucket.get_content_id();
+        break;
+      }
+    }
+
+    // Not found. let's check overflow list
+    if (out[b] == 0 && overflow_buckets_head_) {
+      for (OverflowPointer i = overflow_buckets_head_; i != 0;) {
+        if (overflow_buckets_[i].bucket_.get_tag() == tag) {
+          overflow_buckets_[i].refcount_.increment();
+          out[b] = overflow_buckets_[i].bucket_.get_content_id();
+          break;
+        }
+        i = overflow_buckets_[i].next_;
+      }
+    }
+  }
+
+  return kErrorCodeOk;
+}
 
 }  // namespace cache
 }  // namespace foedus

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/savepoint/savepoint_manager_pimpl.hpp"
 
@@ -75,9 +88,8 @@ ErrorStack SavepointManagerPimpl::uninitialize_once() {
   if (engine_->is_master()) {
     if (savepoint_thread_.joinable()) {
       {
-        soc::SharedMutexScope scope(control_block_->save_wakeup_.get_mutex());
         savepoint_thread_stop_requested_ = true;
-        control_block_->save_wakeup_.signal(&scope);
+        control_block_->save_wakeup_.signal();
       }
       savepoint_thread_.join();
     }
@@ -89,18 +101,17 @@ ErrorStack SavepointManagerPimpl::uninitialize_once() {
 ErrorStack SavepointManagerPimpl::take_savepoint(Epoch new_global_durable_epoch) {
   while (get_saved_durable_epoch() < new_global_durable_epoch) {
     if (get_requested_durable_epoch() < new_global_durable_epoch) {
-      soc::SharedMutexScope scope(control_block_->save_wakeup_.get_mutex());
       if (get_requested_durable_epoch() < new_global_durable_epoch) {
         control_block_->requested_durable_epoch_ = new_global_durable_epoch.value();
-        control_block_->save_wakeup_.signal(&scope);
+        control_block_->save_wakeup_.signal();
       }
     }
     {
-      soc::SharedMutexScope scope(control_block_->save_done_event_.get_mutex());
+      uint64_t demand = control_block_->save_done_event_.acquire_ticket();
       if (get_saved_durable_epoch() >= new_global_durable_epoch) {
         break;
       }
-      control_block_->save_done_event_.wait(&scope);
+      control_block_->save_done_event_.wait(demand);
     }
   }
   return kRetOk;
@@ -110,14 +121,15 @@ ErrorStack SavepointManagerPimpl::take_savepoint_after_snapshot(
   Epoch new_snapshot_epoch) {
   while (get_latest_snapshot_id() != new_snapshot_id) {
     {
-      soc::SharedMutexScope scope(control_block_->save_wakeup_.get_mutex());
       control_block_->new_snapshot_id_ = new_snapshot_id;
       control_block_->new_snapshot_epoch_ = new_snapshot_epoch.value();
-      control_block_->save_wakeup_.signal(&scope);
+      control_block_->save_wakeup_.signal();
     }
     {
-      soc::SharedMutexScope scope(control_block_->save_done_event_.get_mutex());
-      control_block_->save_done_event_.wait(&scope);
+      uint64_t demand = control_block_->save_done_event_.acquire_ticket();
+      if (get_latest_snapshot_id() != new_snapshot_id) {
+        control_block_->save_done_event_.wait(demand);
+      }
     }
   }
   ASSERT_ND(get_latest_snapshot_id() == new_snapshot_id);
@@ -146,11 +158,11 @@ void SavepointManagerPimpl::savepoint_main() {
   LOG(INFO) << "Savepoint thread has started.";
   while (!is_stop_requested()) {
     {
-      soc::SharedMutexScope scope(control_block_->save_wakeup_.get_mutex());
+      uint64_t demand = control_block_->save_wakeup_.acquire_ticket();
       if (!is_stop_requested() &&
         control_block_->requested_durable_epoch_ == control_block_->saved_durable_epoch_ &&
         control_block_->new_snapshot_id_ == snapshot::kNullSnapshotId) {
-        control_block_->save_wakeup_.timedwait(&scope, 100000000ULL);
+        control_block_->save_wakeup_.timedwait(demand, 100000ULL);
       }
     }
     if (is_stop_requested()) {
@@ -176,7 +188,7 @@ void SavepointManagerPimpl::savepoint_main() {
 
       log::MetaLogControlBlock* metalog_block = engine_->get_soc_manager()->get_shared_memory_repo()
         ->get_global_memory_anchors()->meta_logger_memory_;
-      // TODO(Hideaki) Here, we should update oldest_offset_ by checking where the snapshot_epoch
+      // TASK(Hideaki) Here, we should update oldest_offset_ by checking where the snapshot_epoch
       // ends. So far we don't update this, but metalog is anyway tiny, so isn't a big issue.
       new_savepoint.meta_log_oldest_offset_ = metalog_block->oldest_offset_;
       new_savepoint.meta_log_durable_offset_ = metalog_block->durable_offset_;
@@ -188,11 +200,9 @@ void SavepointManagerPimpl::savepoint_main() {
       update_shared_savepoint(new_savepoint);  // also write to shared memory
       VLOG(1) << "Wrote a savepoint.";
       engine_->get_log_manager()->announce_new_durable_global_epoch(new_durable_epoch);
-      {
-        soc::SharedMutexScope scope(control_block_->save_done_event_.get_mutex());
-        control_block_->saved_durable_epoch_ = new_durable_epoch.value();
-        control_block_->save_done_event_.broadcast(&scope);
-      }
+      control_block_->saved_durable_epoch_ = new_durable_epoch.value();
+      assorted::memory_fence_release();
+      control_block_->save_done_event_.signal();
     }
   }
   LOG(INFO) << "Savepoint thread has terminated.";

@@ -7,10 +7,22 @@
 # Therefore, this CMake script must be compilable even if it was NOT invoked
 # by the super build.
 #
+# Output library: foedus-core
+#
+# Parameters:
+#
+# FOEDUS_BUILD_STATIC_LIBS, ON/OFF (Default OFF), Whether to build foedus-core as a static library.
+# We recommend building the shared version. It saves space, and you won't save more than
+# a few CPU cycles per non-inlined function call, which is probably negligible.
+# We avoid overloading cmake's standard params, BUILD_SHARED_LIBS etc, because they are used in
+# other libraries we link to.
+#
 #############################################################################
 cmake_minimum_required(VERSION 2.4)
 cmake_policy(SET CMP0003 NEW)
 project(foedus_core)
+
+option(FOEDUS_BUILD_STATIC_LIBS "Build FOEDUS static library." OFF)
 
 # FIRST, prohibit in-source build.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/WarnInSrcBuild.cmake)
@@ -34,6 +46,10 @@ message (STATUS "CMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
 message (STATUS "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 message (STATUS "========================================")
 message (STATUS)
+
+if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
+  message(STATUS "Yikes, you are on AArch64! Note: FOEDUS's AArch64 support is still experimental.")
+endif ()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
@@ -84,11 +100,26 @@ if (NOT "${CMAKE_CXX_FLAGS}" MATCHES "\\-D\\_FILE\\_OFFSET\\_BITS\\=64")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FILE_OFFSET_BITS=64")
 endif ()
 
-# We are seeing an weird compiler behavior on union. let's prohibit assuming string aliasing
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
+# In an ideal world, our code should be free from bugs caused by careless aliasing.
+# gcc gives some warning to achieve that, but in reality far from enough to be safe.
+# Hence, we prohibit compilers from assuming strict alising rule.
+# If it has a significant performance impact, probably something is anyway wrong..
+#   http://stackoverflow.com/questions/1225741/performance-impact-of-fno-strict-aliasing
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
 
-# Enable GCC's built-in 128bit CAS
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
+# We need gcc's libatomic.so for AArch64. It's not required on x86.
+find_package(GccAtomic)
+
+if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
+  # gcc-aarch64 doesn't support -mcx16. We use gcc's libatomic instead.
+  # You must make sure you have libatomic.so.
+  if (NOT GCCLIBATOMIC_FOUND)
+    message(SEND_ERROR "ERROR: FOEDUS on AArch64 needs gcc's libatomic.so. We couldn't find it.")
+  endif ()
+else ()
+  # Enable GCC's built-in 128bit CAS via -mcx16. We don't need libatomic.so on x86.
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcx16")
+endif ()
 
 set(CMAKE_INCLUDE_CURRENT_DIR OFF)
 
@@ -110,6 +141,7 @@ include_directories(SYSTEM
   # We also include the BINARY folder of glog as glog generates config.h
   ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/valgrind-3.9.0/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xxHash-r39 # xxhash
   )
 # gperftools is optional for this library
 if (GOOGLEPERFTOOLS_FOUND)
@@ -130,8 +162,11 @@ add_subdirectory(third_party)
 set_property(GLOBAL PROPERTY ALL_FOEDUS_CORE_SRC "")
 add_subdirectory(src)
 get_property(TMP_ALL_FOEDUS_CORE_SRC GLOBAL PROPERTY ALL_FOEDUS_CORE_SRC)
-add_library(foedus-core SHARED ${TMP_ALL_FOEDUS_CORE_SRC})
-add_library(foedus-core-static STATIC ${TMP_ALL_FOEDUS_CORE_SRC})
+if (FOEDUS_BUILD_STATIC_LIBS)
+  add_library(foedus-core STATIC ${TMP_ALL_FOEDUS_CORE_SRC})
+else (FOEDUS_BUILD_STATIC_LIBS)
+  add_library(foedus-core SHARED ${TMP_ALL_FOEDUS_CORE_SRC})
+endif (FOEDUS_BUILD_STATIC_LIBS)
 
 set(foedus-dependencies)
 # Link to libbacktrace, libglog, libnuma, libgperftools (if found)
@@ -139,6 +174,7 @@ set(foedus-dependencies ${foedus-dependencies} backtrace)
 set(foedus-dependencies ${foedus-dependencies} glog-static)
 set(foedus-dependencies ${foedus-dependencies} ${NUMA_LIBRARY})
 set(foedus-dependencies ${foedus-dependencies} tinyxml2static)
+set(foedus-dependencies ${foedus-dependencies} xxhashstatic)
 set(foedus-dependencies ${foedus-dependencies} ${CMAKE_THREAD_LIBS_INIT})
 if (GOOGLEPERFTOOLS_FOUND)
   set(foedus-dependencies ${foedus-dependencies} ${GooglePerftools_LIBRARIES})
@@ -149,8 +185,11 @@ if (PAPI_FOUND)
   set(foedus-dependencies ${foedus-dependencies} ${PAPI_DYNAMIC_LIBRARY})
 endif (PAPI_FOUND)
 
+if (GCCLIBATOMIC_FOUND AND "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
+  set(foedus-dependencies ${foedus-dependencies} ${GCCLIBATOMIC_LIBRARY})
+endif ()
+
 target_link_libraries(foedus-core ${foedus-dependencies})
-target_link_libraries(foedus-core-static ${foedus-dependencies})
 
 # Invoke CPPLINT (if ENABLE_CPPLINT is given)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CpplintWrapper.cmake)
@@ -258,9 +297,12 @@ endif(DOXYGEN_FOUND)
 add_custom_target(set-env
   COMMAND sysctl -w kernel.shmmax=9223372036854775807
   COMMAND sysctl -w kernel.shmall=1152921504606846720
+  COMMAND sysctl -w fs.file-max=1000000
   COMMAND sysctl -p
+  COMMAND sysctl -w vm.nr_hugepages=1000
   COMMENT "Sets linux environments for FOEDUS. This is convenient to setup a test/develop environment."
     " You need to run this with sudo. To avoid running this after each reboot, you should also set"
     "the following in /etc/sysctl.conf: kernel.shmmax = 9223372036854775807"
-    " kernel.shmall = 1152921504606846720"
+    " kernel.shmall = 1152921504606846720. Also, the nr_hugepages set here is a minimal value"
+    " to pass testcases. You must configure it for performance tests and real use"
   )

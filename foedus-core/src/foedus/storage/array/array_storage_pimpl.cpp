@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/storage/array/array_storage_pimpl.hpp"
 
@@ -15,7 +28,7 @@
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_type.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/memory_id.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
@@ -150,13 +163,6 @@ ErrorCode ArrayStorage::increment_record_oneshot(
     payload_offset);
 }
 
-ArrayPage* ArrayStoragePimpl::get_root_page() {
-  // Array storage is guaranteed to keep the root page as a volatile page.
-  return reinterpret_cast<ArrayPage*>(
-    engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(
-    control_block_->root_page_pointer_.volatile_pointer_));
-}
-
 /**
  * Calculate leaf/interior pages we need.
  * @return index=level.
@@ -220,13 +226,15 @@ void ArrayStoragePimpl::release_pages_recursive(
 
 ErrorStack ArrayStorage::drop() {
   LOG(INFO) << "Uninitializing an array-storage " << *this;
-  memory::PageReleaseBatch release_batch(engine_);
-  ArrayStoragePimpl::release_pages_recursive(
-    engine_->get_memory_manager()->get_global_volatile_page_resolver(),
-    &release_batch,
-    control_block_->root_page_pointer_.volatile_pointer_);
-  release_batch.release_all();
-  control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  if (!control_block_->root_page_pointer_.volatile_pointer_.is_null()) {
+    memory::PageReleaseBatch release_batch(engine_);
+    ArrayStoragePimpl::release_pages_recursive(
+      engine_->get_memory_manager()->get_global_volatile_page_resolver(),
+      &release_batch,
+      control_block_->root_page_pointer_.volatile_pointer_);
+    release_batch.release_all();
+    control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  }
   return kRetOk;
 }
 
@@ -247,6 +255,9 @@ ErrorStack ArrayStoragePimpl::load_empty() {
   const uint16_t levels = calculate_levels(control_block_->meta_);
   const uint32_t payload_size = control_block_->meta_.payload_size_;
   const ArrayOffset array_size = control_block_->meta_.array_size_;
+  if (array_size > kMaxArrayOffset) {
+    return ERROR_STACK(kErrorCodeStrTooLargeArray);
+  }
   control_block_->levels_ = levels;
   control_block_->route_finder_ = LookupRouteFinder(levels, payload_size);
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
@@ -336,6 +347,7 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read(
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
+  ASSERT_ND(page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = page->get_leaf_record(index, get_payload_size());
   return kErrorCodeOk;
 }
@@ -352,6 +364,7 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_write(
   ASSERT_ND(page);
   ASSERT_ND(page->is_leaf());
   ASSERT_ND(page->get_array_range().contains(offset));
+  ASSERT_ND(page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = page->get_leaf_record(index, get_payload_size());
   return kErrorCodeOk;
 }
@@ -410,8 +423,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   xct::Xct& current_xct = context->get_current_xct();
   if (!snapshot_record &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+    current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &record->owner_id_));
@@ -426,8 +438,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
   Record** record) {
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, record));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-    current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed((*record)->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &((*record)->owner_id_)));
@@ -502,9 +513,9 @@ ErrorCode ArrayStoragePimpl::increment_record(
   // NOTE if we directly pass value and increment there, we might do it multiple times!
   // optimistic_read_protocol() retries if there are version mismatch.
   // so it must be idempotent. be careful!
-  // TODO(Hideaki) Only Array's increment can be the rare "write-set only" log.
+  // Only Array's increment can be the rare "write-set only" log.
   // other increments have to check deletion bit at least.
-  // to make use of it, we should have array increment log with primitive type as parameter.
+  // To make use of it, we do have array increment log with primitive type as parameter.
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
     &context->get_current_xct(),
     get_id(),
@@ -558,11 +569,12 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   ASSERT_ND(offset < get_array_size());
   ASSERT_ND(out);
   ASSERT_ND(index);
-  ArrayPage* current_page = get_root_page();
+  ArrayPage* current_page;
+  CHECK_ERROR_CODE(get_root_page(context, false, &current_page));
   uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = control_block_->route_finder_.find_route(offset);
-  bool in_snapshot = false;
+  bool in_snapshot = current_page->header().snapshot_;
   for (uint8_t level = levels - 1; level > 0; --level) {
     ASSERT_ND(current_page->get_array_range().contains(offset));
     DualPagePointer& pointer = current_page->get_interior_record(route.route[level]);
@@ -579,6 +591,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read(
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
   ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
+  ASSERT_ND(current_page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = current_page;
   *index = route.route[0];
   *snapshot_page = (*out)->header().snapshot_;
@@ -594,7 +607,9 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
   ASSERT_ND(offset < get_array_size());
   ASSERT_ND(out);
   ASSERT_ND(index);
-  ArrayPage* current_page = get_root_page();
+  ArrayPage* current_page;
+  CHECK_ERROR_CODE(get_root_page(context, true, &current_page));
+  ASSERT_ND(!current_page->header().snapshot_);
   uint16_t levels = get_levels();
   ASSERT_ND(current_page->get_array_range().contains(offset));
   LookupRoute route = control_block_->route_finder_.find_route(offset);
@@ -612,6 +627,7 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write(
   ASSERT_ND(current_page->is_leaf());
   ASSERT_ND(current_page->get_array_range().contains(offset));
   ASSERT_ND(current_page->get_array_range().begin_ + route.route[0] == offset);
+  ASSERT_ND(current_page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_.is_valid());
   *out = current_page;
   *index = route.route[0];
   return kErrorCodeOk;
@@ -702,8 +718,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
     record_batch,
     snapshot_record_batch));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
@@ -745,8 +760,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
     record_batch,
     snapshot_record_batch));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
@@ -776,8 +790,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
     offset_batch,
     record_batch));
   xct::Xct& current_xct = context->get_current_xct();
-  if (current_xct.get_isolation_level() != xct::kDirtyReadPreferSnapshot &&
-      current_xct.get_isolation_level() != xct::kDirtyReadPreferVolatile) {
+  if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
       CHECK_ERROR_CODE(current_xct.add_to_read_set(
@@ -806,11 +819,13 @@ inline ErrorCode ArrayStoragePimpl::locate_record_for_read_batch(
     page_batch,
     index_batch,
     snapshot_page_batch));
+  const uint16_t payload_size = get_payload_size();
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(page_batch[i]);
     ASSERT_ND(page_batch[i]->is_leaf());
     ASSERT_ND(page_batch[i]->get_array_range().contains(offset_batch[i]));
-    out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], get_payload_size());
+    out_batch[i] = page_batch[i]->get_leaf_record(index_batch[i], payload_size);
+    ASSERT_ND(out_batch[i]->owner_id_.xct_id_.is_valid());
   }
   return kErrorCodeOk;
 }
@@ -824,51 +839,63 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_read_batch(
   bool* snapshot_page_batch) {
   ASSERT_ND(batch_size <= kBatchMax);
   LookupRoute routes[kBatchMax];
-  ArrayPage* root_page = get_root_page();
+  ArrayPage* root_page;
+  CHECK_ERROR_CODE(get_root_page(context, false, &root_page));
   uint16_t levels = get_levels();
+  bool root_snapshot = root_page->header().snapshot_;
+  const uint16_t payload_size = get_payload_size();
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(offset_batch[i] < get_array_size());
     routes[i] = control_block_->route_finder_.find_route(offset_batch[i]);
     if (levels <= 1U) {
       assorted::prefetch_cacheline(root_page->get_leaf_record(
         routes[i].route[0],
-        get_payload_size()));
+        payload_size));
     } else {
       assorted::prefetch_cacheline(&root_page->get_interior_record(routes[i].route[levels - 1]));
     }
     out_batch[i] = root_page;
-    snapshot_page_batch[i] = false;
+    snapshot_page_batch[i] = root_snapshot;
+    ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
+    index_batch[i] = routes[i].route[levels - 1];
   }
 
   for (uint8_t level = levels - 1; level > 0; --level) {
+    // note that we use out_batch as both input (parents) and output (the pages) here.
+    // the method works in that case too.
+    CHECK_ERROR_CODE(follow_pointers_for_read_batch(
+      context,
+      batch_size,
+      snapshot_page_batch,
+      out_batch,
+      index_batch,
+      out_batch));
+
     for (uint8_t i = 0; i < batch_size; ++i) {
-      ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
-      uint16_t in_page_pos = routes[i].route[level];
-      DualPagePointer& pointer = out_batch[i]->get_interior_record(in_page_pos);
-      CHECK_ERROR_CODE(follow_pointer(
-        context,
-        snapshot_page_batch[i],
-        false,
-        &pointer,
-        &(out_batch[i]),
-        out_batch[i],
-        in_page_pos));
-      snapshot_page_batch[i] = out_batch[i]->header().snapshot_;
+      ASSERT_ND(snapshot_page_batch[i] == out_batch[i]->header().snapshot_);
+      ASSERT_ND(out_batch[i]->get_storage_id() == get_id());
+      ASSERT_ND(snapshot_page_batch[i]
+        || !construct_volatile_page_pointer(out_batch[i]->header().page_id_).is_null());
+      ASSERT_ND(!snapshot_page_batch[i]
+        || extract_local_page_id_from_snapshot_pointer(out_batch[i]->header().page_id_));
       if (level == 1U) {
         assorted::prefetch_cacheline(out_batch[i]->get_leaf_record(
           routes[i].route[0],
-          get_payload_size()));
+          payload_size));
       } else {
         assorted::prefetch_cacheline(
           &out_batch[i]->get_interior_record(routes[i].route[levels - 1]));
       }
+      index_batch[i] = routes[i].route[level - 1];
     }
   }
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(out_batch[i]->is_leaf());
     ASSERT_ND(out_batch[i]->get_array_range().contains(offset_batch[i]));
     ASSERT_ND(out_batch[i]->get_array_range().begin_ + routes[i].route[0] == offset_batch[i]);
-    index_batch[i] = routes[i].route[0];
+    ASSERT_ND(index_batch[i] == routes[i].route[0]);
+    ASSERT_ND(
+      out_batch[i]->get_leaf_record(index_batch[i], payload_size)->owner_id_.xct_id_.is_valid());
   }
   return kErrorCodeOk;
 }
@@ -881,50 +908,59 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   ASSERT_ND(batch_size <= kBatchMax);
   ArrayPage* pages[kBatchMax];
   LookupRoute routes[kBatchMax];
-  ArrayPage* root_page = get_root_page();
+  uint16_t index_batch[kBatchMax];
+  ArrayPage* root_page;
+  CHECK_ERROR_CODE(get_root_page(context, true, &root_page));
+  ASSERT_ND(!root_page->header().snapshot_);
   uint16_t levels = get_levels();
+  const uint16_t payload_size = get_payload_size();
+
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(offset_batch[i] < get_array_size());
     routes[i] = control_block_->route_finder_.find_route(offset_batch[i]);
     if (levels <= 1U) {
-      assorted::prefetch_cacheline(
-        root_page->get_leaf_record(
+      assorted::prefetch_cacheline(root_page->get_leaf_record(
         routes[i].route[0],
-        get_payload_size()));
+        payload_size));
     } else {
-      assorted::prefetch_cacheline(
-        &root_page->get_interior_record(routes[i].route[levels - 1]));
+      assorted::prefetch_cacheline(&root_page->get_interior_record(routes[i].route[levels - 1]));
     }
     pages[i] = root_page;
+    ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
+    index_batch[i] = routes[i].route[levels - 1];
   }
 
   for (uint8_t level = levels - 1; level > 0; --level) {
+    // as noted above, in==out case.
+    CHECK_ERROR_CODE(follow_pointers_for_write_batch(
+      context,
+      batch_size,
+      pages,
+      index_batch,
+      pages));
+
     for (uint8_t i = 0; i < batch_size; ++i) {
-      ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
-      uint16_t in_page_pos = routes[i].route[level];
-      CHECK_ERROR_CODE(follow_pointer(
-        context,
-        false,
-        true,
-        &pages[i]->get_interior_record(in_page_pos),
-        &pages[i],
-        pages[i],
-        in_page_pos));
+      ASSERT_ND(!pages[i]->header().snapshot_);
+      ASSERT_ND(pages[i]->get_storage_id() == get_id());
+      ASSERT_ND(!construct_volatile_page_pointer(pages[i]->header().page_id_).is_null());
       if (level == 1U) {
         assorted::prefetch_cacheline(pages[i]->get_leaf_record(
           routes[i].route[0],
-          get_payload_size()));
+          payload_size));
       } else {
         assorted::prefetch_cacheline(
           &pages[i]->get_interior_record(routes[i].route[levels - 1]));
       }
+      index_batch[i] = routes[i].route[level - 1];
     }
   }
+
   for (uint8_t i = 0; i < batch_size; ++i) {
     ASSERT_ND(pages[i]->is_leaf());
     ASSERT_ND(pages[i]->get_array_range().contains(offset_batch[i]));
     ASSERT_ND(pages[i]->get_array_range().begin_ + routes[i].route[0] == offset_batch[i]);
-    record_batch[i] = pages[i]->get_leaf_record(routes[i].route[0], get_payload_size());
+    ASSERT_ND(index_batch[i] == routes[i].route[0]);
+    record_batch[i] = pages[i]->get_leaf_record(routes[i].route[0], payload_size);
   }
   return kErrorCodeOk;
 }
@@ -933,7 +969,9 @@ inline ErrorCode ArrayStoragePimpl::lookup_for_write_batch(
   return ERROR_STACK(kErrorCodeStrArrayFailedVerification); } while (0)
 
 ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context) {
-  return verify_single_thread(context, get_root_page());
+  ArrayPage* root;
+  WRAP_ERROR_CODE(get_root_page(context, false, &root));
+  return verify_single_thread(context, root);
 }
 ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, ArrayPage* page) {
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
@@ -962,165 +1000,114 @@ ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, Arra
   return kRetOk;
 }
 
-/////////////////////////////////////////////////////////////////////////////
-///
-///  Composer related methods
-///
-/////////////////////////////////////////////////////////////////////////////
-ArrayPage* ArrayStoragePimpl::resolve_volatile(VolatilePagePointer pointer) {
-  if (pointer.is_null()) {
-    return nullptr;
-  }
-  const memory::GlobalVolatilePageResolver& page_resolver
-    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
-  return reinterpret_cast<ArrayPage*>(page_resolver.resolve_offset(pointer));
-}
-
-ErrorStack ArrayStoragePimpl::replace_pointers(const Composer::ReplacePointersArguments& args) {
-  // First, install the root page snapshot pointer.
-  control_block_->meta_.root_snapshot_page_id_ = args.new_root_page_pointer_;
-  control_block_->root_page_pointer_.snapshot_pointer_ = args.new_root_page_pointer_;
-  ++(*args.installed_count_);
-
-  if (get_meta().keeps_all_volatile_pages()) {
-    LOG(INFO) << "Keep-all-volatile: Storage-" << control_block_->meta_.name_
-      << " is configured to keep all volatile pages.";
-    // in this case, there isn't much point to install snapshot pages to volatile images.
-    // they will not be used anyways.
-    return kRetOk;
+ErrorCode ArrayStoragePimpl::follow_pointers_for_read_batch(
+  thread::Thread* context,
+  uint16_t batch_size,
+  bool* in_snapshot,
+  ArrayPage** parents,
+  const uint16_t* index_in_parents,
+  ArrayPage** out) {
+  DualPagePointer* pointers[kBatchMax];
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    ASSERT_ND(!parents[i]->is_leaf());
+    ASSERT_ND(in_snapshot[i] == parents[i]->header().snapshot_);
+    pointers[i] = &parents[i]->get_interior_record(index_in_parents[i]);
   }
 
-  // Second, we iterate through all existing volatile pages to 1) install snapshot pages
-  // and 2) drop volatile pages of level-3 or deeper (if the storage has only 2 levels, keeps all).
-  // this "level-3 or deeper" is a configuration per storage.
-  // Even if the volatile page is deeper than that, we keep them if it contains newer modification,
-  // including descendants (so, probably we will keep higher levels anyways).
-  VolatilePagePointer root_volatile_pointer = control_block_->root_page_pointer_.volatile_pointer_;
-  ArrayPage* volatile_page = resolve_volatile(root_volatile_pointer);
-  if (volatile_page == nullptr) {
-    LOG(WARNING) << "Mmm? no volatile root page?? then why included in this snapshot..";
-    return kRetOk;
+#ifndef NDEBUG
+  // there is a case of out==parents. for the assertion below, let's copy
+  ArrayPage* parents_copy[kBatchMax];
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    parents_copy[i] = parents[i];
   }
+#endif  // NDEBUG
 
-  if (volatile_page->is_leaf()) {
-    replace_pointers_leaf(args, &control_block_->root_page_pointer_, volatile_page);
-  } else {
-    bool kept_volatile;
-    CHECK_ERROR(replace_pointers_recurse(
-      args,
-      &control_block_->root_page_pointer_,
-      &kept_volatile,
-      volatile_page));
-  }
-  return kRetOk;
-}
+  CHECK_ERROR_CODE(context->follow_page_pointers_for_read_batch(
+    batch_size,
+    array_volatile_page_init,
+    false,
+    true,
+    pointers,
+    reinterpret_cast<Page**>(parents),
+    index_in_parents,
+    in_snapshot,
+    reinterpret_cast<Page**>(out)));
 
-ErrorStack ArrayStoragePimpl::replace_pointers_recurse(
-  const Composer::ReplacePointersArguments& args,
-  DualPagePointer* pointer,
-  bool* kept_volatile,
-  ArrayPage* volatile_page) {
-  ASSERT_ND(!volatile_page->header().snapshot_);
-  ASSERT_ND(!volatile_page->is_leaf());
-  *kept_volatile = false;
-
-  // Explore/replace children first because we need to know if there is new modification
-  // in that case, we must keep this volatile page, too.
-  ASSERT_ND(!volatile_page->is_leaf());
-  if (is_to_keep_volatile(volatile_page->get_level())) {
-    *kept_volatile = true;
-  }
-  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
-    DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
-    if (!child_pointer.volatile_pointer_.is_null()) {
-      ArrayPage* child_page = resolve_volatile(child_pointer.volatile_pointer_);
-      bool child_kept = false;
-      if (child_page->is_leaf()) {
-        child_kept = replace_pointers_leaf(args, &child_pointer, child_page);
-      } else {
-        CHECK_ERROR(replace_pointers_recurse(args, &child_pointer, &child_kept, child_page));
+#ifndef NDEBUG
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    ArrayPage* page = out[i];
+    ASSERT_ND(page != nullptr);
+    /*
+    if ((uintptr_t)(page) == 0xdadadadadadadadaULL) {
+      for (uint8_t j = 0; j < batch_size; ++j) {
+        in_snapshot[j] = parents_copy[j]->header().snapshot_;
       }
-
-      if (child_kept) {
-        *kept_volatile = true;
-      }
+      CHECK_ERROR_CODE(context->follow_page_pointers_for_read_batch(
+        batch_size,
+        array_volatile_page_init,
+        false,
+        true,
+        pointers,
+        reinterpret_cast<Page**>(parents_copy),
+        index_in_parents,
+        in_snapshot,
+        reinterpret_cast<Page**>(out)));
+    }
+    */
+    ASSERT_ND(in_snapshot[i] == page->header().snapshot_);
+    ASSERT_ND(page->get_level() + 1U == parents_copy[i]->get_level());
+    if (page->is_leaf()) {
+      xct::XctId xct_id = page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_;
+      ASSERT_ND(xct_id.is_valid());
     }
   }
+#endif  // NDEBUG
+  return kErrorCodeOk;
+}
 
-  if (!*kept_volatile) {
-    // We just drop this volatile page. done.
-    args.drop_volatile_page(pointer->volatile_pointer_);
-    pointer->volatile_pointer_.components.offset = 0;
-    return kRetOk;
+ErrorCode ArrayStoragePimpl::follow_pointers_for_write_batch(
+  thread::Thread* context,
+  uint16_t batch_size,
+  ArrayPage** parents,
+  const uint16_t* index_in_parents,
+  ArrayPage** out) {
+  DualPagePointer* pointers[kBatchMax];
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    ASSERT_ND(!parents[i]->is_leaf());
+    ASSERT_ND(!parents[i]->header().snapshot_);
+    pointers[i] = &parents[i]->get_interior_record(index_in_parents[i]);
   }
 
-  // Then we have to keep this volatile page.
-  // if the snapshot pointer points to a newly created page, we have to reflect install
-  // new snapshot pointers. So, read the snapshot page.
-  snapshot::SnapshotId snapshot_id
-    = extract_snapshot_id_from_snapshot_pointer(pointer->snapshot_pointer_);
-  if (snapshot_id != args.snapshot_.id_) {
-    DVLOG(1) << "This is not part of this snapshot, so no new pointers to install.";
-    return kRetOk;
+#ifndef NDEBUG
+  // there is a case of out==parents. for the assertion below, let's copy
+  ArrayPage* parents_copy[kBatchMax];
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    parents_copy[i] = parents[i];
   }
+#endif  // NDEBUG
 
-  DVLOG(1) << "The new snapshot covers this page. Let's install new snapshot pointers";
-  ASSERT_ND(args.work_memory_->get_size() >= sizeof(ArrayPage));
-  ArrayPage* snapshot_page = reinterpret_cast<ArrayPage*>(args.work_memory_->get_block());
-  WRAP_ERROR_CODE(args.read_snapshot_page(pointer->snapshot_pointer_, snapshot_page));
-  ASSERT_ND(volatile_page->get_level() == snapshot_page->get_level());
-  ASSERT_ND(volatile_page->get_array_range() == snapshot_page->get_array_range());
-  for (uint16_t i = 0; i < kInteriorFanout; ++i) {
-    DualPagePointer &child_pointer = volatile_page->get_interior_record(i);
-    SnapshotPagePointer new_pointer = snapshot_page->get_interior_record(i).snapshot_pointer_;
-    if (new_pointer != child_pointer.snapshot_pointer_) {
-      ASSERT_ND(new_pointer != 0);  // no transition from have-snapshot-page to no-snapshot-page
-      child_pointer.snapshot_pointer_ = new_pointer;
-      ++(*args.installed_count_);
+  CHECK_ERROR_CODE(context->follow_page_pointers_for_write_batch(
+    batch_size,
+    array_volatile_page_init,
+    pointers,
+    reinterpret_cast<Page**>(parents),
+    index_in_parents,
+    reinterpret_cast<Page**>(out)));
+
+#ifndef NDEBUG
+  for (uint8_t i = 0; i < batch_size; ++i) {
+    ArrayPage* page = out[i];
+    ASSERT_ND(page != nullptr);
+    ASSERT_ND(!page->header().snapshot_);
+    ASSERT_ND(page->get_level() + 1U == parents_copy[i]->get_level());
+    if (page->is_leaf()) {
+      xct::XctId xct_id = page->get_leaf_record(0, get_payload_size())->owner_id_.xct_id_;
+      ASSERT_ND(xct_id.is_valid());
     }
   }
-  // Now we no longer need snapshot_page. This is why we need only one-page of work memory
-  return kRetOk;
+#endif  // NDEBUG
+  return kErrorCodeOk;
 }
-
-bool ArrayStoragePimpl::replace_pointers_leaf(
-  const Composer::ReplacePointersArguments& args,
-  DualPagePointer* pointer,
-  ArrayPage* volatile_page) {
-  ASSERT_ND(!volatile_page->header().snapshot_);
-  ASSERT_ND(volatile_page->is_leaf());
-  if (is_to_keep_volatile(volatile_page->get_level())) {
-    return true;
-  }
-  bool kept_volatile = false;
-  for (uint16_t i = 0; i < volatile_page->get_leaf_record_count(); ++i) {
-    Record* record = volatile_page->get_leaf_record(i, get_payload_size());
-    Epoch epoch = record->owner_id_.xct_id_.get_epoch();
-    if (epoch.is_valid() && epoch > args.snapshot_.valid_until_epoch_) {
-      // new record exists! so we must keep this volatile page
-      kept_volatile = true;
-      break;
-    }
-  }
-  if (!kept_volatile) {
-    args.drop_volatile_page(pointer->volatile_pointer_);
-    pointer->volatile_pointer_.components.offset = 0;
-  } else {
-    DVLOG(1) << "Couldn't drop a leaf volatile page that has a recent modification";
-  }
-  return kept_volatile;
-}
-bool ArrayStoragePimpl::is_to_keep_volatile(uint16_t level) {
-  uint16_t threshold = get_snapshot_drop_volatile_pages_threshold();
-  uint16_t array_levels = get_levels();
-  ASSERT_ND(level < array_levels);
-  // examples:
-  // when threshold=0, all levels (0~array_levels-1) should return false.
-  // when threshold=1, only root level (array_levels-1) should return true
-  // when threshold=2, upto array_levels-2..
-  return threshold >= array_levels - level;
-}
-
 
 // Explicit instantiations for each type
 // @cond DOXYGEN_IGNORE

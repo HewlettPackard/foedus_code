@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 /**
  * @file foedus/storage/hash/tpcb_experiment_hash.cpp
@@ -11,7 +24,7 @@
  * Unlike array/seq experiments that use array for main tables, this has an additional
  * populate phase to insert required records.
  * @section RESULTS Latest Results
- * 8.8 MTPS. 7% CPU costs are in tag-checking.
+ * On Z820, 8.6 MTPS. 50% locks contention, HashCombo() 5%, locate_bin+locate_record 25%.
  */
 #include <atomic>
 #include <chrono>
@@ -66,7 +79,11 @@ const int kTellers   =   10;
 const int kAccounts  =   100000;
 const int kAccountsPerTeller = kAccounts / kTellers;
 
+#ifndef NDEBUG
 const uint64_t kDurationMicro = 1000000;
+#else  // NDEBUG
+const uint64_t kDurationMicro = 5000000;
+#endif  // NDEBUG
 
 static_assert(kAccounts % kTellers == 0, "kAccounts must be multiply of kTellers");
 
@@ -118,7 +135,7 @@ class PopulateTpcbTask {
   }
   ErrorStack run(thread::Thread* context) {
     xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
     std::cout << "Populating records from branch " << from_branch_ << " to "
       << to_branch_ << " in node-" << static_cast<int>(context->get_numa_node()) << std::endl;
@@ -185,7 +202,7 @@ class PopulateTpcbTask {
       Epoch commit_epoch;
       xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
       CHECK_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     }
     return kErrorCodeOk;
   }
@@ -276,7 +293,7 @@ class RunTpcbTask {
     int64_t amount) {
     xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
     // CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
 
     int64_t balance = amount;
     CHECK_ERROR_CODE(branches_.increment_record(context, branch_id, &balance, 0));
@@ -339,6 +356,7 @@ int main_impl(int argc, char **argv) {
     return 1;
   }
 
+  double final_mtps = 0;
   EngineOptions options;
 
   fs::Path savepoint_path(folder);
@@ -356,7 +374,7 @@ int main_impl(int argc, char **argv) {
     // = debugging::DebuggingOptions::kDebugLogWarning;
   options.debugging_.verbose_modules_ = "";
   options.debugging_.verbose_log_level_ = -1;
-  options.log_.log_buffer_kb_ = 1 << 21;
+  options.log_.log_buffer_kb_ = 1 << 18;
   options.log_.log_file_size_mb_ = 1 << 10;
   options.memory_.page_pool_size_mb_per_node_ = 12 << 10;
   kTotalThreads = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
@@ -371,17 +389,17 @@ int main_impl(int argc, char **argv) {
       StorageManager* str_manager = engine.get_storage_manager();
       std::cout << "Creating TPC-B tables... " << std::endl;
       Epoch ep;
-      const float kHashFillfactor = 0.5;
+      const float kHashPreferredRecordsPerBin = 5.0;
       HashMetadata branch_meta("branches");
-      branch_meta.set_capacity(kBranches, kHashFillfactor);
+      branch_meta.set_capacity(kBranches, kHashPreferredRecordsPerBin);
       COERCE_ERROR(str_manager->create_storage(&branch_meta, &ep));
       std::cout << "Created branches " << std::endl;
       HashMetadata teller_meta("tellers");
-      teller_meta.set_capacity(kBranches * kTellers, kHashFillfactor);
+      teller_meta.set_capacity(kBranches * kTellers, kHashPreferredRecordsPerBin);
       COERCE_ERROR(str_manager->create_storage(&teller_meta, &ep));
       std::cout << "Created tellers " << std::endl;
       HashMetadata account_meta("accounts");
-      account_meta.set_capacity(kBranches * kAccounts, kHashFillfactor);
+      account_meta.set_capacity(kBranches * kAccounts, kHashPreferredRecordsPerBin);
       COERCE_ERROR(str_manager->create_storage(&account_meta, &ep));
       std::cout << "Created accounts " << std::endl;
       sequential::SequentialMetadata history_meta("histories");
@@ -450,13 +468,14 @@ int main_impl(int argc, char **argv) {
         total += processed;
         sessions[i].release();
       }
-      std::cout << "total=" << total << ", MTPS="
-        << (static_cast<double>(total)/kDurationMicro) << std::endl;
+      final_mtps = (static_cast<double>(total)/kDurationMicro);
+      std::cout << "total=" << total << ", MTPS=" << final_mtps << std::endl;
       std::cout << "Shutting down..." << std::endl;
       COERCE_ERROR(engine.uninitialize());
     }
   }
 
+  std::cout << "MTPS=" << final_mtps << std::endl;
   return 0;
 }
 

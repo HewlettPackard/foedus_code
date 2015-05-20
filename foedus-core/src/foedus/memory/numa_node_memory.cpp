@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/memory/numa_node_memory.hpp"
 
@@ -33,9 +46,17 @@ NumaNodeMemory::NumaNodeMemory(Engine* engine, thread::ThreadGroupId numa_node)
     snapshot_cache_table_(nullptr) {
 }
 
+int64_t get_numa_node_size(int node) {
+  if (::numa_available() < 0) {
+    return 0;
+  } else {
+    return ::numa_node_size(node, nullptr);
+  }
+}
+
 ErrorStack NumaNodeMemory::initialize_once() {
   LOG(INFO) << "Initializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " BEFORE: numa_node_size=" << get_numa_node_size(numa_node_);
 
 
   // volatile pool is placed on the shared memory
@@ -86,7 +107,7 @@ ErrorStack NumaNodeMemory::initialize_once() {
   ASSERT_ND(log_buffer_memory_pieces_.size() == cores_);
 
   LOG(INFO) << "Initialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " AFTER: numa_node_size=" << get_numa_node_size(numa_node_);
   return kRetOk;
 }
 ErrorStack NumaNodeMemory::initialize_page_offset_chunk_memory() {
@@ -145,7 +166,7 @@ ErrorStack NumaNodeMemory::initialize_core_memory(thread::ThreadLocalOrdinal ord
 
 ErrorStack NumaNodeMemory::uninitialize_once() {
   LOG(INFO) << "Uninitializing NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " BEFORE: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " BEFORE: numa_node_size=" << get_numa_node_size(numa_node_);
 
   ErrorStackBatch batch;
   batch.uninitialize_and_delete_all(&core_memories_);
@@ -165,7 +186,7 @@ ErrorStack NumaNodeMemory::uninitialize_once() {
   snapshot_pool_control_block_.release_block();
 
   LOG(INFO) << "Uninitialized NumaNodeMemory for node " << static_cast<int>(numa_node_) << "."
-    << " AFTER: numa_node_size=" << ::numa_node_size(numa_node_, nullptr);
+    << " AFTER: numa_node_size=" << get_numa_node_size(numa_node_);
   return SUMMARIZE_ERROR_BATCH(batch);
 }
 

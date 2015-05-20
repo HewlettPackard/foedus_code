@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_MASSTREE_MASSTREE_STORAGE_HPP_
 #define FOEDUS_STORAGE_MASSTREE_MASSTREE_STORAGE_HPP_
@@ -12,13 +25,13 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
-#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -71,11 +84,42 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     KeySlice from = kInfimumSlice,
     KeySlice to = kSupremumSlice);
 
-  // TODO(Hideaki) implement non key-slice version of prefetch_pages. so far this is enough, tho.
+  // TASK(Hideaki) implement non key-slice version of prefetch_pages. so far this is enough, tho.
 
-  // this storage type does use moved bit. so this is implemented
-  bool                track_moved_record(xct::WriteXctAccess* write);
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* address);
+  /**
+   * @copydoc foedus::storage::StorageManager::track_moved_record()
+   * @note Implementation note and limitation
+   * Master-tree (masstree) does use moved bit, so this storage implements this method to handle
+   * moved record. There are a few design choices worth noting.
+   *
+   * When the record is moved within the same B-trie layer, we can always (aside from very unlucky
+   * timing due to high contention) track down the new location. When the record is moved to
+   * next layer, however, we have to know the entire key to track the record. We can use the
+   * write_set parameter if it is given. So, read-set along with write-set (eg insert_general())
+   * can always track down to any layer.
+   *
+   * However, if there is a standalone read-access, it cannot track to next layer.
+   *
+   * One possibility was to always leave the original key of the record in page, as opposed to
+   * we currently overwrite the data region with a dual pointer to create new layer. If we do this,
+   * we don't even need write_set for all cases. Kind of a clean solution, but then we have
+   * to separately reserve a next-layer-pointer region in addition to data region in border pages.
+   * Well, it's even more "clean" in terms of source code, but the amount of usable bytes per border
+   * page would be less than half (always 16b * 64 for data that _might_ be used).
+   *
+   * OTOH, it is a rare case that a standalone read-access hits the next-layer move, and even
+   * when that happens, exposing it as usual contention-aborts wouldn't affect throughput too much.
+   * Thus, we have the current design.
+   *
+   * As a compromise, I'm now considering a configuration in MasstreMetadata to specify
+   * how many layers the storage expects to have. Such a contention happens always in
+   * the first layer, and in many cases the user knows whether the first 8 bytes differentiate
+   * most records or not. If all records will be anyway moved to next layer, we should create
+   * the records in second layer from the beginning.
+   */
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set);
 
   //// Masstree API
 
@@ -364,9 +408,6 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
 
   // TODO(Hideaki): Extend/shrink/update methods for payload. A bit faster than delete + insert.
 
-  /** Implementation of Composer::replace_pointers() */
-  ErrorStack  replace_pointers(const Composer::ReplacePointersArguments& args);
-
   ErrorStack  verify_single_thread(thread::Thread* context);
 
   /**
@@ -380,6 +421,51 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     Engine* engine,
     bool volatile_only = false,
     uint32_t max_pages = 1024U);
+
+  /** Arguments for peek_volatile_page_boundaries() */
+  struct PeekBoundariesArguments {
+    /** [IN] slices of higher layers that lead to the B-trie layer of interest. null if 1st layer */
+    const KeySlice* prefix_slices_;
+    /** [IN] size of prefix_slices_. 0 means we are interested in the first layer. */
+    uint32_t prefix_slice_count_;
+    /** [IN] capacity of found_boundaries_. */
+    uint32_t found_boundary_capacity_;
+    /** [IN] lists up page boundaries from this slice */
+    KeySlice from_;
+    /** [IN] lists up page boundaries up to this slice */
+    KeySlice to_;
+    /** [OUT] fence-slices of border pages between from-to */
+    KeySlice* found_boundaries_;
+    /** [OUT] number of found_boundaries_ entries returned */
+    uint32_t* found_boundary_count_;
+  };
+
+  /**
+   * @brief Checks the volatile pages of this storage to give hints to decide page boundary keys.
+   * @details
+   * This method is used from the composer to make page boundaries in snapshot pages better aligned
+   * with those of volatile pages so that we can drop more volatile pages at the end.
+   * This method is opportunistic, meaning the result is not guaranteed to be transactionally
+   * correct, but that's fine because these are just hints. If the page boundary is not aligned
+   * well with volatile pages, we just have to keep more volatile pages for a while.
+   * In fact, the composer might ignore these hints in some cases (eg. a page has too few tuples).
+   * Defined in masstree_storage_peek.cpp
+   */
+  ErrorCode   peek_volatile_page_boundaries(Engine* engine, const PeekBoundariesArguments& args);
+
+  /**
+   * @brief Deliberately causes splits under the volatile root of first layer, or "fatify" it.
+   * @param[in] context Thread context
+   * @param[in] desired_count Does nothing if the root of first layer already has this
+   * many children.
+   * @details
+   * This is a special-purpose, physical-only method that does nothing logically.
+   * It increases the number of direct children in first root, which is useful when we partition
+   * based on children in first root. Fatifying beforehand shouldn't have any significant drawback,
+   * but we so far restrict the use of this method to performance benchmarks.
+   * @todo testcase for this method. TDD? shut up.
+   */
+  ErrorStack  fatify_first_root(thread::Thread* context, uint32_t desired_count);
 };
 }  // namespace masstree
 }  // namespace storage

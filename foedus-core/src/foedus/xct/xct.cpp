@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/xct/xct.hpp"
 
@@ -49,7 +62,7 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_cu
   memory::NumaCoreMemory:: SmallThreadLocalMemoryPieces pieces
     = core_memory->get_small_thread_local_memory_pieces();
   const XctOptions& xct_opt = engine_->get_options().xct_;
-  read_set_ = reinterpret_cast<XctAccess*>(pieces.xct_read_access_memory_);
+  read_set_ = reinterpret_cast<ReadXctAccess*>(pieces.xct_read_access_memory_);
   read_set_size_ = 0;
   max_read_set_size_ = xct_opt.max_read_set_size_;
   write_set_ = reinterpret_cast<WriteXctAccess*>(pieces.xct_write_access_memory_);
@@ -86,7 +99,7 @@ void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
     ASSERT_ND(new_id.get_epoch() == *epoch);
 
     // Now, is it possible to get an ordinal one larger than this one?
-    if (UNLIKELY(new_id.get_ordinal() == 0xFFFFFFFFU)) {
+    if (UNLIKELY(new_id.get_ordinal() >= kMaxXctOrdinal)) {
       // oh, that's rare.
       LOG(WARNING) << "Reached the maximum ordinal in this epoch. Advancing current epoch"
         << " just for this reason. It's rare, but not an error.";
@@ -97,7 +110,7 @@ void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
       continue;  // try again with this epoch.
     }
 
-    ASSERT_ND(new_id.get_ordinal() < 0xFFFFFFFFU);
+    ASSERT_ND(new_id.get_ordinal() < kMaxXctOrdinal);
     new_id.set_ordinal(new_id.get_ordinal() + 1U);
     remember_previous_xct_id(new_id);
     break;

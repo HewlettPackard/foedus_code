@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_MANAGER_PIMPL_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_MANAGER_PIMPL_HPP_
@@ -17,11 +30,12 @@
 #include "foedus/initializable.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/snapshot/fwd.hpp"
+#include "foedus/snapshot/log_gleaner_resource.hpp"
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 
 namespace foedus {
@@ -117,9 +131,6 @@ struct SnapshotManagerControlBlock {
   }
   void uninitialize() {
     gleaner_.uninitialize();
-    snapshot_children_wakeup_.uninitialize();
-    snapshot_wakeup_.uninitialize();
-    snapshot_taken_.uninitialize();
   }
 
   Epoch get_snapshot_epoch() const { return Epoch(snapshot_epoch_.load()); }
@@ -137,8 +148,8 @@ struct SnapshotManagerControlBlock {
    * This is n-to-n condition variable, so expect spurrious wakeups.
    */
   void wakeup_snapshot_children() {
-    soc::SharedMutexScope scope(snapshot_children_wakeup_.get_mutex());
-    snapshot_children_wakeup_.broadcast(&scope);
+    assorted::memory_fence_release();
+    snapshot_children_wakeup_.signal();
   }
 
   /**
@@ -164,20 +175,20 @@ struct SnapshotManagerControlBlock {
   std::atomic<SnapshotId>         previous_snapshot_id_;
 
   /** Fired (notify_all) whenever snapshotting is completed. */
-  soc::SharedCond                 snapshot_taken_;
+  soc::SharedPolling              snapshot_taken_;
 
   /**
    * Snapshot thread sleeps on this condition variable.
    * The real variable is requested_snapshot_epoch_.
    */
-  soc::SharedCond                 snapshot_wakeup_;
+  soc::SharedPolling              snapshot_wakeup_;
 
   /**
    * Child snapshot managers (the ones in SOC engines) sleep on this condition until
    * the master snapshot manager requests them to launch mappers/reducers for snapshot.
    * The real condition is the various status flag in gleaner_.
    */
-  soc::SharedCond                 snapshot_children_wakeup_;
+  soc::SharedPolling              snapshot_children_wakeup_;
 
   /** Gleaner-related variables */
   LogGleanerControlBlock          gleaner_;
@@ -288,11 +299,17 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
 
   /**
    * Sub-routine of handle_snapshot_triggered().
-   * install pointers to snapshot pages and drop volatile pages.
+   * Drop pointers to volatile pages based on the already-installed snapshot pointers.
    */
-  ErrorStack  replace_pointers(
+  ErrorStack  drop_volatile_pages(
     const Snapshot& new_snapshot,
     const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers);
+  /** subroutine invoked by one thread for one node. */
+  void        drop_volatile_pages_parallel(
+    const Snapshot& new_snapshot,
+    const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers,
+    void* result_memory,
+    uint16_t parallel_id);
 
   /**
    * each snapshot has a snapshot-metadata file "snapshot_metadata_<SNAPSHOT_ID>.xml"
@@ -332,6 +349,9 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
   std::vector<LogMapper*>     local_mappers_;
   /** Reducer in this node. Null in master engine. */
   LogReducer*                 local_reducer_;
+
+  /** Local resources for gleaner, which runs only in the master node. Empty in child nodes. */
+  LogGleanerResource          gleaner_resource_;
 };
 
 static_assert(

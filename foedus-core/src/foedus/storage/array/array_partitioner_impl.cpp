@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/storage/array/array_partitioner_impl.hpp"
 
@@ -182,88 +195,74 @@ void ArrayPartitioner::partition_batch(const Partitioner::PartitionBatchArgument
 
 /**
   * Used in sort_batch().
-  * \li 0-7 bytes: ArrayOffset, the most significant.
-  * \li 8-9 bytes: compressed epoch (difference from base_epoch)
-  * \li 10-11 bytes: in-epoch-ordinal
+  * \li 0-5 bytes: ArrayOffset, the most significant.
+  * \li 6-7 bytes: compressed epoch (difference from base_epoch)
+  * \li 8-11 bytes: in-epoch-ordinal
   * \li 12-15 bytes: BufferPosition (doesn't have to be sorted together, but for simplicity)
   * Be careful on endian! We use uint128_t to make it easier and faster.
-  * @todo non-gcc support.
   */
 struct SortEntry {
   inline void set(
     ArrayOffset               offset,
     uint16_t                  compressed_epoch,
-    uint16_t                  in_epoch_ordinal,
+    uint32_t                  in_epoch_ordinal,
     snapshot::BufferPosition  position) ALWAYS_INLINE {
-    *reinterpret_cast<__uint128_t*>(this)
-      = static_cast<__uint128_t>(offset) << 64
-        | static_cast<__uint128_t>(compressed_epoch) << 48
+    ASSERT_ND(offset < kMaxArrayOffset);
+    data_
+      = static_cast<__uint128_t>(offset) << 80
+        | static_cast<__uint128_t>(compressed_epoch) << 64
         | static_cast<__uint128_t>(in_epoch_ordinal) << 32
         | static_cast<__uint128_t>(position);
   }
   inline ArrayOffset get_offset() const ALWAYS_INLINE {
-    return static_cast<ArrayOffset>(
-      *reinterpret_cast<const __uint128_t*>(this) >> 64);
+    return static_cast<ArrayOffset>(data_ >> 80);
   }
   inline snapshot::BufferPosition get_position() const ALWAYS_INLINE {
-    return static_cast<snapshot::BufferPosition>(*reinterpret_cast<const __uint128_t*>(this));
+    return static_cast<snapshot::BufferPosition>(data_);
   }
-  char data_[16];
+  __uint128_t data_;
 };
 
-void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
-  if (args.logs_count_ == 0) {
-    *args.written_count_ = 0;
-    return;
-  }
-
-  // we so far sort them in one path.
-  // to save memory, we could do multi-path merge-sort.
-  // however, in reality each log has many bytes, so log_count is not that big.
-  args.work_memory_->assure_capacity(sizeof(SortEntry) * args.logs_count_);
-
-  debugging::StopWatch stop_watch_entire;
-
-  ASSERT_ND(sizeof(SortEntry) == 16U);
-  const Epoch::EpochInteger base_epoch_int = args.base_epoch_.value();
-  SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
+/** subroutine of sort_batch */
+// __attribute__ ((noinline))  // was useful to forcibly show it on cpu profile. nothing more.
+void prepare_sort_entries(const Partitioner::SortBatchArguments& args, SortEntry* entries) {
+  // CPU profile of partition_array_perf: 6-10%.
+  const Epoch base_epoch = args.base_epoch_;
   for (uint32_t i = 0; i < args.logs_count_; ++i) {
     const ArrayCommonUpdateLogType* log_entry = reinterpret_cast<const ArrayCommonUpdateLogType*>(
       args.log_buffer_.resolve(args.log_positions_[i]));
     ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite
       || log_entry->header_.log_type_code_ == log::kLogCodeArrayIncrement);
-    uint16_t compressed_epoch;
-    const Epoch::EpochInteger epoch = log_entry->header_.xct_id_.get_epoch_int();
-    if (epoch >= base_epoch_int) {
-      ASSERT_ND(epoch - base_epoch_int < (1 << 16));
-      compressed_epoch = epoch - base_epoch_int;
-    } else {
-      // wrap around
-      ASSERT_ND(epoch + Epoch::kEpochIntOverflow - base_epoch_int < (1 << 16));
-      compressed_epoch = epoch + Epoch::kEpochIntOverflow - base_epoch_int;
-    }
+    Epoch epoch = log_entry->header_.xct_id_.get_epoch();
+    ASSERT_ND(epoch.subtract(base_epoch) < (1U << 16));
+    uint16_t compressed_epoch = epoch.subtract(base_epoch);
     entries[i].set(
       log_entry->offset_,
       compressed_epoch,
       log_entry->header_.xct_id_.get_ordinal(),
       args.log_positions_[i]);
   }
+}
 
-  debugging::StopWatch stop_watch;
-  // TODO(Hideaki) non-gcc support.
-  // Actually, we need only 12-bytes sorting, so perhaps doing without __uint128_t is faster?
-  std::sort(
-    reinterpret_cast<__uint128_t*>(entries),
-    reinterpret_cast<__uint128_t*>(entries + args.logs_count_));
-  stop_watch.stop();
-  VLOG(0) << "Sorted " << args.logs_count_ << " log entries in " << stop_watch.elapsed_ms() << "ms";
-
+/** subroutine of sort_batch */
+// __attribute__ ((noinline))  // was useful to forcibly show it on cpu profile. nothing more.
+uint32_t compact_logs(const Partitioner::SortBatchArguments& args, SortEntry* entries) {
+  // CPU profile of partition_array_perf: 30-35%.
+  // Yeah, this is not cheap... but it can dramatically compact the logs.
   uint32_t result_count = 1;
   args.output_buffer_[0] = entries[0].get_position();
+  ArrayOffset prev_offset = entries[0].get_offset();
   for (uint32_t i = 1; i < args.logs_count_; ++i) {
     // compact the logs if the same offset appears in a row, and covers the same data region.
     // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
-    if (entries[i].get_offset() == entries[i - 1].get_offset()) {
+    ArrayOffset cur_offset = entries[i].get_offset();
+    // wow, adding this UNLIKELY changed the CPU cost of this function from 35% to 13%,
+    // throughput of entire partition_array_perf 5M to 8.5M. because in this experiment
+    // there are few entries with same offset. I haven't seen this much difference with
+    // gcc's unlikely hint before! umm, compiler is not that smart, after all.
+    // this will penalize the case where we have many compaction, but in that case
+    // the following code has more cost anyways.
+    if (UNLIKELY(cur_offset == prev_offset)) {
       const log::RecordLogType* prev_p = args.log_buffer_.resolve(entries[i - 1].get_position());
       log::RecordLogType* next_p = args.log_buffer_.resolve(entries[i].get_position());
       if (prev_p->header_.log_type_code_ != next_p->header_.log_type_code_) {
@@ -301,10 +300,42 @@ void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) c
           --result_count;
         }
       }
+    } else {
+      prev_offset = cur_offset;
     }
     args.output_buffer_[result_count] = entries[i].get_position();
     ++result_count;
   }
+  return result_count;
+}
+
+void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
+  if (args.logs_count_ == 0) {
+    *args.written_count_ = 0;
+    return;
+  }
+
+  // we so far sort them in one path.
+  // to save memory, we could do multi-path merge-sort.
+  // however, in reality each log has many bytes, so log_count is not that big.
+  args.work_memory_->assure_capacity(sizeof(SortEntry) * args.logs_count_);
+
+  debugging::StopWatch stop_watch_entire;
+
+  ASSERT_ND(sizeof(SortEntry) == 16U);
+  SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
+  prepare_sort_entries(args, entries);
+
+  debugging::StopWatch stop_watch;
+  // Gave up non-gcc support because of aarch64 support. yes, we can also assume __uint128_t.
+  // CPU profile of partition_array_perf: 50% (introsort_loop) + 7% (other inlined).
+  std::sort(
+    reinterpret_cast<__uint128_t*>(entries),
+    reinterpret_cast<__uint128_t*>(entries + args.logs_count_));
+  stop_watch.stop();
+  VLOG(0) << "Sorted " << args.logs_count_ << " log entries in " << stop_watch.elapsed_ms() << "ms";
+
+  uint32_t result_count = compact_logs(args, entries);
 
   stop_watch_entire.stop();
   VLOG(0) << "Array-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()

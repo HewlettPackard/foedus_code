@@ -1,16 +1,18 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/assorted/atomic_fences.hpp"
-
-#include <atomic>
-namespace foedus {
-namespace assorted {
-void memory_fence_acquire_impl() { std::atomic_thread_fence(std::memory_order_acquire); }
-void memory_fence_release_impl() { std::atomic_thread_fence(std::memory_order_release); }
-void memory_fence_acq_rel_impl() { std::atomic_thread_fence(std::memory_order_acq_rel); }
-void memory_fence_consume_impl() { std::atomic_thread_fence(std::memory_order_consume); }
-void memory_fence_seq_cst_impl() { std::atomic_thread_fence(std::memory_order_seq_cst); }
-}  // namespace assorted
-}  // namespace foedus

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_EPOCH_HPP_
 #define FOEDUS_EPOCH_HPP_
@@ -55,8 +68,13 @@ class Epoch {
     kEpochInvalid = 0,
     /** As there is no transaction in ep-1, initial durable_epoch is 1. */
     kEpochInitialDurable = 1,
-    /** The first epoch (before wrap-around) that might have transactions is ep-2. */
-    kEpochInitialCurrent = 2,
+    /**
+     * Usually, current epoch -1 is the grace period before being durable.
+     * Initial epochs don't need grace period, but let's reserve one for consistency.
+     */
+    kEpochInitialGrace = 2,
+    /** The first epoch (before wrap-around) that might have transactions is ep-3. */
+    kEpochInitialCurrent = 3,
     /** Bits to represent an epoch. */
     kEpochBits = 28,
     /** Epoch values wrap around at this value. */
@@ -110,6 +128,20 @@ class Epoch {
     Epoch tmp(epoch_);
     tmp.operator++();
     return tmp;
+  }
+
+  /**
+   * @brief Returns the number epochs from the given epoch to this epoch accounting for wrap-around.
+   * @pre this->is_valid(). other doesn't have to be valid, considered as 0.
+   */
+  uint32_t subtract(const Epoch& other) const {
+    ASSERT_ND(is_valid());
+    if (epoch_ >= other.epoch_) {
+      return epoch_ - other.epoch_;
+    } else {
+      // wrap around
+      return epoch_ + kEpochIntOverflow - other.epoch_;
+    }
   }
 
   /**

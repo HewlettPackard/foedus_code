@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_MASSTREE_MASSTREE_PARTITIONER_IMPL_HPP_
 #define FOEDUS_STORAGE_MASSTREE_MASSTREE_PARTITIONER_IMPL_HPP_
@@ -99,6 +112,13 @@ class MasstreePartitioner final {
   PartitionerMetadata* const  metadata_;
   MasstreePartitionerData*    data_;
 
+  /**
+   * When this is the initial snapshot. Simpler case.
+   * @param[in] root a stable copy of the root volatile page. Not the actual page, which might
+   * be now changing.
+   */
+  ErrorStack  design_partition_first(const MasstreeIntermediatePage* root);
+
   void sort_batch_8bytes(const Partitioner::SortBatchArguments& args) const;
   void sort_batch_general(const Partitioner::SortBatchArguments& args) const;
 
@@ -126,6 +146,52 @@ struct MasstreePartitionerData final {
   uint16_t    partition_count_;
   KeySlice    low_keys_[kMaxIntermediatePointers];
   uint16_t    partitions_[kMaxIntermediatePointers];
+};
+
+/**
+ * Number of vol pages in each node sampled per pointer in the root page.
+ * Will be probably used in other partitioners, too.
+ */
+struct OwnerSamples {
+  OwnerSamples(uint32_t nodes, uint32_t subtrees) : nodes_(nodes), subtrees_(subtrees) {
+    occurrences_ = new uint32_t[nodes * subtrees];
+    std::memset(occurrences_, 0, sizeof(uint32_t) * nodes * subtrees);
+    assignments_ = new uint32_t[subtrees];
+    std::memset(assignments_, 0, sizeof(uint32_t) * subtrees);
+  }
+  ~OwnerSamples() {
+    delete[] occurrences_;
+    occurrences_ = nullptr;
+    delete[] assignments_;
+    assignments_ = nullptr;
+  }
+
+  /** number of nodes */
+  const uint32_t  nodes_;
+  /** number of pointers to children in the root page */
+  const uint32_t  subtrees_;
+  /** number of occurences of a volatile page in the node. @see at() */
+  uint32_t*       occurrences_;
+  /** node_id to be the owner of the subtree */
+  uint32_t*       assignments_;
+
+  void increment(uint32_t node, uint32_t subtree_id) {
+    ASSERT_ND(node < nodes_);
+    ASSERT_ND(subtree_id < subtrees_);
+    ++occurrences_[subtree_id * nodes_ + node];
+  }
+  uint32_t at(uint32_t node, uint32_t subtree_id) const {
+    ASSERT_ND(node < nodes_);
+    ASSERT_ND(subtree_id < subtrees_);
+    return occurrences_[subtree_id * nodes_ + node];
+  }
+
+  uint32_t get_assignment(uint32_t subtree_id) const { return assignments_[subtree_id]; }
+
+  /** Determine assignments based on the samples */
+  void assign_owners();
+
+  friend std::ostream& operator<<(std::ostream& o, const OwnerSamples& v);
 };
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/cache/cache_manager_pimpl.hpp"
 
@@ -93,10 +106,7 @@ ErrorStack CacheManagerPimpl::uninitialize_once() {
   }
 
   LOG(INFO) << "Uninitializing Snapshot Cache... " << describe();
-  stop_requested_.store(true);
-  if (cleaner_.joinable()) {
-    cleaner_.join();
-  }
+  CHECK_ERROR(stop_cleaner());
 
   pool_ = nullptr;
   hashtable_ = nullptr;
@@ -128,9 +138,10 @@ void CacheManagerPimpl::handle_cleaner() {
 
       if (reclaimed_pages_count_ > 0) {
         // We collected some number of pages in previous execution. now we have to wait for
-        // grace period befire returning them to the pool as free pages.
-        ASSERT_ND(engine_->get_xct_manager()->is_initialized());  // otherwise why already collected
-        Epoch reclaimed_pages_epoch = engine_->get_xct_manager()->get_current_global_epoch();
+        // grace period before returning them to the pool as free pages.
+        xct::XctManager* xct_manager = engine_->get_xct_manager();
+        ASSERT_ND(xct_manager->is_initialized());  // see stop_cleaner()'s comment why this is true.
+        Epoch reclaimed_pages_epoch = xct_manager->get_current_global_epoch();
         VLOG(0) << "Collected " << reclaimed_pages_count_ << " pages. let's return them to "
           << "the pool: " << describe();
         Epoch wait_until = reclaimed_pages_epoch.one_more();
@@ -138,18 +149,24 @@ void CacheManagerPimpl::handle_cleaner() {
         // We have to wait for grace-period, in other words until the next epoch.
         if (stat.allocated_pages_ >= urgent_threshold_) {
           VLOG(0) << "We are in urgent lack of free pages, let's advance epoch right now";
-          engine_->get_xct_manager()->advance_current_global_epoch();
+          xct_manager->advance_current_global_epoch();
         }
-        engine_->get_xct_manager()->wait_for_current_global_epoch(wait_until);
+        // wait forever, but occasionally wake up to check if the system is being shutdown
+        while (!stop_requested_ && xct_manager->get_current_global_epoch() < wait_until) {
+          const uint64_t interval_microsec = 100000ULL;
+          xct_manager->wait_for_current_global_epoch(wait_until, interval_microsec);
+        }
 
-        Epoch current_epoch = engine_->get_xct_manager()->get_current_global_epoch();
-        ASSERT_ND(reclaimed_pages_epoch < current_epoch);
-        VLOG(0) << "Okay! reclaimed_pages_epoch_=" << reclaimed_pages_epoch
-          << ", current_epoch=" << current_epoch;
+        if (!stop_requested_) {
+          Epoch current_epoch = xct_manager->get_current_global_epoch();
+          ASSERT_ND(reclaimed_pages_epoch < current_epoch);
+          VLOG(0) << "Okay! reclaimed_pages_epoch_=" << reclaimed_pages_epoch
+            << ", current_epoch=" << current_epoch;
 
-        memory::PagePoolOffsetDynamicChunk chunk(reclaimed_pages_count_, reclaimed_pages_);
-        pool_->release(reclaimed_pages_count_, &chunk);
-        reclaimed_pages_count_ = 0;
+          memory::PagePoolOffsetDynamicChunk chunk(reclaimed_pages_count_, reclaimed_pages_);
+          pool_->release(reclaimed_pages_count_, &chunk);
+          reclaimed_pages_count_ = 0;
+        }
       } else {
         LOG(INFO) << "Wtf, we couldn't collect any pages? that's weird...: " << describe();
       }
@@ -177,6 +194,21 @@ void CacheManagerPimpl::handle_cleaner_evict_pages(uint64_t target_count) {
   hashtable_->evict(&args);
   reclaimed_pages_count_ = args.evicted_count_;
 }
+
+ErrorStack CacheManagerPimpl::stop_cleaner() {
+  bool original = false;
+  bool changed = stop_requested_.compare_exchange_strong(original, true);
+  if (changed) {
+    if (cleaner_.joinable()) {
+      LOG(INFO) << "Requesting Cache Cleaner to stop...";
+      cleaner_.join();
+    }
+  } else {
+    LOG(INFO) << "Cache Cleaner seems already stop-requested";
+  }
+  return kRetOk;
+}
+
 
 std::string CacheManagerPimpl::describe() const {
   if (pool_ == nullptr) {

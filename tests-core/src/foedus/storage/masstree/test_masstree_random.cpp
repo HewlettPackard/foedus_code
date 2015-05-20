@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <gtest/gtest.h>
 
@@ -162,7 +175,7 @@ ErrorStack insert_many_normalized_mt_task(const proc::ProcArguments& args) {
   {
     char buf2[kBufSize];
     assorted::UniformRandom uniform_random(123456L);
-    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     for (uint32_t i = 0; i < kCount; ++i) {
       KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64()) * 8 + id;
       *reinterpret_cast<uint64_t*>(buf + 3) = key;
@@ -240,6 +253,7 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
   std::memset(buf, 0, kBufSize);
   Epoch commit_epoch;
   std::set<std::string> inserted;
+  std::set<uint32_t> skipped_i;
   std::string answers[kCount];
   {
     assorted::UniformRandom uniform_random(123456L);
@@ -252,6 +266,7 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
       std::string key(key_buf, len);
       if (inserted.find(key) != inserted.end()) {
         std::cout << "already inserted" << key << std::endl;
+        skipped_i.insert(i);
         continue;
       }
       inserted.insert(key);
@@ -279,12 +294,18 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
     char buf2[kBufSize];
     WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     for (uint32_t i = 0; i < kCount; ++i) {
+      if (skipped_i.find(i) != skipped_i.end()) {
+        continue;
+      }
       *reinterpret_cast<uint64_t*>(buf + 123) = i;
       uint16_t capacity = kBufSize;
       std::string key = answers[i];
-      WRAP_ERROR_CODE(masstree.get_record(context, key.data(), key.size(), buf2, &capacity));
-      EXPECT_EQ(kBufSize, capacity);
-      EXPECT_EQ(std::string(buf, kBufSize), std::string(buf2, kBufSize));
+      ErrorCode ret = masstree.get_record(context, key.data(), key.size(), buf2, &capacity);
+      EXPECT_EQ(kErrorCodeOk, ret) << i;
+      if (kErrorCodeOk == ret) {
+        EXPECT_EQ(kBufSize, capacity);
+        EXPECT_EQ(std::string(buf, kBufSize), std::string(buf2, kBufSize));
+      }
       if (i % 20 == 0) {
         WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
         WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -303,25 +324,22 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
 }
 
 TEST(MasstreeRandomTest, InsertMany) {
-  /* TODO(Hideaki) implemented next-layer moved bit tracking
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
   Engine engine(options);
+  engine.get_proc_manager()->pre_register("insert_many_task", insert_many_task);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    MasstreeStorage* out;
+    MasstreeStorage out;
     Epoch commit_epoch;
     MasstreeMetadata meta("test2");
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &out, &commit_epoch));
-    EXPECT_TRUE(out != nullptr);
-    InsertManyTask task;
-    thread::ImpersonateSession session = engine.get_thread_pool()->impersonate(&task);
-    COERCE_ERROR(session.get_result());
+    ASSERT_ND(out.exists());
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_many_task"));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
-  */
 }
 
 }  // namespace masstree

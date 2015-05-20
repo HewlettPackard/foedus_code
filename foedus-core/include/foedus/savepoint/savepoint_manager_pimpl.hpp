@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_SAVEPOINT_SAVEPOINT_MANAGER_PIMPL_HPP_
 #define FOEDUS_SAVEPOINT_SAVEPOINT_MANAGER_PIMPL_HPP_
@@ -14,9 +27,9 @@
 #include "foedus/fs/path.hpp"
 #include "foedus/savepoint/fwd.hpp"
 #include "foedus/savepoint/savepoint.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 
 namespace foedus {
 namespace savepoint {
@@ -36,8 +49,6 @@ struct SavepointManagerControlBlock {
   }
   void uninitialize() {
     savepoint_mutex_.uninitialize();
-    save_done_event_.uninitialize();
-    save_wakeup_.uninitialize();
   }
 
   std::atomic<bool>   master_initialized_;
@@ -48,7 +59,7 @@ struct SavepointManagerControlBlock {
    * savepoint thread sleeps on this condition variable.
    * The real variable is saved_durable_epoch_.
    */
-  soc::SharedCond     save_wakeup_;
+  soc::SharedPolling  save_wakeup_;
   /** The durable epoch that has been made persistent in previous savepoint-ing. */
   Epoch::EpochInteger saved_durable_epoch_;
   /**
@@ -62,7 +73,7 @@ struct SavepointManagerControlBlock {
    * Whenever a savepoint has been taken, this event is fired.
    * The thread that has requested the savepoint sleeps on this.
    */
-  soc::SharedCond     save_done_event_;
+  soc::SharedPolling  save_done_event_;
 
   /**
    * Read/write to savepoint_ is protected with this mutex.

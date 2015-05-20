@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_XCT_XCT_ID_HPP_
 #define FOEDUS_XCT_XCT_ID_HPP_
@@ -34,34 +47,39 @@ namespace xct {
  * May add:
  * \li COMMITTED_READ: see-epoch and read data -> fence -> check-epoch, then forget the read set
  * \li REPEATABLE_READ: assuming no-repeated-access (which we do assume), same as COMMITTED_READ
+ *
+ * but probably they are superseded either by kDirtyRead or kSnapshot.
  */
 enum IsolationLevel {
   /**
-   * No guarantee at all for reads, for the sake of best performance and scalability.
+   * @brief No guarantee at all for reads, for the sake of best performance and scalability.
+   * @details
    * This avoids checking and even storing read set, thus provides the best performance.
    * However, concurrent transactions might be modifying the data the transaction is now reading.
    * So, this has a chance of reading half-changed data.
-   * To ameriolate the issue a bit, this mode prefers snapshot pages if both a snapshot page
-   * and a volatile page is available. In other words, more consistent but more stale data.
+   * This mode prefers volatile pages if both a snapshot page and a volatile page is available.
+   * In other words, more recent but more inconsistent reads compared to kSnapshot.
    */
-  kDirtyReadPreferSnapshot,
+  kDirtyRead,
 
   /**
-   * Basically same as kDirtyReadPreferSnapshot, but this mode prefers volatile pages
-   * if both a snapshot page and a volatile page is available. In other words,
-   * more recent but more inconsistent data.
-   */
-  kDirtyReadPreferVolatile,
-
-  /**
-   * Snapshot isolation, meaning the transaction might see or be based on stale snapshot.
-   * Optionally, the client can specify which snapshot we should be based on.
+   * @brief Snapshot isolation (SI), meaning the transaction reads a consistent and complete image
+   * of the database as of the previous snapshot.
+   * @details
+   * Writes are same as kSerializable, but all reads
+   * simply follow snapshot-pointer from the root, so there is no race, no abort, no verification.
+   * Hence, higher scalability than kSerializable.
+   * However, this level can result in \e write \e skews.
+   * Choose this level if you want highly consistent reads and very high performance.
+   * TASK(Hideaki): Allow specifying which snapshot we should be based on. Low priority.
    */
   kSnapshot,
 
   /**
-   * Protects against all anomalies in all situations.
+   * @brief Protects against all anomalies in all situations.
+   * @details
    * This is the most expensive level, but everything good has a price.
+   * Choose this level if you want full correctness.
    */
   kSerializable,
 };
@@ -218,10 +236,19 @@ class CombinedLock {
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
 const uint64_t kXctIdMovedBit       = 1ULL << 62;
 const uint64_t kXctIdBeingWrittenBit = 1ULL << 61;
-const uint64_t kXctIdReservedBit    = 1ULL << 60;
+const uint64_t kXctIdNextLayerBit    = 1ULL << 60;
 const uint64_t kXctIdMaskSerializer = 0x0FFFFFFFFFFFFFFFULL;
 const uint64_t kXctIdMaskEpoch      = 0x0FFFFFFF00000000ULL;
 const uint64_t kXctIdMaskOrdinal    = 0x00000000FFFFFFFFULL;
+
+/**
+ * @brief Maximum value of in-epoch ordinal.
+ * @ingroup XCT
+ * @details
+ * We reserve 4 bytes in XctId, but in reality 3 bytes are more than enough.
+ * By restricting it to within 3 bytes, we can pack more information in a few places.
+ */
+const uint64_t kMaxXctOrdinal       = (1ULL << 24) - 1U;
 
 /**
  * @brief Persistent status part of Transaction ID
@@ -240,7 +267,13 @@ const uint64_t kXctIdMaskOrdinal    = 0x00000000FFFFFFFFULL;
  * <tr><td>3</td><td>BeingWritten</td><td>Before we start applying modifications to a record,
  * we set true to this so that optimistic-read can easily check for half-updated value.
  * After the modification, we set false to this. Of course with appropriate fences.</td></tr>
- * <tr><td>4</td><td>Reserved</td><td>Reserved for later use.</td></tr>
+ * <tr><td>4</td><td>NextLayer</td><td>This is used only in Masstree. This bit indicates whether
+ * the record represents a pointer to next layer. False if it is a tuple itself. We put this
+ * information as part of XctId because we sometimes have to transactionally know whether the
+ * record is a next-layer pointer or not. There is something wrong if a read-set or write-set
+ * contains an XctId whose NextLayer bit is ON, because then the record is not a logical tuple.
+ * In other words, a reading transaction can efficiently protect their reads on a record that
+ * might become a next-layer pointer with a simple check after the usual read protocol.</td></tr>
  * <tr><td>5..32</td><td>Epoch</td><td>The recent owning transaction was in this Epoch.
  * We don't consume full 32 bits for epoch.
  * Assuming 20ms per epoch, 28bit still represents 1 year. All epochs will be refreshed by then
@@ -277,6 +310,7 @@ struct XctId {
 
   void set(Epoch::EpochInteger epoch_int, uint32_t ordinal) {
     ASSERT_ND(epoch_int < Epoch::kEpochIntOverflow);
+    ASSERT_ND(ordinal <= kMaxXctOrdinal);
     data_ = static_cast<uint64_t>(epoch_int) << 32 | ordinal;
   }
 
@@ -292,8 +326,12 @@ struct XctId {
   bool    is_valid() const ALWAYS_INLINE { return get_epoch_int() != Epoch::kEpochInvalid; }
 
 
-  uint32_t  get_ordinal() const ALWAYS_INLINE { return data_; }
+  uint32_t  get_ordinal() const ALWAYS_INLINE {
+    ASSERT_ND(static_cast<uint32_t>(data_) <= kMaxXctOrdinal);
+    return static_cast<uint32_t>(data_);
+  }
   void      set_ordinal(uint32_t ordinal) ALWAYS_INLINE {
+    ASSERT_ND(ordinal <= kMaxXctOrdinal);
     data_ = (data_ & (~kXctIdMaskOrdinal)) | ordinal;
   }
   /**
@@ -332,10 +370,19 @@ struct XctId {
   void    set_deleted() ALWAYS_INLINE { data_ |= kXctIdDeletedBit; }
   void    set_notdeleted() ALWAYS_INLINE { data_ &= (~kXctIdDeletedBit); }
   void    set_moved() ALWAYS_INLINE { data_ |= kXctIdMovedBit; }
+  void    set_next_layer() ALWAYS_INLINE { data_ |= kXctIdNextLayerBit; }
+  // note, we should not need this method because becoming a next-layer-pointer is permanent.
+  // we never revert it, which simplifies a concurrency control.
+  // void    set_not_next_layer() ALWAYS_INLINE { data_ &= (~kXctIdNextLayerBit); }
 
   bool    is_being_written() const ALWAYS_INLINE { return (data_ & kXctIdBeingWrittenBit) != 0; }
   bool    is_deleted() const ALWAYS_INLINE { return (data_ & kXctIdDeletedBit) != 0; }
   bool    is_moved() const ALWAYS_INLINE { return (data_ & kXctIdMovedBit) != 0; }
+  bool    is_next_layer() const ALWAYS_INLINE { return (data_ & kXctIdNextLayerBit) != 0; }
+  /** is_moved() || is_next_layer() */
+  bool    needs_track_moved() const ALWAYS_INLINE {
+    return (data_ & (kXctIdMovedBit | kXctIdNextLayerBit)) != 0;
+  }
 
 
   bool operator==(const XctId &other) const ALWAYS_INLINE { return data_ == other.data_; }
@@ -406,6 +453,8 @@ struct LockableXctId {
   bool is_keylocked() const ALWAYS_INLINE { return lock_.is_keylocked(); }
   bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
   bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
+  bool is_next_layer() const ALWAYS_INLINE { return xct_id_.is_next_layer(); }
+  bool needs_track_moved() const ALWAYS_INLINE { return xct_id_.needs_track_moved(); }
   bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
 
   /** used only while page initialization */
@@ -425,6 +474,18 @@ struct McsLockScope {
   McsLock* lock_;
   McsBlockIndex block_;
 };
+
+/** Result of track_moved_record(). When failed to track, both null. */
+struct TrackMovedRecordResult {
+  TrackMovedRecordResult()
+    : new_owner_address_(CXX11_NULLPTR), new_payload_address_(CXX11_NULLPTR) {}
+  TrackMovedRecordResult(LockableXctId* new_owner_address, char* new_payload_address)
+    : new_owner_address_(new_owner_address), new_payload_address_(new_payload_address) {}
+
+  LockableXctId* new_owner_address_;
+  char* new_payload_address_;
+};
+
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))

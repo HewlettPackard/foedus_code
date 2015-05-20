@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/soc/soc_manager_pimpl.hpp"
 
@@ -151,6 +164,7 @@ ErrorStack SocManagerPimpl::wait_for_child_attach() {
   uint32_t trials = 0;
   bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     bool error_happened = false;
     bool remaining = false;
@@ -218,6 +232,7 @@ ErrorStack SocManagerPimpl::wait_for_child_terminate() {
   uint32_t trials = 0;
   bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     bool remaining = false;
     for (uint16_t node = 0; node < soc_count; ++node) {
@@ -273,6 +288,7 @@ ErrorStack SocManagerPimpl::wait_for_master_status(MasterEngineStatus::StatusCod
   const uint32_t kIntervalMillisecond = 10;
 //  bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
   while (true) {
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMillisecond));
     MasterEngineStatus::StatusCode master_status = memory_repo_.get_master_status();
     if (master_status == target_status) {
@@ -326,6 +342,7 @@ ErrorStack SocManagerPimpl::wait_for_master_module(bool init, ModuleType desired
         return ERROR_STACK(kErrorCodeSocChildUninitFailed);
       }
     }
+    assorted::spinlock_yield();
     assorted::memory_fence_acq_rel();
     ModuleType cur;
     if (init) {
@@ -345,7 +362,7 @@ ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desir
   uint16_t soc_count = engine_->get_options().thread_.group_count_;
   bool child_as_process = engine_->get_options().soc_.soc_type_ != kChildEmulated;
 
-  // TODO(Hideaki) should be a function in soc manager
+  // TASK(Hideaki) should be a function in soc manager
   // We also check if the child died unexpectedly
   const uint32_t kWarnSleeps = 400;
   for (uint32_t count = 0;; ++count) {
@@ -353,6 +370,7 @@ ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desir
       LOG(WARNING) << "Suspiciously long wait for child " << (init ? "" : "un") << "initializing"
         << " module-" << desired << ". count=" << count;
     }
+    assorted::spinlock_yield();
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     assorted::memory_fence_acq_rel();
     bool error_happened = false;
@@ -385,7 +403,7 @@ ErrorStack SocManagerPimpl::wait_for_children_module(bool init, ModuleType desir
       }
       remaining = true;
       if (child_as_process) {
-        // TODO(Hideaki) check child process status with waitpid
+        // TASK(Hideaki) check child process status with waitpid
         if (child_upids_[node] != 0) {
           int status = 0;
           pid_t wait_ret = ::waitpid(child_upids_[node], &status, WNOHANG | __WALL);

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_XCT_XCT_HPP_
 #define FOEDUS_XCT_XCT_HPP_
@@ -101,7 +114,7 @@ class Xct {
   uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
   const PointerAccess*   get_pointer_set() const { return pointer_set_; }
   const PageVersionAccess*  get_page_version_set() const { return page_version_set_; }
-  XctAccess*          get_read_set()  { return read_set_; }
+  ReadXctAccess*      get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
 
@@ -176,6 +189,11 @@ class Xct {
     storage::StorageId storage_id,
     XctId observed_owner_id,
     LockableXctId* owner_id_address) ALWAYS_INLINE;
+  /** This version always adds to read set regardless of isolation level. */
+  ErrorCode           add_to_read_set_force(
+    storage::StorageId storage_id,
+    XctId observed_owner_id,
+    LockableXctId* owner_id_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
@@ -195,40 +213,21 @@ class Xct {
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
+   * @brief Add a pair of read and write set of this transaction.
+   */
+  ErrorCode           add_to_read_and_write_set(
+    storage::StorageId storage_id,
+    XctId observed_owner_id,
+    LockableXctId* owner_id_address,
+    char* payload_address,
+    log::RecordLogType* log_entry) ALWAYS_INLINE;
+
+  /**
    * @brief Add the given log to the lock-free write set of this transaction.
    */
   ErrorCode           add_to_lock_free_write_set(
     storage::StorageId storage_id,
     log::RecordLogType* log_entry);
-
-  /**
-   * @brief If this transaction is currently committing with some log to publish, this
-   * gives the \e conservative estimate (although usually exact) of the commit epoch.
-   * @details
-   * This is used by loggers to tell if it can assume that this transaction already got a new
-   * epoch or not in commit phase. If it's not the case, the logger will spin on this until
-   * this returns 0 or epoch that is enough recent. Without this mechanisim, we will get a too
-   * conservative value of "min(ctid_w)" (Sec 4.10 [TU2013]) when there are some threads that
-   * are either idle or spending long time before/after commit.
-   *
-   * The transaction takes an appropriate fence before updating this value so that
-   * followings are guaranteed:
-   * \li When this returns 0, this transaction will not publish any more log without getting
-   * recent epoch (see destructor of InCommitLogEpochGuard).
-   * \li If this returns epoch-X, the transaction will never publishe a log whose epoch is less
-   * than X. (this is assured by taking InCommitLogEpochGuard BEFORE the first fence in commit)
-   * \li As an added guarantee, this value will be updated as soon as the commit phase ends, so
-   * the logger can safely spin on this value.
-   *
-   * @note A similar protocol seems implemented in MIT Silo, too. See
-   * how "txn_logger::advance_system_sync_epoch" updates per_thread_sync_epochs_ and
-   * system_sync_epoch_. However, not quite sure about their implementation. Will ask.
-   * @see InCommitLogEpochGuard
-   */
-  Epoch               get_in_commit_log_epoch() const {
-    assorted::memory_fence_acquire();
-    return in_commit_log_epoch_;
-  }
 
   void                remember_previous_xct_id(XctId new_id) {
     ASSERT_ND(id_.before(new_id));
@@ -258,31 +257,11 @@ class Xct {
   }
 
   /**
-   * Automatically resets in_commit_log_epoch_ with appropriate fence.
-   * This guards the range from a read-write transaction starts committing until it publishes
-   * or discards the logs.
-   * @see get_in_commit_log_epoch()
-   * @see foedus::xct::XctManagerPimpl::precommit_xct_readwrite()
+   * This debug method checks whether the related_read_ and related_write_ fileds in
+   * read/write sets are consistent. This method is completely wiped out in release build.
+   * @return whether it is consistent. but this method anyway asserts as of finding inconsistency.
    */
-  struct InCommitLogEpochGuard {
-    InCommitLogEpochGuard(Xct *xct, Epoch current_epoch) : xct_(xct) {
-      xct_->in_commit_log_epoch_ = current_epoch;
-    }
-    ~InCommitLogEpochGuard() {
-      // prohibit reorder the change on ThreadLogBuffer#offset_committed_
-      // BEFORE update to in_commit_log_epoch_. This is to satisfy the first requirement:
-      // ("When this returns 0, this transaction will not publish any more log without getting
-      // recent epoch").
-      // Without this fence, logger can potentially miss the log that has been just published
-      // with the old epoch.
-      assorted::memory_fence_release();
-      xct_->in_commit_log_epoch_ = Epoch(0);
-      // We can also call another memory_order_release here to immediately publish it,
-      // but it's anyway rare. The spinning logger will eventually get the update, so no need.
-      // In non-TSO architecture, this also saves some overhead in critical path.
-    }
-    Xct* const xct_;
-  };
+  bool assert_related_read_write() const ALWAYS_INLINE;
 
   friend std::ostream& operator<<(std::ostream& o, const Xct& v);
 
@@ -312,7 +291,7 @@ class Xct {
    */
   uint32_t*           mcs_block_current_;
 
-  XctAccess*          read_set_;
+  ReadXctAccess*      read_set_;
   uint32_t            read_set_size_;
   uint32_t            max_read_set_size_;
 
@@ -340,9 +319,6 @@ class Xct {
   uint64_t            local_work_memory_size_;
   /** This value is reset to zero for each transaction, and always <= local_work_memory_size_ */
   uint64_t            local_work_memory_cur_;
-
-  /** @copydoc get_in_commit_log_epoch() */
-  Epoch               in_commit_log_epoch_;
 };
 
 
@@ -354,7 +330,7 @@ inline ErrorCode Xct::add_to_pointer_set(
     return kErrorCodeOk;
   }
 
-  // TODO(Hideaki) even though pointer set should be small, we don't want sequential search
+  // TASK(Hideaki) even though pointer set should be small, we don't want sequential search
   // everytime. but insertion sort requires shifting. mmm.
   for (uint32_t i = 0; i < pointer_set_size_; ++i) {
     if (pointer_set_[i].address_ == pointer_address) {
@@ -412,15 +388,28 @@ inline ErrorCode Xct::add_to_read_set(
   LockableXctId* owner_id_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
-  // TODO(Hideaki) callers should check if it's a snapshot page. or should we check here?
+  ASSERT_ND(observed_owner_id.is_valid());
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
-  } else if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
+  }
+  return add_to_read_set_force(storage_id, observed_owner_id, owner_id_address);
+}
+inline ErrorCode Xct::add_to_read_set_force(
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  LockableXctId* owner_id_address) {
+  ASSERT_ND(storage_id != 0);
+  ASSERT_ND(owner_id_address);
+  if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
+  // if the next-layer bit is ON, the record is not logically a record, so why we are adding
+  // it to read-set? we should have already either aborted or retried in this case.
+  ASSERT_ND(!observed_owner_id.is_next_layer());
   read_set_[read_set_size_].storage_id_ = storage_id;
   read_set_[read_set_size_].owner_id_address_ = owner_id_address;
   read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
+  read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
   ++read_set_size_;
   return kErrorCodeOk;
 }
@@ -443,10 +432,11 @@ inline ErrorCode Xct::add_to_write_set(
 #endif  // NDEBUG
 
   write_set_[write_set_size_].storage_id_ = storage_id;
+  write_set_[write_set_size_].mcs_block_ = 0;
   write_set_[write_set_size_].owner_id_address_ = owner_id_address;
   write_set_[write_set_size_].payload_address_ = payload_address;
   write_set_[write_set_size_].log_entry_ = log_entry;
-  write_set_[write_set_size_].mcs_block_ = 0;
+  write_set_[write_set_size_].related_read_ = CXX11_NULLPTR;
   ++write_set_size_;
   return kErrorCodeOk;
 }
@@ -456,6 +446,30 @@ inline ErrorCode Xct::add_to_write_set(
   storage::Record* record,
   log::RecordLogType* log_entry) {
   return add_to_write_set(storage_id, &record->owner_id_, record->payload_, log_entry);
+}
+
+inline ErrorCode Xct::add_to_read_and_write_set(
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  LockableXctId* owner_id_address,
+  char* payload_address,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(observed_owner_id.is_valid());
+  WriteXctAccess* write = write_set_ + write_set_size_;
+  CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
+  ASSERT_ND(write->log_entry_ == log_entry);
+  ASSERT_ND(write->owner_id_address_ == owner_id_address);
+
+  // in this method, we force to add a read set because it's critical to confirm that
+  // the physical record we write to is still the one we found.
+  ReadXctAccess* read = read_set_ + read_set_size_;
+  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
+  ASSERT_ND(read->owner_id_address_ == owner_id_address);
+  read->related_write_ = write;
+  write->related_read_ = read;
+  ASSERT_ND(read->related_write_->related_read_ == read);
+  ASSERT_ND(write->related_read_->related_write_ == write);
+  return kErrorCodeOk;
 }
 
 inline ErrorCode Xct::add_to_lock_free_write_set(
@@ -475,6 +489,33 @@ inline ErrorCode Xct::add_to_lock_free_write_set(
   lock_free_write_set_[lock_free_write_set_size_].log_entry_ = log_entry;
   ++lock_free_write_set_size_;
   return kErrorCodeOk;
+}
+
+inline bool Xct::assert_related_read_write() const {
+#ifndef NDEBUG
+  for (uint32_t i = 0; i < write_set_size_; ++i) {
+    WriteXctAccess* write = write_set_ + i;
+    if (write->related_read_) {
+      ASSERT_ND(write->related_read_ >= read_set_);
+      uint32_t index = write->related_read_ - read_set_;
+      ASSERT_ND(index < read_set_size_);
+      ASSERT_ND(write->owner_id_address_ == write->related_read_->owner_id_address_);
+      ASSERT_ND(write == write->related_read_->related_write_);
+    }
+  }
+
+  for (uint32_t i = 0; i < read_set_size_; ++i) {
+    ReadXctAccess* read = read_set_ + i;
+    if (read->related_write_) {
+      ASSERT_ND(read->related_write_ >= write_set_);
+      uint32_t index = read->related_write_ - write_set_;
+      ASSERT_ND(index < write_set_size_);
+      ASSERT_ND(read->owner_id_address_ == read->related_write_->owner_id_address_);
+      ASSERT_ND(read == read->related_write_->related_read_);
+    }
+  }
+#endif  // NDEBUG
+  return true;
 }
 
 }  // namespace xct

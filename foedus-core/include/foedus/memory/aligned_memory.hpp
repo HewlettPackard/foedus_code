@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
 #define FOEDUS_MEMORY_ALIGNED_MEMORY_HPP_
@@ -125,16 +138,32 @@ class AlignedMemory CXX11_FINAL {
   ~AlignedMemory() { release_block(); }
 
   /** Allocate a memory, releasing the current memory if exists. */
-  void        alloc(uint64_t size, uint64_t alignment,
-            AllocType alloc_type, int numa_node) CXX11_NOEXCEPT;
+  void        alloc(
+    uint64_t size,
+    uint64_t alignment,
+    AllocType alloc_type,
+    int numa_node) CXX11_NOEXCEPT;
+  /** Short for alloc(kNumaAllocOnnode) */
+  void        alloc_onnode(uint64_t size, uint64_t alignment, int numa_node) CXX11_NOEXCEPT {
+    alloc(size, alignment, kNumaAllocOnnode, numa_node);
+  }
+
   /**
    * If the current size is smaller than the given size, automatically expands.
    * This is useful for temporary work buffer.
+   * @param[in] required_size resulting memory will have at least this size
+   * @param[in] expand_margin when expanded, the new size is multiplied with this number to
+   * avoid too frequent expansion
+   * @param[in] retain_content if specified, copies the current content to the new memory
    * @pre !is_null(), so you have to first alloc(). Because otherwise we don't know have to alloc.
    * @attention When expanded, the memory address changes.
    * @return only possible error is out-of-memory
    */
-  ErrorCode   assure_capacity(uint64_t required_size, double expand_margin = 2.0) CXX11_NOEXCEPT;
+  ErrorCode   assure_capacity(
+    uint64_t required_size,
+    double expand_margin = 2.0,
+    bool retain_content = false) CXX11_NOEXCEPT;
+
   /** Returns the memory block. */
   void*       get_block() const { return block_; }
   /** Returns if this object doesn't hold a valid memory block. */

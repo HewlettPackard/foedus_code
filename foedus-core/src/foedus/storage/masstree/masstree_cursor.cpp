@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 
@@ -69,7 +82,8 @@ inline ErrorCode MasstreeCursor::allocate_if_not_exist(T** pointer) {
   return kErrorCodeOk;
 }
 
-MasstreePage* MasstreeCursor::resolve(VolatilePagePointer ptr) const {
+MasstreePage* MasstreeCursor::resolve_volatile(VolatilePagePointer ptr) const {
+  ASSERT_ND(!ptr.is_null());
   return reinterpret_cast<MasstreePage*>(
     engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(ptr));
 }
@@ -118,7 +132,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
   ASSERT_ND(route->page_->is_border());
   if (UNLIKELY(route->page_->get_version().status_ != route->stable_)) {
     // something has changed in this page.
-    // TODO(Hideaki) until we implement range lock, we have to roll back in this case.
+    // TASK(Hideaki) until we implement range lock, we have to roll back in this case.
     return kErrorCodeXctRaceAbort;
   }
 
@@ -299,8 +313,8 @@ inline ErrorCode MasstreeCursor::proceed_pop() {
         continue;
       }
       route.moved_page_search_status_ = Route::kMovedPageSearchedBoth;
-      MasstreePage* left = resolve(route.page_->get_foster_minor());
-      MasstreePage* right = resolve(route.page_->get_foster_major());
+      MasstreePage* left = resolve_volatile(route.page_->get_foster_minor());
+      MasstreePage* right = resolve_volatile(route.page_->get_foster_major());
       // check another foster child
       CHECK_ERROR_CODE(push_route(forward_cursor_ ? right : left));
       return proceed_deeper();
@@ -329,9 +343,10 @@ inline ErrorCode MasstreeCursor::proceed_next_layer() {
 inline ErrorCode MasstreeCursor::proceed_deeper() {
   // if we are hitting a moved page, go to left or right, depending on forward cur or not
   while (UNLIKELY(cur_route()->stable_.is_moved())) {
-    MasstreePage* next_page = forward_cursor_
-      ? resolve(cur_route()->page_->get_foster_minor())
-      : resolve(cur_route()->page_->get_foster_major());
+    MasstreePage* next_page = resolve_volatile(
+      forward_cursor_
+      ? cur_route()->page_->get_foster_minor()
+      : cur_route()->page_->get_foster_major());
     ASSERT_ND(cur_route()->moved_page_search_status_ == Route::kMovedPageSearchedNeither);
     cur_route()->moved_page_search_status_ = Route::kMovedPageSearchedOne;
     CHECK_ERROR_CODE(push_route(next_page));
@@ -349,6 +364,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   Route* route = cur_route();
   ASSERT_ND(route->page_->is_border());
   ASSERT_ND(!route->stable_.is_moved());
+  ASSERT_ND(route->key_count_ > 0);
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
   route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
   uint8_t record = route->get_original_index(route->index_);
@@ -502,7 +518,9 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
     if (page->is_border() && !route.stable_.is_moved()) {
       route.setup_order();
       assorted::memory_fence_consume();
-      // the setup_order must not be confused by concurrent updates
+      // the setup_order must not be confused by concurrent updates.
+      // because we check version after consume fence, this also catches the case where
+      // we have a new key, is_consecutive_inserts()==true no longer holds, etc.
       if (UNLIKELY(route.stable_ != page->get_version().status_)) {
         continue;
       }
@@ -537,8 +555,8 @@ inline ErrorCode MasstreeCursor::follow_foster(KeySlice slice) {
     ASSERT_ND(route->stable_.is_moved());
     ASSERT_ND(route->moved_page_search_status_ == Route::kMovedPageSearchedNeither);
     KeySlice foster_fence = route->page_->get_foster_fence();
-    MasstreePage* left = resolve(route->page_->get_foster_minor());
-    MasstreePage* right = resolve(route->page_->get_foster_major());
+    MasstreePage* left = resolve_volatile(route->page_->get_foster_minor());
+    MasstreePage* right = resolve_volatile(route->page_->get_foster_major());
     MasstreePage* page;
     if (slice < foster_fence) {
       page = left;
@@ -753,10 +771,9 @@ ErrorCode MasstreeCursor::open(
     std::memcpy(search_key_, begin_key, begin_key_length);
   }
 
-  ASSERT_ND(storage_.get_control_block()->root_page_pointer_.volatile_pointer_.components.offset);
-  VolatilePagePointer pointer = storage_.get_control_block()->root_page_pointer_.volatile_pointer_;
-  MasstreePage* root = reinterpret_cast<MasstreePage*>(
-    context_->get_global_volatile_page_resolver().resolve_offset(pointer));
+  MasstreeIntermediatePage* root;
+  MasstreeStoragePimpl pimpl(&storage_);
+  CHECK_ERROR_CODE(pimpl.get_first_root(context_, for_writes, &root));
   CHECK_ERROR_CODE(push_route(root));
   CHECK_ERROR_CODE(locate_layer(0));
   if (!is_valid_record() && cur_route()->locate_miss_in_page_) {

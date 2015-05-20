@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/storage/array/array_page_impl.hpp"
 
@@ -17,16 +30,24 @@ namespace foedus {
 namespace storage {
 namespace array {
 void ArrayPage::initialize_snapshot_page(
+  Epoch initial_epoch,
   StorageId storage_id,
   SnapshotPagePointer page_id,
   uint16_t payload_size,
   uint8_t level,
   const ArrayRange& array_range) {
+  ASSERT_ND(initial_epoch.is_valid());
   std::memset(this, 0, kPageSize);
   header_.init_snapshot(page_id, storage_id, kArrayPageType);
   payload_size_ = payload_size;
   level_ = level;
   array_range_ = array_range;
+  if (is_leaf()) {
+    uint16_t records = get_leaf_record_count();
+    for (uint16_t i = 0; i < records; ++i) {
+      get_leaf_record(i, payload_size)->owner_id_.xct_id_.set_epoch(initial_epoch);
+    }
+  }
 }
 
 void ArrayPage::initialize_volatile_page(
@@ -36,6 +57,7 @@ void ArrayPage::initialize_volatile_page(
   uint16_t payload_size,
   uint8_t level,
   const ArrayRange& array_range) {
+  ASSERT_ND(initial_epoch.is_valid());
   std::memset(this, 0, kPageSize);
   header_.init_volatile(page_id, storage_id, kArrayPageType);
   payload_size_ = payload_size;

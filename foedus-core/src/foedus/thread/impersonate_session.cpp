@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/thread/impersonate_session.hpp"
 
@@ -59,11 +72,11 @@ void ImpersonateSession::wait() const {
   }
   ThreadControlBlock* block = thread_->get_control_block();
   while (is_running()) {
-    soc::SharedMutexScope scope(block->task_complete_cond_.get_mutex());
+    uint64_t demand = block->task_complete_cond_.acquire_ticket();
     if (!is_running()) {
       break;
     }
-    block->task_complete_cond_.timedwait(&scope, 100000000ULL);
+    block->task_complete_cond_.timedwait(demand, 100000ULL);
   }
 }
 
@@ -84,10 +97,7 @@ void ImpersonateSession::release() {
   wait();
   ThreadControlBlock* block = thread_->get_control_block();
   if (block->current_ticket_ == ticket_ && block->status_ == kWaitingForClientRelease) {
-    soc::SharedMutexScope scope(block->wakeup_cond_.get_mutex());
-    if (block->current_ticket_ == ticket_ && block->status_ == kWaitingForClientRelease) {
-      block->status_ = kWaitingForTask;
-    }
+    block->status_ = kWaitingForTask;
   }
 
   ticket_ = 0;

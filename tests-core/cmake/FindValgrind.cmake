@@ -21,14 +21,21 @@ if (VALGRIND_DIR)
     message(STATUS "Running ${VALGRIND_EXEC} to check version...")
     exec_program(${VALGRIND_EXEC} ARGS --version OUTPUT_VARIABLE VALGRIND_VERSION)
     # parse it
-    string(REGEX REPLACE "valgrind\\-([0-9]+)\\.[0-9]+\\.[0-9]+" "\\1" VALGRIND_VERSION_MAJOR "${VALGRIND_VERSION}")
-    string(REGEX REPLACE "valgrind\\-[0-9]+\\.([0-9])+\\.[0-9]+" "\\1" VALGRIND_VERSION_MINOR "${VALGRIND_VERSION}")
-    string(REGEX REPLACE "valgrind\\-[0-9]+\\.[0-9]+\\.([0-9]+)" "\\1" VALGRIND_VERSION_PATCH "${VALGRIND_VERSION}")
+    # Examples. "valgrind-3.9.0", "valgrind-3.10.0.SVN", etc
+    string(REGEX REPLACE "valgrind\\-([0-9]+)\\.[0-9]+\\.[0-9]+.*" "\\1" VALGRIND_VERSION_MAJOR "${VALGRIND_VERSION}")
+    string(REGEX REPLACE "valgrind\\-[0-9]+\\.([0-9]+)\\.[0-9]+.*" "\\1" VALGRIND_VERSION_MINOR "${VALGRIND_VERSION}")
+    string(REGEX REPLACE "valgrind\\-[0-9]+\\.[0-9]+\\.([0-9]+).*" "\\1" VALGRIND_VERSION_PATCH "${VALGRIND_VERSION}")
     message(STATUS "VALGRIND_VERSION_MAJOR=${VALGRIND_VERSION_MAJOR}")
     message(STATUS "VALGRIND_VERSION_MINOR=${VALGRIND_VERSION_MINOR}")
     message(STATUS "VALGRIND_VERSION_PATCH=${VALGRIND_VERSION_PATCH}")
     if ((${VALGRIND_VERSION_MAJOR} LESS 4) AND (${VALGRIND_VERSION_MINOR} LESS 9))
         message(WARNING "The version of the valgrind executable (${VALGRIND_EXEC}) is ${VALGRIND_VERSION}. We recommend at least valgrind 3.9 for your happier development life.")
+    elseif (("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64") AND
+      (${VALGRIND_VERSION_MAJOR} LESS 4) AND
+      (${VALGRIND_VERSION_MINOR} LESS 11) AND
+      (${VALGRIND_VERSION_PATCH} LESS 1))
+        message(WARNING "STRONG WARNING on AArch64!!! valgrind 3.10.0 and earlier has a critical bug on AArch64. You must use 3.10.1 or later. The version of the valgrind executable (${VALGRIND_EXEC}) is ${VALGRIND_VERSION}.")
+        message(WARNING "There are several missing ARMv8 instructions in 3.10.0, which causes the unhandled instruction errors.")
     else ()
         message(STATUS "Great, the version of the valgrind executable (${VALGRIND_EXEC}) is latest enough: ${VALGRIND_VERSION}.")
     endif()

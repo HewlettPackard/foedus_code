@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/thread/thread.hpp"
 
@@ -36,10 +49,24 @@ ErrorStack Thread::uninitialize() { return pimpl_->uninitialize(); }
 Engine*     Thread::get_engine()        const { return pimpl_->engine_; }
 ThreadId    Thread::get_thread_id()     const { return pimpl_->id_; }
 ThreadGlobalOrdinal Thread::get_thread_global_ordinal() const { return pimpl_->global_ordinal_; }
+Epoch* Thread::get_in_commit_epoch_address() { return &pimpl_->control_block_->in_commit_epoch_; }
 
 memory::NumaCoreMemory* Thread::get_thread_memory() const { return pimpl_->core_memory_; }
 memory::NumaNodeMemory* Thread::get_node_memory() const {
   return pimpl_->core_memory_->get_node_memory();
+}
+
+uint64_t Thread::get_snapshot_cache_hits() const {
+  return pimpl_->control_block_->stat_snapshot_cache_hits_;
+}
+
+uint64_t Thread::get_snapshot_cache_misses() const {
+  return pimpl_->control_block_->stat_snapshot_cache_misses_;
+}
+
+void Thread::reset_snapshot_cache_counts() const {
+  pimpl_->control_block_->stat_snapshot_cache_hits_ = 0;
+  pimpl_->control_block_->stat_snapshot_cache_misses_ = 0;
 }
 
 xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
@@ -60,6 +87,12 @@ ErrorCode Thread::find_or_read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page** out) {
   return pimpl_->find_or_read_a_snapshot_page(page_id, out);
+}
+ErrorCode Thread::find_or_read_snapshot_pages_batch(
+  uint16_t batch_size,
+  const storage::SnapshotPagePointer* page_ids,
+  storage::Page** out) {
+  return pimpl_->find_or_read_snapshot_pages_batch(batch_size, page_ids, out);
 }
 
 ErrorCode Thread::install_a_volatile_page(

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/snapshot/log_mapper_impl.hpp"
 
@@ -28,6 +41,7 @@
 #include "foedus/snapshot/snapshot.hpp"
 #include "foedus/storage/partitioner.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/hash/hash_log_types.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 
 namespace foedus {
@@ -86,13 +100,6 @@ ErrorStack LogMapper::initialize_once() {
     memory::kHugepageSize,
     memory::AlignedMemory::kNumaAllocOnnode,
     numa_node_);
-  /* TODO(Hideaki) not used now..
-  presort_reordered_.alloc(
-    1U << 26,
-    memory::kHugepageSize,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    numa_node_);
-  */
 
   uint64_t tmp_offset = 0;
   tmp_send_buffer_slice_ = memory::AlignedMemorySlice(&tmp_memory_, tmp_offset, kSendBufferSize);
@@ -526,15 +533,28 @@ inline void update_key_lengthes(
   storage::StorageType storage_type,
   uint32_t* shortest_key_length,
   uint32_t* longest_key_length) {
-  if (storage_type == storage::kMasstreeStorage) {
+  if (storage_type == storage::kArrayStorage) {
+    *shortest_key_length = sizeof(storage::array::ArrayOffset);
+    *longest_key_length = sizeof(storage::array::ArrayOffset);
+  } else if (storage_type == storage::kMasstreeStorage) {
     const storage::masstree::MasstreeCommonLogType* the_log =
       reinterpret_cast<const storage::masstree::MasstreeCommonLogType*>(header);
     uint16_t key_length = the_log->key_length_;
     ASSERT_ND(key_length > 0);
     *shortest_key_length = std::min<uint32_t>(*shortest_key_length, key_length);
     *longest_key_length = std::max<uint32_t>(*longest_key_length, key_length);
+  } else if (storage_type == storage::kHashStorage) {
+    const storage::hash::HashCommonLogType* the_log =
+      reinterpret_cast<const storage::hash::HashCommonLogType*>(header);
+    uint16_t key_length = the_log->key_length_;
+    ASSERT_ND(key_length > 0);
+    *shortest_key_length = std::min<uint32_t>(*shortest_key_length, key_length);
+    *longest_key_length = std::max<uint32_t>(*longest_key_length, key_length);
+  } else if (storage_type == storage::kSequentialStorage) {
+    // this has no meaning for sequential storage. just put some number.
+    *shortest_key_length = 8U;
+    *longest_key_length = 8U;
   }
-  // TODO(Hideaki) and hash storage later
 }
 
 

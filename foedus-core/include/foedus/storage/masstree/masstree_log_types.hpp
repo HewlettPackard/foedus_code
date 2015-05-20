@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_MASSTREE_MASSTREE_LOG_TYPES_HPP_
 #define FOEDUS_STORAGE_MASSTREE_MASSTREE_LOG_TYPES_HPP_
@@ -88,6 +101,7 @@ struct MasstreeCommonLogType : public log::RecordLogType {
 
   char*           get_key() { return aligned_data_; }
   const char*     get_key() const { return aligned_data_; }
+  KeySlice        get_first_slice() const { return normalize_be_bytes_full_aligned(aligned_data_); }
   uint16_t        get_key_length_aligned() const { return assorted::align8(key_length_); }
   char*           get_payload() { return aligned_data_ + get_key_length_aligned(); }
   const char*     get_payload() const { return aligned_data_ + get_key_length_aligned(); }
@@ -141,14 +155,13 @@ struct MasstreeCommonLogType : public log::RecordLogType {
   }
 
   /**
-   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of key,
-   * xct_id, then pointer (which means position in buffer).
+   * Returns -1, 0, 1 when left is less than, same, larger than right in terms of key and xct_id.
    * @pre this->is_valid(), other.is_valid()
    * @pre this->get_ordinal() != 0, other.get_ordinal() != 0
    */
-  static int compare_key_and_xct_id(
+  inline static int compare_logs(
     const MasstreeCommonLogType* left,
-    const MasstreeCommonLogType* right) {
+    const MasstreeCommonLogType* right) ALWAYS_INLINE {
     ASSERT_ND(left->header_.storage_id_ == right->header_.storage_id_);
     if (left == right) {
       return 0;
@@ -184,18 +197,7 @@ struct MasstreeCommonLogType : public log::RecordLogType {
     }
 
     // same key, now compare xct_id
-    int xct_cmp = left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
-    if (xct_cmp != 0) {
-      return xct_cmp;
-    }
-
-    // if all of them are the same, this must be log entries of one transaction on same key.
-    // in that case the log position tells chronological order.
-    if (left < right) {
-      return -1;
-    } else {
-      return 1;
-    }
+    return left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
   }
 };
 
@@ -228,6 +230,8 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
     uint8_t layer = extract_page_layer(owner_id);
     uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
     uint16_t key_length_aligned = get_key_length_aligned();
@@ -283,6 +287,8 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
     ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_deleted();
   }
@@ -324,6 +330,8 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
 
     uint8_t layer = extract_page_layer(owner_id);
     uint16_t skipped = (layer + 1U) * sizeof(KeySlice);

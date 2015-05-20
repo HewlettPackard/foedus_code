@@ -1,0 +1,74 @@
+Do NOT forget to edit MAX_OL_CNT and recompile each time.
+  emacs -nw /dev/shm/foedus_code/experiments-core/include/foedus/tpcc/tpcc_scale.hpp
+AND, do not forget to edit it back. I'm sure you will forget it after lunch.
+
+#m500
+for rep in 0 1 2
+do
+  echo "NVM experiment. rep=$rep/3..."
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  rm -rf /dev/shm/foedus_tpcc/
+  rm -rf /tmp/libfoedus.*
+  sudo mount -t nvmfs -o rd_delay_ns_fixed=5000,wr_delay_ns_fixed=5000,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
+  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -skip_verify=true -warehouses=192 -take_snapshot=true -fork_workers=false -nvm_folder=/testnvm -high_priority=false -null_log_device=false -loggers_per_node=2 -thread_per_node=12 -numa_nodes=16 -log_buffer_mb=2048 -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=32 -snapshot_pool_size=40000 -reducer_buffer_size=40 -duration_micro=30000000 &> result_tpcc_olap_nvm_dh.r$rep.log
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  sudo umount /testnvm
+done
+
+
+# m100 sizing
+for rep in 0 1 2
+do
+  echo "NVM experiment. rep=$rep/3..."
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  sudo mount -t nvmfs -o rd_delay_ns_fixed=5000,wr_delay_ns_fixed=5000,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
+  rm -rf /dev/shm/foedus_tpcc/
+  rm -rf /tmp/libfoedus.*
+  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -skip_verify=true -warehouses=192 -take_snapshot=true -fork_workers=false -nvm_folder=/testnvm -high_priority=false -null_log_device=false -loggers_per_node=2 -thread_per_node=12 -numa_nodes=16 -log_buffer_mb=2048 -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=20 -snapshot_pool_size=15000 -reducer_buffer_size=20 -duration_micro=30000000 &> result_tpcc_olap_nvm_dh.r$rep.log
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  sudo umount /testnvm
+done
+
+for rep in 0 1 2
+do
+  echo "Volatile experiment. rep=$rep/3..."
+  # be careful.
+  rm -rf /dev/shm/foedus_tpcc/
+  rm -rf /tmp/libfoedus.*
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -skip_verify=true -warehouses=192 -take_snapshot=false -fork_workers=false -nvm_folder=/dev/shm -high_priority=false -null_log_device=false -loggers_per_node=2 -thread_per_node=12 -numa_nodes=16 -log_buffer_mb=2048 -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=20 -snapshot_pool_size=2 -reducer_buffer_size=2 -duration_micro=30000000 &> "result_tpcc_olap_vol_dh.r$rep.log"
+done
+
+
+
+# m15 sizing
+for rep in 0 1 2
+do
+  echo "NVM experiment. rep=$rep/3..."
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  sudo mount -t nvmfs -o rd_delay_ns_fixed=5000,wr_delay_ns_fixed=5000,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
+  rm -rf /dev/shm/foedus_tpcc/
+  rm -rf /tmp/libfoedus.*
+  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -skip_verify=true -warehouses=192 -take_snapshot=true -fork_workers=false -nvm_folder=/testnvm -high_priority=false -null_log_device=false -loggers_per_node=2 -thread_per_node=12 -numa_nodes=16 -log_buffer_mb=2048 -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=12 -snapshot_pool_size=15000 -reducer_buffer_size=12 -duration_micro=30000000 &> result_tpcc_olap_nvm_dh.r$rep.log
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  sudo umount /testnvm
+done
+
+for rep in 0 1 2
+do
+  echo "Volatile experiment. rep=$rep/3..."
+  # be careful.
+  rm -rf /dev/shm/foedus_tpcc/
+  rm -rf /tmp/libfoedus.*
+  sleep 5 # Linux's release of shared memory has a bit of timelag.
+  env CPUPROFILE_FREQUENCY=1 ./tpcc_olap -skip_verify=true -warehouses=192 -take_snapshot=false -fork_workers=false -nvm_folder=/dev/shm -high_priority=false -null_log_device=false -loggers_per_node=2 -thread_per_node=12 -numa_nodes=16 -log_buffer_mb=2048 -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=12 -snapshot_pool_size=2 -reducer_buffer_size=1 -duration_micro=30000000 &> "result_tpcc_olap_vol_dh.r$rep.log"
+done
+
+# profile. Do it on m500!!
+./tpcc_olap -skip_verify=true -warehouses=192 -take_snapshot=false -fork_workers=false -nvm_folder=/dev/shm -high_priority=false -null_log_device=false -loggers_per_node=2 -thread_per_node=12 -numa_nodes=16 -log_buffer_mb=2048 -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=32 -snapshot_pool_size=2 -reducer_buffer_size=2 -duration_micro=30000000 -profile
+pprof --pdf tpcc_olap tpcc.prof > olap_profile_dh_m500_vol.pdf
+sudo mount -t nvmfs -o rd_delay_ns_fixed=5000,wr_delay_ns_fixed=5000,rd_delay_ns_per_kb=0,wr_delay_ns_per_kb=0,cpu_freq_mhz=2800,size=1000000m nvmfs /testnvm
+./tpcc_olap -skip_verify=true -warehouses=192 -take_snapshot=true -fork_workers=false -nvm_folder=/testnvm -high_priority=false -null_log_device=false -loggers_per_node=2 -thread_per_node=12 -numa_nodes=16 -log_buffer_mb=2048 -neworder_remote_percent=1 -payment_remote_percent=15 -volatile_pool_size=32 -snapshot_pool_size=40000 -reducer_buffer_size=40 -duration_micro=30000000 -profile
+pprof --pdf tpcc_olap tpcc.prof > olap_profile_dh_m500_snp.pdf
+
+# Note, MTPS is 4-6x lower with the profiling. oh well.

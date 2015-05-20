@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_ARRAY_ARRAY_ROUTE_HPP_
 #define FOEDUS_STORAGE_ARRAY_ARRAY_ROUTE_HPP_
@@ -39,6 +52,20 @@ union LookupRoute {
     uint8_t total_levels,
     uint16_t payload_size,
     ArrayOffset array_size) const;
+
+  bool operator==(const LookupRoute& rhs) const { return word == rhs.word; }
+  bool operator!=(const LookupRoute& rhs) const { return word != rhs.word; }
+  bool operator<(const LookupRoute& rhs) const {
+    for (uint16_t i = 1; i <= 8U; ++i) {
+      // compare the higher level first. if the machine is big-endian, we can just compare word.
+      // but, this method is not used in performance-sensitive place, so let's be explicit.
+      if (route[8U - i] != rhs.route[8U - i]) {
+        return route[8U - i] < rhs.route[8U - i];
+      }
+    }
+    return false;
+  }
+  bool operator<=(const LookupRoute& rhs) const { return *this == rhs || *this < rhs; }
 };
 
 inline uint16_t to_records_in_leaf(uint16_t payload_size) {

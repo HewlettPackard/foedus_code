@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <gtest/gtest.h>
 
@@ -43,17 +56,17 @@ ErrorStack populate_task(const proc::ProcArguments& args) {
   EXPECT_TRUE(storage.exists());
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;
-  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   for (uint64_t i = 0; i < table_size / 2U; ++i) {
     uint32_t id = i + (context->get_thread_id() == 0 ? 0 : table_size / 2U);
-    COERCE_ERROR(storage.insert_record_normalized(context, nm(id), &id, sizeof(id)));
+    WRAP_ERROR_CODE(storage.insert_record_normalized(context, nm(id), &id, sizeof(id)));
   }
-  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
-  COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   COERCE_ERROR(storage.verify_single_thread(context));
-  COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
-  COERCE_ERROR(xct_manager->wait_for_commit(commit_epoch));
+  WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return kRetOk;
 }
 
@@ -103,9 +116,6 @@ void EmptyFunctor(Partitioner partitioner) {
   partitioner.partition_batch(args);
 }
 TEST(MasstreePartitionerTest, Empty) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&EmptyFunctor, 1024);
 }
 
@@ -180,9 +190,6 @@ void PartitionBasicFunctor(Partitioner partitioner) {
 }
 
 TEST(MasstreePartitionerTest, PartitionBasic) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&PartitionBasicFunctor);
 }
 
@@ -200,9 +207,6 @@ void SortBasicFunctor(Partitioner partitioner) {
 }
 
 TEST(MasstreePartitionerTest, SortBasic) {
-  if (!is_multi_nodes()) {
-    return;
-  }
   execute_test(&SortBasicFunctor);
 }
 }  // namespace masstree

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <stdint.h>
 #include <gtest/gtest.h>
@@ -110,9 +123,9 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
   Epoch commit_epoch;
 
   // Create branches
-  const float kHashFillFactor = 0.2;
+  const float kHashPreferredRecordsPerBin = 5.0;
   HashMetadata branch_meta("branches");
-  branch_meta.set_capacity(kBranches, kHashFillFactor);
+  branch_meta.set_capacity(kBranches, kHashPreferredRecordsPerBin);
   COERCE_ERROR(str_manager->create_hash(&branch_meta, &branches, &commit_epoch));
   EXPECT_TRUE(branches.exists());
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
@@ -123,11 +136,12 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
     COERCE_ERROR(branches.insert_record(context, i, &data, sizeof(data)));
   }
   COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(branches.verify_single_thread(context));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create tellers
   HashMetadata teller_meta("tellers");
-  teller_meta.set_capacity(kBranches * kTellers, kHashFillFactor);
+  teller_meta.set_capacity(kBranches * kTellers, kHashPreferredRecordsPerBin);
   COERCE_ERROR(str_manager->create_hash(&teller_meta, &tellers, &commit_epoch));
   EXPECT_TRUE(tellers.exists());
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
@@ -139,11 +153,12 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
     COERCE_ERROR(tellers.insert_record(context, i, &data, sizeof(data)));
   }
   COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(tellers.verify_single_thread(context));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create accounts
   HashMetadata account_meta("accounts");
-  account_meta.set_capacity(kBranches * kAccounts, kHashFillFactor);
+  account_meta.set_capacity(kBranches * kAccounts, kHashPreferredRecordsPerBin);
   COERCE_ERROR(str_manager->create_hash(&account_meta, &accounts, &commit_epoch));
   EXPECT_TRUE(accounts.exists());
   COERCE_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
@@ -155,6 +170,7 @@ ErrorStack create_tpcb_tables_task(const proc::ProcArguments& args) {
     COERCE_ERROR(accounts.insert_record(context, i, &data, sizeof(data)));
   }
   COERCE_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR(accounts.verify_single_thread(context));
   highest_commit_epoch.store_max(commit_epoch);
 
   // Create histories
@@ -389,6 +405,9 @@ ErrorStack run_tpcb_task(const proc::ProcArguments& args) {
 /** Verify TPC-B results. */
 ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
+  COERCE_ERROR(accounts.verify_single_thread(context));
+  COERCE_ERROR(branches.verify_single_thread(context));
+  COERCE_ERROR(tellers.verify_single_thread(context));
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
 
@@ -465,7 +484,7 @@ ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
     EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
   }
   for (uint32_t i = 0; i < context->get_current_xct().get_read_set_size(); ++i) {
-    xct::XctAccess& access = context->get_current_xct().get_read_set()[i];
+    xct::ReadXctAccess& access = context->get_current_xct().get_read_set()[i];
     EXPECT_FALSE(access.observed_owner_id_.is_being_written()) << i;
     EXPECT_FALSE(access.observed_owner_id_.is_deleted()) << i;
     EXPECT_FALSE(access.observed_owner_id_.is_moved()) << i;

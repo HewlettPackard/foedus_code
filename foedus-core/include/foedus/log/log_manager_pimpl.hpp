@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
 #define FOEDUS_LOG_LOG_MANAGER_PIMPL_HPP_
@@ -16,9 +29,9 @@
 #include "foedus/log/logger_ref.hpp"
 #include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/savepoint/fwd.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/thread/condition_variable_impl.hpp"
 #include "foedus/thread/thread_id.hpp"
 
@@ -37,7 +50,6 @@ struct LogManagerControlBlock {
   }
   void uninitialize() {
     durable_global_epoch_savepoint_mutex_.uninitialize();
-    durable_global_epoch_advanced_.uninitialize();
   }
 
   /**
@@ -51,7 +63,7 @@ struct LogManagerControlBlock {
   std::atomic<Epoch::EpochInteger>    durable_global_epoch_;
 
   /** Fired (broadcast) whenever durable_global_epoch_ is advanced. */
-  soc::SharedCond                     durable_global_epoch_advanced_;
+  soc::SharedPolling                  durable_global_epoch_advanced_;
 
   /** To-be-removed Serializes the thread to take savepoint to advance durable_global_epoch_. */
   soc::SharedMutex                    durable_global_epoch_savepoint_mutex_;

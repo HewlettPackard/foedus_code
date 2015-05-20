@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/storage/storage_manager_pimpl.hpp"
 
@@ -18,7 +31,7 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/meta_log_buffer.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
@@ -149,7 +162,7 @@ ErrorStack StorageManagerPimpl::uninitialize_once() {
     uint32_t dropped = 0;
     for (storage::StorageId i = 1; i <= control_block_->largest_storage_id_; ++i) {
       if (storages_[i].exists()) {
-        // TODO(Hideaki) we should have a separate method for this once we add "marked-for-death"
+        // TASK(Hideaki) we should have a separate method for this once we add "marked-for-death"
         // feature.
         drop_storage_apply(i);
         ++dropped;
@@ -172,7 +185,7 @@ StorageId StorageManagerPimpl::issue_next_storage_id() {
 
 StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
   soc::SharedMutexScope guard(&control_block_->mod_lock_);
-  // TODO(Hideaki) so far sequential search
+  // TASK(Hideaki) so far sequential search
   for (uint32_t i = 0; i <= control_block_->largest_storage_id_; ++i) {
     if (storages_[i].meta_.name_ == name) {
       return &storages_[i];
@@ -183,7 +196,7 @@ StorageControlBlock* StorageManagerPimpl::get_storage(const StorageName& name) {
 }
 bool StorageManagerPimpl::exists(const StorageName& name) {
   soc::SharedMutexScope guard(&control_block_->mod_lock_);
-  // TODO(Hideaki) so far sequential search
+  // TASK(Hideaki) so far sequential search
   for (uint32_t i = 0; i <= control_block_->largest_storage_id_; ++i) {
     if (storages_[i].meta_.name_ == name) {
       return true;
@@ -355,19 +368,33 @@ void StorageManagerPimpl::create_storage_apply(const Metadata& metadata) {
   ASSERT_ND(get_storage(id)->exists());
 }
 
-bool StorageManagerPimpl::track_moved_record(StorageId storage_id, xct::WriteXctAccess* write) {
-  // so far only Masstree has tracking
-  ASSERT_ND(storages_[storage_id].exists());
-  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
-  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(write);
+
+
+
+// define here to allow inline
+xct::TrackMovedRecordResult StorageManager::track_moved_record(
+  StorageId storage_id,
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  return pimpl_->track_moved_record(storage_id, old_address, write_set);
 }
 
-xct::LockableXctId* StorageManagerPimpl::track_moved_record(
+xct::TrackMovedRecordResult StorageManagerPimpl::track_moved_record(
   StorageId storage_id,
-  xct::LockableXctId* address) {
-  ASSERT_ND(storages_[storage_id].exists());
-  ASSERT_ND(storages_[storage_id].meta_.type_ == kMasstreeStorage);
-  return masstree::MasstreeStorage(engine_, storages_ + storage_id).track_moved_record(address);
+  xct::LockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  // so far Masstree and Hash have tracking
+  StorageControlBlock* block = storages_ + storage_id;
+  ASSERT_ND(block->exists());
+  StorageType type = block->meta_.type_;
+  if (type == kMasstreeStorage) {
+    return masstree::MasstreeStorage(engine_, block).track_moved_record(old_address, write_set);
+  } else if (type == kHashStorage) {
+    return hash::HashStorage(engine_, block).track_moved_record(old_address, write_set);
+  } else {
+    LOG(ERROR) << "Unexpected storage type for a moved-record. Bug? type=" << type;
+    return xct::TrackMovedRecordResult();
+  }
 }
 
 ErrorStack StorageManagerPimpl::clone_all_storage_metadata(

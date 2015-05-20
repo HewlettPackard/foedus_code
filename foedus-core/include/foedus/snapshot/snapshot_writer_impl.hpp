@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_SNAPSHOT_SNAPSHOT_WRITER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_SNAPSHOT_WRITER_IMPL_HPP_
@@ -19,6 +32,7 @@
 #include "foedus/snapshot/fwd.hpp"
 #include "foedus/snapshot/snapshot_id.hpp"
 #include "foedus/storage/page.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
 
 namespace foedus {
@@ -85,22 +99,31 @@ class SnapshotWriter final {
 
 
   uint16_t                get_numa_node() const { return numa_node_; }
-  storage::Page*          get_page_base() { return page_base_; }
-  memory::PagePoolOffset  get_page_size() const { return pool_size_; }
-  storage::Page*          get_intermediate_base() { return intermediate_base_; }
-  memory::PagePoolOffset  get_intermediate_size() const { return intermediate_size_; }
+  inline storage::Page*   get_page_base() ALWAYS_INLINE {
+    return reinterpret_cast<storage::Page*>(pool_memory_->get_block());
+  }
+  inline memory::PagePoolOffset  get_page_size() const ALWAYS_INLINE {
+    return pool_memory_->get_size() / storage::kPageSize;
+  }
+  inline storage::Page*          get_intermediate_base() ALWAYS_INLINE {
+    return reinterpret_cast<storage::Page*>(intermediate_memory_->get_block());
+  }
+  inline memory::PagePoolOffset  get_intermediate_size() const ALWAYS_INLINE {
+    return intermediate_memory_->get_size() / storage::kPageSize;
+  }
+
   storage::SnapshotPagePointer get_next_page_id() const { return next_page_id_; }
   SnapshotId              get_snapshot_id() const { return snapshot_id_; }
 
   storage::Page*          resolve(memory::PagePoolOffset offset) ALWAYS_INLINE {
     ASSERT_ND(offset > 0);
-    ASSERT_ND(offset < pool_size_);
-    return page_base_ + offset;
+    ASSERT_ND(offset < get_page_size());
+    return get_page_base() + offset;
   }
   memory::PagePoolOffset  resolve(storage::Page* page) ALWAYS_INLINE {
-    memory::PagePoolOffset offset = page - page_base_;
+    memory::PagePoolOffset offset = page - get_page_base();
     ASSERT_ND(offset > 0);
-    ASSERT_ND(offset < pool_size_);
+    ASSERT_ND(offset < get_page_size());
     return offset;
   }
 
@@ -125,6 +148,37 @@ class SnapshotWriter final {
   std::string             to_string() const {
     return "SnapshotWriter-" + std::to_string(numa_node_) + (append_ ? "(append)" : "");
   }
+
+  /**
+   * @brief Expands pool_memory_ in case it is too small.
+   * @param[in] required_pages number of pages that are guaranteed after expansion. The actual
+   * size will probably be larger than this value to avoid frequent expansion.
+   * @param[in] retain_content whether to copy the content of old memory to new memory
+   * @post get_page_size() >= required_pages
+   * @return only possible error is out of memory
+   * @note page_base will be also changed, so do not forget to re-obtain it.
+   * @details
+   * Does nothing if it's already enough large.
+   * Most likely we don't have to use this method as composers should be able to run even when
+   * the number of leaf (content) pages is large.
+   */
+  ErrorCode expand_pool_memory(uint32_t required_pages, bool retain_content);
+
+  /**
+   * @brief Expands intermediate_memory_ in case it is too small.
+   * @param[in] required_pages number of pages that are guaranteed after expansion. The actual
+   * size will probably be larger than this value to avoid frequent expansion.
+   * @param[in] retain_content whether to copy the content of old memory to new memory
+   * @post get_intermediate_size() >= required_pages
+   * @return only possible error is out of memory
+   * @note intermediate_base will be also changed, so do not forget to re-obtain it.
+   * @details
+   * Does nothing if it's already enough large.
+   * We use this method to make sure intermediate pool (which some composer assumes sufficiently
+   * large) can contain all intermediate pages.
+   */
+  ErrorCode expand_intermediate_memory(uint32_t required_pages, bool retain_content);
+
   friend std::ostream&    operator<<(std::ostream& o, const SnapshotWriter& v);
 
  private:
@@ -136,24 +190,20 @@ class SnapshotWriter final {
   /** ID of the snapshot this writer is currently working on. */
   const SnapshotId                snapshot_id_;
 
-  /** This is the main page pool for all composers using this snapshot writer. */
-  const memory::AlignedMemorySlice  pool_memory_;
-  /** Same as pool_memory_.get_block(). */
-  storage::Page* const            page_base_;
-  /** Size of the pool in pages. */
-  const memory::PagePoolOffset    pool_size_;
+  /**
+   * This is the main page pool for all composers using this snapshot writer.
+   * Snapshot writer expands this memory in expand_pool_memory().
+   */
+  memory::AlignedMemory* const    pool_memory_;
 
   /**
    * This is the sub page pool for intermdiate pages (main one is for leaf pages).
    * We separate out intermediate pages and assume that this pool can hold all
    * intermediate pages modified in one compose() while we might flush pool_memory_
    * multiple times for one compose().
+   * Snapshot writer expands this memory in expand_intermediate_memory().
    */
-  const memory::AlignedMemorySlice  intermediate_memory_;
-  /** Same as intermediate_memory_.get_block(). */
-  storage::Page* const            intermediate_base_;
-  /** Size of the intermediate_memory_ in pages. */
-  const memory::PagePoolOffset    intermediate_size_;
+  memory::AlignedMemory* const    intermediate_memory_;
 
   /** The snapshot file to write to. */
   fs::DirectIoFile*               snapshot_file_;
@@ -165,7 +215,7 @@ class SnapshotWriter final {
 
   fs::Path  get_snapshot_file_path() const;
   ErrorCode dump_general(
-    const memory::AlignedMemorySlice& slice,
+    memory::AlignedMemory* buffer,
     memory::PagePoolOffset from_page,
     uint32_t count);
 };

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_MEMORY_NUMA_CORE_MEMORY_HPP_
 #define FOEDUS_MEMORY_NUMA_CORE_MEMORY_HPP_
@@ -108,13 +121,14 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * To reduce # of TLB entries, we pack several small things to this 2MB.
    * \li (used in Xct) PointerAccess(16b) * 1k : 16kb
    * \li (used in Xct) PageVersionAccess(16b) * 1k : 16kb
-   * \li (used in Xct) XctAccess(24b) * 32k :768kb
+   * \li (used in Xct) ReadXctAccess(32b) * 32k :1024kb
    * \li (used in Xct) WriteXctAccess(40b) * 8k : 320kb
    * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
-   * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=32kb) * #-of-nodes : 32kb * #nodes
-   * In total within 2MB in most cases.
+   * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=512kb) * #-of-nodes
+   *  : 512kb * #nodes
+   * In total within 4MB in most cases.
    * Depending on options (esp, #nodes, xct_.max_read_set_size and max_write_set_size), this might
-   * become two 2MB pages, which is not ideal. Hopefully the numbers above are sufficient.
+   * become more than that, which is not ideal. Hopefully the numbers above are sufficient.
    */
   memory::AlignedMemory   small_thread_local_memory_;
   SmallThreadLocalMemoryPieces small_thread_local_memory_pieces_;

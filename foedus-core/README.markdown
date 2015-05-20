@@ -7,19 +7,44 @@ This project is the gut of FOEDUS as a transactional key-value storage system.
 Your client program can use this library by containing the CMakeLists.txt or linking to the shared
 library.
 
+For more introductory stuffs, visit [our github site](https://github.com/hkimura/foedus).
+and/or take a look at the [overview paper](http://www.hpl.hp.com/techreports/2015/HPL-2015-37.html).
 
-Hardware/Compiler Requeirements
+
+Hardware/Compiler/OS Requirements
 --------
 
 * We support only 64-bits CPUs. More specifically, x86_64 and ARMv8.
 * We assume Linux/Unix so far. No MacOS, Windows, nor Solaris.
-* We assume fsync(2) penetrates all the way through the device. [^1]
-* We require reasonably modern C++ compilers.
-* We depend on CMake.
+* We strongly recommend linux kernel 3.16 or later. [^1]
+* We assume fsync(2) penetrates all the way through the device. [^2]
+* We require reasonably modern C++ compilers, namely gcc 4.8.2 or later.
+* We depend on CMake and several other toolsets/libraries. But, we guarantee that
+all of them are commonly available from default package repositories.
+Otherwise, we include the dependency in our code.
 
-[^1]: If this is not the case, check your write-cache settings in the filesystem and device driver.
+[^1]: In older linux kernel, page-fault of hugepages was almost single-threaded (!!!).
+This issue was fixed in 3.15 along with many other scalability improvements contributed by HP's
+linux developers.
+
+[^2]: If this is not the case, check your write-cache settings in the filesystem and device driver.
 Unfortunately, even if users configure it right, some storage device sacrifices durability for the
 sake of performance. So is some file system. For those environments, we cannot guarantee ACID.
+
+Verified Environments
+--------
+The Linux kernel, distros, compilers, and libraries are quickly moving forward.
+Which is great, but we often see breaking issues due to version differences.
+If you want to minimize unexpected bumps, we recommend to use one of the following
+**verified environments** where we continuously test our code on Jenkins services.
+
+* (Primary) Fedora 21, x86_64. [Our Jenkins Server](http://foedus-build.hpl.hp.com:8080/).
+* Ubuntu 15.04, x86_64. [Our Jenkins Server](http://foedus-build-ub.hpl.hp.com:8080/).
+* Ubuntu 14.04, aarch64. [Our Jenkins Server](http://ms01915-003.hpl.hp.com:8080/).
+
+We will occasionally switch to semi-latest versions of Fedora (or some Redhat-flavor) and Ubuntu
+(or some Debian-flavor). In other words, we do not have enough resource to support
+versions that are several years old or less-popular distros.
 
 
 Environment Setup (ATTENTION! Read this before using FOEDUS!)
@@ -222,6 +247,12 @@ google-perftools-devel.
 
     sudo yum install google-perftools google-perftools-devel    # RedHat/Fedora
 
+FOEDUS outputs a detailed backtrace to logs/traces if you have libdwarf installed.
+Whenever you report some bugs/crashes, we appreciate installing it to get informative stacktrace.
+
+    sudo yum install libdwarf libdwarf-devel    # RedHat/Fedora
+    sudo apt-get install libdwarf-dev           # Debian/Ubuntu
+
 Another optional library is [PAPI](http://icl.cs.utk.edu/trac/papi/), with which FOEDUS can provide
 additional performance counters.
 
@@ -239,6 +270,19 @@ One last optional package is tmpwatch to clean up /tmp where we output glog log 
 Licensing
 --------
 See [LICENSE.txt](LICENSE.txt) for the license term of libfoedus-core itself.
+
+In short, FOEDUS is open-sourced under **GPL** with **classpath exception that covers every file**.
+Yes, every file is exception though it might sound weird.
+This means you can link to libfoedus, either dynamically or statically, from an arbitrary
+program: GPL, Apache/BSD, or even proprietary program. However, if you modify FOEDUS itself,
+you need to provide your modification in a GPL-fashion. libstdc++ in gcc employs a similar license.
+We believe this style of GPL is more flexible/simple for users than LGPL.
+
+We internally had intensive discussions on Apache/BSD vs GPL/LGPL, and this is our *final* decision.
+Almost no chance of later switching to Apache/BSD or other permissive licenses.
+
+All manuals/documents (doxygen-generated HTMLs) are in Creative Commons.
+
 libfoedus-core uses a few open source libraries listed below.
 
 |    Library   | License |    Linking/Distribution in libfoedus-core    |
@@ -249,7 +293,8 @@ libfoedus-core uses a few open source libraries listed below.
 | gperftools   | BSD     | Optional dynamic-link. Distributes nothing.  |
 | papi         | BSD(?)  | Optional dynamic-link. Distributes nothing.  |
 | libnuma      | LGPL    | Dynamic-link. Distributes nothing.           |
-| glibc/stdc++ | LGPL    | Dynamic-link. Distributes nothing.           |
+| glibc/stdc++ | GPL+Exp | Dynamic-link. Distributes nothing.           |
 | valgrind     | BSD     | Header-only.  Contains valgrind.h only.      |
+| xxHash       | BSD     | Static-link.  Contains source code.          |
 
 For more details, see COPYING/LICENSE.txt/etc in the third-party folder.

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_
 #define FOEDUS_SNAPSHOT_LOG_REDUCER_IMPL_HPP_
@@ -67,6 +80,7 @@ union ReducerBufferStatus {
   bool is_clear() const { return word == 0; }
   uint16_t get_active_writers() const { return components.active_writers_; }
   BufferPosition get_tail_position() const { return components.tail_position_; }
+  uint64_t get_tail_bytes() const { return from_buffer_position(components.tail_position_); }
 };
 
 /**
@@ -94,6 +108,8 @@ struct BlockHeaderBase {
     return magic_word_ == kFillerBlockHeaderMagicWord;
   }
 
+  friend std::ostream& operator<<(std::ostream& o, const BlockHeaderBase& v);
+
   /**
    * This is used to identify the storage block is a dummy (filler) one or a full one.
    * This must be either kFullBlockHeaderMagicWord or kFillerBlockHeaderMagicWord.
@@ -116,6 +132,10 @@ struct FullBlockHeader : BlockHeaderBase {
   uint32_t            shortest_key_length_;
   /** additional statistics for masstree/hash */
   uint32_t            longest_key_length_;
+  inline void assert_key_length() const {
+    ASSERT_ND(shortest_key_length_ > 0);
+    ASSERT_ND(shortest_key_length_ <= longest_key_length_);
+  }
 };
 
 
@@ -336,6 +356,12 @@ class LogReducer final : public MapReduceBase {
   void*                   buffers_[2];
 
   /**
+   * Byte size of buffers_[0] and buffers_[1]. Be careful, this is log_reducer_buffer_mb_ / 2
+   * because we split it into two buffers.
+   */
+  uint64_t                buffer_half_size_bytes_;
+
+  /**
    * This is the 'output' of the reducer in this node.
    * Each page contains a root-info page of one storage processed in the reducer.
    * Size is StorageOptions::max_storages_ * 4kb.
@@ -437,6 +463,8 @@ class LogReducer final : public MapReduceBase {
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const std::vector<BufferPosition>& log_positions,
+    uint32_t* out_shortest_key_length,
+    uint32_t* out_longest_key_length,
     uint32_t* written_count);
 
   /**
@@ -447,6 +475,8 @@ class LogReducer final : public MapReduceBase {
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const BufferPosition* sorted_logs,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length,
     uint32_t log_count,
     fs::DirectIoFile *dump_file);
   /**
@@ -457,6 +487,8 @@ class LogReducer final : public MapReduceBase {
     const LogBuffer &buffer,
     storage::StorageId storage_id,
     const BufferPosition* sorted_logs,
+    uint32_t shortest_key_length,
+    uint32_t longest_key_length,
     uint32_t log_count,
     void* destination) const;
 

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
 
@@ -24,9 +37,8 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized(
   VLOG(0) << "Thread-" << context->get_thread_id()
     << " prefetching " << get_name() << " from=" << from << ", to=" << to;
 
-  ASSERT_ND(control_block_->root_page_pointer_.volatile_pointer_.components.offset);
-  VolatilePagePointer pointer = control_block_->root_page_pointer_.volatile_pointer_;
-  MasstreePage* root_page = context->resolve_cast<MasstreePage>(pointer);
+  MasstreeIntermediatePage* root_page;
+  CHECK_ERROR_CODE(get_first_root(context, false, &root_page));
   prefetch_page_l2(root_page);
   CHECK_ERROR_CODE(prefetch_pages_normalized_recurse(context, vol_on, snp_on, from, to, root_page));
 

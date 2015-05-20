@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/memory/aligned_memory.hpp"
 
@@ -114,13 +127,22 @@ void AlignedMemory::alloc(
   // Use libnuma's numa_set_preferred to initialize the NUMA node of the memory.
   // We can later do the equivalent with mbind IF the memory is not shared.
   // mbind does nothing for shared memory. So, this is the only way
-  int original_node = ::numa_preferred();
-  ::numa_set_preferred(assorted::mod_numa_node(numa_node));
+  int original_node = 0;
+  if (::numa_available() >= 0) {
+    original_node = ::numa_preferred();
+    ::numa_set_preferred(assorted::mod_numa_node(numa_node));
+  }
 
   debugging::StopWatch watch;
+  int posix_memalign_ret;
   switch (alloc_type_) {
     case kPosixMemalign:
-      ::posix_memalign(&block_, alignment, size_);
+      // https://bugzilla.mozilla.org/show_bug.cgi?id=606270
+      // kind of pathetic, but to make sure.
+      posix_memalign_ret = ::posix_memalign(&block_, alignment, size_);
+      if (posix_memalign_ret != 0) {
+        block_ = nullptr;
+      }
       break;
     case kNumaAllocInterleaved:  // actually we no longer support this.. no reason to use this.
     case kNumaAllocOnnode:
@@ -134,14 +156,28 @@ void AlignedMemory::alloc(
   }
   watch.stop();
 
+  if (block_ == nullptr) {
+    LOG(ERROR) << "Aligned memory allocation failed. OS error=" << assorted::os_error() << *this;
+    // also reset the numa_preferred
+    if (::numa_available() >= 0) {
+      ::numa_set_preferred(original_node);
+    }
+    return;
+  }
+
   debugging::StopWatch watch2;
   std::memset(block_, 0, size_);  // see class comment for why we do this immediately
   watch2.stop();
-  ::numa_set_preferred(original_node);
+  if (::numa_available() >= 0) {
+    ::numa_set_preferred(original_node);
+  }
   LOG(INFO) << "Allocated memory in " << watch.elapsed_ns() << "+"
     << watch2.elapsed_ns() << " ns (alloc+memset)." << *this;
 }
-ErrorCode AlignedMemory::assure_capacity(uint64_t required_size, double expand_margin) noexcept {
+ErrorCode AlignedMemory::assure_capacity(
+  uint64_t required_size,
+  double expand_margin,
+  bool retain_content) noexcept {
   if (is_null()) {
     LOG(FATAL) << "Misuse of assure_capacity. Can't extend a null buffer";
     return kErrorCodeInvalidParameter;
@@ -154,15 +190,29 @@ ErrorCode AlignedMemory::assure_capacity(uint64_t required_size, double expand_m
   }
   uint64_t expanded = required_size * expand_margin;
   VLOG(0) << "Expanding work memory from " << size_ << " to " << expanded;
+
+  // save the current memory
+  AlignedMemory old(std::move(*this));
+  ASSERT_ND(!old.is_null());
+  ASSERT_ND(is_null());
+
   alloc(expanded, alignment_, alloc_type_, numa_node_);
   if (is_null()) {
     LOG(ERROR) << "Out of memory error while expanding work memory from "
       << size_ << " to " << expanded;
+    *this = std::move(old);  // recover the old one
     return kErrorCodeOutofmemory;
   }
+
+  // copies the old content if specified
+  if (retain_content) {
+    ASSERT_ND(size_ >= old.size_);
+    std::memcpy(block_, old.block_, old.size_);
+  }
+
+  old.release_block();
   return kErrorCodeOk;
 }
-
 
 AlignedMemory::AlignedMemory(AlignedMemory &&other) noexcept : block_(nullptr) {
   *this = std::move(other);

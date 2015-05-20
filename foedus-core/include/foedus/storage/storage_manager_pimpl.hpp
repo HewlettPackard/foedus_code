@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_STORAGE_MANAGER_PIMPL_HPP_
 #define FOEDUS_STORAGE_STORAGE_MANAGER_PIMPL_HPP_
@@ -18,6 +31,7 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_id.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/fwd.hpp"
 
 namespace foedus {
@@ -76,8 +90,10 @@ class StorageManagerPimpl final : public DefaultInitializable {
   template <typename STORAGE>
   ErrorStack  create_storage_and_log(const Metadata* meta, Epoch *commit_epoch);
 
-  bool                track_moved_record(StorageId storage_id, xct::WriteXctAccess *write);
-  xct::LockableXctId* track_moved_record(StorageId storage_id, xct::LockableXctId *address);
+  xct::TrackMovedRecordResult track_moved_record(
+    StorageId storage_id,
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess *write);
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 
   uint32_t    get_max_storages() const;

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_ASSORTED_CONST_DIV_HPP_
 #define FOEDUS_ASSORTED_CONST_DIV_HPP_
@@ -124,7 +137,7 @@ struct ConstDiv {
 inline void ConstDiv::init(uint32_t d) {
   // this one is inlined just to avoid multiple-definition, not for performance.
   ASSERT_ND(d);
-  d_highest_bits_ = 31 - __builtin_clz(d);  // TODO(Hideaki): non-GCC support
+  d_highest_bits_ = 31 - __builtin_clz(d);  // TASK(Hideaki): non-GCC support
 #ifndef NDEBUG
   d_ = d;
   dummy_ = 0;
@@ -170,7 +183,7 @@ inline void ConstDiv::init(uint32_t d) {
   // then 64bit version.
   {
     shift64_ = d_highest_bits_;
-    // TODO(Hideaki): non-GCC version
+    // At least GCC and clang supports __uint128_t
     __uint128_t numer = 1;
     numer <<= 64 + d_highest_bits_;
     uint64_t m = numer / d;
@@ -236,7 +249,7 @@ inline uint64_t ConstDiv::div64(uint64_t n) const {
   }
 
   ASSERT_ND(n >= (1ULL << 32));
-  // TODO(Hideaki): non-GCC which doesn't have uint128_t.
+  // At least GCC and clang supports __uint128_t
   __uint128_t product = static_cast<__uint128_t>(n) * magic64_;
   uint64_t quotient = static_cast<uint64_t>(product >> 64);
   if (flags_ & kFlagAdd64) {

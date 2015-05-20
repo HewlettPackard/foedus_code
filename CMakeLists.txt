@@ -145,6 +145,13 @@ add_custom_target(sloccount
     > ${CMAKE_CURRENT_BINARY_DIR}/sloccount.ac
   COMMENT "Count source lines of code with sloccount")
 
+add_custom_target(cloc
+  COMMAND cloc ${CMAKE_CURRENT_SOURCE_DIR}
+    --exclude-dir=third_party,build,.git,.kdev4,release,relwithdebinfo --exclude-ext=tsv
+    --by-file --xml
+    --out=${CMAKE_CURRENT_BINARY_DIR}/cloc_out.xml
+  COMMENT "Count source lines of code with cloc")
+
 
 # for jenkins Cppcheck plugin, also provide a command to write out xml.
 set(CPPLINT_CONVERTER ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cpplint_to_cppcheckxml.py)

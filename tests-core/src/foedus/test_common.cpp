@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/test_common.hpp"
 
@@ -42,8 +55,16 @@ namespace foedus {
     return fs::unique_name("%%%%_%%%%_%%%%_%%%%", differentiator);
   }
 
+  std::string get_random_tmp_file_path(const std::string& name) {
+    std::string uniquefier = get_random_name();
+    std::stringstream str;
+    str << "tmp_folders/" << uniquefier << "/" << name;
+    return str.str();
+  }
+
   EngineOptions get_randomized_paths() {
     EngineOptions options;
+    options.memory_.rigorous_memory_boundary_check_ = true;
     std::string uniquefier = get_random_name();
     std::cout << "test uniquefier=" << uniquefier << std::endl;
     {
@@ -75,6 +96,7 @@ namespace foedus {
     options.log_.log_buffer_kb_ = 1 << 8;
     options.memory_.page_pool_size_mb_per_node_ = 2;
     options.memory_.private_page_pool_initial_grab_ = 32;
+    options.memory_.rigorous_memory_boundary_check_ = true;
     options.cache_.snapshot_cache_size_mb_per_node_ = 2;
     options.cache_.private_snapshot_cache_initial_grab_ = 32;
     options.thread_.group_count_ = 1;
@@ -104,17 +126,6 @@ namespace foedus {
     fs::Path unique_root = savepoint_path.parent_path();
     fs::remove_all(unique_root);
   }
-
-  bool is_multi_nodes() {
-    EngineOptions options;
-    if (options.thread_.group_count_ > 1U) {
-      return true;
-    } else {
-      std::cerr << "These tests inherently require multi NUMA nodes! skipping them." << std::endl;
-      return false;
-    }
-  }
-
 
   std::string to_signal_name(int sig) {
     switch (sig) {

@@ -107,6 +107,14 @@
    fun:_ZNSs15_M_replace_safeEmmPKcm
    fun:_ZN6google12SetVLOGLevelEPKci
 }
+{
+   glog_setvloglevel_leak3
+   Memcheck:Leak
+   fun:_Znwm
+   ...
+   fun:_ZN6google12SetVLOGLevelEPKci
+   ...
+}
 
 
 # Hideaki, 2014 Aug, Fedora 19.
@@ -155,4 +163,36 @@
    ...
    fun:_ZN14ProfileHandler13SignalHandlerEiP9siginfo_tPv
    ...
+}
+
+
+######################################################################
+###
+###  AArch64 suppressions BEGIN
+###
+######################################################################
+# Hideaki, 2014 Dec, AArch64-Ubuntu. xgene ARMv8.
+# kimurhid@ms01915-003:~/$ uname -a
+# Linux ms01915-003 3.13.0-37-generic #64-Ubuntu SMP Mon Sep 22 21:32:32 UTC 2014 aarch64 aarch64 aarch64 GNU/Linux
+# valgrind version 3.10.1 (3.10.0.SVN has lots of ARMv8 issues, so we source-build valgrind.)
+{
+   aarch64_gtest_init1
+   Memcheck:Leak
+   ...
+   fun:_Znwm
+   fun:_ZNSs4_Rep9_S_createEmmRKSaIcE
+   ...
+   fun:_GLOBAL__sub_I__ZN7testing8internal17kStackTraceMarkerE
+   fun:__libc_csu_init
+   ...
+}
+{
+   aarch64_gtest_mutate
+   Memcheck:Leak
+   fun:_Znwm
+   fun:_ZNSs4_Rep9_S_createEmmRKSaIcE
+   fun:_ZNSs9_M_mutateEmmm
+   ...
+   fun:_ZN7testing8internal18InitGoogleTestImplIcEEvPiPPT_
+   fun:main
 }

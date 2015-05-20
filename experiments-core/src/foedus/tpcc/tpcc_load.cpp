@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/tpcc/tpcc_load.hpp"
 
@@ -37,11 +50,12 @@ namespace foedus {
 namespace tpcc {
 ErrorStack tpcc_finishup_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
-  if (args.input_len_ != sizeof(Wid)) {
+  if (args.input_len_ != sizeof(TpccFinishupTask::Inputs)) {
     return ERROR_STACK(kErrorCodeUserDefined);
   }
-  Wid total_warehouses = *reinterpret_cast<const Wid*>(args.input_buffer_);
-  TpccFinishupTask task(total_warehouses);
+  const TpccFinishupTask::Inputs* input
+    = reinterpret_cast<const TpccFinishupTask::Inputs*>(args.input_buffer_);
+  TpccFinishupTask task(*input);
   return task.run(context);
 }
 
@@ -54,6 +68,7 @@ ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
     args.input_buffer_);
   TpccLoadTask task(
     inputs->total_warehouses_,
+    inputs->olap_mode_,
     inputs->timestamp_,
     inputs->from_wid_,
     inputs->to_wid_,
@@ -182,7 +197,19 @@ ErrorStack create_array(
   storage::array::ArrayMetadata meta(name, payload_size, array_size);
   if (keep_all_volatile_pages) {
     meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+    meta.snapshot_drop_volatile_pages_threshold_ = 8;
+  } else {
+    meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;
+    meta.snapshot_drop_volatile_pages_threshold_
+      = storage::array::ArrayMetadata::kDefaultSnapshotDropVolatilePagesThreshold;
   }
+
+#ifdef OLAP_MODE
+  // completely drop all volatile pages. even higher levels
+  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;
+  meta.snapshot_drop_volatile_pages_threshold_ = 0;
+#endif  // OLAP_MODE
+
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
@@ -195,7 +222,22 @@ ErrorStack create_masstree(
   storage::masstree::MasstreeMetadata meta(name, border_fill_factor);
   if (keep_all_volatile_pages) {
     meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+    meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
+    meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
+  } else {
+    meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;
+    meta.snapshot_drop_volatile_pages_btree_levels_
+      = storage::masstree::MasstreeMetadata::kDefaultDropVolatilePagesBtreeLevels;
+    meta.snapshot_drop_volatile_pages_layer_threshold_ = 0;
   }
+
+#ifdef OLAP_MODE
+  // completely drop all volatile pages. even higher levels
+  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0;  // this one lower = drop more
+  meta.snapshot_drop_volatile_pages_btree_levels_ = 100;  // this one higher = drop more
+  meta.snapshot_drop_volatile_pages_layer_threshold_ = 0;  // this one lower = drop more
+#endif  // OLAP_MODE
+
   return engine->get_storage_manager()->create_storage(&meta, &ep);
 }
 
@@ -210,69 +252,83 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
   storages_.initialize_tables(engine);
 // let's do this even in release. good to check abnormal state
 // #ifndef NDEBUG
-  WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSerializable));
-  // to speedup experiments, skip a few storages' verify() if they are static storages.
-  // TODO(Hideaki) make verify() checks snapshot pages too.
-  if (storages_.customers_secondary_.get_metadata()->root_snapshot_page_id_ != 0) {
-    CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
+  if (inputs_.fatify_masstree_) {
+    // assure some number of direct children in root page to make partition more efficient.
+    // a better solution for partitioning is to consider children, not just root. later, later, ...
+    LOG(INFO) << "FAT. FAAAT. FAAAAAAAAAAAAAAAAAT";
+    uint32_t desired = 32;  // context->get_engine()->get_soc_count();  // maybe 2x?
+    CHECK_ERROR(storages_.customers_secondary_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.neworders_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.orders_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.orders_secondary_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.orderlines_.fatify_first_root(context, desired));
   }
-  CHECK_ERROR(storages_.neworders_.verify_single_thread(context));
-  CHECK_ERROR(storages_.orderlines_.verify_single_thread(context));
-  CHECK_ERROR(storages_.orders_.verify_single_thread(context));
-  CHECK_ERROR(storages_.orders_secondary_.verify_single_thread(context));
-  WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
 
-  if (storages_.customers_secondary_.get_metadata()->root_snapshot_page_id_ != 0) {
-    LOG(INFO) << "Verifying customers_secondary_ in detail..";
-    WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyReadPreferVolatile));
-    storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context);
-    WRAP_ERROR_CODE(cursor.open());
-    for (Wid wid = 0; wid < total_warehouses_; ++wid) {
-      for (Did did = 0; did < kDistricts; ++did) {
-        bool cid_array[kCustomers];
-        std::memset(cid_array, 0, sizeof(cid_array));
-        for (uint32_t c = 0; c < kCustomers; ++c) {  // NOT cid
-          if (!cursor.is_valid_record()) {
-            LOG(FATAL) << "Record not exist: customers_secondary_: wid=" << wid << ", did="
-              << static_cast<int>(did) << ", c=" << c;
+  if (inputs_.skip_verify_) {
+    LOG(INFO) << "oh boy. are you going to skip verification?";
+  } else {
+    WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSerializable));
+    // to speedup experiments, skip a few storages' verify() if they are static storages.
+    // TASK(Hideaki) make verify() checks snapshot pages too.
+    CHECK_ERROR(storages_.customers_secondary_.verify_single_thread(context));
+    CHECK_ERROR(storages_.neworders_.verify_single_thread(context));
+    CHECK_ERROR(storages_.orderlines_.verify_single_thread(context));
+    CHECK_ERROR(storages_.orders_.verify_single_thread(context));
+    CHECK_ERROR(storages_.orders_secondary_.verify_single_thread(context));
+    WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
+
+    if (storages_.customers_secondary_.get_metadata()->root_snapshot_page_id_ != 0) {
+      LOG(INFO) << "Verifying customers_secondary_ in detail..";
+      WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kDirtyRead));
+      storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context);
+      WRAP_ERROR_CODE(cursor.open());
+      for (Wid wid = 0; wid < inputs_.total_warehouses_; ++wid) {
+        for (Did did = 0; did < kDistricts; ++did) {
+          bool cid_array[kCustomers];
+          std::memset(cid_array, 0, sizeof(cid_array));
+          for (uint32_t c = 0; c < kCustomers; ++c) {  // NOT cid
+            if (!cursor.is_valid_record()) {
+              LOG(FATAL) << "Record not exist: customers_secondary_: wid=" << wid << ", did="
+                << static_cast<int>(did) << ", c=" << c;
+            }
+            if (cursor.get_key_length() != CustomerSecondaryKey::kKeyLength) {
+              LOG(FATAL) << "Key Length wrong: customers_secondary_: wid=" << wid << ", did="
+                << static_cast<int>(did) << ", c=" << c;
+            }
+            if (cursor.get_payload_length() != 0) {
+              LOG(FATAL) << "Payload Length wrong: customers_secondary_: wid=" << wid << ", did="
+                << static_cast<int>(did) << ", c=" << c;
+            }
+            const char* key = cursor.get_key();
+            Wid wid2 = assorted::read_bigendian<Wid>(key);
+            if (wid != wid2) {
+              LOG(FATAL) << "Wid mismatch: customers_secondary_: wid=" << wid << ", did="
+                << static_cast<int>(did) << ", c=" << c << ". value=" << wid2;
+            }
+            Did did2 = assorted::read_bigendian<Did>(key + sizeof(Wid));
+            if (did != did2) {
+              LOG(FATAL) << "Did mismatch: customers_secondary_: wid=" << wid << ", did="
+                << static_cast<int>(did) << ", c=" << c << ". value=" << static_cast<int>(did2);
+            }
+            Cid cid = assorted::betoh<Cid>(
+              *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 32));
+            if (cid >= kCustomers) {
+              LOG(FATAL) << "Cid out of range: customers_secondary_: wid=" << wid << ", did="
+                << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+            }
+            if (cid_array[cid]) {
+              LOG(FATAL) << "Cid duplicate: customers_secondary_: wid=" << wid << ", did="
+                << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
+            }
+            cid_array[cid] = true;
+            WRAP_ERROR_CODE(cursor.next());
           }
-          if (cursor.get_key_length() != CustomerSecondaryKey::kKeyLength) {
-            LOG(FATAL) << "Key Length wrong: customers_secondary_: wid=" << wid << ", did="
-              << static_cast<int>(did) << ", c=" << c;
-          }
-          if (cursor.get_payload_length() != 0) {
-            LOG(FATAL) << "Payload Length wrong: customers_secondary_: wid=" << wid << ", did="
-              << static_cast<int>(did) << ", c=" << c;
-          }
-          const char* key = cursor.get_key();
-          Wid wid2 = assorted::read_bigendian<Wid>(key);
-          if (wid != wid2) {
-            LOG(FATAL) << "Wid mismatch: customers_secondary_: wid=" << wid << ", did="
-              << static_cast<int>(did) << ", c=" << c << ". value=" << wid2;
-          }
-          Did did2 = assorted::read_bigendian<Did>(key + sizeof(Wid));
-          if (did != did2) {
-            LOG(FATAL) << "Did mismatch: customers_secondary_: wid=" << wid << ", did="
-              << static_cast<int>(did) << ", c=" << c << ". value=" << static_cast<int>(did2);
-          }
-          Cid cid = assorted::betoh<Cid>(
-            *reinterpret_cast<const Cid*>(key + sizeof(Wid) + sizeof(Did) + 32));
-          if (cid >= kCustomers) {
-            LOG(FATAL) << "Cid out of range: customers_secondary_: wid=" << wid << ", did="
-              << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
-          }
-          if (cid_array[cid]) {
-            LOG(FATAL) << "Cid duplicate: customers_secondary_: wid=" << wid << ", did="
-              << static_cast<int>(did) << ", c=" << c << ". value=" << cid;
-          }
-          cid_array[cid] = true;
-          WRAP_ERROR_CODE(cursor.next());
         }
       }
-    }
 
-    WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
-    LOG(INFO) << "Verified customers_secondary_ in detail.";
+      WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
+      LOG(INFO) << "Verified customers_secondary_ in detail.";
+    }
   }
 // #endif  // NDEBUG
 
@@ -297,16 +353,20 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
 }
 
 ErrorStack TpccLoadTask::load_tables() {
-  CHECK_ERROR(load_warehouses());
-  VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  CHECK_ERROR(load_districts());
-  VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  if (!olap_mode_) {
+    CHECK_ERROR(load_warehouses());
+    VLOG(0) << "Loaded Warehouses:" << engine_->get_memory_manager()->dump_free_memory_stat();
+    CHECK_ERROR(load_districts());
+    VLOG(0) << "Loaded Districts:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  }
   CHECK_ERROR(load_customers());
   VLOG(0) << "Loaded Customers:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  CHECK_ERROR(load_items());
-  VLOG(0) << "Loaded Items:" << engine_->get_memory_manager()->dump_free_memory_stat();
-  CHECK_ERROR(load_stocks());
-  VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  if (!olap_mode_) {
+    CHECK_ERROR(load_items());
+    VLOG(0) << "Loaded Items:" << engine_->get_memory_manager()->dump_free_memory_stat();
+    CHECK_ERROR(load_stocks());
+    VLOG(0) << "Loaded Strocks:" << engine_->get_memory_manager()->dump_free_memory_stat();
+  }
   CHECK_ERROR(load_orders());
   VLOG(0) << "Loaded Orders:" << engine_->get_memory_manager()->dump_free_memory_stat();
   return kRetOk;
@@ -316,7 +376,7 @@ ErrorCode TpccLoadTask::commit_if_full() {
   if (context_->get_current_xct().get_write_set_size() >= kCommitBatch) {
     Epoch commit_epoch;
     CHECK_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
-    CHECK_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kDirtyRead));
   }
   return kErrorCodeOk;
 }
@@ -464,7 +524,54 @@ ErrorStack TpccLoadTask::load_customers() {
 
 // synchronize data load to customer_secondary.
 // this is ideal for almost sequential inserts.
-// std::mutex customer_secondary_mutex;
+std::mutex customer_secondary_mutex;
+/* The following issue seemingly resolved. 20150203 Hideaki. We should have a wiki entry for this..
+   TODO(Hideaki) 20150203 not quite. It still happens, although much less frequently.
+   Let's investigate this again later. Probably it's a different problem.
+Currently, the main reason to enable this is a deadlock bug.
+It happens occasionally, when many threads are trying to adopt something.
+I can easily reproduce it on 240 cores, but almost never on 16 cores.
+
+When it happens, it looks like this:
+
+Thread 125 (Thread 0x78d1c37fe700 (LWP 75894)):
+#0  0x00000000004e7d80 in foedus::thread::ThreadPimpl::mcs_acquire_lock(foedus::xct::McsLock*) ()
+#1  0x00000000004d6392 in foedus::storage::PageVersionLockScope::PageVersionLockScope(foedus::thread::Thread*, foedus::storage::PageVersion*, bool) ()
+#2  0x0000000000544b78 in foedus::storage::masstree::MasstreeIntermediatePage::adopt_from_child(foedus::thread::Thread*, unsigned long, unsigned char, unsigned char, foedus::storage::masstree::MasstreePage*) ()
+#3  0x00000000004cb381 in foedus::storage::masstree::MasstreeStoragePimpl::reserve_record(foedus::thread::Thread*, void const*, unsigned short, unsigned short, foedus::storage::masstree::MasstreeBorderPage**, unsigned char*, foedus::xct::XctId*) ()
+#4  0x00000000004c296c in foedus::storage::masstree::MasstreeStorage::insert_record(foedus::thread::Thread*, void const*, unsigned short, void const*, unsigned short) ()
+#5  0x000000000047cbee in foedus::tpcc::TpccLoadTask::load_customers_in_district(unsigned short, unsigned char) ()
+#6  0x000000000047d5a0 in foedus::tpcc::TpccLoadTask::load_customers() ()
+#7  0x000000000047d9bb in foedus::tpcc::TpccLoadTask::load_tables() ()
+#8  0x000000000047e3ad in foedus::tpcc::TpccLoadTask::run(foedus::thread::Thread*) ()
+#9  0x000000000047e81f in foedus::tpcc::tpcc_load_task(foedus::proc::ProcArguments const&) ()
+#10 0x00000000004e582b in foedus::thread::ThreadPimpl::handle_tasks() ()
+#11 0x00007fabfbf01da0 in ?? () from /lib64/libstdc++.so.6
+#12 0x00007fabfc7f0df3 in start_thread () from /lib64/libpthread.so.0
+#13 0x00007fabfb66a3dd in clone () from /lib64/libc.so.6
+x several.
+
+
+Thread 113 (Thread 0x78d1b27fc700 (LWP 75905)):
+#0  0x00000000004e7abf in foedus::thread::Thread::mcs_release_lock(foedus::xct::McsLock*, unsigned int) ()
+#1  0x00000000004d63d7 in foedus::storage::PageVersionLockScope::release() ()
+#2  0x0000000000544be0 in foedus::storage::masstree::MasstreeIntermediatePage::adopt_from_child(foedus::thread::Thread*, unsigned long, unsigned char, unsigned char, foedus::storage::masstree::MasstreePage*) ()
+#3  0x00000000004cb381 in foedus::storage::masstree::MasstreeStoragePimpl::reserve_record(foedus::thread::Thread*, void const*, unsigned short, unsigned short, foedus::storage::masstree::MasstreeBorderPage**, unsigned char*, foedus::xct::XctId*) ()
+#4  0x00000000004c296c in foedus::storage::masstree::MasstreeStorage::insert_record(foedus::thread::Thread*, void const*, unsigned short, void const*, unsigned short) ()
+#5  0x000000000047cbee in foedus::tpcc::TpccLoadTask::load_customers_in_district(unsigned short, unsigned char) ()
+#6  0x000000000047d5a0 in foedus::tpcc::TpccLoadTask::load_customers() ()
+#7  0x000000000047d9bb in foedus::tpcc::TpccLoadTask::load_tables() ()
+#8  0x000000000047e3ad in foedus::tpcc::TpccLoadTask::run(foedus::thread::Thread*) ()
+#9  0x000000000047e81f in foedus::tpcc::tpcc_load_task(foedus::proc::ProcArguments const&) ()
+#10 0x00000000004e582b in foedus::thread::ThreadPimpl::handle_tasks() ()
+#11 0x00007fabfbf01da0 in ?? () from /lib64/libstdc++.so.6
+#12 0x00007fabfc7f0df3 in start_thread () from /lib64/libpthread.so.0
+#13 0x00007fabfb66a3dd in clone () from /lib64/libc.so.6
+just one
+
+
+I will track down this bug with high priority. But, for now, let's just synchronize here.
+*/
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid;
@@ -542,25 +649,27 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     c_data.credit_lim_ = 50000;
 
     Wdcid wdcid = combine_wdcid(wdid, cid);
-    WRAP_ERROR_CODE(storages_.customers_static_.overwrite_record(
-      context_,
-      wdcid,
-      &c_data,
-      0,
-      sizeof(c_data)));
-    WRAP_ERROR_CODE(storages_.customers_dynamic_.overwrite_record(
-      context_,
-      wdcid,
-      &c_dynamic,
-      0,
-      sizeof(c_dynamic)));
-    WRAP_ERROR_CODE(storages_.customers_history_.overwrite_record(
-      context_,
-      wdcid,
-      &c_history,
-      0,
-      sizeof(c_history)));
-    WRAP_ERROR_CODE(commit_if_full());
+    if (!olap_mode_) {
+      WRAP_ERROR_CODE(storages_.customers_static_.overwrite_record(
+        context_,
+        wdcid,
+        &c_data,
+        0,
+        sizeof(c_data)));
+      WRAP_ERROR_CODE(storages_.customers_dynamic_.overwrite_record(
+        context_,
+        wdcid,
+        &c_dynamic,
+        0,
+        sizeof(c_dynamic)));
+      WRAP_ERROR_CODE(storages_.customers_history_.overwrite_record(
+        context_,
+        wdcid,
+        &c_history,
+        0,
+        sizeof(c_history)));
+      WRAP_ERROR_CODE(commit_if_full());
+    }
     std::memcpy(secondary_keys[cid].last_, c_data.last_, sizeof(c_data.last_));
     std::memcpy(secondary_keys[cid].first_, c_data.first_, sizeof(c_data.first_));
     secondary_keys[cid].cid_ = cid;
@@ -575,8 +684,10 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
     h_data.did_ = did;
     h_data.amount_ = 10.0;
     std::memcpy(h_data.date_, timestamp_.data(), sizeof(h_data.date_));
-    WRAP_ERROR_CODE(histories.append_record(context_, &h_data, sizeof(h_data)));
-    WRAP_ERROR_CODE(commit_if_full());
+    if (!olap_mode_) {
+      WRAP_ERROR_CODE(histories.append_record(context_, &h_data, sizeof(h_data)));
+      WRAP_ERROR_CODE(commit_if_full());
+    }
   }
   WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &ep));
 
@@ -589,7 +700,7 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   auto customers_secondary = storages_.customers_secondary_;
 
   // synchronize insert to customer_secondary
-  // std::lock_guard<std::mutex> guard(customer_secondary_mutex);
+  std::lock_guard<std::mutex> guard(customer_secondary_mutex);
   for (Cid from = 0; from < kCustomers;) {
     uint32_t cur_batch_size = std::min<uint32_t>(kCommitBatch, kCustomers - from);
     char key_be[CustomerSecondaryKey::kKeyLength];
@@ -659,7 +770,7 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
     Cid o_cid = get_permutation(cid_array);
     Wdcid wdcid = combine_wdcid(wdid, o_cid);
     uint32_t o_carrier_id = rnd_.uniform_within(1, 10);
-    uint32_t o_ol_cnt = rnd_.uniform_within(5, 15);
+    uint32_t o_ol_cnt = rnd_.uniform_within(kMinOlCount, kMaxOlCount);
 
     o_data.cid_ = o_cid;
     o_data.all_local_ = 1;
@@ -696,10 +807,12 @@ ErrorStack TpccLoadTask::load_orders_in_district(Wid wid, Did did) {
     uint32_t successive_aborts = 0;
     while (true) {
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
-      if (o_data.carrier_id_ == 0) {
-        WRAP_ERROR_CODE(neworders.insert_record_normalized(context_, wdoid));
+      if (!olap_mode_) {
+        if (o_data.carrier_id_ == 0) {
+          WRAP_ERROR_CODE(neworders.insert_record_normalized(context_, wdoid));
+        }
+        WRAP_ERROR_CODE(orders.insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
       }
-      WRAP_ERROR_CODE(orders.insert_record_normalized(context_, wdoid, &o_data, sizeof(o_data)));
       WRAP_ERROR_CODE(orders_secondary.insert_record_normalized(context_, wdcoid));
       for (Ol ol = 1; ol <= o_ol_cnt; ol++) {
         Wdol wdol = combine_wdol(wdoid, ol);

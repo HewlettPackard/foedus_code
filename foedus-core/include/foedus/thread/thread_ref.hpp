@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_THREAD_THREAD_REF_HPP_
 #define FOEDUS_THREAD_THREAD_REF_HPP_
@@ -9,6 +22,7 @@
 #include <vector>
 
 #include "foedus/cxx11.hpp"
+#include "foedus/epoch.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -49,6 +63,13 @@ class ThreadRef CXX11_FINAL {
   xct::McsBlock* get_mcs_blocks() const { return mcs_blocks_; }
   ThreadControlBlock* get_control_block() const { return control_block_; }
 
+  /** @see foedus::xct::InCommitEpochGuard  */
+  Epoch         get_in_commit_epoch() const;
+
+  uint64_t      get_snapshot_cache_hits() const;
+  uint64_t      get_snapshot_cache_misses() const;
+  void          reset_snapshot_cache_counts() const;
+
   friend std::ostream& operator<<(std::ostream& o, const ThreadRef& v);
 
  private:
@@ -79,6 +100,14 @@ class ThreadGroupRef CXX11_FINAL {
 
   /** Returns Thread object for the given ordinal in this group. */
   ThreadRef*              get_thread(ThreadLocalOrdinal ordinal) { return &threads_[ordinal]; }
+
+  /**
+   * Returns the oldest in-commit epoch of the threads in this group.
+   * Empty in-commit epoch is skipped. If all of them are empty, returns an invalid epoch
+   * (meaning all of them will get the latest current epoch and are safe).
+   * @see foedus::xct::InCommitEpochGuard
+   */
+  Epoch                   get_min_in_commit_epoch() const;
 
   friend std::ostream& operator<<(std::ostream& o, const ThreadGroupRef& v);
 

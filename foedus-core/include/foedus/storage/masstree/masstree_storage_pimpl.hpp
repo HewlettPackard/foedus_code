@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_MASSTREE_MASSTREE_STORAGE_PIMPL_HPP_
 #define FOEDUS_STORAGE_MASSTREE_MASSTREE_STORAGE_PIMPL_HPP_
@@ -17,7 +30,6 @@
 #include "foedus/cache/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
-#include "foedus/storage/composer.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage.hpp"
@@ -28,6 +40,7 @@
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace storage {
@@ -91,9 +104,13 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   const StorageName&  get_name()  const { return control_block_->meta_.name_; }
   const MasstreeMetadata& get_meta()  const { return control_block_->meta_; }
   DualPagePointer& get_first_root_pointer() { return control_block_->root_page_pointer_; }
+  DualPagePointer* get_first_root_pointer_address() { return &control_block_->root_page_pointer_; }
   xct::LockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
 
-  ErrorCode get_first_root(thread::Thread* context, MasstreeIntermediatePage** root);
+  ErrorCode get_first_root(
+    thread::Thread* context,
+    bool for_write,
+    MasstreeIntermediatePage** root);
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,
@@ -305,22 +322,32 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     KeySlice from,
     KeySlice to);
 
-  bool track_moved_record(xct::WriteXctAccess* write) ALWAYS_INLINE;
-  xct::LockableXctId* track_moved_record(xct::LockableXctId* address) ALWAYS_INLINE;
+  xct::TrackMovedRecordResult track_moved_record(
+    xct::LockableXctId* old_address,
+    xct::WriteXctAccess* write_set) ALWAYS_INLINE;
 
-  // composer-related
-  MasstreePage* resolve_volatile(VolatilePagePointer pointer);
-  ErrorStack    replace_pointers(const Composer::ReplacePointersArguments& args);
-  ErrorStack    replace_pointers_intermediate(
-    const Composer::ReplacePointersArguments& args,
-    DualPagePointer* pointer,
-    bool* kept_volatile,
-    MasstreeIntermediatePage* volatile_page);
-  ErrorStack    replace_pointers_border(
-    const Composer::ReplacePointersArguments& args,
-    DualPagePointer* pointer,
-    bool* kept_volatile,
-    MasstreeBorderPage* volatile_page);
+  /** Defined in masstree_storage_peek.cpp */
+  ErrorCode     peek_volatile_page_boundaries(
+    Engine* engine,
+    const MasstreeStorage::PeekBoundariesArguments& args);
+  ErrorCode     peek_volatile_page_boundaries_next_layer(
+    const MasstreePage* layer_root,
+    const memory::GlobalVolatilePageResolver& resolver,
+    const MasstreeStorage::PeekBoundariesArguments& args);
+  ErrorCode     peek_volatile_page_boundaries_this_layer(
+    const MasstreePage* layer_root,
+    const memory::GlobalVolatilePageResolver& resolver,
+    const MasstreeStorage::PeekBoundariesArguments& args);
+  ErrorCode     peek_volatile_page_boundaries_this_layer_recurse(
+    const MasstreeIntermediatePage* cur,
+    const memory::GlobalVolatilePageResolver& resolver,
+    const MasstreeStorage::PeekBoundariesArguments& args);
+
+  /** Defined in masstree_storage_fatify.cpp */
+  ErrorStack    fatify_first_root(thread::Thread* context, uint32_t desired_count);
+  ErrorStack    fatify_first_root_double(thread::Thread* context);
+
+  static ErrorCode check_next_layer_bit(xct::XctId observed) ALWAYS_INLINE;
 };
 static_assert(sizeof(MasstreeStoragePimpl) <= kPageSize, "MasstreeStoragePimpl is too large");
 static_assert(

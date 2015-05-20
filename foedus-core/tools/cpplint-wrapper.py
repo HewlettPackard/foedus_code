@@ -134,7 +134,7 @@ def store_dir_index(index, path):
     json.dump(index, f)
     f.close()
     end = time.time()
-    sys.stdout.write('cpplint-wrapper: Wrote ' + path + ' in ' + str(end - start) + ' sec.\n')
+    sys.stdout.write('cpplint-wrapper: Wrote ' + path + ' (' + str(len(index)) + ' entries) in ' + str(end - start) + ' sec.\n')
 
 def load_dir_index(path):
     start = time.time()
@@ -142,7 +142,7 @@ def load_dir_index(path):
     idx = json.load(f)
     f.close()
     end = time.time()
-    sys.stdout.write('cpplint-wrapper: Read ' + path + ' in ' + str(end - start) + ' sec.\n')
+    sys.stdout.write('cpplint-wrapper: Read ' + path + ' (' + str(len(idx)) + ' entries) in ' + str(end - start) + ' sec.\n')
     return idx
 
 def compute_diff(files, index_base, index_now):
@@ -181,6 +181,9 @@ def exec_cpplint(files, cpplint_arguments):
     proc = subprocess.Popen(args, bufsize=65536, stderr=subprocess.PIPE, close_fds=True)
     proc.wait()
     has_error = False
+    clean_index = {}
+    clean_index.update(index_last)
+    clean_index.update(index_now)
     for line in proc.stderr:
         # This is annoying. Why cpplint writes this to _stderr_??
         if not line.startswith("Done processing "):
@@ -190,12 +193,12 @@ def exec_cpplint(files, cpplint_arguments):
 ## We parse the line and remember the file to be excluded from the "clean" list
             if line.find(':') > 0:
               f = line[:line.find(':')]
-              if f in index_now:
-                del index_now[f]
+              if f in clean_index:
+                del clean_index[f]
             sys.stdout.write(line)
 
     # store the clean list to speed up next execution
-    store_dir_index(index_now, history_file)
+    store_dir_index(clean_index, history_file)
 
     return has_error
 

@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/snapshot/log_reducer_ref.hpp"
 
@@ -143,6 +156,8 @@ void        LogReducerRef::append_log_chunk(
     ASSERT_ND(buffer_size
       == engine_->get_options().snapshot_.log_reducer_buffer_mb_ * (1ULL << 19));
     ASSERT_ND(from_buffer_position(cur_status.components.tail_position_) <= buffer_size);
+    ASSERT_ND(reinterpret_cast<char*>(buffers_[0]) + buffer_size
+      == reinterpret_cast<char*>(buffers_[1]));
     if (from_buffer_position(cur_status.components.tail_position_) + required_size > buffer_size) {
       ReducerBufferStatus new_status = cur_status;
       new_status.components.flags_ |= kFlagNoMoreWriters;
@@ -217,6 +232,10 @@ void        LogReducerRef::append_log_chunk(
   stop_watch.stop();
   DVLOG(1) << "Completed appending a block of " << send_buffer_size << " bytes to " << to_string()
     << "'s buffer for storage-" << storage_id << " in " << stop_watch.elapsed() << " cycles";
+  ASSERT_ND(reinterpret_cast<FullBlockHeader*>(destination)->is_full_block());
+  ASSERT_ND(reinterpret_cast<FullBlockHeader*>(destination)->storage_id_ == storage_id);
+  ASSERT_ND(reinterpret_cast<FullBlockHeader*>(destination)->block_length_
+    == to_buffer_position(required_size));
 }
 
 }  // namespace snapshot

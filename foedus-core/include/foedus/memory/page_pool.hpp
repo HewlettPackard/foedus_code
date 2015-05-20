@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_MEMORY_PAGE_POOL_HPP_
 #define FOEDUS_MEMORY_PAGE_POOL_HPP_
@@ -64,7 +77,7 @@ class PagePoolOffsetChunk {
   PagePoolOffset  chunk_[kMaxSize];
 };
 
-/** Used to point to an already existing array. Everything must be const in this case. */
+/** Used to point to an already existing array. */
 class PagePoolOffsetDynamicChunk {
  public:
   PagePoolOffsetDynamicChunk(uint32_t size, PagePoolOffset* chunk)
@@ -75,12 +88,12 @@ class PagePoolOffsetDynamicChunk {
   bool                    empty() const   { return size_ == 0; }
   bool                    full()  const   { return true; }
 
-  void                    move_to(PagePoolOffset* destination, uint32_t count) const;
+  void                    move_to(PagePoolOffset* destination, uint32_t count);
 
  private:
-  const uint32_t        size_;
+  uint32_t              size_;
   const uint32_t        padding_;
-  PagePoolOffset* const chunk_;  // of arbitrary size
+  PagePoolOffset*       chunk_;  // of arbitrary size
 };
 
 /**
@@ -92,16 +105,29 @@ class PagePoolOffsetDynamicChunk {
  */
 class PagePoolOffsetAndEpochChunk {
  public:
+  enum Constants {
+    /**
+     * Max number of pointers to pack.
+     * We use this object to pool retired pages, and we observed lots of waits due to
+     * full pool that causes the thread to wait for a new epoch.
+     * To avoid that, we now use a much larger kMaxSize than PagePoolOffsetChunk.
+     * Yes, it means much larger memory consumption in NumaCoreMemory, but shouldn't be
+     * a big issue.
+     * 8 * 2^16 * nodes * threads. On 16-node/12 threads-per-core (DH), 96MB per node.
+     * On 4-node/12 (DL580), 24 MB per node. I'd say negligible.
+     */
+    kMaxSize = (1 << 16) - 1,
+  };
   struct OffsetAndEpoch {
     PagePoolOffset      offset_;
     Epoch::EpochInteger safe_epoch_;
   };
   PagePoolOffsetAndEpochChunk() : size_(0) {}
 
-  uint32_t                capacity() const { return PagePoolOffsetChunk::kMaxSize; }
+  uint32_t                capacity() const { return kMaxSize; }
   uint32_t                size()  const   { return size_; }
   bool                    empty() const   { return size_ == 0; }
-  bool                    full()  const   { return size_ == PagePoolOffsetChunk::kMaxSize; }
+  bool                    full()  const   { return size_ == kMaxSize; }
   void                    clear()         { size_ = 0; }
   bool                    is_sorted() const;  // only for assertion
 
@@ -129,7 +155,7 @@ class PagePoolOffsetAndEpochChunk {
  private:
   uint32_t        size_;
   uint32_t        dummy_;
-  OffsetAndEpoch  chunk_[PagePoolOffsetChunk::kMaxSize];
+  OffsetAndEpoch  chunk_[kMaxSize];
 };
 
 /**
@@ -368,7 +394,7 @@ class DivvyupPageGrabBatch CXX11_FINAL {
 STATIC_SIZE_CHECK(sizeof(PagePoolOffset), 4)
 // Size of PagePoolOffsetChunk should be power of two (<=> x & (x-1) == 0)
 STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) & (sizeof(PagePoolOffsetChunk) - 1), 0)
-STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) * 2U, sizeof(PagePoolOffsetAndEpochChunk))
+STATIC_SIZE_CHECK(sizeof(PagePoolOffsetChunk) * 32U, sizeof(PagePoolOffsetAndEpochChunk))
 
 }  // namespace memory
 }  // namespace foedus

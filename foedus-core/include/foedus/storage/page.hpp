@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_STORAGE_PAGE_HPP_
 #define FOEDUS_STORAGE_PAGE_HPP_
@@ -35,9 +48,9 @@ enum PageType {
   kMasstreeBorderPageType = 3,
   kSequentialPageType = 4,
   kSequentialRootPageType = 5,
-  kHashRootPageType = 6,
-  kHashBinPageType = 7,
-  kHashDataPageType = 8,
+  kHashIntermediatePageType = 6,
+  kHashDataPageType = 7,
+  kHashComposedBinsPageType = 8,
   kDummyLastPageType,
 };
 
@@ -45,7 +58,8 @@ struct PageVersionStatus CXX11_FINAL {
   enum Constants {
     kRetiredBit = 1 << 31,
     kMovedBit = 1 << 30,
-    kReservedBit1 = 1 << 29,
+    /** so far used only in hash storage, where data page forms a linked list */
+    kHasNextPageBit = 1 << 29,
     kReservedBit2 = 1 << 28,
     kVersionMask = 0x0FFFFFFF,
   };
@@ -54,6 +68,7 @@ struct PageVersionStatus CXX11_FINAL {
 
   bool    is_moved() const ALWAYS_INLINE { return (status_ & kMovedBit) != 0; }
   bool    is_retired() const ALWAYS_INLINE { return (status_ & kRetiredBit) != 0; }
+  bool    has_next_page() const ALWAYS_INLINE { return (status_ & kHasNextPageBit) != 0; }
 
   bool operator==(const PageVersionStatus& other) const ALWAYS_INLINE {
     return status_ == other.status_;
@@ -70,6 +85,12 @@ struct PageVersionStatus CXX11_FINAL {
     ASSERT_ND(is_moved());  // we always set moved bit first. retire must happen later.
     ASSERT_ND(!is_retired());
     status_ |= kRetiredBit;
+  }
+  void      set_has_next_page() ALWAYS_INLINE {
+    ASSERT_ND(!is_moved());
+    ASSERT_ND(!is_retired());
+    ASSERT_ND(!has_next_page());
+    status_ |= kHasNextPageBit;
   }
 
   uint32_t  get_version_counter() const ALWAYS_INLINE {
@@ -113,6 +134,7 @@ struct PageVersion CXX11_FINAL {
   bool    is_locked() const ALWAYS_INLINE { return lock_.is_locked(); }
   bool    is_moved() const ALWAYS_INLINE { return status_.is_moved(); }
   bool    is_retired() const ALWAYS_INLINE { return status_.is_retired(); }
+  bool    has_next_page() const ALWAYS_INLINE { return status_.has_next_page(); }
 
   bool operator==(const PageVersion& other) const ALWAYS_INLINE { return status_ == other.status_; }
   bool operator!=(const PageVersion& other) const ALWAYS_INLINE { return status_ != other.status_; }
@@ -124,6 +146,10 @@ struct PageVersion CXX11_FINAL {
   void      set_retired() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     status_.set_retired();
+  }
+  void      set_has_next_page() ALWAYS_INLINE {
+    ASSERT_ND(is_locked());
+    status_.set_has_next_page();
   }
 
   uint32_t  get_version_counter() const ALWAYS_INLINE {
@@ -230,15 +256,30 @@ struct PageHeader CXX11_FINAL {
   uint8_t       masstree_layer_;  // +1 -> 21
 
   /**
+   * used only in masstree.
+   * \e Logical B-tree level of the page.
+   * Border pages are always level-0 whether they are foster-child or not.
+   * Intermediate pages right above border pages are level-1, their parents are level-2, ...
+   * Foster-child of an intermediate page has the same level as its foster parent.
+   * Again, this is a logical level, not physical.
+   *
+   * Our implementation of masstree might have unbalanced sub-trees. In that case,
+   * an interemediate page's level is max(child's level) + 1.
+   * This imbalance can happen only at the root page of the first layer because of how
+   * the masstree composer work. Other than that, all B-tree nodes are balanced.
+   *
+   * @todo this should be renamed to in_layer_level. now both masstree and hash use this.
+   */
+  uint8_t       masstree_in_layer_level_;     // +1 -> 22
+
+  /**
    * A loosely maintained statistics for volatile pages.
    * The NUMA node of the thread that has most recently tried to update this page.
    * This is not atomically/transactionally maintained and should be used only as a stat.
    * Depending on page type, this might not be even maintained (eg implicit in sequential pages).
    */
-  uint8_t       stat_last_updater_node_;       // +1 -> 22
-  uint8_t       reserved2_;       // +1 -> 23
-  uint8_t       reserved3_;       // +1 -> 24
-
+  uint8_t       stat_last_updater_node_;       // +1 -> 23
+  uint8_t       reserved_;       // +1 -> 24
   /**
    * Used in several storage types as concurrency control mechanism for the page.
    */
@@ -251,6 +292,8 @@ struct PageHeader CXX11_FINAL {
   friend std::ostream& operator<<(std::ostream& o, const PageHeader& v);
 
   PageType get_page_type() const { return static_cast<PageType>(page_type_); }
+  uint8_t get_in_layer_level() const { return masstree_in_layer_level_; }
+  void set_in_layer_level(uint8_t level) { masstree_in_layer_level_ = level; }
 
   inline void init_volatile(
     VolatilePagePointer page_id,
@@ -263,9 +306,9 @@ struct PageHeader CXX11_FINAL {
     snapshot_ = false;
     key_count_ = 0;
     masstree_layer_ = 0;
+    masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = page_id.components.numa_node;
-    reserved2_ = 0;
-    reserved3_ = 0;
+    reserved_ = 0;
     page_version_.reset();
   }
 
@@ -280,9 +323,9 @@ struct PageHeader CXX11_FINAL {
     snapshot_ = true;
     key_count_ = 0;
     masstree_layer_ = 0;
+    masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
-    reserved2_ = 0;
-    reserved3_ = 0;
+    reserved_ = 0;
     page_version_.reset();
   }
 
@@ -310,6 +353,7 @@ struct Page CXX11_FINAL {
   /** At least the basic header exists in all pages. */
   PageHeader&  get_header()              { return header_; }
   const PageHeader&  get_header() const  { return header_; }
+  PageType     get_page_type() const     { return header_.get_page_type(); }
 
  private:
   PageHeader  header_;
@@ -340,13 +384,13 @@ struct VolatilePageInitArguments {
 };
 
 /**
- * @brief A pointer of a function to initializer a volatile page.
+ * @brief A function pointer to initialize a volatile page.
  * @ingroup STORAGE
  * @details
  * Used as a callback argument to follow_page_pointer.
  * This is used when a method might initialize a volatile page (eg following a page pointer).
  * Page initialization depends on page type and many of them need custom logic,
- * so we made it this callback.
+ * so we made it a callback.
  */
 typedef void (*VolatilePageInit)(const VolatilePageInitArguments& args);
 

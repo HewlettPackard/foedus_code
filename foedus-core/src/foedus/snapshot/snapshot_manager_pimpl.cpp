@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/snapshot/snapshot_manager_pimpl.hpp"
 
@@ -9,6 +22,8 @@
 #include <chrono>
 #include <map>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -18,6 +33,7 @@
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
 #include "foedus/log/log_manager.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
@@ -80,6 +96,9 @@ ErrorStack SnapshotManagerPimpl::initialize_once() {
     // set the size of partitioner data
     repo->get_global_memory_anchors()->partitioner_metadata_[0].data_size_
       = engine_->get_options().storage_.partitioner_data_memory_mb_ * (1ULL << 20);
+
+    // And master-only resources for running gleaner. These are NOT shared memory. local to master.
+    gleaner_resource_.allocate(engine_->get_soc_count());
   }
 
   // in child engines, we instantiate local mappers/reducer objects (but not the threads yet)
@@ -124,6 +143,8 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
     control_block_->uninitialize();
     ASSERT_ND(local_reducer_ == nullptr);
     ASSERT_ND(local_mappers_.size() == 0);
+
+    gleaner_resource_.deallocate();
   } else {
     if (local_reducer_) {
       batch.emprace_back(local_reducer_->uninitialize());
@@ -135,6 +156,7 @@ ErrorStack SnapshotManagerPimpl::uninitialize_once() {
       delete mapper;
     }
     local_mappers_.clear();
+    ASSERT_ND(gleaner_resource_.per_node_resources_.empty());
   }
 
   return SUMMARIZE_ERROR_BATCH(batch);
@@ -157,14 +179,13 @@ void SnapshotManagerPimpl::stop_snapshot_thread() {
 }
 
 void SnapshotManagerPimpl::sleep_a_while() {
-  soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
+  uint64_t demand = control_block_->snapshot_wakeup_.acquire_ticket();
   if (!is_stop_requested()) {
-    control_block_->snapshot_wakeup_.timedwait(&scope, 100000000ULL);
+    control_block_->snapshot_wakeup_.timedwait(demand, 20000ULL);
   }
 }
 void SnapshotManagerPimpl::wakeup() {
-  soc::SharedMutexScope scope(control_block_->snapshot_wakeup_.get_mutex());
-  control_block_->snapshot_wakeup_.signal(&scope);
+  control_block_->snapshot_wakeup_.signal();
 }
 
 void SnapshotManagerPimpl::handle_snapshot() {
@@ -198,7 +219,7 @@ void SnapshotManagerPimpl::handle_snapshot() {
       triggered = true;
       LOG(INFO) << "Snapshot interval has elapsed. snapshotting..";
     } else {
-      // TODO(Hideaki): check free pages in page pool and compare with configuration.
+      // TASK(Hideaki): check free pages in page pool and compare with configuration.
     }
 
     if (triggered) {
@@ -221,9 +242,9 @@ void SnapshotManagerPimpl::handle_snapshot_child() {
   SnapshotId previous_id = control_block_->gleaner_.cur_snapshot_.id_;
   while (!is_stop_requested()) {
     {
-      soc::SharedMutexScope scope(control_block_->snapshot_children_wakeup_.get_mutex());
+      uint64_t demand = control_block_->snapshot_children_wakeup_.acquire_ticket();
       if (!is_stop_requested() && !is_gleaning()) {
-        control_block_->snapshot_children_wakeup_.timedwait(&scope, 100000000ULL);
+        control_block_->snapshot_children_wakeup_.timedwait(demand, 100000ULL);
       }
     }
     if (is_stop_requested()) {
@@ -269,8 +290,11 @@ void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
     VLOG(0) << "Waiting for the completion of snapshot... before=" << before;
     while (!is_stop_requested() &&
         (!get_snapshot_epoch().is_valid() || durable_epoch > get_snapshot_epoch())) {
-      soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
-      control_block_->snapshot_taken_.timedwait(&scope, 100000000ULL);
+      uint64_t demand = control_block_->snapshot_taken_.acquire_ticket();
+      if (!is_stop_requested() &&
+        (!get_snapshot_epoch().is_valid() || durable_epoch > get_snapshot_epoch())) {
+        control_block_->snapshot_taken_.timedwait(demand, 100000ULL);
+      }
     }
   }
   LOG(INFO) << "Observed the completion of snapshot! after=" << get_snapshot_epoch();
@@ -321,7 +345,7 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   CHECK_ERROR(snapshot_savepoint(*new_snapshot));
 
   // install pointers to snapshot pages and drop volatile pages.
-  CHECK_ERROR(replace_pointers(*new_snapshot, new_root_page_pointers));
+  CHECK_ERROR(drop_volatile_pages(*new_snapshot, new_root_page_pointers));
 
   Epoch new_snapshot_epoch = new_snapshot->valid_until_epoch_;
   ASSERT_ND(new_snapshot_epoch.is_valid() &&
@@ -331,11 +355,10 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   Epoch::EpochInteger epoch_after = new_snapshot_epoch.value();
   control_block_->previous_snapshot_id_ = snapshot_id;
   previous_snapshot_time_ = std::chrono::system_clock::now();
-  {
-    soc::SharedMutexScope scope(control_block_->snapshot_taken_.get_mutex());
-    control_block_->snapshot_epoch_ = epoch_after;
-    control_block_->snapshot_taken_.broadcast(&scope);
-  }
+
+  control_block_->snapshot_epoch_ = epoch_after;
+  assorted::memory_fence_release();
+  control_block_->snapshot_taken_.signal();
   return kRetOk;
 }
 
@@ -344,7 +367,7 @@ ErrorStack SnapshotManagerPimpl::glean_logs(
   std::map<storage::StorageId, storage::SnapshotPagePointer>* new_root_page_pointers) {
   // Log gleaner is an object allocated/deallocated per snapshotting.
   // Gleaner runs on this thread (snapshot_thread_)
-  LogGleaner gleaner(engine_, new_snapshot);
+  LogGleaner gleaner(engine_, &gleaner_resource_, new_snapshot);
   ErrorStack result = gleaner.execute();
   if (result.is_error()) {
     LOG(ERROR) << "Log Gleaner encountered either an error or early termination request";
@@ -365,7 +388,7 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
   metadata.largest_storage_id_ = new_snapshot.max_storage_id_;
   CHECK_ERROR(engine_->get_storage_manager()->clone_all_storage_metadata(&metadata));
 
-  // we modified the root page. install it.
+  // we modified the root page.
   uint32_t installed_root_pages_count = 0;
   for (storage::StorageId id = 1; id <= metadata.largest_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
@@ -373,9 +396,8 @@ ErrorStack SnapshotManagerPimpl::snapshot_metadata(
     storage::Metadata* meta = metadata.get_metadata(id);
     if (it != new_root_page_pointers.end()) {
       storage::SnapshotPagePointer new_pointer = it->second;
-      ASSERT_ND(new_pointer != 0);
-      ASSERT_ND(new_pointer != meta->root_snapshot_page_id_);
-      meta->root_snapshot_page_id_ = new_pointer;
+      // composer's construct_root should have been already set the new root pointer
+      ASSERT_ND(new_pointer == meta->root_snapshot_page_id_);
       ++installed_root_pages_count;
     }
   }
@@ -442,37 +464,31 @@ fs::Path SnapshotManagerPimpl::get_snapshot_metadata_file_path(SnapshotId snapsh
   return file;
 }
 
-ErrorStack SnapshotManagerPimpl::replace_pointers(
+ErrorStack SnapshotManagerPimpl::drop_volatile_pages(
   const Snapshot& new_snapshot,
   const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers) {
-  // To speed up, this method should be parallelized at least for per-storage.
-  LOG(INFO) << "Installing new snapshot pointers and dropping volatile pointers...";
-
-  // To avoid invoking volatile pool for every dropped page, we cache them in chunks
-  memory::AlignedMemory chunks_memory;
-  chunks_memory.alloc(
-    sizeof(memory::PagePoolOffsetChunk) * engine_->get_soc_count(),
-    1U << 12,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    0);
-  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
-    chunks_memory.get_block());
-  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
-    dropped_chunks[node].clear();
-  }
-
-  // For whatever use.. this is automatically expanded by the replace_pointers() implementation.
-  memory::AlignedMemory work_memory;
-  work_memory.alloc(1U << 21, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
-
-  cache::SnapshotFileSet fileset(engine_);
-  CHECK_ERROR(fileset.initialize());
+  // To speed up, we parallelize this process per node, and use the same partitioning scheme.
+  LOG(INFO) << "Dropping volatile pointers...";
 
   // initializations done.
   // below, we should release the resources before exiting. So, let's not just use CHECK_ERROR.
-  ErrorStack result;
-  uint64_t installed_count_total = 0;
-  uint64_t dropped_count_total = 0;
+  const uint16_t soc_count = engine_->get_soc_count();
+
+  // collect results of pointer dropping for all storages for all nodes.
+  // this is just to drop the root page. DropResult[storage_id][node].
+  memory::AlignedMemory result_memory;
+  result_memory.alloc(
+    sizeof(storage::Composer::DropResult) * soc_count * (new_snapshot.max_storage_id_ + 2U),
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+  memory::AlignedMemory chunks_memory;  // only for drop_root
+  chunks_memory.alloc(
+    sizeof(memory::PagePoolOffsetChunk) * soc_count,
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    0);
+
   // So far, we pause transaction executions during this step to simplify the algorithm.
   // Without this simplification, not only this thread but also normal transaction executions
   // have to do several complex and expensive checks.
@@ -483,53 +499,149 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
   LOG(INFO) << "Paused transaction executions to safely drop volatile pages and waited enough"
     << " to let currently running xcts end. Now start replace pointers.";
   debugging::StopWatch stop_watch;
+
+  std::vector< std::thread > threads;
+  for (uint16_t node = 0; node < soc_count; ++node) {
+    threads.emplace_back(
+      &SnapshotManagerPimpl::drop_volatile_pages_parallel,
+      this,
+      new_snapshot,
+      new_root_page_pointers,
+      result_memory.get_block(),
+      node);
+  }
+
+  for (std::thread& thr : threads) {
+    thr.join();
+  }
+
+  LOG(INFO) << "Joined child threads. Now consider dropping root pages";
+
+  // At last, we consider dropping root volatile pages.
+  // usually, this happens only when the root page doesn't have any volatile pointer.
+  // As an exceptional case, we might drop ALL volatile pages of a storage whose max_observed
+  // is not updated but for some reason dropped_all is false, eg non-matching boundaries.
+  // even in that case, we can drop all volatile pages safely because this is within pause.
+  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
+    chunks_memory.get_block());
+  for (uint16_t node = 0; node < soc_count; ++node) {
+    dropped_chunks[node].clear();
+  }
+  storage::Composer::DropResult* results
+    = reinterpret_cast<storage::Composer::DropResult*>(result_memory.get_block());
+  for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
+    VLOG(1) << "Considering to drop root page of storage-" << id << " ...";
+    bool cannot_drop = false;
+    for (uint16_t node = 0; node < soc_count; ++node) {
+      storage::Composer::DropResult result = results[soc_count * id + node];
+      ASSERT_ND(result.max_observed_.is_valid());
+      ASSERT_ND(result.max_observed_ >= new_snapshot.valid_until_epoch_);
+      if (result.max_observed_ > new_snapshot.valid_until_epoch_) {
+        cannot_drop = true;
+        break;
+      }
+    }
+    if (cannot_drop) {
+      continue;
+    }
+    LOG(INFO) << "Looks like we can drop ALL volatile pages of storage-" << id << "!!!";
+    // Still, the specific implementation of the storage might not choose to do so.
+    // We call a method in composer.
+    uint64_t dropped_count = 0;
+    storage::Composer::DropVolatilesArguments args = {
+      new_snapshot,
+      0,
+      false,
+      dropped_chunks,
+      &dropped_count};
+    storage::Composer composer(engine_, id);
+    composer.drop_root_volatile(args);
+    LOG(INFO) << "As a result, we dropped " << dropped_count << " pages from storage-" << id;
+  }
+
+
+  engine_->get_xct_manager()->resume_accepting_xct();
+
+  stop_watch.stop();
+  LOG(INFO) << "Total: Dropped volatile pages in " << stop_watch.elapsed_ms() << "ms.";
+
+  chunks_memory.release_block();
+  result_memory.release_block();
+
+  return kRetOk;
+}
+
+void SnapshotManagerPimpl::drop_volatile_pages_parallel(
+  const Snapshot& new_snapshot,
+  const std::map<storage::StorageId, storage::SnapshotPagePointer>& new_root_page_pointers,
+  void* result_memory,
+  uint16_t parallel_id) {
+  // this thread is pinned on its own socket. We use the same partitioning scheme as reducer
+  // so that this method mostly hits local pages
+  thread::NumaThreadScope numa_scope(parallel_id);
+
+  const uint16_t soc_count = engine_->get_soc_count();
+  storage::Composer::DropResult* results  // DropResult[storage_id][node]
+    = reinterpret_cast<storage::Composer::DropResult*>(result_memory);
+
+  // To avoid invoking volatile pool for every dropped page, we cache them in chunks
+  memory::AlignedMemory chunks_memory;
+  chunks_memory.alloc(
+    sizeof(memory::PagePoolOffsetChunk) * soc_count,
+    1U << 12,
+    memory::AlignedMemory::kNumaAllocOnnode,
+    parallel_id);
+  memory::PagePoolOffsetChunk* dropped_chunks = reinterpret_cast<memory::PagePoolOffsetChunk*>(
+    chunks_memory.get_block());
+  for (uint16_t node = 0; node < soc_count; ++node) {
+    dropped_chunks[node].clear();
+  }
+
+  LOG(INFO) << "Thread-" << parallel_id << " started dropping volatile pages.";
+
+  uint64_t dropped_count_total = 0;
+  debugging::StopWatch stop_watch;
   for (storage::StorageId id = 1; id <= new_snapshot.max_storage_id_; ++id) {
     const auto& it = new_root_page_pointers.find(id);
     if (it != new_root_page_pointers.end()) {
-      VLOG(0) << "replacing pointers for storage-" << id << " ...";
+      VLOG(0) << "Dropping pointers for storage-" << id << " ...";
       storage::SnapshotPagePointer new_root_page_pointer = it->second;
       ASSERT_ND(new_root_page_pointer != 0);
       storage::Composer composer(engine_, id);
-      uint64_t installed_count = 0;
       uint64_t dropped_count = 0;
-      storage::Composer::ReplacePointersArguments args = {
+      storage::Composer::DropVolatilesArguments args = {
         new_snapshot,
-        &fileset,
-        new_root_page_pointer,
-        &work_memory,
+        parallel_id,
+        true,
         dropped_chunks,
-        &installed_count,
         &dropped_count};
       debugging::StopWatch watch;
-      result = composer.replace_pointers(args);
-      if (result.is_error()) {
-        LOG(ERROR) << "composer.replace_pointers() failed with storage-" << id << ":" << result;
-        break;
-      }
+      storage::Composer::DropResult result = composer.drop_volatiles(args);
       ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->root_page_pointer_.
         snapshot_pointer_ == new_root_page_pointer);
       ASSERT_ND(engine_->get_storage_manager()->get_storage(id)->meta_.root_snapshot_page_id_
         == new_root_page_pointer);
-      installed_count_total += installed_count;
       dropped_count_total += dropped_count;
       watch.stop();
-      LOG(INFO) << "replace_pointers for storage-" << id << " took " << watch.elapsed_sec() << "s";
+      LOG(INFO) << "Thread-" << parallel_id << " drop_volatiles for storage-" << id
+        << " (" << engine_->get_storage_manager()->get_storage(id)->meta_.name_ << ")"
+        << " took " << watch.elapsed_sec() << "s. dropped_count=" << dropped_count
+        << ". result =" << result;
+      results[soc_count * id + parallel_id] = result;
     } else {
-      VLOG(0) << "storage-" << id << " wasn't changed no drop pointers";
+      VLOG(0) << "Thread-" << parallel_id << " storage-"
+        << id << " wasn't changed no drop pointers";
+      results[soc_count * id + parallel_id].max_observed_
+        = new_snapshot.valid_until_epoch_.one_more();  // do NOT drop root page in this case.
+      results[soc_count * id + parallel_id].dropped_all_ = false;
     }
   }
-  engine_->get_xct_manager()->resume_accepting_xct();
 
   stop_watch.stop();
-  LOG(INFO) << "Installed " << installed_count_total << " new snapshot pointers and "
-    << dropped_count_total << " dropped volatile pointers in "
-    << stop_watch.elapsed_ms() << "ms.";
+  LOG(INFO) << "Thread-" << parallel_id << " dropped " << dropped_count_total
+    << " volatile pointers in " << stop_watch.elapsed_ms() << "ms.";
 
-  ErrorStack fileset_error = fileset.uninitialize();
-  if (fileset_error.is_error()) {
-    LOG(WARNING) << "Failed to close snapshot fileset. weird. " << fileset_error;
-  }
-  for (uint16_t node = 0; node < engine_->get_soc_count(); ++node) {
+  for (uint16_t node = 0; node < soc_count; ++node) {
     memory::PagePoolOffsetChunk* chunk = dropped_chunks + node;
     memory::PagePool* volatile_pool
       = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
@@ -539,7 +651,6 @@ ErrorStack SnapshotManagerPimpl::replace_pointers(
     ASSERT_ND(chunk->empty());
   }
   chunks_memory.release_block();
-  return result;
 }
 
 }  // namespace snapshot

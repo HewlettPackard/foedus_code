@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 /**
  * @file foedus/graphlda/lda.cpp
@@ -331,7 +344,7 @@ class LdaWorker {
       const DocId d = assigned_tokens[i].doc;
       const TopicId old_topic = topics_tmp[i];
 
-      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+      CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
 
       // First, read from the global arrays
       CHECK_ERROR_CODE(n_td.get_record(context, d, record_td));
@@ -426,7 +439,7 @@ class LdaWorker {
     Epoch ep;
     // first, "flush" batched increments/decrements to the global n_t
     // this transactionally applies all the inc/dec.
-    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     for (TopicId t = 0; t < ntopics_aligned; t += 4) {
       // for each uint64_t. we reserved additional size (align8) for simplifying this.
       uint64_t diff = *reinterpret_cast<uint64_t*>(&record_t_diff[t]);
@@ -440,7 +453,7 @@ class LdaWorker {
     // then, retrive a fresh new copy of record_t, which contains updates from other threads.
     std::memset(record_t, 0, sizeof(Count) * ntopics_aligned);
     std::memset(record_t_diff, 0, sizeof(Count) * ntopics_aligned);
-    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyReadPreferVolatile));
+    CHECK_ERROR_CODE(xct_manager->begin_xct(context, xct::kDirtyRead));
     CHECK_ERROR_CODE(n_t.get_record(context, 0, record_t));
     CHECK_ERROR_CODE(xct_manager->abort_xct(context));
     return kErrorCodeOk;

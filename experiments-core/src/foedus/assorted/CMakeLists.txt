@@ -11,3 +11,6 @@ target_link_libraries(l3miss_experiment ${EXPERIMENT_LIB})
 
 add_executable(l3miss_multip_experiment ${CMAKE_CURRENT_SOURCE_DIR}/l3miss_multip_experiment.cpp)
 target_link_libraries(l3miss_multip_experiment ${EXPERIMENT_LIB})
+
+add_executable(std_sort_perf ${CMAKE_CURRENT_SOURCE_DIR}/std_sort_perf.cpp)
+target_link_libraries(std_sort_perf ${EXPERIMENT_LIB})

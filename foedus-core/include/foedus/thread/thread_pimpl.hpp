@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #ifndef FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
@@ -12,15 +25,15 @@
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
-#include "foedus/log/thread_log_buffer_impl.hpp"
+#include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/proc/proc_id.hpp"
-#include "foedus/soc/shared_cond.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
+#include "foedus/soc/shared_polling.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -48,11 +61,12 @@ struct ThreadControlBlock {
     wakeup_cond_.initialize();
     task_mutex_.initialize();
     task_complete_cond_.initialize();
+    in_commit_epoch_ = INVALID_EPOCH;
+    stat_snapshot_cache_hits_ = 0;
+    stat_snapshot_cache_misses_ = 0;
   }
   void uninitialize() {
-    task_complete_cond_.uninitialize();
     task_mutex_.uninitialize();
-    wakeup_cond_.uninitialize();
   }
 
   /**
@@ -68,7 +82,7 @@ struct ThreadControlBlock {
    * When someone else (whether in same SOC or other SOC) wants to wake up this logger,
    * they fire this. The 'real' condition variable is the status_.
    */
-  soc::SharedCond     wakeup_cond_;
+  soc::SharedPolling  wakeup_cond_;
 
   /**
    * Impersonation status of this thread. Protected by the mutex in wakeup_cond_,
@@ -101,7 +115,13 @@ struct ThreadControlBlock {
   /**
    * When the current task has been completed, the thread signals this.
    */
-  soc::SharedCond     task_complete_cond_;
+  soc::SharedPolling  task_complete_cond_;
+
+  /** @see foedus::xct::InCommitEpochGuard  */
+  Epoch               in_commit_epoch_;
+
+  uint64_t            stat_snapshot_cache_hits_;
+  uint64_t            stat_snapshot_cache_misses_;
 };
 
 /**
@@ -143,6 +163,11 @@ class ThreadPimpl final : public DefaultInitializable {
   ErrorCode   find_or_read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
     storage::Page** out);
+  /** @copydoc foedus::thread::Thread::find_or_read_snapshot_pages_batch() */
+  ErrorCode   find_or_read_snapshot_pages_batch(
+    uint16_t batch_size,
+    const storage::SnapshotPagePointer* page_ids,
+    storage::Page** out);
 
   /** @copydoc foedus::thread::Thread::read_a_snapshot_page() */
   ErrorCode   read_a_snapshot_page(
@@ -160,11 +185,29 @@ class ThreadPimpl final : public DefaultInitializable {
     bool tolerate_null_pointer,
     bool will_modify,
     bool take_ptr_set_snapshot,
-    bool take_ptr_set_volatile,
     storage::DualPagePointer* pointer,
     storage::Page** page,
     const storage::Page* parent,
     uint16_t index_in_parent);
+  /** @copydoc foedus::thread::Thread::follow_page_pointers_for_read_batch() */
+  ErrorCode follow_page_pointers_for_read_batch(
+    uint16_t batch_size,
+    storage::VolatilePageInit page_initializer,
+    bool tolerate_null_pointer,
+    bool take_ptr_set_snapshot,
+    storage::DualPagePointer** pointers,
+    storage::Page** parents,
+    const uint16_t* index_in_parents,
+    bool* followed_snapshots,
+    storage::Page** out);
+  /** @copydoc foedus::thread::Thread::follow_page_pointers_for_write_batch() */
+  ErrorCode follow_page_pointers_for_write_batch(
+    uint16_t batch_size,
+    storage::VolatilePageInit page_initializer,
+    storage::DualPagePointer** pointers,
+    storage::Page** parents,
+    const uint16_t* index_in_parents,
+    storage::Page** out);
   ErrorCode on_snapshot_cache_miss(
     storage::SnapshotPagePointer page_id,
     memory::PagePoolOffset* pool_offset);

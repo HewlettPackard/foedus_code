@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <gtest/gtest.h>
 
@@ -59,6 +72,7 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   storage::masstree::MasstreeStorage masstree(args.engine_, kName);
   ASSERT_ND(masstree.exists());
+  CHECK_ERROR(masstree.verify_single_thread(context));
   xct::XctManager* xct_manager = args.engine_->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
@@ -68,13 +82,21 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
     uint64_t data;
     uint16_t capacity = sizeof(data);
     ErrorCode ret = masstree.get_record_normalized(context, slice, &data, &capacity);
+/*
+    if (ret != kErrorCodeOk || rec != data) {
+      CHECK_ERROR(masstree.verify_single_thread(context));
+      CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+      std::cout << "asdasd" << std::endl;
+    }
+*/
     EXPECT_EQ(kErrorCodeOk, ret) << i;
     EXPECT_EQ(rec, data) << i;
     EXPECT_EQ(sizeof(data), capacity) << i;
   }
 
   Epoch commit_epoch;
-  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  ErrorCode committed = xct_manager->precommit_xct(context, &commit_epoch);
+  EXPECT_EQ(kErrorCodeOk, committed);
   return kRetOk;
 }
 
@@ -89,35 +111,25 @@ ErrorStack inserts_varlen_task(const proc::ProcArguments& args) {
   xct::XctManager* xct_manager = args.engine_->get_xct_manager();
   Epoch commit_epoch;
 
-  // TODO(Hideaki) dirty hack. currently create_next_layer will cause an abort when the original
-  // record was already in readset. to avoid it, the first rep physically creates the records
-  // and second path logically inserts. as soon as we add "next_layer" flag in xct_id,
-  // we will not need this hack.
-  for (uint16_t rep = 0; rep < 2; ++rep) {
-    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
-    char buffer[16];
-    std::memset(buffer, 0, sizeof(buffer));
-    for (uint32_t i = 0; i < kRecords / 2U; ++i) {
-      uint64_t rec = id * kRecords / 2U + i;
-      // first 8 bytes, mod 17 to have next layers.
-      assorted::write_bigendian<uint64_t>(static_cast<uint64_t>(rec % 17U), buffer);
-      // and 1-4 bytes of decimal representation in text
-      std::string str = std::to_string(rec);
-      std::memcpy(buffer + sizeof(uint64_t), str.data(), str.size());
-      uint16_t len = sizeof(uint64_t) + str.size();
-      ErrorCode ret = masstree.insert_record(context, buffer, len, &rec, sizeof(rec));
-      EXPECT_EQ(kErrorCodeOk, ret) << rec;
-    }
-
-    // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
-    if (rep == 0) {
-      WRAP_ERROR_CODE(xct_manager->abort_xct(context));
-    } else {
-      WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-    }
-    // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+  char buffer[16];
+  std::memset(buffer, 0, sizeof(buffer));
+  for (uint32_t i = 0; i < kRecords / 2U; ++i) {
+    uint64_t rec = id * kRecords / 2U + i;
+    // first 8 bytes, mod 17 to have next layers.
+    assorted::write_bigendian<uint64_t>(static_cast<uint64_t>(rec % 17U), buffer);
+    // and 1-4 bytes of decimal representation in text
+    std::string str = std::to_string(rec);
+    std::memcpy(buffer + sizeof(uint64_t), str.data(), str.size());
+    uint16_t len = sizeof(uint64_t) + str.size();
+    ErrorCode ret = masstree.insert_record(context, buffer, len, &rec, sizeof(rec));
+    EXPECT_EQ(kErrorCodeOk, ret) << rec;
   }
+
+  // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
   WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return kRetOk;
 }
@@ -126,7 +138,8 @@ ErrorStack verify_varlen_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   storage::masstree::MasstreeStorage masstree(args.engine_, kName);
   ASSERT_ND(masstree.exists());
-  // CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
+  CHECK_ERROR(masstree.verify_single_thread(context));
+  CHECK_ERROR(masstree.debugout_single_thread(args.engine_));
   xct::XctManager* xct_manager = args.engine_->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
 
@@ -148,7 +161,8 @@ ErrorStack verify_varlen_task(const proc::ProcArguments& args) {
   }
 
   Epoch commit_epoch;
-  WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  ErrorCode committed = xct_manager->precommit_xct(context, &commit_epoch);
+  EXPECT_EQ(kErrorCodeOk, committed);
   return kRetOk;
 }
 
@@ -162,9 +176,6 @@ void test_run(
     options.thread_.thread_count_per_group_ = 1;
     options.thread_.group_count_ = 2;
     options.log_.loggers_per_node_ = 1;
-    if (!is_multi_nodes()) {
-      return;
-    }
   } else {
     options.thread_.thread_count_per_group_ = kThreads;
     options.thread_.group_count_ = 1;
@@ -229,7 +240,6 @@ TEST(SnapshotMasstreeTest, InsertsNormalizedTwoPartitions) { test_run(kInsN, kVe
 TEST(SnapshotMasstreeTest, InsertsVarlenOneLogger) { test_run(kInsV, kVerV, false, false); }
 TEST(SnapshotMasstreeTest, InsertsVarlenTwoLoggers) { test_run(kInsV, kVerV, true, false); }
 TEST(SnapshotMasstreeTest, InsertsVarlenTwoPartitions) { test_run(kInsV, kVerV, true, true); }
-
 }  // namespace snapshot
 }  // namespace foedus
 

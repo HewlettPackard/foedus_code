@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <gtest/gtest.h>
 
@@ -54,10 +67,32 @@ void test_multi_thread(uint32_t id, CacheHashtable* hashtable) {
     ContentId content_id = hashtable->find(pointer);
     EXPECT_EQ(0, content_id);
     EXPECT_EQ(kErrorCodeOk, hashtable->install(pointer, i * 3 + 42));
+    // the install() of hashtable in snapshot cache is opportunitstic.
+    // in order to make it wait-free, we tolerate a chance of other thread overwriting what is
+    // written. thus, we confirm whether it's installed there, and install it again if not.
+    assorted::memory_fence_acq_rel();
+    content_id = hashtable->find(pointer);
+    if (content_id == 0) {
+      std::cout << "Interesting, concurrent threads have just overwritten what I wrote."
+        << "id=" << id << ", i=" << i << std::endl;
+      // we assume the same unlucky wouldn't happen again. it is possible, but negligible in the
+      // test case. even if it happens, it's not a bug, btw.
+      // also, it might be overwritten by other threads AFTER the if above, so it can definitely
+      // happen, and we do observe it a few times per several runs.
+      // man, writing a multi-thread testcase on an opportunitstic data structure is tough.
+      EXPECT_EQ(kErrorCodeOk, hashtable->install(pointer, i * 3 + 42));
+    } else {
+      EXPECT_EQ(i * 3U + 42U, content_id);
+    }
+
+    // we once had a testcase failure caused by the above (enable the 1000-time repeat below,
+    // you will see the message above once in hundred times).
   }
 }
 
 TEST(HashTableTest, RandomMultiThread) {
+  // there is a hard-to-reproduce bug. repeat many times just for repro. do not push it to repo!
+  // for (int aaa = 0; aaa < 1000; ++aaa) {
   const uint32_t kThreads = 4;
   std::vector<std::thread> threads;
   CacheHashtable hashtable(123456, 0);
@@ -70,12 +105,23 @@ TEST(HashTableTest, RandomMultiThread) {
   }
 
   COERCE_ERROR(hashtable.verify_single_thread());
+  // As noted above, it is possible that the entry we thought we inserted might not exist.
+  // This is fine because our snapshot cache is an opportunitstic data structre. Not a bug
+  // ... as far as it's rare. So, let's check it.
+  const uint32_t kTolerableMisses = 5;
+  uint32_t miss_count = 0;
   for (uint32_t i = 0; i < 10000U * kThreads; ++i) {
     storage::SnapshotPagePointer pointer;
     pointer = storage::to_snapshot_page_pointer(1, 0, i * 3);
     ContentId content_id = hashtable.find(pointer);
-    EXPECT_EQ(i * 3U + 42U, content_id);
+    if (i * 3U + 42U != content_id) {
+      ++miss_count;
+      std::cout << "Interesting, we thought we inserted " << i << ", but it's " << content_id << "."
+        << " this CAN happen and is not a bug. misses so far=" << miss_count << std::endl;
+    }
   }
+  EXPECT_LE(miss_count, kTolerableMisses);
+  // }
 }
 
 

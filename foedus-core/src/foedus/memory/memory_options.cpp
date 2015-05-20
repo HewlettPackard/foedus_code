@@ -1,6 +1,19 @@
 /*
- * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
- * The license and distribution terms for this file are placed in LICENSE.txt.
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include "foedus/memory/memory_options.hpp"
 
@@ -13,6 +26,7 @@ MemoryOptions::MemoryOptions() {
   use_numa_alloc_ = true;
   interleave_numa_alloc_ = false;
   use_mmap_hugepages_ = false;
+  rigorous_memory_boundary_check_ = false;
   page_pool_size_mb_per_node_ = kDefaultPagePoolSizeMbPerNode;
   private_page_pool_initial_grab_ = PagePoolOffsetChunk::kMaxSize / 2;
 }
@@ -21,6 +35,7 @@ ErrorStack MemoryOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, use_numa_alloc_);
   EXTERNALIZE_LOAD_ELEMENT(element, interleave_numa_alloc_);
   EXTERNALIZE_LOAD_ELEMENT(element, use_mmap_hugepages_);
+  EXTERNALIZE_LOAD_ELEMENT(element, rigorous_memory_boundary_check_);
   EXTERNALIZE_LOAD_ELEMENT(element, page_pool_size_mb_per_node_);
   EXTERNALIZE_LOAD_ELEMENT(element, private_page_pool_initial_grab_);
   return kRetOk;
@@ -46,6 +61,8 @@ ErrorStack MemoryOptions::save(tinyxml2::XMLElement* element) const {
     "Whether to use non-transparent hugepages for big memories (1GB huge pages)\n"
     " To use this, you have to set up non-transparent hugepages that requires a reboot.\n"
     " See the readme fore more details.");
+  EXTERNALIZE_SAVE_ELEMENT(element, rigorous_memory_boundary_check_,
+    "Whether to use mprotect() for memory boundaries to detect bogus memory accesses.");
   EXTERNALIZE_SAVE_ELEMENT(element, page_pool_size_mb_per_node_,
           "Size of the page pool in MB per each NUMA node. Must be multiply of 2MB.");
   EXTERNALIZE_SAVE_ELEMENT(element, private_page_pool_initial_grab_,
