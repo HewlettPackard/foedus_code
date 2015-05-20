@@ -27,6 +27,7 @@ namespace storage {
 namespace sequential {
 struct  SequentialAppendLogType;
 struct  SequentialCreateLogType;
+class   SequentialCursor;
 struct  SequentialMetadata;
 class   SequentialPage;
 class   SequentialPartitioner;
