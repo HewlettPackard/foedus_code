@@ -104,6 +104,10 @@ Current Build Status on Jenkins (For FOEDUS Developers)
 | aarch64 debug            | [![Build Status: master-debug](http://ms01915-003.hpl.hp.com:8080/job/foedus-master-aarch64-debug/badge/icon)](http://ms01915-003.hpl.hp.com:8080/job/foedus-master-aarch64-debug/) | [![Build Status: develop-debug](http://ms01915-003.hpl.hp.com:8080/job/foedus-develop-aarch64-debug/badge/icon)](http://ms01915-003.hpl.hp.com:8080/job/foedus-develop-aarch64-debug/) |
 | aarch64 release-valgrind | [![Build Status: master-release-valgrind](http://ms01915-003.hpl.hp.com:8080/job/foedus-master-aarch64-release-valgrind/badge/icon)](http://ms01915-003.hpl.hp.com:8080/job/foedus-master-aarch64-release-valgrind/) | [![Build Status: develop-release-valgrind](http://ms01915-003.hpl.hp.com:8080/job/foedus-develop-aarch64-release-valgrind/badge/icon)](http://ms01915-003.hpl.hp.com:8080/job/foedus-develop-aarch64-release-valgrind/) |
 
+To get an email notification for build failure (aka the hall of embarrassment),
+join [our build-notification mailing list](https://groups.google.com/forum/#!forum/foedus-build-failure-notification-list).
+You can simply subscribe the Jenkins's RSS, too.
+
 Building Development Environment (For FOEDUS Developers)
 --------
 We recommend newer Fedora, Ubuntu/Debian, etc.
