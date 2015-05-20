@@ -25,9 +25,11 @@
       <tab type="globals" visible="yes" title="" intro=""/>
     </tab>
     <tab type="examples" visible="yes" title="" intro=""/>  
-    <tab type="user" visible="yes" url="http://243-1.bfc.hpl.hp.com:8080/" title="Jenkins" />
-    <tab type="user" visible="yes" url="http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code/tree/master" title="GitLab" />
-    <tab type="user" visible="yes" url="http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code/wikis/home" title="Wiki" />
+    <tab type="user" visible="yes" url="http://foedus-build.hpl.hp.com:8080/" title="Jenkins (x86_64 Fedora)" />
+    <tab type="user" visible="yes" url="http://foedus-build-ub.hpl.hp.com:8080/" title="Jenkins (x86_64 Ubuntu)" />
+    <tab type="user" visible="yes" url="http://ms01915-003.hpl.hp.com:8080/" title="Jenkins (aarch64 Ubuntu)" />
+    <tab type="user" visible="yes" url="http://github.com/hkimura/foedus_code/tree/master" title="Github" />
+    <tab type="user" visible="yes" url="http://github.com/hkimura/foedus_code/wiki" title="Wiki" />
   </navindex>
 
   <!-- Layout definition for a class page -->

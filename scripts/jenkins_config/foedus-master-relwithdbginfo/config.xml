@@ -3,9 +3,9 @@
   <actions/>
   <description></description>
   <logRotator class="hudson.tasks.LogRotator">
-    <daysToKeep>14</daysToKeep>
+    <daysToKeep>42</daysToKeep>
     <numToKeep>50</numToKeep>
-    <artifactDaysToKeep>7</artifactDaysToKeep>
+    <artifactDaysToKeep>21</artifactDaysToKeep>
     <artifactNumToKeep>25</artifactNumToKeep>
   </logRotator>
   <keepDependencies>false</keepDependencies>
@@ -14,7 +14,7 @@
     <configVersion>2</configVersion>
     <userRemoteConfigs>
       <hudson.plugins.git.UserRemoteConfig>
-        <url>http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code.git</url>
+        <url>http://github.com/hkimura/foedus_code.git</url>
       </hudson.plugins.git.UserRemoteConfig>
     </userRemoteConfigs>
     <branches>
@@ -24,7 +24,7 @@
     </branches>
     <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
     <browser class="hudson.plugins.git.browser.GitLab">
-      <url>http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code/</url>
+      <url>http://github.com/hkimura/foedus_code/</url>
       <version>6.0</version>
     </browser>
     <submoduleCfg class="list"/>
@@ -140,7 +140,7 @@
       </extraConfiguration>
     </xunit>
     <hudson.tasks.Mailer plugin="mailer@1.8">
-      <recipients>hideaki.kimura@hp.com</recipients>
+      <recipients>foedus-build-failure-notification-list@googlegroups.com</recipients>
       <dontNotifyEveryUnstableBuild>false</dontNotifyEveryUnstableBuild>
       <sendToIndividuals>false</sendToIndividuals>
     </hudson.tasks.Mailer>

@@ -6,7 +6,7 @@
     <daysToKeep>42</daysToKeep>
     <numToKeep>50</numToKeep>
     <artifactDaysToKeep>21</artifactDaysToKeep>
-    <artifactNumToKeep>50</artifactNumToKeep>
+    <artifactNumToKeep>25</artifactNumToKeep>
   </logRotator>
   <keepDependencies>false</keepDependencies>
   <properties/>
@@ -37,7 +37,7 @@
   <triggers>
     <jenkins.triggers.ReverseBuildTrigger>
       <spec></spec>
-      <upstreamProjects>foedus-develop-relwithdbginfo</upstreamProjects>
+      <upstreamProjects>foedus-develop-ub-release</upstreamProjects>
       <threshold>
         <name>FAILURE</name>
         <ordinal>2</ordinal>
@@ -52,7 +52,7 @@
       <sourceDir>.</sourceDir>
       <buildDir>build</buildDir>
       <installDir>install</installDir>
-      <buildType>Debug</buildType>
+      <buildType>RelWithDebInfo</buildType>
       <otherBuildType></otherBuildType>
       <generator>Unix Makefiles</generator>
       <makeCommand>make</makeCommand>
@@ -117,7 +117,7 @@
           <skipNoTestFiles>false</skipNoTestFiles>
           <failIfNotNew>true</failIfNotNew>
           <deleteOutputFiles>true</deleteOutputFiles>
-          <stopProcessingIfError>false</stopProcessingIfError>
+          <stopProcessingIfError>true</stopProcessingIfError>
         </GoogleTestType>
       </types>
       <thresholds>

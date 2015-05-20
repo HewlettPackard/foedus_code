@@ -37,7 +37,7 @@
   <triggers>
     <jenkins.triggers.ReverseBuildTrigger>
       <spec></spec>
-      <upstreamProjects>foedus-develop-relwithdbginfo</upstreamProjects>
+      <upstreamProjects>foedus-develop-ub-relwithdbginfo</upstreamProjects>
       <threshold>
         <name>FAILURE</name>
         <ordinal>2</ordinal>

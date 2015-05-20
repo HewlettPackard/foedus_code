@@ -14,7 +14,7 @@
     <configVersion>2</configVersion>
     <userRemoteConfigs>
       <hudson.plugins.git.UserRemoteConfig>
-        <url>http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code.git</url>
+        <url>http://github.com/hkimura/foedus_code.git</url>
       </hudson.plugins.git.UserRemoteConfig>
     </userRemoteConfigs>
     <branches>
@@ -24,7 +24,7 @@
     </branches>
     <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
     <browser class="hudson.plugins.git.browser.GitLab">
-      <url>http://245-1.bfc.hpl.hp.com/foedus-dev/foedus_code/</url>
+      <url>http://github.com/hkimura/foedus_code/</url>
       <version>6.0</version>
     </browser>
     <submoduleCfg class="list"/>
@@ -104,7 +104,7 @@
       <folderWhereYouRunDoxygen>build/foedus-core</folderWhereYouRunDoxygen>
     </hudson.plugins.doxygen.DoxygenArchiver>
     <hudson.tasks.Mailer plugin="mailer@1.8">
-      <recipients>foedus-dev@groups.hp.com</recipients>
+      <recipients>foedus-build-failure-notification-list@googlegroups.com</recipients>
       <dontNotifyEveryUnstableBuild>false</dontNotifyEveryUnstableBuild>
       <sendToIndividuals>false</sendToIndividuals>
     </hudson.tasks.Mailer>
