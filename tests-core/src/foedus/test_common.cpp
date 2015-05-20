@@ -82,6 +82,13 @@ namespace foedus {
     options.savepoint_.savepoint_path_.assign(
       std::string("tmp_folders/") + uniquefier + "/savepoints.xml");
 
+    // Mainly for performance reasons, we now put debug logs to
+    //  /dev/shm/foedus_test/glog/<unique_name>.
+    // For some reason, /tmp of our cloud machines are not tmpfs!! It's usual filesystem.
+    // Of course it's super slow. Wtf!
+    options.debugging_.debug_log_dir_.assign(
+      std::string("/dev/shm/foedus_test/glog/") + uniquefier);
+
     return options;
   }
 
