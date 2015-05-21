@@ -114,8 +114,8 @@ X(kErrorCodeXctNoMoreLocalWorkMemory, 0x0A09, "XCTION : Out of local work memory
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")
 
 X(kErrorCodeSocShmAllocFailed,      0x0C01, "SOC    : Failed to allocate a shared memory. This is usually caused by a misconfigured environment. Check the following:"
-      " - Too small kernel.shmmax/kernel.shmmin. sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -p"
-      " - Too few hugepages. sudo sh -c 'echo 196608 > /proc/sys/vm/nr_hugepages'"
+      " - Too small kernel.shmmax/kernel.shmmin. sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -w kernel.shmmni=409600; sudo sysctl -p"
+      " - Too few hugepages. sudo sh -c 'echo 1000 > /proc/sys/vm/nr_hugepages'"
       " - Too small mlock. Check ulimit -l. Configure /etc/security/limits.conf"
       " - Too small nofile. Check ulimit -a. Configure /etc/security/limits.conf"
       " - Simply larger than DRAM in the machine. "

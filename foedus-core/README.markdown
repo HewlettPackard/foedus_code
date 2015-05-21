@@ -84,7 +84,7 @@ citizen. Hence, we now recommend to disable THP.
 The default maximum of shared memory is ridiculously small.
 We recommend to set an infinitely large number as follows:
 
-    sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -p
+    sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -w kernel.shmmni=409600; sudo sysctl -p
 
 The above command is effective only until reboot. In order to make it permanent, add
 the following entries to /etc/sysctl.conf:
@@ -92,6 +92,7 @@ the following entries to /etc/sysctl.conf:
     # Add these entries to /etc/sysctl.conf.
     kernel.shmmax = 9223372036854775807
     kernel.shmall = 1152921504606846720
+    kernel.shmmni = 409600
 
 If you have some reason to set a smaller number, carefully calculate required sizes and
 replace the above numbers.
@@ -117,6 +118,46 @@ If you want to immediately apply the values without log out, one workaround is:
 
     # Note, even this does not work for already-running sessions/GUIs. re-login to make sure.
     sudo -i -u <your_user_name>
+
+
+* Configure hugetlb_shm_group
+
+We are not sure when this one is needed, but we did observe shmget failures in some environment,
+namely Ubuntu. On Fedora, we never failed a hugepage allocation via shmget even without
+configuring this parameter.
+
+    # Create a user group, say hugeshm, then add yourself to the group
+    sudo su
+    groupadd hugeshm
+    usermod -a -G hugeshm <your_account>
+    id <your_account> # this tells the group ID
+
+    # then write the group ID to /proc/sys/vm/hugetlb_shm_group. To make this
+    # configuration permanent, add "vm.hugetlb_shm_group" entry in sysctl.conf.
+    echo <Group ID> > /proc/sys/vm/hugetlb_shm_group
+
+Finally, **we strongly recommend rebooting** the machine after configuring all of the above.
+sysctl -p is supposed to be enough, but do make sure by rebooting.
+
+* Error messages you will see
+
+If the above configurations are not effective, you will get kErrorCodeSocShmAllocFailed error.
+Our ErrorStack object often contains additional details of the cause, for example:
+
+    kErrorCodeSocShmAllocFailed(3073):SOC    : Failed to allocate a shared memory. This is usually
+    caused by a misconfigured environment. Check the following:
+    - Too small kernel.shmmax/kernel.shmmin. sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -w kernel.shmmni=409600;sudo sysctl -p
+    - Too few hugepages. sudo sh -c 'echo 1000 > /proc/sys/vm/nr_hugepages'
+    - Too small mlock. Check ulimit -l. Configure /etc/security/limits.conf
+    - Too small nofile. Check ulimit -a. Configure /etc/security/limits.conf
+    - Simply larger than DRAM in the machine.
+    - (Very rare) shm key conflict.
+    (Latest system call error=[Errno 1] Operation not permitted)
+    (Additional message=shmget() failed! size=4194304, os_error=[Errno 1] Operation not permitted, ...
+
+In the above example, "[Errno 1] Operation not permitted" strongly implies that
+there is a limits/permissions issue on hugepages and/or shared memory.
+Unfortunately, this is one of the nastiest configuration in linux.
 
 Compilation
 --------

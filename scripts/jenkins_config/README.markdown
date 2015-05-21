@@ -46,3 +46,18 @@ Cron jobs to clean logs.
 
     # Clean file and dirs more than 3 days old in /dev/shm/foedus_test/glog nightly
     /usr/bin/find /dev/shm/foedus_test/glog -type d -mtime +2 -exec /bin/rm -rf '{}' \;
+
+
+Notes on Ubuntu's shmget issue.
+
+    sudo su
+    groupadd hugeshm
+    usermod -a -G hugeshm jenkins
+    id jenkins
+
+    # suppose the group ID is 1001
+    echo 1001 > /proc/sys/vm/hugetlb_shm_group
+    # Add "vm.hugetlb_shm_group=1001" entry in sysctl.conf.
+
+This was the trick! Weird. This wasn't requied on Fedora, or Ubuntu 1404 on aarch64.
+Maybe kernel version? FC21: 3.17.4, UB1504: 3.19.0
