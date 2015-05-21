@@ -85,7 +85,10 @@ TEST(SharedPollingTest, TwoThreads) { test_multi(2); }
 TEST(SharedPollingTest, FourThreads) { test_multi(4); }
 
 void run_thread_hold_longtime(SharedPolling* polling) {
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // NOTE: Although 1-sec wait seems too long, this is required for valgrind version of tests.
+  // On valgrind, context switch is really really infrequent (even if we call yield).
+  // Thus, we had a valgrind test-failure with 100ms wait. Fixes #7.
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   polling->signal();
 }
 
