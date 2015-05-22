@@ -33,7 +33,7 @@ Under this folder, we have experiments to test three sets of systems.
 This document focuses on FOEDUS experiments. Go to sub folders for H-Store/SILO experiments.
 
 Actually, we have fourth system in the paper, Shore-MT.
-What we used was HP's interval version with Foster B-tree and a few other improvements.
+What we used was HP's intenval version with Foster B-tree and a few other improvements.
 It is not OSS-ed. Most likely the EPFL's version of Shore-MT has a similar performance, though.
 
 Machine Sizing and Scripts
@@ -158,7 +158,7 @@ Summary:
 
 First, you must install the emulated NVRAM filesystem.
 Download the upstream linux kernel code, put our NVRAM filesystem code, compile and deploy.
-The details of this step will be provided in another repository.
+The details of this step are provided in [another repository](https://github.com/hkimura/dummy_nvmfs).
 
 Steps to run the experiments:
 
