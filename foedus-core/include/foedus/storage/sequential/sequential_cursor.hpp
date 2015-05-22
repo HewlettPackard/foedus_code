@@ -51,27 +51,53 @@ class SequentialCursor {
     kNodeFirstMode,
     /**
      * Returns the earlise epoch's records, then next epoch, ...
-     * \b Not \b implemented \b yet.
+     * TASK(Hideaki) \b Not \b implemented \b yet.
      */
     kEpochFirstMode,
   };
 
   /**
-  * @brief A cursor interface to read tuples from a sequential storage.
-  * @details
-  * Unlike other storages, the only read-access to sequential storages is,
-  * as the name implies, a full sequential scan. This cursor interface is
-  * thus optimized for cases where we return millions of tuples.
-  */
+   * @brief Represents the progress of this cursor on each SOC node.
+   * @details
+   * For each next_batch() call, we resume reading based on these information.
+   */
   struct NodeState {
   };
 
+  /**
+   * @brief Constructs a cursor to read tuples from this storage.
+   * @param[in] context Thread context of the transaction
+   * @param[in] storage The sequential storage to read from
+   * @param[in,out] buffer The buffer to read a number of tuples in a batch.
+   * @param[in] buffer_size Byte size of buffer. Must be at least 4kb.
+   * @param[in] order_mode The order this cursor returns tuples
+   * @param[in] from_epoch Inclusive beginning of epochs to read.
+   * @param[in] to_epoch Exclusive end of epochs to read.
+   */
   SequentialCursor(
     thread::Thread* context,
-    sequential::SequentialStorage storage);
+    const sequential::SequentialStorage& storage,
+    void* buffer,
+    uint64_t buffer_size,
+    OrderMode order_mode,
+    Epoch from_epoch,
+    Epoch to_epoch);
 
-  thread::Thread*               get_context() { return context_;}
-  sequential::SequentialStorage get_storage() { return storage_; }
+  /**
+   * This overload uses the system-initial epoch for from_epoch and system-current epoch -1
+   * for to_epoch (thus safe_epoch_only_). Assuming this storage is used for log/archive data,
+   * this should be a quite common usecase. order_mode is defaulted to kNodeFirstMode.
+   */
+  SequentialCursor(
+    thread::Thread* context,
+    const sequential::SequentialStorage& storage,
+    void* buffer,
+    uint64_t buffer_size);
+
+  ~SequentialCursor();
+
+  thread::Thread*                       get_context() const { return context_;}
+  const sequential::SequentialStorage&  get_storage() const { return storage_; }
 
   /** @return Inclusive beginning of epochs to read. */
   Epoch     get_from_epoch() const { return from_epoch_; }
@@ -85,20 +111,65 @@ class SequentialCursor {
   sequential::SequentialStorage const storage_;
   /**
    * Inclusive beginning of epochs to read.
-   * @invariant from_epoch_.is_valid() : To specify no-limit, use system-initial epoch.
+   * @invariant !from_epoch_.is_valid()
    */
   Epoch                         from_epoch_;
   /**
    * Exclusive end of epochs to read.
-   * @invariant to_epoch_.is_valid() : To specify no-limit, use system's current epoch.one_more().
+   * @invariant !to_epoch_.is_valid()
    */
   Epoch                         to_epoch_;
+
+  uint16_t                      node_count_;
+  OrderMode                     order_mode_;
+  /**
+   * True when either the isolation level is SI, or to_epoch_ is up to the previous snapshot epoch.
+   * When this is true, we just read snapshot pages without any concern on concurrency control.
+   */
+  bool                          snapshot_only_;
+  /**
+   * True when snapshot_only_ or to_epoch_ is up to the previous system epoch, meaning the cursor
+   * never reads tuples in the current epoch or later without any concern on concurrency control.
+   */
+  bool                          safe_epoch_only_;
+
+  void* const                   buffer_;
+  const uint64_t                buffer_size_;
+  /** buffer_pages_ = buffer_size_ / 4kb */
+  const uint32_t                buffer_pages_;
+
+  // everything above is const. Some of them doesn't have const qual due to init() method.
+
+  /**
+   * Index of the page in buffer_ we are now reading from.
+   * @invariant buffer_cur_page_ <= buffer_pages_
+   * (buffer_cur_page_ == buffer_pages_ means we need to read next batch)
+   */
+  uint32_t                      buffer_cur_page_;
+
+  /** Number of records in the current page */
+  uint16_t                      buffer_cur_page_records_;
+  /**
+   * Index of the record in the current page we are now reading.
+   * @invariant buffer_cur_record_ <= buffer_cur_page_records_
+   * (buffer_cur_record_ == buffer_cur_page_records_ means we need to read next page)
+   */
+  uint16_t                      buffer_cur_record_;
+
+  /**
+   * Epoch of the record (page) we are currently reading.
+   */
+  Epoch                         cur_record_epoch_;
 
   /** Number of tuples read so far. Just a statistics. */
   uint64_t                      tuples_so_far_;
 
+  uint16_t                      current_node_;
+
   /** How far we have read from each node. Index is node ID. */
   NodeState*                    states_;
+
+  void init(OrderMode order_mode, Epoch from_epoch, Epoch to_epoch);
 };
 
 
