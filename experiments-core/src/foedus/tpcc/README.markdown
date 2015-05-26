@@ -24,7 +24,7 @@ with detailed steps to reproduce them. Unless individually noted,
 
 Target Systems
 -----------------
-Under this folder, we have experiments to test three sets of systems.
+Under this folder, we have experiments to run three systems.
 
 * FOEDUS. Scripts/programs in this folder.
 * H-Store. Files under [hstore_related](hstore_related).
@@ -33,7 +33,7 @@ Under this folder, we have experiments to test three sets of systems.
 This document focuses on FOEDUS experiments. Go to sub folders for H-Store/SILO experiments.
 
 Actually, we have fourth system in the paper, Shore-MT.
-What we used was HP's intenval version with Foster B-tree and a few other improvements.
+What we used was HP's internal version with Foster B-tree and a few other improvements.
 It is not OSS-ed. Most likely the EPFL's version of Shore-MT has a similar performance, though.
 
 Machine Sizing and Scripts

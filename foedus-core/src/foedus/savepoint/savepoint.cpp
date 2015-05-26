@@ -73,6 +73,7 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
 void Savepoint::populate_empty(log::LoggerId logger_count) {
   current_epoch_ = Epoch::kEpochInitialCurrent;
   durable_epoch_ = Epoch::kEpochInitialDurable;
+  earliest_epoch_ = Epoch::kEpochInitialDurable;
   latest_snapshot_id_ = snapshot::kNullSnapshotId;
   latest_snapshot_epoch_ = Epoch::kEpochInvalid;
   meta_log_oldest_offset_ = 0;

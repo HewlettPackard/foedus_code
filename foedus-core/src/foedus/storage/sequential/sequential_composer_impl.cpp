@@ -120,47 +120,69 @@ struct StreamStatus {
   bool            ended_;
 };
 
-SequentialPage* SequentialComposer::compose_new_head(
-  snapshot::SnapshotWriter* snapshot_writer,
-  RootInfoPage* root_info_page) {
+SequentialPage* SequentialComposer::compose_new_head(snapshot::SnapshotWriter* snapshot_writer) {
   SnapshotPagePointer head_page_id = snapshot_writer->get_next_page_id();
   SequentialPage* page = reinterpret_cast<SequentialPage*>(snapshot_writer->get_page_base());
   page->initialize_snapshot_page(storage_id_, head_page_id);
-  root_info_page->pointers_[root_info_page->pointer_count_] = head_page_id;
-  ++root_info_page->pointer_count_;
   return page;
+}
+
+ErrorStack SequentialComposer::dump_pages(
+  snapshot::SnapshotWriter* snapshot_writer,
+  bool last_dump,
+  uint32_t allocated_pages,
+  uint64_t* total_pages) {
+  SequentialPage* base = reinterpret_cast<SequentialPage*>(snapshot_writer->get_page_base());
+  ASSERT_ND(snapshot_writer->get_next_page_id() == base->header().page_id_);
+
+  SequentialPage* tail_page = base + allocated_pages - 1;
+  SnapshotPagePointer next_head_page_id = tail_page->header().page_id_ + 1ULL;
+  ASSERT_ND(tail_page->next_page().snapshot_pointer_ == 0);
+  if (!last_dump) {
+    // a bit of trick here. Usually, we can't point to a page that is not written yet,
+    // but in this case we are sure that we are writing out a page contiguously,
+    // so we can set the next-page pointer at this point.
+    tail_page->next_page().snapshot_pointer_ = next_head_page_id;
+  }
+
+  WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
+  *total_pages += allocated_pages;
+  ASSERT_ND(snapshot_writer->get_next_page_id() == next_head_page_id);
+  return kRetOk;
 }
 
 ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
   debugging::StopWatch stop_watch;
-  // this compose() emits just one pointer to the head page.
-  std::memset(args.root_info_page_, 0, sizeof(Page));
-  RootInfoPage* root_info_page_casted = reinterpret_cast<RootInfoPage*>(args.root_info_page_);
-  root_info_page_casted->header_.storage_id_ = storage_id_;
-  root_info_page_casted->pointer_count_ = 0;
 
   // Everytime it's full, we write out all pages. much simpler than other storage types.
   // No intermediate pages to track any information.
   snapshot::SnapshotWriter* snapshot_writer = args.snapshot_writer_;
   SequentialPage* base = reinterpret_cast<SequentialPage*>(snapshot_writer->get_page_base());
-  SequentialPage* cur_page = compose_new_head(snapshot_writer, root_info_page_casted);
+
+  SequentialPage* cur_page = compose_new_head(snapshot_writer);
+  SnapshotPagePointer head_page_id = cur_page->header().page_id_;
   uint32_t allocated_pages = 1;
+  uint64_t total_pages = 0;
   const uint32_t max_pages = snapshot_writer->get_page_size();
   VLOG(0) << to_string() << " composing with " << args.log_streams_count_ << " streams.";
+  Epoch min_epoch;
+  Epoch max_epoch;
   for (uint32_t i = 0; i < args.log_streams_count_; ++i) {
     StreamStatus status;
     WRAP_ERROR_CODE(status.init(args.log_streams_[i]));
     while (!status.ended_) {
       const SequentialAppendLogType* entry = status.get_entry();
+      Epoch epoch = entry->header_.xct_id_.get_epoch();
+      min_epoch.store_min(epoch);
+      max_epoch.store_max(epoch);
 
       // need to allocate a new page?
       if (!cur_page->can_insert_record(entry->payload_count_)) {
         // need to flush the buffer?
         if (allocated_pages >= max_pages) {
           // dump everything and allocate a new head page
-          WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
-          ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
-          cur_page = compose_new_head(snapshot_writer, root_info_page_casted);
+          CHECK_ERROR(dump_pages(snapshot_writer, false, allocated_pages, &total_pages));
+          cur_page = compose_new_head(snapshot_writer);
           allocated_pages = 1;
         } else {
           // sequential storage is a bit special. As every page is written-once, we need only
@@ -188,12 +210,20 @@ ErrorStack SequentialComposer::compose(const Composer::ComposeArguments& args) {
     }
   }
   // dump everything
-  WRAP_ERROR_CODE(snapshot_writer->dump_pages(0, allocated_pages));
-  ASSERT_ND(snapshot_writer->get_next_page_id() == cur_page->header().page_id_ + 1ULL);
+  CHECK_ERROR(dump_pages(snapshot_writer, true, allocated_pages, &total_pages));
+
+  // this compose() emits just one pointer to the head page.
+  RootInfoPage* root_info_page_casted = reinterpret_cast<RootInfoPage*>(args.root_info_page_);
+  root_info_page_casted->header_.storage_id_ = storage_id_;
+  root_info_page_casted->pointer_.page_id_ = head_page_id;
+  root_info_page_casted->pointer_.from_epoch_ = min_epoch;
+  root_info_page_casted->pointer_.to_epoch_ = max_epoch.one_more();  // to make it exclusive
+  root_info_page_casted->pointer_.page_count_ = total_pages;
 
   stop_watch.stop();
-  LOG(INFO) << to_string() << " compose() done in " << stop_watch.elapsed_ms() << "ms. #head pages="
-    << root_info_page_casted->pointer_count_;
+  LOG(INFO) << to_string() << " compose() done in " << stop_watch.elapsed_ms() << "ms. # pages="
+    << total_pages << ", head_page=" << assorted::Hex(head_page_id, 16)
+      << ", min_epoch=" << min_epoch << ", max_epoch=" << max_epoch;
   return kRetOk;
 }
 
@@ -201,7 +231,7 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
   debugging::StopWatch stop_watch;
 
   snapshot::SnapshotWriter* snapshot_writer = args.snapshot_writer_;
-  std::vector<SnapshotPagePointer> all_head_pages;
+  std::vector<HeadPagePointer> all_head_pages;
   SequentialStorage storage(engine_, storage_id_);
   SnapshotPagePointer previous_root_page_pointer = storage.get_metadata()->root_snapshot_page_id_;
   for (SnapshotPagePointer page_id = previous_root_page_pointer; page_id != 0;) {
@@ -218,15 +248,11 @@ ErrorStack SequentialComposer::construct_root(const Composer::ConstructRootArgum
     page_id = root_page->get_next_page();
   }
 
-  // each root_info_page contains one or more pointers to head pages.
+  // each root_info_page contains just one pointer to the head page.
   for (uint32_t i = 0; i < args.root_info_pages_count_; ++i) {
     const RootInfoPage* info_page = reinterpret_cast<const RootInfoPage*>(args.root_info_pages_[i]);
-    ASSERT_ND(info_page->header_.storage_id_ == storage_id_);
-    ASSERT_ND(info_page->pointer_count_ > 0);
-    for (uint32_t j = 0; j < info_page->pointer_count_; ++j) {
-      ASSERT_ND(info_page->pointers_[j] != 0);
-      all_head_pages.push_back(info_page->pointers_[j]);
-    }
+    ASSERT_ND(info_page->pointer_.page_id_ > 0);
+    all_head_pages.push_back(info_page->pointer_);
   }
   VLOG(0) << to_string() << " construct_root() total head page pointers=" << all_head_pages.size();
 

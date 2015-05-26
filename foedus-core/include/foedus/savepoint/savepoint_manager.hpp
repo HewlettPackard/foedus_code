@@ -57,6 +57,7 @@ class SavepointManager CXX11_FINAL : public virtual Initializable {
 
   Epoch get_initial_current_epoch() const;
   Epoch get_initial_durable_epoch() const;
+  Epoch get_earliest_epoch() const;
   Epoch get_saved_durable_epoch() const;
   snapshot::SnapshotId get_latest_snapshot_id() const;
   Epoch get_latest_snapshot_epoch() const;

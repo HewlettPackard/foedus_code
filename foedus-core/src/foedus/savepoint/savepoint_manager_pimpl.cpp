@@ -61,6 +61,7 @@ ErrorStack SavepointManagerPimpl::initialize_once() {
     update_shared_savepoint(savepoint_);
     control_block_->initial_current_epoch_ = savepoint_.current_epoch_;
     control_block_->initial_durable_epoch_ = savepoint_.durable_epoch_;
+    control_block_->earliest_epoch_ = savepoint_.earliest_epoch_;
     control_block_->saved_durable_epoch_ = savepoint_.durable_epoch_;
     control_block_->requested_durable_epoch_ = savepoint_.durable_epoch_;
     savepoint_thread_stop_requested_ = false;

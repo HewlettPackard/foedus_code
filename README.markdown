@@ -159,6 +159,11 @@ Right click project, Click "Open Configuration", Click "Make" icon, "Number of s
 
 Running Tests (For FOEDUS Developers)
 --------
+**First**, make sure you have set up the environment, especially hugepages/shared memory.
+See the *Environment Setup* section in [foedus-core](foedus-core).
+If a large number of tests fail, it's most likely cauesed by memory/permission issues.
+
+
 Go to build folder, and:
 
     ctest

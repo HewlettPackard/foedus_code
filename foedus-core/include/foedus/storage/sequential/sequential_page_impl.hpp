@@ -198,7 +198,6 @@ class SequentialPage final {
    */
   char                  data_[kDataSize];
 };
-STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
 
 /**
  * @brief Represents one stable root page in \ref SEQUENTIAL.
@@ -232,12 +231,12 @@ class SequentialRootPage final {
 
   /** Returns How many pointers to head pages exist in this page. */
   uint16_t            get_pointer_count()  const { return pointer_count_; }
-  const SnapshotPagePointer* get_pointers() const { return head_page_pointers_; }
+  const HeadPagePointer* get_pointers() const { return head_page_pointers_; }
 
-  void set_pointers(SnapshotPagePointer *pointers, uint16_t pointer_count) {
+  void set_pointers(HeadPagePointer *pointers, uint16_t pointer_count) {
     ASSERT_ND(pointer_count <= kRootPageMaxHeadPointers);
     pointer_count_ = pointer_count;
-    std::memcpy(head_page_pointers_, pointers, sizeof(SnapshotPagePointer) * pointer_count);
+    std::memcpy(head_page_pointers_, pointers, sizeof(HeadPagePointer) * pointer_count);
   }
 
   SnapshotPagePointer get_next_page() const { return next_page_; }
@@ -263,8 +262,12 @@ class SequentialRootPage final {
   SnapshotPagePointer next_page_;       // +8 -> 48
 
   /** Pointers to heads of data pages. */
-  SnapshotPagePointer head_page_pointers_[kRootPageMaxHeadPointers];
+  HeadPagePointer     head_page_pointers_[kRootPageMaxHeadPointers];
+
+  char                filler_[kPageSize - kRootPageHeaderSize - sizeof(head_page_pointers_)];
 };
+
+STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
 STATIC_SIZE_CHECK(sizeof(SequentialRootPage), 1 << 12)
 
 }  // namespace sequential

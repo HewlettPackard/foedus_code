@@ -30,6 +30,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
+#include "foedus/storage/sequential/sequential_page_impl.hpp"
 
 namespace foedus {
 namespace storage {
@@ -58,14 +59,14 @@ namespace sequential {
  */
 class SequentialComposer final {
  public:
-  /** Output of one compose() call, which are then combined in construct_root(). */
+  /**
+   * Output of one compose() call, which are then combined in construct_root().
+   * Each compose() returns just one pointer to a head page.
+   */
   struct RootInfoPage final {
-    PageHeader          header_;          // +16 -> 16
-    /** Number of pointers stored in this page. */
-    uint32_t            pointer_count_;   // +4 -> 20
-    uint32_t            dummy_;           // +4 -> 24
-    /** Pointers to head pages. */
-    SnapshotPagePointer pointers_[(kPageSize - 24) / 8];  // -> 4096
+    PageHeader      header_;
+    HeadPagePointer pointer_;
+    char            filler_[kPageSize - sizeof(PageHeader) - sizeof(HeadPagePointer)];
   };
 
   explicit SequentialComposer(Composer *parent);
@@ -77,9 +78,12 @@ class SequentialComposer final {
   Composer::DropResult drop_volatiles(const Composer::DropVolatilesArguments& args);
 
  private:
-  SequentialPage*     compose_new_head(
+  SequentialPage*     compose_new_head(snapshot::SnapshotWriter* snapshot_writer);
+  ErrorStack          dump_pages(
     snapshot::SnapshotWriter* snapshot_writer,
-    RootInfoPage* root_info_page);
+    bool last_dump,
+    uint32_t allocated_pages,
+    uint64_t* total_pages);
 
   Engine* const   engine_;
   const StorageId storage_id_;

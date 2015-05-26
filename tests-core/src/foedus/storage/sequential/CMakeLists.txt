@@ -1,4 +1,5 @@
 add_foedus_test_individual(test_sequential_basic "Create;CreateAndDrop;CreateAndWrite")
+add_foedus_test_individual(test_sequential_cursor "IteratorRawPage")
 add_foedus_test_individual(test_sequential_volatile_list "Empty;SingleThread;TwoThreads;FourThreads")
 
 set(test_sequential_tpcb_individuals

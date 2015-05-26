@@ -15,6 +15,7 @@
  * HP designates this particular file as subject to the "Classpath" exception
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
+#include <valgrind.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -88,7 +89,11 @@ void run_thread_hold_longtime(SharedPolling* polling) {
   // NOTE: Although 1-sec wait seems too long, this is required for valgrind version of tests.
   // On valgrind, context switch is really really infrequent (even if we call yield).
   // Thus, we had a valgrind test-failure with 100ms wait. Fixes #7.
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  uint64_t longtime_ms = 100;
+  if (RUNNING_ON_VALGRIND) {
+    longtime_ms = 1000;
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(longtime_ms));
   polling->signal();
 }
 
