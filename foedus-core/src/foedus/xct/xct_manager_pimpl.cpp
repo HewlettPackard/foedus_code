@@ -58,6 +58,13 @@ Epoch       XctManager::get_current_global_epoch() const {
 Epoch       XctManager::get_current_global_epoch_weak() const {
   return pimpl_->get_current_global_epoch_weak();
 }
+Epoch       XctManager::get_current_grace_epoch() const {
+  return pimpl_->get_current_global_epoch().one_less();
+}
+Epoch       XctManager::get_current_grace_epoch_weak() const {
+  return pimpl_->get_current_global_epoch_weak().one_less();
+}
+
 void        XctManager::advance_current_global_epoch() { pimpl_->advance_current_global_epoch(); }
 ErrorCode   XctManager::wait_for_commit(Epoch commit_epoch, int64_t wait_microseconds) {
   return pimpl_->wait_for_commit(commit_epoch, wait_microseconds);

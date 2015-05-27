@@ -83,6 +83,12 @@ ErrorCode Thread::read_a_snapshot_page(
   storage::Page* buffer) {
   return pimpl_->read_a_snapshot_page(page_id, buffer);
 }
+ErrorCode Thread::read_snapshot_pages(
+  storage::SnapshotPagePointer page_id_begin,
+  uint32_t page_count,
+  storage::Page* buffer) {
+  return pimpl_->read_snapshot_pages(page_id_begin, page_count, buffer);
+}
 ErrorCode Thread::find_or_read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page** out) {

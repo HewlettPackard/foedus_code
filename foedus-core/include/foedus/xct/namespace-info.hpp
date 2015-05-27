@@ -85,7 +85,7 @@
  * In many cases, the invariants are trivially achieved. However, there are a few tricky cases.
  *  \li There is a long running transaction that already acquired a commit-epoch but not yet
  * exit from the pre-commit stage.
- *  \li Three is a worker thread that has been idle for a while.
+ *  \li There is a worker thread that has been idle for a while.
  *
  * Whenever the chime advances the epoch, we have to safely detect whether there is any transaction
  * that might violate the invariant \b without causing expensive synchronization.

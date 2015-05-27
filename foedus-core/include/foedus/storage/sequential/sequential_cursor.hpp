@@ -28,6 +28,7 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/sequential/fwd.hpp"
@@ -67,19 +68,32 @@ namespace sequential {
  * @endcode
  *
  * @par Safe Epoch and Unsafe Epoch
- * Safe epochs are epochs before the current global epoch.
- * There will be no more transactions in such epochs. Thus, thanks to the append-only
+ * Safe epochs are epochs _before_ the current grace epoch (current global epoch -1).
+ * There will be no more transactions in such epochs that might insert new records.
+ * Thus, thanks to the append-only
  * nature of sequential storage, reading records in safe epochs does not need
- * any concurrency control. Unsafe epochs, OTOH, are the currrent global epoch or
- * future epochs. This cursor might do expensive synchronization if the user
+ * any concurrency control. Unsafe epochs, OTOH, are the currrent grace epoch and later.
+ * Some transaction in grace-epoch might be now in apply-phase to insert records,
+ * and furthermore some transaction might newly start in current-epoch.
+ * This cursor might do expensive synchronization if the user
  * requests to read records from unsafe epochs.
+ *
+ * @par Optimistic vs pessimistic
+ * Reading unsafe epochs \e should be protected by lock (pessimistic) because
+ * 1) this happens rarely, and 2) quite likely that OCC will abort because
+ * all accesses are at the tail.
+ * So far, the implemention is OCC, just taking page version of tail page and read-set of
+ * last record in tail page. Frankly speaking to save coding.
+ * We should measure OCC vs lock in this case and most likely implement lock.
+ * The lock must be a bit more complicated than usual because insertion threads should not take
+ * locks frequently (too expensive then).
  */
 class SequentialCursor {
  public:
   /** The order this cursor returns tuples. */
   enum OrderMode {
     /**
-     * Returns as many records as possible from node-0, do the same from node-1,...
+     * Returns as many records as possible from node-0's core-0, core-1, do the same from node-1,...
      * Note that even this mode might return \e unsafe epoch at last
      * because we delay reading unsafe epochs as much as possible.
      */
@@ -96,14 +110,14 @@ class SequentialCursor {
    * @brief Constructs a cursor to read tuples from this storage.
    * @param[in] context Thread context of the transaction
    * @param[in] storage The sequential storage to read from
-   * @param[in,out] buffer The buffer to read a number of tuples in a batch.
+   * @param[in,out] buffer The buffer to read a number of snapshot pages in a batch.
    * This buffer \b must \b be \b aligned for direct-IO.
    * @param[in] buffer_size Byte size of buffer. Must be at least 4kb.
    * @param[in] order_mode The order this cursor returns tuples
    * @param[in] from_epoch Inclusive beginning of epochs to read.
    * If not specified, all epochs.
    * @param[in] to_epoch Exclusive end of epochs to read. To read records in unsafe epochs,
-   * specify a _future_ epoch, larger than the current global epoch (remember, it's exclusive end).
+   * specify a _future_ epoch, larger than the current grace epoch (remember, it's exclusive end).
    * If not specified, all \e safe epochs (fast, but does not return records being added).
    * @param[in] node_filter If specified, returns records only in the given node. negative
    * for reading from all nodes. This is especially useful for parallelizing a scan on
@@ -143,6 +157,10 @@ class SequentialCursor {
    */
   ErrorCode next_batch(SequentialRecordIterator* out);
 
+  /**
+   * @returns false if there is no chance that this cursor returns any more record.
+   * As a very rare case, this might return true though there is no more matching record.
+   */
   bool      is_valid() const {
     return !(finished_snapshots_ && finished_safe_volatiles_ && finished_unsafe_volatiles_);
   }
@@ -158,26 +176,69 @@ class SequentialCursor {
   struct NodeState {
     explicit NodeState(uint16_t node_id);
     ~NodeState();
+
+    const HeadPagePointer& get_cur_head() const {
+      return snapshot_heads_[snapshot_cur_head_];
+    }
+
     const uint16_t                node_id_;
+    uint16_t                      volatile_cur_core_;
+    /**
+     * The head of linked list we are currently reading.
+     * index in volatile_cur_pages_.
+     * When snapshot_cur_head_ >= snapshot_heads_.size(), this node doesn't have any more head.
+     */
     uint32_t                      snapshot_cur_head_;
-    uint64_t                      snapshot_cur_head_read_pages_;
+    /**
+     * The index in buffer_ of the page we are currently reading.
+     * @invariant snapshot_cur_buffer_ <= snapshot_buffered_pages_. When equals,
+     * we need to buffer next chunk of pages.
+     */
+    uint32_t                      snapshot_cur_buffer_;
+    /**
+     * The number of pages currently buffered in buffer_.
+     * @invariant snapshot_buffered_pages_ <= buffer_pages_
+     * @invariant snapshot_buffered_pages_ <= get_cur_head().page_count_.
+     */
+    uint32_t                      snapshot_buffered_pages_;
+    /**
+     * @invariant snapshot_buffered_pages_ + snapshot_buffer_begin_ <= get_cur_head().page_count_
+     * When equals
+     */
+    uint64_t                      snapshot_buffer_begin_;
+    /**
+     * Pointers to pages that head snapshot linked-list on this node.
+     */
     std::vector<HeadPagePointer>  snapshot_heads_;
 
     /**
-     * When we are currently reading from volatile list, the page we are currently in.
-     * Null otherwise.
+     * The volatile page we are currently in for each core (index is in-node core index).
+     * Empty if finished_safe_volatiles_ && finished_unsafe_volatiles_.
+     * Nullptr means the core has no chance to contain volatile records that match to_epoch.
      */
-    SequentialPage*               volatile_cur_page_;
+    std::vector<SequentialPage*>  volatile_cur_pages_;
   };
+
+  ErrorCode init_states();
 
   /// subroutines of next_batch().
   ErrorCode next_batch_snapshot(SequentialRecordIterator* out, bool* found);
   ErrorCode next_batch_safe_volatiles(SequentialRecordIterator* out, bool* found);
   ErrorCode next_batch_unsafe_volatiles(SequentialRecordIterator* out, bool* found);
 
+  /**
+   * next_batch_snapshot() calls this to buffer as many snapshot pages as possible for the
+   * given node.
+   */
+  ErrorCode buffer_snapshot_pages(uint16_t node);
+
+  /** short for resolver_.resolve_offset(pointer) */
+  SequentialPage* resolve_volatile(VolatilePagePointer pointer) const;
+
   thread::Thread* const               context_;
   xct::Xct* const                     xct_;
   Engine* const                       engine_;
+  const memory::GlobalVolatilePageResolver& resolver_;
   sequential::SequentialStorage const storage_;
   /**
    * Inclusive beginning of epochs to read.
@@ -213,22 +274,6 @@ class SequentialCursor {
 
   /// Everything above is const. Some of them doesn't have const qual due to init() method.
   /// Everything below is mutable. in other words, they are the state of this cursor.
-
-  /**
-   * Index of the page in buffer_ we are now reading from.
-   * @invariant buffer_cur_page_ <= buffer_pages_
-   * (buffer_cur_page_ == buffer_pages_ means we need to read next batch)
-   */
-  uint32_t                      buffer_cur_page_;
-
-  /** Number of records in the current page */
-  uint16_t                      buffer_cur_page_records_;
-  /**
-   * Index of the record in the current page we are now reading.
-   * @invariant buffer_cur_record_ <= buffer_cur_page_records_
-   * (buffer_cur_record_ == buffer_cur_page_records_ means we need to read next page)
-   */
-  uint16_t                      buffer_cur_record_;
 
   uint16_t                      current_node_;
 
@@ -303,6 +348,10 @@ class SequentialRecordIterator CXX11_FINAL {
  public:
   SequentialRecordIterator();
   SequentialRecordIterator(const SequentialRecordBatch* batch, Epoch from_epoch, Epoch to_epoch);
+
+  void        reset() {
+    std::memset(this, 0, sizeof(SequentialRecordIterator));
+  }
 
   bool        is_valid() const ALWAYS_INLINE { return cur_record_ < record_count_; }
   void        next() ALWAYS_INLINE {
