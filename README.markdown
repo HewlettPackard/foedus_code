@@ -13,16 +13,16 @@ For more details, take a look at the [overview paper](http://www.hpl.hp.com/tech
 
 Alpha-Version WARNING
 --------
-The repository is currently in **PRE-ALPHA** state.
+The repository is currently in **ALPHA** state.
 Nothing is guaranteed.
 Please expect that many parts of the code are unstable and might lack critical features.
 We are working hard to move on to next steps hinted below, but without any promises.
 If you want to expedite the development, **PLEASE JOIN US**. That's the spirit of open-source.
 
-* Alpha Version (aka first open sourcing): This is supposed to be at the beginning of June 2015
-at/before SIGMOD conference. By this time, we should have most of critical features.
-But, still no guarantee for stable behavior, data migration to next version, etc.
-Important APIs and even the library name might change in next versions.
+* Alpha Version (aka first open sourcing): This happened at the beginning of June 2015,
+when SIGMOD conference is held. By this time, we have added most of critical features,
+But, still some are missing, and no guarantee for stable behavior, data migration to next version,
+etc. Important APIs and even the library name might change in next versions.
 This version is for people who want to take a look at FOEDUS, and for early adopters who
 are okay to adjust their programs when the APIs significantly change.
 * Beta Version: This is supposed to be released sometime in 2016, hopefully early 2016.
@@ -33,8 +33,10 @@ We will start release versioning from this point, probably from ver 0.1.
 We really need more people to make this happen on time,
 especially for stabilizing/documenting FOEDUS and for establishing/helping the community.
 
-Again, we are in **PRE-ALPHA** now.
-**BE REALLY WARNED. I TOLD YOU, OKAY?**
+Again, we are in **ALPHA** now.
+We list missing features, known bugs, etc in
+[issues](https://github.com/hkimura/foedus_code/issues).
+Check it out if you encounter some issue.
 
 How to Contribute
 --------
@@ -305,7 +307,7 @@ Each pull request must meet the following requirements before being merged.
 
 * Compile without errors and warnings (either compiler warnings or cpplint warnings).
 * Conform to our coding standards and house rules (see above).
-* Pass all testcases on *relwithdebinfo*, *debug*, and *release*, including valgrind versions in
+* Pass all testcases on *debug* and *release* (or *relwithdebinfo*), including valgrind versions in
 at least one of them.
 * A reasonable amount/quality of new unit testcases, depending on how much you changed/added.
 * A reasonable amount/quality of code comments, especially doxygen comments in hpp.
