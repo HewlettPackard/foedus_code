@@ -56,6 +56,19 @@ class EngineMemory CXX11_FINAL : public DefaultInitializable {
   ErrorStack  initialize_once() CXX11_OVERRIDE;
   ErrorStack  uninitialize_once() CXX11_OVERRIDE;
 
+  /**
+   * As part of the global shared memory, we reserve this size of 'user memory' that can be
+   * used for arbitrary purporses by the user to communicate between SOCs.
+   * @see get_shared_user_memory_size()
+   */
+  void*     get_shared_user_memory() const;
+  /**
+   * @returns the byte size of shared user-controlled memory.
+   * Equivalent to SocOptions.shared_user_memory_size_kb_ << 10.
+   * @see get_shared_user_memory()
+   */
+  uint64_t  get_shared_user_memory_size() const;
+
   // accessors for child memories
   NumaNodeMemory* get_local_memory() const {
     return local_memory_;

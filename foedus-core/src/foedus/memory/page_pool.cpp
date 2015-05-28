@@ -119,6 +119,11 @@ storage::Page* PagePool::get_base() const { return pimpl_->pool_base_; }
 std::string PagePool::get_debug_pool_name() const { return pimpl_->get_debug_pool_name(); }
 void PagePool::set_debug_pool_name(const std::string& name) { pimpl_->set_debug_pool_name(name); }
 
+uint32_t PagePool::get_recommended_pages_per_grab() const {
+  return std::min<uint32_t>(1U << 12, pimpl_->pool_size_ / 8U);
+}
+
+
 ErrorCode   PagePool::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* chunk) {
   return pimpl_->grab(desired_grab_count, chunk);
 }
@@ -200,8 +205,12 @@ storage::VolatilePagePointer RoundRobinPageGrabBatch::grab() {
       if (current_node_ >= numa_node_count_) {
         current_node_ = 0;
       }
-      ErrorCode code = engine_->get_memory_manager()->get_node_memory(current_node_)->
-        get_volatile_pool()->grab(chunk_.capacity(), &chunk_);
+      PagePool* pool = engine_->get_memory_manager()->get_node_memory(current_node_)->
+        get_volatile_pool();
+      uint32_t grab_count = std::min<uint32_t>(
+        chunk_.capacity(),
+        pool->get_recommended_pages_per_grab());
+      ErrorCode code = pool->grab(chunk_.capacity(), &chunk_);
       if (code == kErrorCodeOk) {
         break;
       }
@@ -259,8 +268,11 @@ DivvyupPageGrabBatch::~DivvyupPageGrabBatch() {
 storage::VolatilePagePointer DivvyupPageGrabBatch::grab(thread::ThreadGroupId node) {
   ASSERT_ND(node < node_count_);
   if (chunks_[node].empty()) {
-    ErrorCode code = engine_->get_memory_manager()->get_node_memory(node)->
-      get_volatile_pool()->grab(chunks_[node].capacity(), chunks_ + node);
+    PagePool* pool = engine_->get_memory_manager()->get_node_memory(node)->get_volatile_pool();
+    uint32_t grab_count = std::min<uint32_t>(
+      chunks_[node].capacity(),
+      pool->get_recommended_pages_per_grab());
+    ErrorCode code = pool->grab(grab_count, chunks_ + node);
     if (code == kErrorCodeMemoryNoFreePages) {
       LOG(FATAL) << "NUMA node " << static_cast<int>(node) << " has no free pages. This situation "
         " is so far not handled in DivvyupPageGrabBatch. Aborting";

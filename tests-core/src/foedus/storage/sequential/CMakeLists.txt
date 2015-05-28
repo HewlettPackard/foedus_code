@@ -1,5 +1,16 @@
 add_foedus_test_individual(test_sequential_basic "Create;CreateAndDrop;CreateAndWrite")
-add_foedus_test_individual(test_sequential_cursor "IteratorRawPage")
+
+set(test_sequential_cursor_individuals
+  IteratorRawPage
+  Volatile1Node
+  Snapshot1Node
+  Both1Node
+  Volatile2Node
+  Snapshot2Node
+  Both2Node
+  )
+add_foedus_test_individual(test_sequential_cursor "${test_sequential_cursor_individuals}")
+
 add_foedus_test_individual(test_sequential_volatile_list "Empty;SingleThread;TwoThreads;FourThreads")
 
 set(test_sequential_tpcb_individuals

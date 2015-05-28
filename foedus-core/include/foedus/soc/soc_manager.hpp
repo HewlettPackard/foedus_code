@@ -76,6 +76,14 @@ class SocManager CXX11_FINAL : public virtual Initializable {
   /** Returns the shared memories maintained across SOCs */
   SharedMemoryRepo* get_shared_memory_repo();
 
+  /** Shortcut for get_shared_memory_repo()->get_global_user_memory() */
+  void*     get_shared_user_memory() const;
+  /**
+   * @returns the byte size of shared user-controlled memory.
+   * Equivalent to SocOptions.shared_user_memory_size_kb_ << 10.
+   */
+  uint64_t  get_shared_user_memory_size() const;
+
   /**
    * @brief Wait for master engine to finish init/uninit the module.
    */

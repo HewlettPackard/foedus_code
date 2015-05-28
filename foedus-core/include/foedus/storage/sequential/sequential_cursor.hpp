@@ -165,6 +165,11 @@ class SequentialCursor {
     return !(finished_snapshots_ && finished_safe_volatiles_ && finished_unsafe_volatiles_);
   }
 
+  /// Followings are rather implementation details. Used only from testcases.
+  bool      is_finished_snapshots() const { return finished_snapshots_; }
+  bool      is_finished_safe_volatiles() const { return finished_safe_volatiles_; }
+  bool      is_finished_unsafe_volatiles() const { return finished_unsafe_volatiles_; }
+
   friend std::ostream& operator<<(std::ostream& o, const SequentialCursor& v);
 
  private:
@@ -235,6 +240,21 @@ class SequentialCursor {
   /** short for resolver_.resolve_offset(pointer) */
   SequentialPage* resolve_volatile(VolatilePagePointer pointer) const;
 
+  void refresh_grace_epoch();
+
+
+  /** Result of the following internal methods */
+  enum VolatileCheckPageResult {
+    kValidPage,
+    kNextPage,
+    kNextCore,
+  };
+
+  /** Decide what to do for a safe volatile page. called from next_batch_safe_volatiles() */
+  VolatileCheckPageResult next_batch_safe_volatiles_check_page(const SequentialPage* page) const;
+  /** Decide what to do for an unsafe volatile page. called from next_batch_unsafe_volatiles() */
+  VolatileCheckPageResult next_batch_unsafe_volatiles_check_page(const SequentialPage* page) const;
+
   thread::Thread* const               context_;
   xct::Xct* const                     xct_;
   Engine* const                       engine_;
@@ -252,6 +272,13 @@ class SequentialCursor {
   const Epoch                   to_epoch_;
 
   const Epoch                   latest_snapshot_epoch_;
+
+  /**
+   * max(from_epoch_, latest_snapshot_epoch_).
+   * In case snapshot is now happening, we have to ignore
+   * volatile pages that are not dropped yet.
+   */
+  const Epoch                   from_epoch_volatile_;
 
   const int32_t                 node_filter_;
   const uint16_t                node_count_;
@@ -283,6 +310,9 @@ class SequentialCursor {
   bool                          finished_safe_volatiles_;
   /** whether this cursor has read all volatile pages in unsafe epochs it should read. */
   bool                          finished_unsafe_volatiles_;
+
+  /** Caches engine_->get_xct_manager()->get_current_grace_epoch(). Occasionally refreshed */
+  Epoch                         grace_epoch_;
 
   /** How far we have read from each node. Index is node ID. */
   std::vector<NodeState>        states_;
@@ -325,7 +355,7 @@ struct SequentialRecordBatch CXX11_FINAL {
     ASSERT_ND(index < record_count_);
     return reinterpret_cast<const uint16_t*>(data_ + sizeof(data_))[-index - 1];
   }
-  const xct::LockableXctId* get_xctid_from_offset(uint16_t offset) const {
+  const xct::LockableXctId* get_owner_id_from_offset(uint16_t offset) const {
     ASSERT_ND(offset + record_count_ * sizeof(uint16_t) <= kDataSize);
     return reinterpret_cast<const xct::LockableXctId*>(data_ + offset);
   }
@@ -334,7 +364,7 @@ struct SequentialRecordBatch CXX11_FINAL {
     return data_ + offset + sizeof(xct::LockableXctId);
   }
   Epoch          get_epoch_from_offset(uint16_t offset) const {
-    return get_xctid_from_offset(offset)->xct_id_.get_epoch();
+    return get_owner_id_from_offset(offset)->xct_id_.get_epoch();
   }
 };
 
@@ -401,6 +431,10 @@ class SequentialRecordIterator CXX11_FINAL {
     ASSERT_ND(is_valid());
     return batch_->get_payload_from_offset(cur_offset_);
   }
+  const xct::LockableXctId* get_cur_record_owner_id() const ALWAYS_INLINE {
+    ASSERT_ND(is_valid());
+    return batch_->get_owner_id_from_offset(cur_offset_);
+  }
   bool        in_epoch_range(Epoch epoch) const ALWAYS_INLINE {
     return epoch >= from_epoch_ && epoch < to_epoch_;
   }
@@ -409,6 +443,8 @@ class SequentialRecordIterator CXX11_FINAL {
   uint16_t    get_stat_skipped_records() const { return stat_skipped_records_; }
   /** @returns total number of records in this batch */
   uint16_t    get_record_count() const { return record_count_; }
+
+  const SequentialRecordBatch* get_raw_batch() const { return batch_; }
 
  private:
   const SequentialRecordBatch* batch_;  // +8 -> 8

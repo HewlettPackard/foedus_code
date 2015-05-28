@@ -49,8 +49,10 @@ ErrorStack SnapshotManager::read_snapshot_metadata(SnapshotId snapshot_id, Snaps
 }
 
 
-void SnapshotManager::trigger_snapshot_immediate(bool wait_completion) {
-  pimpl_->trigger_snapshot_immediate(wait_completion);
+void SnapshotManager::trigger_snapshot_immediate(
+  bool wait_completion,
+  Epoch suggested_snapshot_epoch) {
+  pimpl_->trigger_snapshot_immediate(wait_completion, suggested_snapshot_epoch);
 }
 
 }  // namespace snapshot

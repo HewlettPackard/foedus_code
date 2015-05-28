@@ -362,7 +362,7 @@ Composer::DropResult SequentialComposer::drop_volatiles(
         } else {
           // move head
           *head_ptr = next;
-          DVLOG(1) << "Thread-" << thread_id << " in sequential-" << storage_id_ << " dropped a"
+          DVLOG(2) << "Thread-" << thread_id << " in sequential-" << storage_id_ << " dropped a"
             << " page.";
         }
       }

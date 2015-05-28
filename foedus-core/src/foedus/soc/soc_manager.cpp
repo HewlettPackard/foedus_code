@@ -37,6 +37,14 @@ ErrorStack  SocManager::uninitialize() { return pimpl_->uninitialize(); }
 
 SharedMemoryRepo* SocManager::get_shared_memory_repo() { return &pimpl_->memory_repo_; }
 
+void* SocManager::get_shared_user_memory() const {
+  return pimpl_->memory_repo_.get_global_user_memory();
+}
+uint64_t SocManager::get_shared_user_memory_size() const {
+  return pimpl_->engine_->get_options().soc_.shared_user_memory_size_kb_ * 1024ULL;
+}
+
+
 void SocManager::trap_spawned_soc_main() {
   std::vector< proc::ProcAndName > procedures;
   trap_spawned_soc_main(procedures);

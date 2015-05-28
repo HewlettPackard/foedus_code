@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+
 #include "foedus/compiler.hpp"
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
@@ -106,8 +108,18 @@ ErrorStack NumaCoreMemory::initialize_once() {
 
   // Each core starts from 50%-full free pool chunk (configurable)
   uint32_t initial_pages = engine_->get_options().memory_.private_page_pool_initial_grab_;
-  WRAP_ERROR_CODE(volatile_pool_->grab(initial_pages, free_volatile_pool_chunk_));
-  WRAP_ERROR_CODE(snapshot_pool_->grab(initial_pages, free_snapshot_pool_chunk_));
+  {
+    uint32_t grab_count = std::min<uint32_t>(
+      volatile_pool_->get_recommended_pages_per_grab(),
+      initial_pages);
+    WRAP_ERROR_CODE(volatile_pool_->grab(grab_count, free_volatile_pool_chunk_));
+  }
+  {
+    uint32_t grab_count = std::min<uint32_t>(
+      snapshot_pool_->get_recommended_pages_per_grab(),
+      initial_pages);
+    WRAP_ERROR_CODE(snapshot_pool_->grab(grab_count, free_snapshot_pool_chunk_));
+  }
   return kRetOk;
 }
 ErrorStack NumaCoreMemory::uninitialize_once() {
@@ -175,8 +187,9 @@ void NumaCoreMemory::release_free_snapshot_page(PagePoolOffset offset) {
 
 ErrorCode NumaCoreMemory::grab_free_pages_from_node(
   PagePoolOffsetChunk* free_chunk,
-  memory::PagePool *pool) {
+  memory::PagePool* pool) {
   uint32_t desired = (free_chunk->capacity() - free_chunk->size()) / 2;
+  desired = std::min<uint32_t>(desired, pool->get_recommended_pages_per_grab());
   return pool->grab(desired, free_chunk);
 }
 

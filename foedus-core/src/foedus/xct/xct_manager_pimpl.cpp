@@ -146,7 +146,11 @@ void XctManagerPimpl::handle_epoch_chime() {
         break;
       }
       if (get_requested_global_epoch() <= get_current_global_epoch())  {  // otherwise no sleep
-        bool signaled = control_block_->epoch_chime_wakeup_.timedwait(demand, interval_microsec);
+        bool signaled = control_block_->epoch_chime_wakeup_.timedwait(
+          demand,
+          interval_microsec,
+          soc::kDefaultPollingSpins,
+          interval_microsec);
         VLOG(1) << "epoch_chime_thread. wokeup with " << (signaled ? "signal" : "timeout");
       }
     }

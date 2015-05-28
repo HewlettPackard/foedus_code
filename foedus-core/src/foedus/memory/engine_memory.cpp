@@ -33,6 +33,7 @@
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
+#include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
@@ -97,6 +98,14 @@ ErrorStack EngineMemory::uninitialize_once() {
     LOG(INFO) << "Node memory-" << node << " was uninitialized!";
   }
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+void* EngineMemory::get_shared_user_memory() const {
+  return engine_->get_soc_manager()->get_shared_user_memory();
+}
+
+uint64_t EngineMemory::get_shared_user_memory_size() const {
+  return engine_->get_soc_manager()->get_shared_user_memory_size();
 }
 
 std::string EngineMemory::dump_free_memory_stat() const {

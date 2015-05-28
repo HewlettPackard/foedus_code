@@ -222,7 +222,9 @@ class SnapshotManagerPimpl final : public DefaultInitializable {
 
   ErrorStack read_snapshot_metadata(SnapshotId snapshot_id, SnapshotMetadata* out);
 
-  void    trigger_snapshot_immediate(bool wait_completion);
+  void    trigger_snapshot_immediate(
+    bool wait_completion,
+    Epoch suggested_snapshot_epoch);
   /**
    * This is a hidden API called at the beginning of engine shutdown (namely restart manager).
    * Snapshot Manager initializes before Storage because it must \e read previous snapshot,
