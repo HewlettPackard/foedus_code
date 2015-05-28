@@ -210,7 +210,7 @@ storage::VolatilePagePointer RoundRobinPageGrabBatch::grab() {
       uint32_t grab_count = std::min<uint32_t>(
         chunk_.capacity(),
         pool->get_recommended_pages_per_grab());
-      ErrorCode code = pool->grab(chunk_.capacity(), &chunk_);
+      ErrorCode code = pool->grab(grab_count, &chunk_);
       if (code == kErrorCodeOk) {
         break;
       }

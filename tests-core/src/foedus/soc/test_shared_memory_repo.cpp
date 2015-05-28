@@ -156,12 +156,12 @@ TEST(SharedMemoryRepoTest, Boundary) {
   EXPECT_FALSE(repo.allocate_shared_memories(pid, eid, options).is_error());
 
   void* pool_memory = repo.get_volatile_pool(0);
-  std::memset(pool_memory, 32 << 20, 0);  // especially interesting with valgrind
+  std::memset(pool_memory, 0, 32 << 20);  // especially interesting with valgrind
 
   void* reducer_memory_0 = repo.get_node_memory_anchors(0)->log_reducer_buffers_[0];
   void* reducer_memory_1 = repo.get_node_memory_anchors(0)->log_reducer_buffers_[1];
-  std::memset(reducer_memory_0, 8 << 20, 0);  // especially interesting with valgrind
-  std::memset(reducer_memory_1, 8 << 20, 0);  // especially interesting with valgrind
+  std::memset(reducer_memory_0, 0, 8 << 20);  // especially interesting with valgrind
+  std::memset(reducer_memory_1, 0, 8 << 20);  // especially interesting with valgrind
   uintptr_t ad0 = reinterpret_cast<uintptr_t>(reducer_memory_0);
   uintptr_t ad1 = reinterpret_cast<uintptr_t>(reducer_memory_1);
   EXPECT_EQ(ad1, ad0 + (8ULL << 20));
