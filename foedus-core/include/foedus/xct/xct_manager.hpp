@@ -47,10 +47,17 @@ class XctManager CXX11_FINAL : public virtual Initializable {
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
   /**
-   * @brief Returns the current global epoch.
+   * @brief Returns the current global epoch, the epoch a newly started transaction will be in.
    */
   Epoch       get_current_global_epoch() const;
   Epoch       get_current_global_epoch_weak() const;
+
+  /**
+   * @brief Returns the current grace-period epoch (global epoch - 1), the epoch
+   * \e some transaction might be still in (though rare).
+   */
+  Epoch       get_current_grace_epoch() const;
+  Epoch       get_current_grace_epoch_weak() const;
 
   /** Passively wait until the current global epoch becomes the given value. */
   void        wait_for_current_global_epoch(Epoch target_epoch, int64_t wait_microseconds = -1);

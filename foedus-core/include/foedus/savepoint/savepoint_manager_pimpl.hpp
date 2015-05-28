@@ -54,6 +54,7 @@ struct SavepointManagerControlBlock {
   std::atomic<bool>   master_initialized_;
   Epoch::EpochInteger initial_current_epoch_;
   Epoch::EpochInteger initial_durable_epoch_;
+  Epoch::EpochInteger earliest_epoch_;
 
   /**
    * savepoint thread sleeps on this condition variable.
@@ -115,6 +116,7 @@ class SavepointManagerPimpl final : public DefaultInitializable {
 
   Epoch get_initial_current_epoch() const { return Epoch(control_block_->initial_current_epoch_); }
   Epoch get_initial_durable_epoch() const { return Epoch(control_block_->initial_durable_epoch_); }
+  Epoch get_earliest_epoch() const { return Epoch(control_block_->earliest_epoch_); }
   Epoch get_saved_durable_epoch() const { return Epoch(control_block_->saved_durable_epoch_); }
   snapshot::SnapshotId get_latest_snapshot_id() const {
     return control_block_->savepoint_.latest_snapshot_id_;

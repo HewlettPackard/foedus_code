@@ -65,6 +65,13 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
   Epoch::EpochInteger             durable_epoch_;
 
   /**
+   * The earliest epoch that can exist in this system. it advances only after we
+   * do a system-wide compaction. Otherwise, it's kEpochInitialDurable, which is indeed
+   * the earliest until the epoch wraps around.
+   */
+  Epoch::EpochInteger             earliest_epoch_;
+
+  /**
    * The most recent complete snapshot.
    * kNullSnapshotId if no snapshot has been taken yet.
    */

@@ -112,6 +112,17 @@ class SequentialPage final {
       position += assorted::align8(payload_lengthes[i]) + foedus::storage::kRecordOverhead;
     }
   }
+  /** Returns beginning offset of the specified record */
+  uint16_t            get_record_offset(uint16_t record) const {
+    assert_consistent();
+    ASSERT_ND(record < get_record_count());
+    uint16_t offset = 0;
+    for (uint16_t i = 0; i < record; ++i) {
+      uint16_t payload_length = get_payload_length(i);
+      offset += assorted::align8(payload_length) + foedus::storage::kRecordOverhead;
+    }
+    return offset;
+  }
 
   DualPagePointer&        next_page() { return next_page_; }
   const DualPagePointer&  next_page() const { return next_page_; }
@@ -146,13 +157,19 @@ class SequentialPage final {
     ASSERT_ND(record < kMaxSlots);
     ASSERT_ND(used_data_bytes_ + assorted::align8(payload_length) + kRecordOverhead <= kDataSize);
     set_payload_length(record, payload_length);
-    xct::LockableXctId* owner_id_addr = reinterpret_cast<xct::LockableXctId*>(
-      data_ + used_data_bytes_);
+    xct::LockableXctId* owner_id_addr = owner_id_from_offset(used_data_bytes_);
     owner_id_addr->xct_id_ = owner_id;
     owner_id_addr->lock_.reset();  // not used...
     std::memcpy(data_ + used_data_bytes_ + kRecordOverhead, payload, payload_length);
     ++record_count_;
     used_data_bytes_ += assorted::align8(payload_length) + kRecordOverhead;
+    header_.key_count_ = record_count_;
+    if (!header_.snapshot_) {
+      // to protect concurrent cursor, version counter must be written at last
+      assorted::memory_fence_release();
+    }
+    // no need for lock to increment, just a barrier suffices. directly call status_.increment.
+    header_.page_version_.status_.increment_version_counter();
     assert_consistent();
   }
 
@@ -172,8 +189,15 @@ class SequentialPage final {
    */
   Epoch               get_first_record_epoch() const {
     ASSERT_ND(get_record_count() > 0);
-    const xct::LockableXctId* first_owner_id = reinterpret_cast<const xct::LockableXctId*>(data_);
+    const xct::LockableXctId* first_owner_id = owner_id_from_offset(0);
     return first_owner_id->xct_id_.get_epoch();
+  }
+
+  xct::LockableXctId* owner_id_from_offset(uint16_t offset) {
+    return reinterpret_cast<xct::LockableXctId*>(data_ + offset);
+  }
+  const xct::LockableXctId* owner_id_from_offset(uint16_t offset) const {
+    return reinterpret_cast<const xct::LockableXctId*>(data_ + offset);
   }
 
  private:
@@ -198,7 +222,6 @@ class SequentialPage final {
    */
   char                  data_[kDataSize];
 };
-STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
 
 /**
  * @brief Represents one stable root page in \ref SEQUENTIAL.
@@ -232,12 +255,12 @@ class SequentialRootPage final {
 
   /** Returns How many pointers to head pages exist in this page. */
   uint16_t            get_pointer_count()  const { return pointer_count_; }
-  const SnapshotPagePointer* get_pointers() const { return head_page_pointers_; }
+  const HeadPagePointer* get_pointers() const { return head_page_pointers_; }
 
-  void set_pointers(SnapshotPagePointer *pointers, uint16_t pointer_count) {
+  void set_pointers(HeadPagePointer *pointers, uint16_t pointer_count) {
     ASSERT_ND(pointer_count <= kRootPageMaxHeadPointers);
     pointer_count_ = pointer_count;
-    std::memcpy(head_page_pointers_, pointers, sizeof(SnapshotPagePointer) * pointer_count);
+    std::memcpy(head_page_pointers_, pointers, sizeof(HeadPagePointer) * pointer_count);
   }
 
   SnapshotPagePointer get_next_page() const { return next_page_; }
@@ -263,8 +286,12 @@ class SequentialRootPage final {
   SnapshotPagePointer next_page_;       // +8 -> 48
 
   /** Pointers to heads of data pages. */
-  SnapshotPagePointer head_page_pointers_[kRootPageMaxHeadPointers];
+  HeadPagePointer     head_page_pointers_[kRootPageMaxHeadPointers];
+
+  char                filler_[kPageSize - kRootPageHeaderSize - sizeof(head_page_pointers_)];
 };
+
+STATIC_SIZE_CHECK(sizeof(SequentialPage), 1 << 12)
 STATIC_SIZE_CHECK(sizeof(SequentialRootPage), 1 << 12)
 
 }  // namespace sequential

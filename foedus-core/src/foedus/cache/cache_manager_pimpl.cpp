@@ -121,7 +121,7 @@ void CacheManagerPimpl::handle_cleaner() {
 
   const uint32_t kIntervalMs = 5;  // should be a bit shorter than epoch-advance interval
   while (!stop_requested_) {
-    DVLOG(1) << "Cleaner thread came in: " << describe();
+    DVLOG(2) << "Cleaner thread came in: " << describe();
     ASSERT_ND(reclaimed_pages_count_ == 0);
     assorted::memory_fence_acquire();
     memory::PagePool::Stat stat = pool_->get_stat();
@@ -176,7 +176,7 @@ void CacheManagerPimpl::handle_cleaner() {
           " that the cleaner thread is getting behind or the pool is too small: " << describe();
       }
     } else {
-      DVLOG(1) << "Still enough free pages. do nothing";
+      DVLOG(2) << "Still enough free pages. do nothing";
     }
 
     if (!stop_requested_) {

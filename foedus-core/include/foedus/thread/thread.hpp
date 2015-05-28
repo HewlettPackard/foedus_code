@@ -147,6 +147,12 @@ class Thread CXX11_FINAL : public virtual Initializable {
    */
   ErrorCode     read_a_snapshot_page(storage::SnapshotPagePointer page_id, storage::Page* buffer);
 
+  /** Read contiguous pages in one shot. Other than that same as read_a_snapshot_page(). */
+  ErrorCode     read_snapshot_pages(
+    storage::SnapshotPagePointer page_id_begin,
+    uint32_t page_count,
+    storage::Page* buffer);
+
   /**
    * @brief Installs a volatile page to the given dual pointer as a copy of the snapshot page.
    * @param[in,out] pointer dual pointer. volatile pointer will be modified.

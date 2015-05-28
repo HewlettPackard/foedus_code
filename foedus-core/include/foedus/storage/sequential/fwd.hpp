@@ -32,6 +32,8 @@ struct  SequentialMetadata;
 class   SequentialPage;
 class   SequentialPartitioner;
 class   SequentialRootPage;
+struct  SequentialRecordBatch;
+class   SequentialRecordIterator;
 class   SequentialStorage;
 struct  SequentialStorageControlBlock;
 class   SequentialStorageFactory;

@@ -39,6 +39,10 @@ Epoch SavepointManager::get_initial_current_epoch() const {
 Epoch SavepointManager::get_initial_durable_epoch() const {
   return pimpl_->get_initial_durable_epoch();
 }
+Epoch SavepointManager::get_earliest_epoch() const {
+  return pimpl_->get_earliest_epoch();
+}
+
 Epoch SavepointManager::get_saved_durable_epoch() const {
   return pimpl_->get_saved_durable_epoch();
 }

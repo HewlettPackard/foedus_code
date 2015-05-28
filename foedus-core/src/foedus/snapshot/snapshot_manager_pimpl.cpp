@@ -274,25 +274,38 @@ void SnapshotManagerPimpl::handle_snapshot_child() {
 }
 
 
-void SnapshotManagerPimpl::trigger_snapshot_immediate(bool wait_completion) {
-  LOG(INFO) << "Requesting to immediately take a snapshot...";
+void SnapshotManagerPimpl::trigger_snapshot_immediate(
+  bool wait_completion,
+  Epoch suggested_snapshot_epoch) {
+  LOG(INFO) << "Requesting to immediately take a snapshot. suggested_snapshot_epoch="
+    << suggested_snapshot_epoch;
   Epoch before = get_snapshot_epoch();
   Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
   ASSERT_ND(durable_epoch.is_valid());
+
+  Epoch new_snapshot_epoch = durable_epoch;
+  if (suggested_snapshot_epoch.is_valid()) {
+    if (suggested_snapshot_epoch > durable_epoch) {
+      LOG(WARNING) << "You can't specify non-durable epoch for snapshot.";
+    } else {
+      new_snapshot_epoch = suggested_snapshot_epoch;
+    }
+  }
+
   if (before.is_valid() && before >= durable_epoch) {
-    LOG(INFO) << "Current snapshot is already latest. durable_epoch=" << durable_epoch;
+    LOG(INFO) << "Current snapshot already satisfies. new_snapshot_epoch=" << new_snapshot_epoch;
     return;
   }
 
-  control_block_->requested_snapshot_epoch_.store(durable_epoch.value());
+  control_block_->requested_snapshot_epoch_.store(new_snapshot_epoch.value());
   wakeup();
   if (wait_completion) {
     VLOG(0) << "Waiting for the completion of snapshot... before=" << before;
     while (!is_stop_requested() &&
-        (!get_snapshot_epoch().is_valid() || durable_epoch > get_snapshot_epoch())) {
+        (!get_snapshot_epoch().is_valid() || new_snapshot_epoch > get_snapshot_epoch())) {
       uint64_t demand = control_block_->snapshot_taken_.acquire_ticket();
       if (!is_stop_requested() &&
-        (!get_snapshot_epoch().is_valid() || durable_epoch > get_snapshot_epoch())) {
+        (!get_snapshot_epoch().is_valid() || new_snapshot_epoch > get_snapshot_epoch())) {
         control_block_->snapshot_taken_.timedwait(demand, 100000ULL);
       }
     }
@@ -306,11 +319,19 @@ ErrorStack SnapshotManagerPimpl::handle_snapshot_triggered(Snapshot *new_snapsho
   Epoch durable_epoch = engine_->get_log_manager()->get_durable_global_epoch();
   Epoch previous_epoch = get_snapshot_epoch();
   LOG(INFO) << "Taking a new snapshot. durable_epoch=" << durable_epoch
+    << ", requested_snapshot_epoch=" << control_block_->get_requested_snapshot_epoch()
     << ". previous_snapshot=" << previous_epoch;
   ASSERT_ND(durable_epoch.is_valid() &&
     (!previous_epoch.is_valid() || durable_epoch > previous_epoch));
   new_snapshot->base_epoch_ = previous_epoch;
-  new_snapshot->valid_until_epoch_ = durable_epoch;
+  Epoch requested_epoch = control_block_->get_requested_snapshot_epoch();
+  if (requested_epoch.is_valid()) {
+    ASSERT_ND(requested_epoch <= durable_epoch);
+    ASSERT_ND(!previous_epoch.is_valid() || requested_epoch > previous_epoch);
+    new_snapshot->valid_until_epoch_ = requested_epoch;
+  } else {
+    new_snapshot->valid_until_epoch_ = durable_epoch;
+  }
   new_snapshot->max_storage_id_ = engine_->get_storage_manager()->get_largest_storage_id();
   ASSERT_ND(new_snapshot->max_storage_id_
     >= control_block_->gleaner_.cur_snapshot_.max_storage_id_);

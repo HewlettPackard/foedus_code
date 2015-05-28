@@ -25,6 +25,7 @@
 
 #include <stdint.h>
 
+#include "foedus/epoch.hpp"
 #include "foedus/storage/storage_id.hpp"
 
 namespace foedus {
@@ -59,10 +60,33 @@ const uint16_t kMaxPayload = kDataSize;
 const uint16_t kRootPageHeaderSize = 48;
 
 /**
+ * Each pointer to a snapshot head page comes with a bit more information to help reading.
+ * @ingroup SEQUENTIAL
+ */
+struct HeadPagePointer {
+  /** ID of the page that begins the linked list */
+  SnapshotPagePointer page_id_;     // +8 -> 8
+  /** Inclusive beginning of epochs in the pointed pages */
+  Epoch               from_epoch_;  // +4 -> 12
+  /** Exclusive end of epochs in the pointed pages */
+  Epoch               to_epoch_;    // +4 -> 16
+  /**
+    * In a sequential storage, all pages from the head page is guaranteed to be
+    * contiguous (that's how SequentialComposer write them out).
+    * This enables us to read a large number of sequential pages in one-go rather than
+    * reading one-page at a time.
+    */
+  uint64_t            page_count_;  // +8 -> 24
+};
+
+
+
+/**
  * Maximum number of head pointers in one root page.
  * @ingroup SEQUENTIAL
  */
-const uint16_t kRootPageMaxHeadPointers = (foedus::storage::kPageSize - kRootPageHeaderSize) / 8;
+const uint16_t kRootPageMaxHeadPointers
+  = (foedus::storage::kPageSize - kRootPageHeaderSize) / sizeof(HeadPagePointer);
 
 /**
  * Byte size of data region in each root page of sequential storage.

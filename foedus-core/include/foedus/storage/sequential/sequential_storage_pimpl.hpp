@@ -96,8 +96,9 @@ struct SequentialStorageControlBlock final {
  *  \li Each thread maintains its own head/tail pages so that they don't interfere each other
  * at all. This, combined with the assumption above, makes it completely without blocking
  * and atomic operations \b EXCEPT:
- *  \li For scanning threads (which only rarely occur and are fundamentally slow anyways),
- * we take an exclusive lock. Further, the scanning thread must wait until all other threads
+ *  \li For scanning cursors (which only rarely occur and are fundamentally slow anyways),
+ * we take an exclusive lock when they touch \e unsafe epochs.
+ * Further, the scanning thread must wait until all other threads
  * did NOT start before the scanning thread take lock. (otherwise serializability is not
  * guaranteed). We will have something like Xct::InCommitEpochGuard for this purpose.
  * As scanning threads are rare, they can wait for a while, so it's okay for other threads

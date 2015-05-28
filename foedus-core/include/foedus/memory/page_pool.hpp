@@ -187,6 +187,18 @@ class PagePool CXX11_FINAL : public virtual Initializable {
 
   storage::Page*        get_base() const;
   uint64_t              get_memory_size() const;
+  /**
+   * @returns recommended number of pages to grab at once.
+   * @details
+   * Especially in testcases, grabbing chunk-full of pages (4k pages) at a time
+   * immediately runs out of free pages
+   * unless we allocate huge pools for each run, which would make test-time significantly longer.
+   * For example, if the pool has only 1024 pages, it doesn't make sense to
+   * grab 2000 pages at a time! As soon as one thread does it, all other threads
+   * will get out-of-memory error although the culprit probably needs only a few pages.
+   * To avoid that, we respect this value in most places.
+   */
+  uint32_t              get_recommended_pages_per_grab() const;
   Stat                  get_stat() const;
   std::string           get_debug_pool_name() const;
   /** Call this anytime after attach() */

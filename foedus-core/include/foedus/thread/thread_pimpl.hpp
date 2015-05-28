@@ -173,6 +173,11 @@ class ThreadPimpl final : public DefaultInitializable {
   ErrorCode   read_a_snapshot_page(
     storage::SnapshotPagePointer page_id,
     storage::Page* buffer) ALWAYS_INLINE;
+  /** @copydoc foedus::thread::Thread::read_snapshot_pages() */
+  ErrorCode   read_snapshot_pages(
+    storage::SnapshotPagePointer page_id_begin,
+    uint32_t page_count,
+    storage::Page* buffer) ALWAYS_INLINE;
 
   /** @copydoc foedus::thread::Thread::install_a_volatile_page() */
   ErrorCode   install_a_volatile_page(
@@ -332,6 +337,12 @@ inline ErrorCode ThreadPimpl::read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page* buffer) {
   return snapshot_file_set_.read_page(page_id, buffer);
+}
+inline ErrorCode ThreadPimpl::read_snapshot_pages(
+  storage::SnapshotPagePointer page_id_begin,
+  uint32_t page_count,
+  storage::Page* buffer) {
+  return snapshot_file_set_.read_pages(page_id_begin, page_count, buffer);
 }
 
 static_assert(

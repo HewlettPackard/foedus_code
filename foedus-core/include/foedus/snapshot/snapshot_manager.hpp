@@ -64,11 +64,16 @@ class SnapshotManager CXX11_FINAL : public virtual Initializable {
   /**
    * @brief Immediately take a snapshot
    * @param[in] wait_completion whether to block until the completion of entire snapshotting
+   * @param[in] suggested_snapshot_epoch the epoch up to which we will snapshot.
+   * Must be a durable epoch that is after the previous snapshot epoch.
+   * If not specified, the latest durable epoch is used, which is in most cases what you want.
    * @details
    * This method is used to immediately take snapshot for either recovery or memory-saving
    * purpose.
    */
-  void    trigger_snapshot_immediate(bool wait_completion);
+  void    trigger_snapshot_immediate(
+    bool wait_completion,
+    Epoch suggested_snapshot_epoch = INVALID_EPOCH);
 
   /** Do not use this unless you know what you are doing. */
   SnapshotManagerPimpl* get_pimpl() { return pimpl_; }
