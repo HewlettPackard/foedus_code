@@ -91,7 +91,7 @@ void run_thread_hold_longtime(SharedPolling* polling) {
   // Thus, we had a valgrind test-failure with 100ms wait. Fixes #7.
   uint64_t longtime_ms = 1000;
   if (RUNNING_ON_VALGRIND) {
-    longtime_ms = 2000;
+    longtime_ms = 3000;  // ggrrr, what are you doing, valgrind!
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(longtime_ms));
   polling->signal();
@@ -102,11 +102,10 @@ TEST(SharedPollingTest, Timeout) {
   std::thread t(run_thread_hold_longtime, &polling);
   // at least the first one is surely timeout
   uint64_t demand = polling.acquire_ticket();
-  bool received = polling.timedwait(demand, 10000ULL);
+  bool received = polling.timedwait(demand, 1000ULL);
   EXPECT_FALSE(received);
   while (true) {
     received = polling.timedwait(demand, 10000ULL);
-    std::cout << "yp2" << std::endl;
     if (received) {
       break;
     }

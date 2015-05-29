@@ -80,8 +80,6 @@ class SequentialStorage CXX11_FINAL : public Storage<SequentialStorageControlBlo
    */
   void       apply_append_record(thread::Thread* context, const SequentialAppendLogType* log_entry);
 
-  // TODO(Hideaki) Scan-access methods
-
   friend std::ostream& operator<<(std::ostream& o, const SequentialStorage& v);
 };
 }  // namespace sequential
