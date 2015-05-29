@@ -87,11 +87,11 @@ TEST(SharedPollingTest, FourThreads) { test_multi(4); }
 
 void run_thread_hold_longtime(SharedPolling* polling) {
   // NOTE: Although 1-sec wait seems too long, this is required for valgrind version of tests.
-  // On valgrind, context switch is really really infrequent (even if we call yield).
+  // On valgrind, the initial spin part might take long time.
   // Thus, we had a valgrind test-failure with 100ms wait. Fixes #7.
-  uint64_t longtime_ms = 1000;
+  uint64_t longtime_ms = 100;
   if (RUNNING_ON_VALGRIND) {
-    longtime_ms = 3000;  // ggrrr, what are you doing, valgrind!
+    longtime_ms = 1000;  //
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(longtime_ms));
   polling->signal();

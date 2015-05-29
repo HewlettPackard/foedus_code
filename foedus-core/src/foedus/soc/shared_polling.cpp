@@ -89,13 +89,10 @@ void SharedPolling::spin_poll(uint64_t demanded_ticket, uint64_t polling_spins) 
     if (cur_ticket_ >= demanded_ticket) {
       return;
     }
-    assorted::spinlock_yield();
-    // keeps calling yield puts too much pressure on CPU,
-    // especially confuses valgrind. let's sleep occasionally.
-    if (i % 8U == 0) {
-      std::this_thread::sleep_for(std::chrono::microseconds(50));
+    if (i % 256 == 0) {
+      assorted::spinlock_yield();
+      assorted::memory_fence_acquire();
     }
-    assorted::memory_fence_acquire();
   }
 }
 

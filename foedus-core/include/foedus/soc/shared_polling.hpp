@@ -26,7 +26,7 @@ namespace foedus {
 namespace soc {
 
 /** Default value of polling_spins */
-const uint64_t kDefaultPollingSpins = (1ULL << 16);
+const uint64_t kDefaultPollingSpins = (1ULL << 10);
 /** Default value of max_interval_us */
 const uint64_t kDefaultPollingMaxIntervalUs = (1ULL << 15);
 /** Initial value of sleep interval in us */
