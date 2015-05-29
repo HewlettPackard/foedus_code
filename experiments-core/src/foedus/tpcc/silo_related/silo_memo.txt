@@ -81,6 +81,9 @@ avg_per_core_abort_rate: 2.24757 aborts/sec/core
 txn breakdown: [[Delivery, 926891], [NewOrder, 10434899], [OrderStatus, 929803], [Payment, 9968562], [StockLevel, 926216]]
 --- system counters (for benchmark) ---
 
+# mid-low (??)
+./benchmarks/dbtest --verbose --bench tpcc --num-threads 26 --scale-factor 26 --runtime 30 --numa-memory 52G
+
 
 # medium (dl580)
 ./benchmarks/dbtest --verbose --bench tpcc --num-threads 52 --scale-factor 52 --runtime 30 --numa-memory 104G
@@ -123,7 +126,6 @@ agg_abort_rate: 84.7893 aborts/sec
 avg_per_core_abort_rate: 1.76644 aborts/sec/core
 txn breakdown: [[Delivery, 2436634], [NewOrder, 27423337], [OrderStatus, 2438722], [Payment, 26199431], [StockLevel, 2437261]]
 --- system counters (for benchmark) ---
-
 
 # large (DH)
 ./benchmarks/dbtest --verbose --bench tpcc --num-threads 192 --scale-factor 192 --runtime 30 --numa-memory 384G

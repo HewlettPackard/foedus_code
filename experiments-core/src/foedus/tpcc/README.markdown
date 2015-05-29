@@ -54,6 +54,9 @@ Most likely, your machine fits somewhere between them.
 Configure the numbers by interpolating, or by extrapolating if you are trying to run it on a
 laptop or on a 256-socket godzilla SGI; oh let me play with it if you do.
 
+* [2015 May] We have also added a _mid-low_ server configuration per request.
+It assumes 4-sockets * 8 cores and 1 TB DRAM machine. The suffix is "_mid".
+
 Of course you have to understand what each parameter means. Go on to individual details below.
 
 
