@@ -116,7 +116,11 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   xct::TrackMovedRecordResult track_moved_record(
     xct::LockableXctId* old_address,
     xct::WriteXctAccess* write_set);
-  xct::TrackMovedRecordResult track_moved_record_search(HashDataPage* page, const HashCombo& combo);
+  xct::TrackMovedRecordResult track_moved_record_search(
+    HashDataPage* page,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo);
 
   /** These are defined in hash_storage_verify.cpp */
   ErrorStack  verify_single_thread(Engine* engine);
@@ -160,6 +164,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   /** @see foedus::storage::hash::HashStorage::get_record() */
   ErrorCode   get_record(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     void* payload,
     uint16_t* payload_capacity);
@@ -168,17 +174,28 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   template <typename PAYLOAD>
   inline ErrorCode get_record_primitive(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     PAYLOAD* payload,
     uint16_t payload_offset) {
     // at this point, there isn't enough benefit to do optimization specific to this case.
     // hash-lookup is anyway dominant. memcpy-vs-primitive is not the issue.
-    return get_record_part(context, combo, payload, payload_offset, sizeof(PAYLOAD));
+    return get_record_part(
+      context,
+      key,
+      key_length,
+      combo,
+      payload,
+      payload_offset,
+      sizeof(PAYLOAD));
   }
 
   /** @see foedus::storage::hash::HashStorage::get_record_part() */
   ErrorCode   get_record_part(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     void* payload,
     uint16_t payload_offset,
@@ -187,16 +204,25 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   /** @see foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     const void* payload,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
 
   /** @see foedus::storage::hash::HashStorage::delete_record() */
-  ErrorCode delete_record(thread::Thread* context, const HashCombo& combo);
+  ErrorCode delete_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo);
 
   /** @see foedus::storage::hash::HashStorage::overwrite_record() */
   ErrorCode overwrite_record(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     const void* payload,
     uint16_t payload_offset,
@@ -206,17 +232,28 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   template <typename PAYLOAD>
   inline ErrorCode overwrite_record_primitive(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     PAYLOAD payload,
     uint16_t payload_offset) {
     // same above. still handy as an API, though.
-    return overwrite_record(context, combo, &payload, payload_offset, sizeof(payload));
+    return overwrite_record(
+      context,
+      key,
+      key_length,
+      combo,
+      &payload,
+      payload_offset,
+      sizeof(payload));
   }
 
   /** @see foedus::storage::hash::HashStorage::increment_record() */
   template <typename PAYLOAD>
   ErrorCode   increment_record(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     PAYLOAD* value,
     uint16_t payload_offset);
@@ -318,12 +355,16 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     bool for_write,
     bool create_if_notfound,
     uint16_t create_payload_length,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     HashDataPage* bin_head,
     RecordLocation* result);
 
   ErrorCode   reserve_record(
     thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     uint16_t payload_length,
     HashDataPage* page,
@@ -335,6 +376,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
    * result returns null pointers if not found, \b assuming the record_count.
    */
   void search_key_in_a_page(
+    const void* key,
+    uint16_t key_length,
     const HashCombo& combo,
     HashDataPage* page,
     uint16_t record_count,

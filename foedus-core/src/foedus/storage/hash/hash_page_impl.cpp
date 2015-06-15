@@ -109,7 +109,7 @@ void HashDataPage::initialize_snapshot_page(
 DataPageSlotIndex HashDataPage::search_key(
   HashValue hash,
   const BloomFilterFingerprint& fingerprint,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   uint16_t record_count,
   xct::XctId* observed) const {
@@ -143,7 +143,8 @@ DataPageSlotIndex HashDataPage::search_key(
     }
     // hash matched, but key didn't match? wow, that's rare
     DLOG(INFO) << "Hash matched, but key didn't match. interesting. hash="
-      << assorted::Hex(hash, 16) << ", key=" << assorted::HexString(std::string(key, key_length))
+      << assorted::Hex(hash, 16) << ", key="
+      << assorted::HexString(std::string(reinterpret_cast<const char*>(key), key_length))
       << ", key_slot="  << assorted::HexString(std::string(data, s.key_length_));
   }
 
@@ -155,7 +156,7 @@ DataPageSlotIndex HashDataPage::search_key(
 DataPageSlotIndex HashDataPage::reserve_record(
   HashValue hash,
   const BloomFilterFingerprint& fingerprint,
-  const char* key,
+  const void* key,
   uint16_t key_length,
   uint16_t payload_length) {
   ASSERT_ND(header_.page_version_.is_locked());

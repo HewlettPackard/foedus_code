@@ -26,10 +26,8 @@
 namespace foedus {
 namespace storage {
 namespace hash {
-HashCombo::HashCombo(const char* key, uint16_t key_length, const HashMetadata& meta) {
+HashCombo::HashCombo(const void* key, uint16_t key_length, const HashMetadata& meta) {
   uint8_t bin_shifts = meta.get_bin_shifts();
-  key_ = key;
-  key_length_ = key_length;
   hash_ = hashinate(key, key_length);
   bin_ = hash_ >> bin_shifts;
   fingerprint_ = DataPageBloomFilter::extract_fingerprint(hash_);
@@ -42,7 +40,6 @@ std::ostream& operator<<(std::ostream& o, const HashCombo& v) {
     << "<bin>" << v.bin_ << "</bin>"
     << v.fingerprint_
     << v.route_
-    << "<key>" << assorted::Top(v.key_, v.key_length_, 128) << "</key>"
     << "</HashCombo>";
   return o;
 }
