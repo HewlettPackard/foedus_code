@@ -292,19 +292,9 @@ class HashDataPage final {
   DataPageSlotIndex reserve_record(
     HashValue hash,
     const BloomFilterFingerprint& fingerprint,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     uint16_t payload_length);
-
-  /** overload for HashCombo */
-  inline DataPageSlotIndex reserve_record(const HashCombo& combo, uint16_t payload_length) {
-    return reserve_record(
-      combo.hash_,
-      combo.fingerprint_,
-      combo.key_,
-      combo.key_length_,
-      payload_length);
-  }
 
   /**
    * @brief A simplified/efficient version to insert an active record, which must be used
@@ -356,30 +346,16 @@ class HashDataPage final {
   DataPageSlotIndex search_key(
     HashValue hash,
     const BloomFilterFingerprint& fingerprint,
-    const char* key,
+    const void* key,
     uint16_t key_length,
     uint16_t record_count,
     xct::XctId* observed) const;
-
-  /** This version receives HashCombo */
-  inline DataPageSlotIndex search_key(
-    const HashCombo& combo,
-    uint16_t record_count,
-    xct::XctId* observed) const {
-    return search_key(
-      combo.hash_,
-      combo.fingerprint_,
-      combo.key_,
-      combo.key_length_,
-      record_count,
-      observed);
-  }
 
   /** returns whether the slot contains the exact key specified */
   inline bool compare_slot_key(
     DataPageSlotIndex index,
     HashValue hash,
-    const char* key,
+    const void* key,
     uint16_t key_length) const {
     ASSERT_ND(index < get_record_count());  // record count purely increasing
     const Slot& slot = get_slot(index);
@@ -388,12 +364,8 @@ class HashDataPage final {
     if (slot.hash_ != hash || slot.key_length_ != key_length) {
       return false;
     }
-    const char* data = record_from_offset(slot.offset_);
+    const void* data = record_from_offset(slot.offset_);
     return std::memcmp(data, key, key_length) == 0;
-  }
-  inline bool compare_slot_key(DataPageSlotIndex index, const HashCombo& combo) const {
-    ASSERT_ND(get_bin() == combo.bin_);
-    return compare_slot_key(index, combo.hash_, combo.key_, combo.key_length_);
   }
 
   HashBin     get_bin() const { return bin_; }

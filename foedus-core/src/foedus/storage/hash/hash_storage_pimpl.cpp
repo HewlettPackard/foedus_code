@@ -165,6 +165,8 @@ ErrorStack HashStoragePimpl::load(const StorageControlBlock& snapshot_block) {
 
 ErrorCode HashStoragePimpl::get_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   void* payload,
   uint16_t* payload_capacity) {
@@ -174,7 +176,16 @@ ErrorCode HashStoragePimpl::get_record(
     return kErrorCodeStrKeyNotFound;  // protected by pointer set, so we are done
   }
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(context, false, false, 0, combo, bin_head, &location));
+  CHECK_ERROR_CODE(locate_record(
+    context,
+    false,
+    false,
+    0,
+    key,
+    key_length,
+    combo,
+    bin_head,
+    &location));
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   }
@@ -198,6 +209,8 @@ ErrorCode HashStoragePimpl::get_record(
 
 ErrorCode HashStoragePimpl::get_record_part(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   void* payload,
   uint16_t payload_offset,
@@ -208,7 +221,16 @@ ErrorCode HashStoragePimpl::get_record_part(
     return kErrorCodeStrKeyNotFound;  // protected by pointer set, so we are done
   }
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(context, false, false, 0, combo, bin_head, &location));
+  CHECK_ERROR_CODE(locate_record(
+    context,
+    false,
+    false,
+    0,
+    key,
+    key_length,
+    combo,
+    bin_head,
+    &location));
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   }
@@ -229,18 +251,33 @@ ErrorCode HashStoragePimpl::get_record_part(
 
 ErrorCode HashStoragePimpl::insert_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   const void* payload,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+
+  ASSERT_ND(physical_payload_hint >= payload_count);  // if not, most likely misuse.
+  if (physical_payload_hint < payload_count) {
+    physical_payload_hint = payload_count;
+  }
+  physical_payload_hint = assorted::align8(physical_payload_hint);
+
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-
-  // TASK(Hideaki) : we should have a storage metadata that says how much we should conservatively
-  // allocate physical payload length and/or an optional argument for this method.
-  uint16_t payload_size = payload_count;  // so far not conservative. the exact required size
-  CHECK_ERROR_CODE(locate_record(context, true, true, payload_size, combo, bin_head, &location));
+  CHECK_ERROR_CODE(locate_record(
+    context,
+    true,
+    true,
+    physical_payload_hint,
+    key,
+    key_length,
+    combo,
+    bin_head,
+    &location));
 
   // we create if not exists, these are surely non-null
   ASSERT_ND(location.slot_);
@@ -257,13 +294,13 @@ ErrorCode HashStoragePimpl::insert_record(
     return kErrorCodeStrTooShortPayload;
   }
 
-  uint16_t log_length = HashInsertLogType::calculate_log_length(combo.key_length_, payload_count);
+  uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
   HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
     get_id(),
-    combo.key_,
-    combo.key_length_,
+    key,
+    key_length,
     get_bin_bits(),
     combo.hash_,
     payload,
@@ -279,12 +316,23 @@ ErrorCode HashStoragePimpl::insert_record(
 
 ErrorCode HashStoragePimpl::delete_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo) {
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(context, true, false, 0, combo, bin_head, &location));
+  CHECK_ERROR_CODE(locate_record(
+    context,
+    true,
+    false,
+    0,
+    key,
+    key_length,
+    combo,
+    bin_head,
+    &location));
 
   xct::Xct& cur_xct = context->get_current_xct();
   if (!location.slot_) {
@@ -294,10 +342,10 @@ ErrorCode HashStoragePimpl::delete_record(
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   }
 
-  uint16_t log_length = HashDeleteLogType::calculate_log_length(combo.key_length_, 0);
+  uint16_t log_length = HashDeleteLogType::calculate_log_length(key_length, 0);
   HashDeleteLogType* log_entry = reinterpret_cast<HashDeleteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(get_id(), combo.key_, combo.key_length_, get_bin_bits(), combo.hash_);
+  log_entry->populate(get_id(), key, key_length, get_bin_bits(), combo.hash_);
 
   return context->get_current_xct().add_to_read_and_write_set(
     get_id(),
@@ -309,6 +357,8 @@ ErrorCode HashStoragePimpl::delete_record(
 
 ErrorCode HashStoragePimpl::overwrite_record(
   thread::Thread* context ,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   const void* payload,
   uint16_t payload_offset,
@@ -317,7 +367,16 @@ ErrorCode HashStoragePimpl::overwrite_record(
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(context, true, false, 0, combo, bin_head, &location));
+  CHECK_ERROR_CODE(locate_record(
+    context,
+    true,
+    false,
+    0,
+    key,
+    key_length,
+    combo,
+    bin_head,
+    &location));
 
   xct::Xct& cur_xct = context->get_current_xct();
   if (!location.slot_) {
@@ -331,14 +390,13 @@ ErrorCode HashStoragePimpl::overwrite_record(
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
 
-  uint16_t log_length
-    = HashOverwriteLogType::calculate_log_length(combo.key_length_, payload_count);
+  uint16_t log_length = HashOverwriteLogType::calculate_log_length(key_length, payload_count);
   HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
     get_id(),
-    combo.key_,
-    combo.key_length_,
+    key,
+    key_length,
     get_bin_bits(),
     combo.hash_,
     payload,
@@ -356,6 +414,8 @@ ErrorCode HashStoragePimpl::overwrite_record(
 template <typename PAYLOAD>
 ErrorCode HashStoragePimpl::increment_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   PAYLOAD* value,
   uint16_t payload_offset) {
@@ -363,7 +423,16 @@ ErrorCode HashStoragePimpl::increment_record(
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(context, true, false, 0, combo, bin_head, &location));
+  CHECK_ERROR_CODE(locate_record(
+    context,
+    true,
+    false,
+    0,
+    key,
+    key_length,
+    combo,
+    bin_head,
+    &location));
 
   xct::Xct& cur_xct = context->get_current_xct();
   if (!location.slot_) {
@@ -383,13 +452,13 @@ ErrorCode HashStoragePimpl::increment_record(
   *value += *current;
 
   uint16_t log_length
-    = HashOverwriteLogType::calculate_log_length(combo.key_length_, sizeof(PAYLOAD));
+    = HashOverwriteLogType::calculate_log_length(key_length, sizeof(PAYLOAD));
   HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(
     get_id(),
-    combo.key_,
-    combo.key_length_,
+    key,
+    key_length,
     get_bin_bits(),
     combo.hash_,
     value,
@@ -699,6 +768,8 @@ ErrorCode HashStoragePimpl::locate_record(
   bool for_write,
   bool create_if_notfound,
   uint16_t create_payload_length,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   HashDataPage* bin_head,
   RecordLocation* result) {
@@ -720,7 +791,7 @@ ErrorCode HashStoragePimpl::locate_record(
     // this search is NOT protected by lock/fence etc _at this point_.
     // we will check it again later.
     uint16_t record_count = page->get_record_count();
-    search_key_in_a_page(combo, page, record_count, result);
+    search_key_in_a_page(key, key_length, combo, page, record_count, result);
     if (result->record_) {
       return kErrorCodeOk;  // found!
     }
@@ -775,6 +846,8 @@ ErrorCode HashStoragePimpl::locate_record(
           ASSERT_ND(for_write);
           CHECK_ERROR_CODE(reserve_record(
             context,
+            key,
+            key_length,
             combo,
             create_payload_length,
             page,
@@ -800,17 +873,25 @@ ErrorCode HashStoragePimpl::locate_record(
 
 
 void HashStoragePimpl::search_key_in_a_page(
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   HashDataPage* page,
   uint16_t record_count,
   RecordLocation* result) {
   result->clear();
   xct::XctId observed;
-  DataPageSlotIndex index = page->search_key(combo, record_count, &observed);
+  DataPageSlotIndex index = page->search_key(
+    combo.hash_,
+    combo.fingerprint_,
+    key,
+    key_length,
+    record_count,
+    &observed);
   if (index < record_count) {
     // found! in this case we don't need to check it again. we are already sure
     // this record contains the exact key. Though it might be logically deleted.
-    ASSERT_ND(page->compare_slot_key(index, combo));
+    ASSERT_ND(page->compare_slot_key(index, combo.hash_, key, key_length));
     ASSERT_ND(!observed.is_moved());  // that's the contract of search_key()
     HashDataPage::Slot* slot = page->get_slot_address(index);
     result->slot_ = slot;
@@ -824,6 +905,8 @@ void HashStoragePimpl::search_key_in_a_page(
 
 ErrorCode HashStoragePimpl::reserve_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   uint16_t payload_length,
   HashDataPage* page,
@@ -841,7 +924,7 @@ ErrorCode HashStoragePimpl::reserve_record(
 
       // in this case, we can skip the first examined_records records, but
       // this is rare. let's scan it again and do sanity check
-      search_key_in_a_page(combo, page, new_count, result);
+      search_key_in_a_page(key, key_length, combo, page, new_count, result);
       if (result->record_) {
         // the found slot is AFTER examined_records, otherwise we should have found it earlier.
         ASSERT_ND(result->slot_ <= page->get_slot_address(examined_records));
@@ -862,7 +945,7 @@ ErrorCode HashStoragePimpl::reserve_record(
 
     // do we have enough room in this page?
     uint16_t available_space = page->available_space();
-    uint16_t required_space = HashDataPage::required_space(combo.key_length_, payload_length);
+    uint16_t required_space = HashDataPage::required_space(key_length, payload_length);
     if (available_space < required_space) {
       DVLOG(2) << "HashDataPage is full. Adding a next page..";
       memory::PagePoolOffset new_page_offset
@@ -895,7 +978,12 @@ ErrorCode HashStoragePimpl::reserve_record(
     }
 
     // the page is enough spacious, and has no next page. we rule!
-    DataPageSlotIndex index = page->reserve_record(combo, payload_length);
+    DataPageSlotIndex index = page->reserve_record(
+      combo.hash_,
+      combo.fingerprint_,
+      key,
+      key_length,
+      payload_length);
     ASSERT_ND(index == examined_records);
     result->slot_ = page->get_slot_address(index);
     result->record_ = page->record_from_offset(result->slot_->offset_);
@@ -942,11 +1030,13 @@ xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record(
   DataPageSlotIndex old_index = slot_origin - old_slot - 1;
   ASSERT_ND(page->get_slot_address(old_index) == old_slot);
 
-  return track_moved_record_search(page, combo);
+  return track_moved_record_search(page, key, key_length, combo);
 }
 
 xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record_search(
   HashDataPage* page,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo) {
   const memory::GlobalVolatilePageResolver& resolver
     = engine_->get_memory_manager()->get_global_volatile_page_resolver();
@@ -955,7 +1045,7 @@ xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record_search(
     ASSERT_ND(!page->header().snapshot_);
     ASSERT_ND(page->next_page_address()->snapshot_pointer_ == 0);
     uint16_t record_count = page->get_record_count();
-    search_key_in_a_page(combo, page, record_count, &result);
+    search_key_in_a_page(key, key_length, combo, page, record_count, &result);
     if (result.record_) {
       return xct::TrackMovedRecordResult(&result.slot_->tid_, result.record_);
     }
@@ -990,7 +1080,12 @@ xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record_search(
 // @cond DOXYGEN_IGNORE
 
 #define EXPIN_5I(x) template ErrorCode HashStoragePimpl::increment_record< x > \
-  (thread::Thread* context, const HashCombo& combo, x* value, uint16_t payload_offset)
+  (thread::Thread* context, \
+  const void* key, \
+  uint16_t key_length, \
+  const HashCombo& combo, \
+  x* value, \
+  uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_5I);
 // @endcond
 

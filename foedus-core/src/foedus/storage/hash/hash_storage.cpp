@@ -63,31 +63,50 @@ uint8_t HashStorage::get_bin_shifts() const { return control_block_->meta_.get_b
 uint16_t HashStorage::get_root_children() const { return control_block_->get_root_children(); }
 
 ErrorStack  HashStorage::create(const Metadata &metadata) {
-  return HashStoragePimpl(this).create(static_cast<const HashMetadata&>(metadata));
+  HashStoragePimpl pimpl(this);
+  return pimpl.create(static_cast<const HashMetadata&>(metadata));
 }
 ErrorStack HashStorage::load(const StorageControlBlock& snapshot_block) {
-  return HashStoragePimpl(this).load(snapshot_block);
+  HashStoragePimpl pimpl(this);
+  return pimpl.load(snapshot_block);
 }
-ErrorStack  HashStorage::drop() { return HashStoragePimpl(this).drop(); }
+ErrorStack  HashStorage::drop() {
+  HashStoragePimpl pimpl(this);
+  return pimpl.drop();
+}
 
 const HashMetadata* HashStorage::get_hash_metadata() const  { return &control_block_->meta_; }
 
 ErrorCode HashStorage::get_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   void* payload,
   uint16_t* payload_capacity) {
-  return HashStoragePimpl(this).get_record(context, combo, payload, payload_capacity);
+  HashStoragePimpl pimpl(this);
+  return pimpl.get_record(
+    context,
+    key,
+    key_length,
+    combo,
+    payload,
+    payload_capacity);
 }
 
 ErrorCode HashStorage::get_record_part(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  return HashStoragePimpl(this).get_record_part(
+  HashStoragePimpl pimpl(this);
+  return pimpl.get_record_part(
     context,
+    key,
+    key_length,
     combo,
     payload,
     payload_offset,
@@ -97,34 +116,66 @@ ErrorCode HashStorage::get_record_part(
 template <typename PAYLOAD>
 ErrorCode HashStorage::get_record_primitive(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   PAYLOAD* payload,
   uint16_t payload_offset) {
-  return HashStoragePimpl(this).get_record_primitive(context, combo, payload, payload_offset);
+  HashStoragePimpl pimpl(this);
+  return pimpl.get_record_primitive(
+    context,
+    key,
+    key_length,
+    combo,
+    payload,
+    payload_offset);
 }
 
 ErrorCode HashStorage::insert_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   const void* payload,
-  uint16_t payload_count) {
-  return HashStoragePimpl(this).insert_record(context, combo, payload, payload_count);
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+  HashStoragePimpl pimpl(this);
+  return pimpl.insert_record(
+    context,
+    key,
+    key_length,
+    combo,
+    payload,
+    payload_count,
+    physical_payload_hint);
 }
 
 ErrorCode HashStorage::delete_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo) {
-  return HashStoragePimpl(this).delete_record(context, combo);
+  HashStoragePimpl pimpl(this);
+  return pimpl.delete_record(
+    context,
+    key,
+    key_length,
+    combo);
 }
 
 ErrorCode HashStorage::overwrite_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   const void* payload,
   uint16_t payload_offset,
   uint16_t payload_count) {
-  return HashStoragePimpl(this).overwrite_record(
+  HashStoragePimpl pimpl(this);
+  return pimpl.overwrite_record(
     context,
+    key,
+    key_length,
     combo,
     payload,
     payload_offset,
@@ -134,11 +185,16 @@ ErrorCode HashStorage::overwrite_record(
 template <typename PAYLOAD>
 ErrorCode HashStorage::overwrite_record_primitive(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   PAYLOAD payload,
   uint16_t payload_offset) {
-  return HashStoragePimpl(this).overwrite_record_primitive(
+  HashStoragePimpl pimpl(this);
+  return pimpl.overwrite_record_primitive(
     context,
+    key,
+    key_length,
     combo,
     payload,
     payload_offset);
@@ -147,10 +203,19 @@ ErrorCode HashStorage::overwrite_record_primitive(
 template <typename PAYLOAD>
 ErrorCode HashStorage::increment_record(
   thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
   const HashCombo& combo,
   PAYLOAD* value,
   uint16_t payload_offset) {
-  return HashStoragePimpl(this).increment_record(context, combo, value, payload_offset);
+  HashStoragePimpl pimpl(this);
+  return pimpl.increment_record(
+    context,
+    key,
+    key_length,
+    combo,
+    value,
+    payload_offset);
 }
 
 std::ostream& operator<<(std::ostream& o, const HashStorage& v) {
@@ -165,7 +230,8 @@ std::ostream& operator<<(std::ostream& o, const HashStorage& v) {
 xct::TrackMovedRecordResult HashStorage::track_moved_record(
   xct::LockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
-  return HashStoragePimpl(this).track_moved_record(old_address, write_set);
+  HashStoragePimpl pimpl(this);
+  return pimpl.track_moved_record(old_address, write_set);
 }
 
 ErrorStack HashStorage::verify_single_thread(Engine* engine) {
@@ -190,15 +256,30 @@ ErrorStack HashStorage::debugout_single_thread(
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE
 #define EXPIN_2(x) template ErrorCode HashStorage::get_record_primitive< x > \
-  (thread::Thread* context, const HashCombo& combo, x* payload, uint16_t payload_offset)
+  (thread::Thread* context, \
+    const void* key, \
+    uint16_t key_length, \
+    const HashCombo& combo, \
+    x* payload, \
+    uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_2);
 
 #define EXPIN_3(x) template ErrorCode HashStorage::overwrite_record_primitive< x > \
-  (thread::Thread* context, const HashCombo& combo, x payload, uint16_t payload_offset)
+  (thread::Thread* context, \
+    const void* key, \
+    uint16_t key_length, \
+    const HashCombo& combo, \
+    x payload, \
+    uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_3);
 
 #define EXPIN_5(x) template ErrorCode HashStorage::increment_record< x > \
-  (thread::Thread* context, const HashCombo& combo, x* value, uint16_t payload_offset)
+  (thread::Thread* context, \
+    const void* key, \
+    uint16_t key_length, \
+    const HashCombo& combo, \
+    x* value, \
+    uint16_t payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_5);
 // @endcond
 
