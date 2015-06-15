@@ -255,20 +255,24 @@ ErrorCode HashStoragePimpl::insert_record(
   uint16_t key_length,
   const HashCombo& combo,
   const void* payload,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+
+  ASSERT_ND(physical_payload_hint >= payload_count);  // if not, most likely misuse.
+  if (physical_payload_hint < payload_count) {
+    physical_payload_hint = payload_count;
+  }
+  physical_payload_hint = assorted::align8(physical_payload_hint);
+
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-
-  // TASK(Hideaki) : we should have a storage metadata that says how much we should conservatively
-  // allocate physical payload length and/or an optional argument for this method.
-  uint16_t payload_size = payload_count;  // so far not conservative. the exact required size
   CHECK_ERROR_CODE(locate_record(
     context,
     true,
     true,
-    payload_size,
+    physical_payload_hint,
     key,
     key_length,
     combo,

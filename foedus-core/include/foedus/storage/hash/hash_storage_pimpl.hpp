@@ -208,7 +208,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     const void* payload,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
 
   /** @see foedus::storage::hash::HashStorage::delete_record() */
   ErrorCode delete_record(

@@ -299,7 +299,7 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* payload,
     uint16_t payload_count) {
     HashCombo c(combo(key, key_length));
-    return insert_record(context, key, key_length, c, payload, payload_count);
+    return insert_record(context, key, key_length, c, payload, payload_count, payload_count);
   }
 
   /** Overlord to receive key as a primitive type. */
@@ -310,17 +310,24 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* payload,
     uint16_t payload_count) {
     HashCombo c(combo<KEY>(&key));
-    return insert_record(context, &key, sizeof(key), c, payload, payload_count);
+    return insert_record(context, &key, sizeof(key), c, payload, payload_count, payload_count);
   }
 
-  /** If you have already computed HashCombo, use this. */
+  /**
+   * If you have already computed HashCombo, use this.
+   * With this method, you can also specify \e physical_payload_hint, the
+   * physical size of the record's payload part. If you will later expand
+   * the payload of this record, giving a larger value will avoid record migration.
+   * Default value (and minimal value) is same as the initial payload_count.
+   */
   ErrorCode   insert_record(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     const HashCombo& combo,
     const void* payload,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
 
   // delete_record() methods
 

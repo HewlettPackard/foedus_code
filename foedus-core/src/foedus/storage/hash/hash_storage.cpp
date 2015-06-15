@@ -137,7 +137,8 @@ ErrorCode HashStorage::insert_record(
   uint16_t key_length,
   const HashCombo& combo,
   const void* payload,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
   HashStoragePimpl pimpl(this);
   return pimpl.insert_record(
     context,
@@ -145,7 +146,8 @@ ErrorCode HashStorage::insert_record(
     key_length,
     combo,
     payload,
-    payload_count);
+    payload_count,
+    physical_payload_hint);
 }
 
 ErrorCode HashStorage::delete_record(
