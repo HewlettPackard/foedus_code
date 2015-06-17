@@ -234,6 +234,9 @@ struct HashInsertLogType : public HashCommonLogType {
     assert_record_and_log_keys(owner_id, data);
 
     uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
+    // physical_record_length_ (lengthes[1]) is immutable, so this is
+    // guaranteed regardless of isolation levels. let's check.
+    ASSERT_ND(lengthes[1] >= assorted::align8(payload_count_) + lengthes[2]);
     lengthes[3] = payload_count_;  // set payload length
 
     if (payload_count_ > 0U) {
