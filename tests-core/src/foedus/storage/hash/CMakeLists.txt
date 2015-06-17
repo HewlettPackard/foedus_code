@@ -1,4 +1,14 @@
-add_foedus_test_individual(test_hash_basic "Create;CreateAndQuery;CreateAndInsert;CreateAndInsertAndRead;Overwrite;CreateAndDrop")
+set(test_hash_basic_individuals
+  Create
+  CreateAndQuery
+  CreateAndInsert
+  CreateAndInsertAndRead
+  Overwrite
+  CreateAndDrop
+  ExpandInsert
+#  ExpandUpdate
+  )
+add_foedus_test_individual(test_hash_basic "${test_hash_basic_individuals}")
 
 set(test_hash_hashinate_individuals
   Primitives

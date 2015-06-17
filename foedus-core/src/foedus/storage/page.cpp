@@ -76,12 +76,12 @@ std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
 PageVersionLockScope::PageVersionLockScope(
   thread::Thread* context,
   PageVersion* version,
-  bool initial_lock) {
+  bool non_racy_lock) {
   context_ = context;
   version_ = version;
   changed_ = false;
   released_ = false;
-  if (initial_lock) {
+  if (non_racy_lock) {
     block_ = context->mcs_initial_lock(&version->lock_);
   } else {
     block_ = context->mcs_acquire_lock(&version->lock_);

@@ -192,7 +192,7 @@ struct PageVersion CXX11_FINAL {
 STATIC_SIZE_CHECK(sizeof(PageVersion), 8)
 
 struct PageVersionLockScope {
-  PageVersionLockScope(thread::Thread* context, PageVersion* version, bool initial_lock = false);
+  PageVersionLockScope(thread::Thread* context, PageVersion* version, bool non_racy_lock = false);
   ~PageVersionLockScope() { release(); }
   void set_changed() { changed_ = true; }
   void release();

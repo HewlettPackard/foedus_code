@@ -382,6 +382,69 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     HashDataPage* page,
     uint16_t record_count,
     RecordLocation* result);
+
+  /**
+   * @brief Moves a physical record to a later position.
+   * @details
+   * This method moves an existing record to a larger index in the same page, or to a next
+   * page if this page is already full or has next page.
+   * This method constituites a system transaction that logically does nothing, either
+   * the record is deleted or not.
+   * If the record is already migrated because of concurrent threads, this method does nothing
+   * but returning the new location.
+   *
+   * @par Concurrency Control
+   * Assuming that record migration doesn't happen that often, we do lots of page-locks
+   * in this function. The order of the locking is:
+   * \li lock cur_page, which finalizes the existence of the key and next-page in cur_page.
+   * \li lock cur_index, which finalizes the state and the current record.
+   * \li lock tail_page (if moves on to next page)
+   * \li create a new record in tail_page, \b rel-barrier, \b then set is_moved flag in cur_slot.
+   * (this means there is no moment where an is_moved record does not have a new location.
+   * otherwise we have to spin for the new record in other places.)
+   * \li unlock in reverse order.
+   *
+   * @par Invariants for Deadlock Avoidance
+   * This method must be called where the calling thread has no locks either on pages or on records
+   * in this hash bucket. Assuming that, this method has no chance of deadlock.
+   *
+   * @par Contracts and Non-Contracts
+   * \li Contract: The new location is always set as far as kErrorCodeOk is returned.
+   * Only possible error codes are out-of-freepages and other serious errors.
+   * \li Contract: The new location is of the exact given key.
+   * \li Non-Contract: Might be moved again.
+   * This method does \b NOT promise that the returned location is not moved.
+   * The caller must call it again in that case.
+   * \li Non-Contract: The new location might \b NOT have a sufficient space.
+   * The caller must call it again in that case.
+   */
+  ErrorCode migrate_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* cur_page,
+    DataPageSlotIndex cur_index,
+    uint16_t payload_count,
+    RecordLocation* new_location);
+  /** Subroutine of migrate_record() to implement the 4th step above. */
+  void migrate_record_move(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* cur_page,
+    DataPageSlotIndex cur_index,
+    HashDataPage* tail_page,
+    uint16_t payload_count,
+    RecordLocation* new_location);
+
+  /** Appends a next page to a given already-locked volatile data page. */
+  ErrorCode append_next_volatile_page(
+    thread::Thread* context,
+    HashDataPage* page,
+    PageVersionLockScope* scope,
+    HashDataPage** next_page);
 };
 static_assert(sizeof(HashStoragePimpl) <= kPageSize, "HashStoragePimpl is too large");
 static_assert(
