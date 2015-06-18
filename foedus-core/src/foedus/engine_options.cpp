@@ -20,6 +20,7 @@
 #include <tinyxml2.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <sstream>
