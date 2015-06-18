@@ -194,6 +194,7 @@ struct TestBase {
         } else if (storage_type == storage::kHashStorage) {
           EXPECT_TRUE(pos.get_log_type() == log::kLogCodeHashInsert
             || pos.get_log_type() == log::kLogCodeHashDelete
+            || pos.get_log_type() == log::kLogCodeHashUpdate
             || pos.get_log_type() == log::kLogCodeHashOverwrite);
         } else {
           EXPECT_TRUE(pos.get_log_type() == log::kLogCodeMasstreeInsert

@@ -499,7 +499,8 @@ inline bool is_hash_log_type(uint16_t log_type) {
   return
     log_type == log::kLogCodeHashOverwrite
     || log_type == log::kLogCodeHashInsert
-    || log_type == log::kLogCodeHashDelete;
+    || log_type == log::kLogCodeHashDelete
+    || log_type == log::kLogCodeHashUpdate;
 }
 inline bool is_masstree_log_type(uint16_t log_type) {
   return

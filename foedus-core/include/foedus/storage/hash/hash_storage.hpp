@@ -359,6 +359,55 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo);
 
+  // upsert_record() methods
+
+  /**
+   * @brief Inserts a new record of the given key or replaces the existing one
+   * in this hash storage, or so-called \e upsert.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload Value to insert.
+   * @param[in] payload_count Length of payload.
+   * @details
+   * This method puts the record whether the key already exists or not, which is handy
+   * in many usecases. Internally, the Implementation comes with a bit of complexity.
+   * If there is an existing record of the key (whether logically deleted or not)
+   * that is spacious enough, then we simply replace the record.
+   * If the key doesn't exist or the existing record is no big enough, we create/migrate
+   * the record in a system transaction then install the record.
+   */
+  inline ErrorCode upsert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count) {
+    HashCombo c(combo(key, key_length));
+    return upsert_record(context, key, key_length, c, payload, payload_count, payload_count);
+  }
+
+  /** Overlord to receive key as a primitive type. */
+  template <typename KEY>
+  inline ErrorCode upsert_record(
+    thread::Thread* context,
+    KEY key,
+    const void* payload,
+    uint16_t payload_count) {
+    HashCombo c(combo<KEY>(&key));
+    return upsert_record(context, &key, sizeof(key), c, payload, payload_count, payload_count);
+  }
+
+  /** If you have already computed HashCombo, use this. */
+  ErrorCode   upsert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    const void* payload,
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
+
   // overwrite_record() methods
 
   /**

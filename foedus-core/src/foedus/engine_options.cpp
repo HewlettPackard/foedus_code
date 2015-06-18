@@ -198,6 +198,13 @@ void EngineOptions::prescreen_ulimits(
   // This happens only when I run the code as jenkins user from jenkins service.
   // If I run it as myself, or "sudo su jenkins" then run it, it runs fine. WWWTTTTFFF.
 
+  // 2015 Jun: Ahhh, I got it. It's because jenkins service is started by a daemon script:
+  // http://blog.mindfab.net/2013/12/changing-ulimits-for-jenkins-daemons.html
+  //  "The important part is that you have to specify the ulimits, e.g., for the number
+  //   of open files before start-stop-daemon is called. The reason is that
+  //   **start-stop-daemon doesn't consider pam**
+  //   and hence will not find the limits which have been specified in /etc/security/limits.conf."
+
   // Note that proc means threads in linux.
   ::rlimit proc_limit;
   ::getrlimit(RLIMIT_NPROC, &proc_limit);

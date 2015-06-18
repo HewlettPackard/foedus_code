@@ -247,6 +247,15 @@ ErrorCode HashStoragePimpl::get_record_part(
   return kErrorCodeOk;
 }
 
+uint16_t adjust_payload_hint(uint16_t payload_count, uint16_t physical_payload_hint) {
+  ASSERT_ND(physical_payload_hint >= payload_count);  // if not, most likely misuse.
+  if (physical_payload_hint < payload_count) {
+    physical_payload_hint = payload_count;
+  }
+  physical_payload_hint = assorted::align8(physical_payload_hint);
+  return physical_payload_hint;
+}
+
 ErrorCode HashStoragePimpl::insert_record(
   thread::Thread* context,
   const void* key,
@@ -255,11 +264,7 @@ ErrorCode HashStoragePimpl::insert_record(
   const void* payload,
   uint16_t payload_count,
   uint16_t physical_payload_hint) {
-  ASSERT_ND(physical_payload_hint >= payload_count);  // if not, most likely misuse.
-  if (physical_payload_hint < payload_count) {
-    physical_payload_hint = payload_count;
-  }
-  physical_payload_hint = assorted::align8(physical_payload_hint);
+  physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
 
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
@@ -377,6 +382,107 @@ ErrorCode HashStoragePimpl::delete_record(
     &location.slot_->tid_,
     location.record_,
     log_entry);
+}
+
+ErrorCode HashStoragePimpl::upsert_record(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  const HashCombo& combo,
+  const void* payload,
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+  physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
+
+  // Upsert is a combination of what insert does and what delete does.
+  // If there isn't an existing physical record, it's exactly same as insert.
+  // If there is, it's _basically_ a delete followed by an insert.
+  // There are a few complications, depending on the status of the record.
+
+  HashDataPage* bin_head;
+  CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
+  ASSERT_ND(bin_head);
+  RecordLocation location;
+  CHECK_ERROR_CODE(locate_record(
+    context,
+    true,
+    true,
+    physical_payload_hint,
+    key,
+    key_length,
+    combo,
+    bin_head,
+    &location));
+
+  // we create if not exists, these are surely non-null
+  ASSERT_ND(location.slot_);
+  ASSERT_ND(location.record_);
+
+  // Whether currently deleted or not, migrate it to make sure the record is long enough.
+  while (payload_count > location.slot_->get_max_payload()) {
+    HashDataPage* cur_page = reinterpret_cast<HashDataPage*>(to_page(location.slot_));
+    ASSERT_ND(!cur_page->header().snapshot_);
+    ASSERT_ND(cur_page->bloom_filter().contains(combo.fingerprint_));
+    DataPageSlotIndex cur_index = cur_page->to_slot_index(location.slot_);
+    ASSERT_ND(cur_page->get_slot_address(cur_index) == location.slot_);
+    DVLOG(2) << "Record expansion triggered. payload_count=" << payload_count
+      << ", current max=" << location.slot_->get_max_payload()
+      << ", size hint=" << physical_payload_hint;
+
+    CHECK_ERROR_CODE(migrate_record(
+      context,
+      key,
+      key_length,
+      combo,
+      cur_page,
+      cur_index,
+      physical_payload_hint,
+      &location));
+    ASSERT_ND(location.slot_);
+    ASSERT_ND(location.record_);
+    DVLOG(2) << "Expanded record!";
+  }
+
+  ASSERT_ND(payload_count <= location.slot_->get_max_payload());
+  HashCommonLogType* log_common;
+  if (location.observed_.is_deleted()) {
+    // If it's a deleted record, this turns to be a plain insert.
+    uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
+    HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
+      context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(
+      get_id(),
+      key,
+      key_length,
+      get_bin_bits(),
+      combo.hash_,
+      payload,
+      payload_count);
+    log_common = log_entry;
+  } else {
+    // If not, this is an update operation.
+    uint16_t log_length = HashUpdateLogType::calculate_log_length(key_length, payload_count);
+    HashUpdateLogType* log_entry = reinterpret_cast<HashUpdateLogType*>(
+      context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(
+      get_id(),
+      key,
+      key_length,
+      get_bin_bits(),
+      combo.hash_,
+      payload,
+      payload_count);
+    log_common = log_entry;
+  }
+
+  // In either case, this operation depends on the TID of the record,
+  // so read_and_write_set.
+  return context->get_current_xct().add_to_read_and_write_set(
+    get_id(),
+    location.observed_,
+    &location.slot_->tid_,
+    location.record_,
+    log_common);
 }
 
 ErrorCode HashStoragePimpl::overwrite_record(

@@ -162,7 +162,8 @@ struct HashCommonLogType : public log::RecordLogType {
   void assert_type() const ALWAYS_INLINE {
     ASSERT_ND(header_.log_type_code_ == log::kLogCodeHashOverwrite
       || header_.log_type_code_ == log::kLogCodeHashInsert
-      || header_.log_type_code_ == log::kLogCodeHashDelete);
+      || header_.log_type_code_ == log::kLogCodeHashDelete
+      || header_.log_type_code_ == log::kLogCodeHashUpdate);
     ASSERT_ND(hash_ == hashinate(get_key(), key_length_));
   }
 
@@ -300,6 +301,70 @@ struct HashDeleteLogType : public HashCommonLogType {
   }
 
   friend std::ostream& operator<<(std::ostream& o, const HashDeleteLogType& v);
+};
+
+/**
+ * @brief Log type of hash-storage's update operation.
+ * @ingroup HASH LOGTYPE
+ * @details
+ * Applying this log changes the logical payload size and installs the payload,
+ * keeping the delete flag (which must be false).
+ * Allocating the slot and modifying the bloom filter is already done by a system transaction.
+ * Also, the record's physical size must be guaranteed to be enough spacious.
+ */
+struct HashUpdateLogType : public HashCommonLogType {
+  LOG_TYPE_NO_CONSTRUCT(HashUpdateLogType)
+
+  void            populate(
+    StorageId   storage_id,
+    const void* key,
+    uint16_t    key_length,
+    uint8_t     bin_bits,
+    HashValue   hash,
+    const void* payload,
+    uint16_t    payload_count) ALWAYS_INLINE {
+    log::LogCode type = log::kLogCodeHashUpdate;
+    populate_base(type, storage_id, key, key_length, bin_bits, hash, payload, 0, payload_count);
+  }
+
+  void            apply_record(
+    thread::Thread* /*context*/,
+    StorageId /*storage_id*/,
+    xct::LockableXctId* owner_id,
+    char* data) const ALWAYS_INLINE {
+    ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
+
+    // no need to set key in apply(). it's already set when the record is physically inserted
+    // (or in other places if this is recovery).
+    assert_record_and_log_keys(owner_id, data);
+
+    uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
+    // physical_record_length_ (lengthes[1]) is immutable, so this is
+    // guaranteed regardless of isolation levels. let's check.
+    ASSERT_ND(lengthes[1] >= assorted::align8(payload_count_) + lengthes[2]);
+    lengthes[3] = payload_count_;  // set payload length
+
+    if (payload_count_ > 0U) {
+      // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
+      // if the compiler is smart enough, it will do some optimization here.
+      uint16_t key_length_aligned = get_key_length_aligned();
+      void* data_payload = ASSUME_ALIGNED(data + key_length_aligned, 8U);
+      const void* log_payload = ASSUME_ALIGNED(get_payload(), 8U);
+      std::memcpy(data_payload, log_payload, assorted::align8(payload_count_));
+    }
+    assert_record_and_log_keys(owner_id, data);
+  }
+
+  void            assert_valid() ALWAYS_INLINE {
+    assert_valid_generic();
+    assert_type();
+    ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
+    ASSERT_ND(header_.get_type() == log::kLogCodeHashUpdate);
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const HashUpdateLogType& v);
 };
 
 /**

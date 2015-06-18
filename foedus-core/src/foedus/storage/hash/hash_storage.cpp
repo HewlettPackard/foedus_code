@@ -150,6 +150,26 @@ ErrorCode HashStorage::insert_record(
     physical_payload_hint);
 }
 
+ErrorCode HashStorage::upsert_record(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  const HashCombo& combo,
+  const void* payload,
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+  HashStoragePimpl pimpl(this);
+  return pimpl.upsert_record(
+    context,
+    key,
+    key_length,
+    combo,
+    payload,
+    payload_count,
+    physical_payload_hint);
+}
+
+
 ErrorCode HashStorage::delete_record(
   thread::Thread* context,
   const void* key,
