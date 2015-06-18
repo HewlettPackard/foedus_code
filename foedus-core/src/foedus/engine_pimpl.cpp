@@ -208,6 +208,7 @@ ErrorStack EnginePimpl::uninitialize_once() {
 }
 
 ErrorStack EnginePimpl::check_valid_options() {
+  CHECK_ERROR(options_.prescreen(&std::cerr));
   CHECK_ERROR(check_minimal_pool_size());
   CHECK_ERROR(check_transparent_hugepage_setting());
   return kRetOk;

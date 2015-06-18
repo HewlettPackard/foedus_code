@@ -523,6 +523,9 @@ class SharedMemoryRepo CXX11_FINAL {
 
   void*       get_volatile_pool(SocId node) { return volatile_pools_[node].get_block(); }
 
+  static uint64_t calculate_global_memory_size(uint64_t xml_size, const EngineOptions& options);
+  static uint64_t calculate_node_memory_size(const EngineOptions& options);
+
  private:
   SocId                 soc_count_;
   SocId                 my_soc_id_;
@@ -596,9 +599,6 @@ class SharedMemoryRepo CXX11_FINAL {
     *position += sizeof(assorted::ProtectedBoundary);
   }
 
-
-  static uint64_t calculate_global_memory_size(uint64_t xml_size, const EngineOptions& options);
-  static uint64_t calculate_node_memory_size(const EngineOptions& options);
 
   /** subroutine of allocate_shared_memories() launched on its own thread */
   static void allocate_one_node(

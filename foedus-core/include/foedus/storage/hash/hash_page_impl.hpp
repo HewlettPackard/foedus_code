@@ -240,6 +240,15 @@ class HashDataPage final {
     return reinterpret_cast<Slot*>(this + 1) - record - 1;
   }
 
+  inline DataPageSlotIndex  to_slot_index(const Slot* slot) const ALWAYS_INLINE {
+    ASSERT_ND(this);
+    ASSERT_ND(slot);
+    int64_t index = reinterpret_cast<const Slot*>(this + 1) - slot - 1;
+    ASSERT_ND(index >= 0);
+    ASSERT_ND(index < static_cast<int64_t>(sizeof(data_) / sizeof(Slot)));
+    return static_cast<DataPageSlotIndex>(index);
+  }
+
   inline char*        record_from_offset(uint16_t offset) { return data_ + offset; }
   inline const char*  record_from_offset(uint16_t offset) const { return data_ + offset; }
 

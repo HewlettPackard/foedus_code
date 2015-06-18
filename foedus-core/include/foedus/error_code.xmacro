@@ -29,6 +29,10 @@ X(kErrorCodeInternalError,          0x000C, "GENERAL: Other uncategorized errors
 
 X(kErrorCodeOsMProtectFailed,       0x000D, "GENERAL: OS: mprotect() failed.")
 
+X(kErrorCodeEnvPrescreenFailed,     0x000E, "GENERAL: Pre-screening of the environment detected"
+    " an issue before start up. This is caused by a misconfiguration on the environment or the"
+    " given parameters. See the console output for more detailed diagnostics.")
+
 X(kErrorCodeEngineInvalidOption,    0x0101, "ENGINE : Invalid Option")
 
 X(kErrorCodeFsAlreadyOpened,    0x0201, "FILESYS: Already opened")

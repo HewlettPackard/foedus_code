@@ -89,6 +89,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   void*           get_local_work_memory() const { return local_work_memory_.get_block(); }
   uint64_t        get_local_work_memory_size() const { return local_work_memory_.get_size(); }
 
+  /** @returns the byte size of small_thread_local_memory each thread consumes */
+  static uint64_t calculate_local_small_memory_size(const EngineOptions& options);
+
  private:
   /** Called when there no local free pages. */
   static ErrorCode  grab_free_pages_from_node(

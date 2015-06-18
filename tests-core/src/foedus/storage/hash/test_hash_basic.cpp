@@ -36,6 +36,7 @@ namespace foedus {
 namespace storage {
 namespace hash {
 DEFINE_TEST_CASE_PACKAGE(HashBasicTest, foedus.storage.hash);
+
 TEST(HashBasicTest, Create) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
@@ -228,6 +229,110 @@ TEST(HashBasicTest, CreateAndDrop) {
   }
   cleanup_test(options);
 }
+
+ErrorStack expand_task_impl(const proc::ProcArguments& args, bool update_case) {
+  thread::Thread* context = args.context_;
+  HashStorage hash = context->get_engine()->get_storage_manager()->get_hash("ggg");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  Epoch commit_epoch;
+
+  const uint64_t kKey = 12345ULL;
+  char data[512];
+  for (uint16_t c = 0; c < sizeof(data); ++c) {
+    data[c] = static_cast<char>(c);
+  }
+
+  const uint16_t kInitialLen = 6;
+  const uint16_t kExpandLen = 5;
+  const uint16_t kRep = 80;
+  ASSERT_ND(kInitialLen + kExpandLen * kRep <= sizeof(data));
+
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  CHECK_ERROR(hash.insert_record(context, &kKey, sizeof(kKey), data, kInitialLen));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+
+  CHECK_ERROR(hash.verify_single_thread(context));
+
+  // expand the record many times. this will create a few pages.
+  uint16_t len = kInitialLen;
+  for (uint16_t rep = 0; rep < kRep; ++rep) {
+    len += kExpandLen;
+    if (!update_case) {
+      // in this case we move a deleted record, using insert
+      CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+      CHECK_ERROR(hash.delete_record(context, &kKey, sizeof(kKey)));
+      CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+      CHECK_ERROR(hash.verify_single_thread(context));
+
+      CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+      CHECK_ERROR(hash.insert_record(context, &kKey, sizeof(kKey), data, len));
+      CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+    } else {
+      // in this case we move an active record, using update
+      CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+      // CHECK_ERROR(hash.update_record(context, &kKey, sizeof(kKey), data, len));
+      // TASK(Hideaki): implement update_record
+      CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+    }
+
+    CHECK_ERROR(hash.verify_single_thread(context));
+  }
+
+  // verify that the record exists
+  CHECK_ERROR(hash.verify_single_thread(context));
+
+  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+  char retrieved[sizeof(data)];
+  std::memset(retrieved, 42, sizeof(retrieved));
+  uint16_t retrieved_capacity = sizeof(retrieved);
+  CHECK_ERROR(hash.get_record(context, &kKey, sizeof(kKey), retrieved, &retrieved_capacity));
+  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+
+  EXPECT_EQ(kInitialLen + kRep * kExpandLen, retrieved_capacity);
+  for (uint16_t c = 0; c < retrieved_capacity; ++c) {
+    EXPECT_EQ(static_cast<char>(c), retrieved[c]) << c;
+  }
+  for (uint16_t c = retrieved_capacity; c < sizeof(retrieved); ++c) {
+    EXPECT_EQ(42, retrieved[c]) << c;
+  }
+
+  CHECK_ERROR(hash.verify_single_thread(context));
+
+  // CHECK_ERROR(hash.debugout_single_thread(context->get_engine()));
+
+  return foedus::kRetOk;
+}
+
+ErrorStack expand_insert(const proc::ProcArguments& args) {
+  return expand_task_impl(args, false);
+}
+ErrorStack expand_update(const proc::ProcArguments& args) {
+  return expand_task_impl(args, true);
+}
+
+void test_expand(bool update_case) {
+  EngineOptions options = get_tiny_options();
+  Engine engine(options);
+  engine.get_proc_manager()->pre_register("task", update_case ? expand_update : expand_insert);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    HashMetadata meta("ggg", 8);
+    HashStorage storage;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager()->create_hash(&meta, &storage, &epoch));
+    EXPECT_TRUE(storage.exists());
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("task"));
+    COERCE_ERROR(storage.verify_single_thread(&engine));
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
+TEST(HashBasicTest, ExpandInsert) { test_expand(false); }
+// TEST(HashBasicTest, ExpandUpdate) { test_expand(true); }
+// TASK(Hideaki): we don't have multi-thread cases here. it's not a "basic" test.
+// no multi-key cases either. we have to make sure the keys hit the same bucket..
 
 }  // namespace hash
 }  // namespace storage

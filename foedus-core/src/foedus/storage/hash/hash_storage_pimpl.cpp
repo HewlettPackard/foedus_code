@@ -247,8 +247,6 @@ ErrorCode HashStoragePimpl::get_record_part(
   return kErrorCodeOk;
 }
 
-
-
 ErrorCode HashStoragePimpl::insert_record(
   thread::Thread* context,
   const void* key,
@@ -257,7 +255,6 @@ ErrorCode HashStoragePimpl::insert_record(
   const void* payload,
   uint16_t payload_count,
   uint16_t physical_payload_hint) {
-
   ASSERT_ND(physical_payload_hint >= payload_count);  // if not, most likely misuse.
   if (physical_payload_hint < payload_count) {
     physical_payload_hint = payload_count;
@@ -285,13 +282,40 @@ ErrorCode HashStoragePimpl::insert_record(
 
   // but, that record might be not logically deleted
   xct::Xct& cur_xct = context->get_current_xct();
-  if (!location.observed_.is_deleted()) {
-    CHECK_ERROR_CODE(cur_xct.add_to_read_set(get_id(), location.observed_, &location.slot_->tid_));
-    return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
-  } else if (payload_count > location.slot_->get_max_payload()) {
-    // TODO(Hideaki) : Record migration for expanding payload.
-    LOG(ERROR) << "Currently record expansion is not supported. In short list.";
-    return kErrorCodeStrTooShortPayload;
+  while (!location.observed_.is_deleted() || payload_count > location.slot_->get_max_payload()) {
+    if (!location.observed_.is_deleted()) {
+      CHECK_ERROR_CODE(cur_xct.add_to_read_set(
+        get_id(),
+        location.observed_,
+        &location.slot_->tid_));
+      return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
+    }
+
+    ASSERT_ND(payload_count > location.slot_->get_max_payload());
+    // The physical record is too short. It will trigger a record expansion, which is a
+    // system transaction (logically does nothing!) to migrate this deleted record.
+    HashDataPage* cur_page = reinterpret_cast<HashDataPage*>(to_page(location.slot_));
+    ASSERT_ND(!cur_page->header().snapshot_);
+    ASSERT_ND(cur_page->bloom_filter().contains(combo.fingerprint_));
+    DataPageSlotIndex cur_index = cur_page->to_slot_index(location.slot_);
+    ASSERT_ND(cur_page->get_slot_address(cur_index) == location.slot_);
+    DVLOG(2) << "Record expansion triggered. payload_count=" << payload_count
+      << ", current max=" << location.slot_->get_max_payload()
+      << ", size hint=" << physical_payload_hint;
+
+    CHECK_ERROR_CODE(migrate_record(
+      context,
+      key,
+      key_length,
+      combo,
+      cur_page,
+      cur_index,
+      physical_payload_hint,
+      &location));
+    ASSERT_ND(location.slot_);
+    ASSERT_ND(location.record_);
+    DVLOG(2) << "Expanded record!";
+    // continue with while because the moved location might be again moved or now deleted.
   }
 
   uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
@@ -947,29 +971,8 @@ ErrorCode HashStoragePimpl::reserve_record(
     uint16_t available_space = page->available_space();
     uint16_t required_space = HashDataPage::required_space(key_length, payload_length);
     if (available_space < required_space) {
-      DVLOG(2) << "HashDataPage is full. Adding a next page..";
-      memory::PagePoolOffset new_page_offset
-        = context->get_thread_memory()->grab_free_volatile_page();
-      if (UNLIKELY(new_page_offset == 0)) {
-        return kErrorCodeMemoryNoFreePages;
-      }
-
-      HashDataPage* next = context->resolve_cast<HashDataPage>(new_page_offset);
-      VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-        context->get_numa_node(), 0, 0, new_page_offset);
-      HashBin bin = page->get_bin();
-      next->initialize_volatile_page(
-        get_id(),
-        new_pointer,
-        reinterpret_cast<Page*>(page),
-        bin,
-        get_bin_bits(),
-        get_bin_shifts());
-      assorted::memory_fence_release();  // so that others don't see uninitialized page
-      page->next_page().volatile_pointer_ = new_pointer;
-      assorted::memory_fence_release();  // so that others don't have "where's the next page" issue
-      page->header().page_version_.set_has_next_page();
-      scope.set_changed();
+      HashDataPage* next;
+      CHECK_ERROR_CODE(append_next_volatile_page(context, page, &scope, &next));
 
       // just goes on to the newly created next page
       page = next;
@@ -1074,6 +1077,209 @@ xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record_search(
     }
     page = reinterpret_cast<HashDataPage*>(resolver.resolve_offset(next_page->volatile_pointer_));
   }
+}
+
+ErrorCode HashStoragePimpl::migrate_record(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  const HashCombo& combo,
+  HashDataPage* cur_page,
+  DataPageSlotIndex cur_index,
+  uint16_t payload_count,
+  RecordLocation* new_location) {
+  ASSERT_ND(!cur_page->header().snapshot_);
+  ASSERT_ND(cur_page->compare_slot_key(cur_index, combo.hash_, key, key_length));
+  HashDataPage::Slot* cur_slot = cur_page->get_slot_address(cur_index);
+
+  PageVersionLockScope cur_page_scope(context, &cur_page->header().page_version_);
+  // After here, cur_page will not have a new entry.
+  xct::McsLockScope cur_record_scope(context, &cur_slot->tid_);
+  // cur_slot's status is now finalized.
+  if (cur_slot->tid_.is_moved()) {
+    // rare, but possible. locate the current record then.
+    VLOG(0) << "Interesting. Concurrent thread has already migrated this record!";
+    ASSERT_ND(cur_page->compare_slot_key(cur_index, combo.hash_, key, key_length));
+
+    // corresponds to rel-barrier while setting is_moved flag.
+    assorted::memory_fence_acquire();  // could be consume, but whatever
+    RecordLocation location;
+    CHECK_ERROR_CODE(locate_record(
+      context,
+      true,
+      false,
+      payload_count,
+      key,
+      key_length,
+      combo,
+      cur_page,
+      &location));
+    // Thanks to the barrier above, we are sure there is a new record location.
+    ASSERT_ND(location.slot_);
+    *new_location = location;
+    // note: the new_location might be still is_moved, but that's not what this method is
+    // responsible for. caller will retry. to make it sure, we need to hold more than one lock,
+    // not worth it here. this method is not called that frequently.
+    return kErrorCodeOk;
+  }
+
+  // now we are sure the current record is NOT moved, thus there is no chance that
+  // this hash bucket has any other non-moved record of this exact key.
+  // Just append to the tail! Where is the tail?
+  ASSERT_ND(!cur_slot->tid_.is_moved());
+  const uint16_t required_space = HashDataPage::required_space(key_length, payload_count);
+  if (cur_page->next_page().volatile_pointer_.is_null()) {
+    if (cur_page->available_space() >= required_space) {
+      // Appending to the same page.
+      // We treat this case separately because we don't have to lock another page.
+      VLOG(2) << "Migrating to the same page. Faster.";
+      migrate_record_move(
+        context,
+        key,
+        key_length,
+        combo,
+        cur_page,
+        cur_index,
+        cur_page,
+        payload_count,
+        new_location);
+      return kErrorCodeOk;
+    } else {
+      VLOG(2) << "Needs to make a next page to the current page.";
+      // we already hold a page lock, so we can safely add a next page
+      HashDataPage* next;
+      CHECK_ERROR_CODE(append_next_volatile_page(context, cur_page, &cur_page_scope, &next));
+    }
+  }
+
+  // now we are sure that we are moving the record to another page.
+  VLOG(2) << "Migrating to another page.";
+  ASSERT_ND(!cur_page->next_page().volatile_pointer_.is_null());
+  HashDataPage* tail_page = context->resolve_cast<HashDataPage>(
+    cur_page->next_page().volatile_pointer_);
+  while (true) {
+    ASSERT_ND(tail_page);
+    ASSERT_ND(tail_page != cur_page);
+    VolatilePagePointer pointer = tail_page->next_page().volatile_pointer_;
+    if (!pointer.is_null()) {
+      tail_page = context->resolve_cast<HashDataPage>(pointer);
+      continue;
+    } else {
+      // okay, looks like this is the tail page.. but we have to make sure after taking page lock.
+      // We anyway need to take a page lock below, so do it now.
+      PageVersionLockScope tail_page_scope(context, &tail_page->header().page_version_);
+      if (!tail_page->next_page().volatile_pointer_.is_null()) {
+        VLOG(0) << "Interesting. Someone else has just added next page";
+        continue;
+      }
+
+      if (tail_page->available_space() >= required_space) {
+        migrate_record_move(
+          context,
+          key,
+          key_length,
+          combo,
+          cur_page,
+          cur_index,
+          tail_page,
+          payload_count,
+          new_location);
+        return kErrorCodeOk;
+      } else {
+        VLOG(2) << "Needs to make a next page to the tail page.";
+        HashDataPage* next;
+        CHECK_ERROR_CODE(append_next_volatile_page(context, tail_page, &tail_page_scope, &next));
+        tail_page = next;
+        continue;
+      }
+    }
+  }
+
+
+  return kErrorCodeOk;
+}
+
+void HashStoragePimpl::migrate_record_move(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  const HashCombo& combo,
+  HashDataPage* cur_page,
+  DataPageSlotIndex cur_index,
+  HashDataPage* tail_page,
+  uint16_t payload_count,
+  RecordLocation* new_location) {
+  ASSERT_ND(cur_page->header().page_version_.is_locked());
+  ASSERT_ND(tail_page->header().page_version_.is_locked());
+  ASSERT_ND(tail_page->next_page().volatile_pointer_.is_null());
+  const uint16_t required_space = HashDataPage::required_space(key_length, payload_count);
+  HashDataPage::Slot* cur_slot = cur_page->get_slot_address(cur_index);
+  ASSERT_ND(tail_page->available_space() >= required_space);
+
+  DataPageSlotIndex new_index = tail_page->reserve_record(
+    combo.hash_,
+    combo.fingerprint_,
+    key,
+    key_length,
+    payload_count);
+  HashDataPage::Slot* new_slot = tail_page->get_slot_address(new_index);
+
+  xct::McsLockScope new_record_scope(context, &new_slot->tid_);
+  xct::XctId new_xct_id = cur_slot->tid_.xct_id_;
+  new_slot->tid_.xct_id_ = new_xct_id;
+  new_location->observed_ = new_xct_id;
+  new_location->record_ = tail_page->record_from_offset(new_slot->offset_);
+  new_location->slot_ = new_slot;
+
+  assorted::memory_fence_release();  // see method comment of migrate_record() for why we need it.
+  // well, actually the lock in new_record_scope already does it, but for easier understanding..
+  cur_slot->tid_.xct_id_.set_moved();
+  assorted::memory_fence_acq_rel();  // to ease the caller.
+}
+
+ErrorCode HashStoragePimpl::append_next_volatile_page(
+  thread::Thread* context,
+  HashDataPage* page,
+  PageVersionLockScope* scope,
+  HashDataPage** next_page) {
+  ASSERT_ND(page->header().page_version_.is_locked());
+  ASSERT_ND(scope->version_ == &page->header().page_version_);
+  ASSERT_ND(!scope->released_);
+  ASSERT_ND(page->header().storage_id_ == get_id());
+  ASSERT_ND(!page->header().snapshot_);
+  ASSERT_ND(page->get_record_count() > 0);
+
+  DVLOG(2) << "Volatile HashDataPage is full. Adding a next page..";
+  memory::PagePoolOffset new_page_offset
+    = context->get_thread_memory()->grab_free_volatile_page();
+  if (UNLIKELY(new_page_offset == 0)) {
+    *next_page = nullptr;
+    return kErrorCodeMemoryNoFreePages;
+  }
+
+  HashDataPage* next = context->resolve_newpage_cast<HashDataPage>(new_page_offset);
+  VolatilePagePointer new_pointer = combine_volatile_page_pointer(
+    context->get_numa_node(),
+    0,
+    0,
+    new_page_offset);
+  HashBin bin = page->get_bin();
+  next->initialize_volatile_page(
+    get_id(),
+    new_pointer,
+    reinterpret_cast<Page*>(page),
+    bin,
+    get_bin_bits(),
+    get_bin_shifts());
+  assorted::memory_fence_release();  // so that others don't see uninitialized page
+  page->next_page().volatile_pointer_ = new_pointer;
+  assorted::memory_fence_release();  // so that others don't have "where's the next page" issue
+  page->header().page_version_.set_has_next_page();
+  scope->set_changed();
+
+  // just goes on to the newly created next page
+  *next_page = next;
+  return kErrorCodeOk;
 }
 
 // Explicit instantiations for each payload type

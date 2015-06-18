@@ -52,6 +52,23 @@ NumaCoreMemory::NumaCoreMemory(
                           core_local_ordinal_));
 }
 
+uint64_t NumaCoreMemory::calculate_local_small_memory_size(const EngineOptions& options) {
+  uint64_t memory_size = 0;
+  // for the "shift" part, we calculate conservatively then skip it at the end.
+  // it's a wasted memory, but negligible.
+  memory_size += static_cast<uint64_t>(options.thread_.thread_count_per_group_) << 12;
+  memory_size += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
+  memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
+  const xct::XctOptions& xct_opt = options.xct_;
+  const uint16_t nodes = options.thread_.group_count_;
+  memory_size += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
+  memory_size += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
+  memory_size += sizeof(xct::LockFreeWriteXctAccess)
+    * xct_opt.max_lock_free_write_set_size_;
+  memory_size += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
+  return memory_size;
+}
+
 ErrorStack NumaCoreMemory::initialize_once() {
   LOG(INFO) << "Initializing NumaCoreMemory for core " << core_id_;
   free_volatile_pool_chunk_ = node_memory_->get_volatile_offset_chunk_memory_piece(
@@ -63,22 +80,16 @@ ErrorStack NumaCoreMemory::initialize_once() {
   log_buffer_memory_ = node_memory_->get_log_buffer_memory_piece(core_local_ordinal_);
 
   // allocate small_thread_local_memory_. it's a collection of small memories
-  uint64_t memory_size = 0;
-  memory_size += static_cast<uint64_t>(core_local_ordinal_) << 12;
-  memory_size += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
-  memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
-  const xct::XctOptions& xct_opt = engine_->get_options().xct_;
-  const uint16_t nodes = engine_->get_options().thread_.group_count_;
-  memory_size += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
-  memory_size += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
-  memory_size += sizeof(xct::LockFreeWriteXctAccess)
-    * xct_opt.max_lock_free_write_set_size_;
-  memory_size += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
+  uint64_t memory_size = calculate_local_small_memory_size(engine_->get_options());
   if (memory_size > (1U << 21)) {
     LOG(INFO) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
       " not a big issue, but consumes one more TLB entry...";
   }
   CHECK_ERROR(node_memory_->allocate_numa_memory(memory_size, &small_thread_local_memory_));
+
+  const xct::XctOptions& xct_opt = engine_->get_options().xct_;
+  const uint16_t nodes = engine_->get_options().thread_.group_count_;
+  const uint16_t thread_per_group = engine_->get_options().thread_.thread_count_per_group_;
   char* memory = reinterpret_cast<char*>(small_thread_local_memory_.get_block());
   // "shift" 4kb for each thread on this node so that memory banks are evenly used.
   // in many architecture, 13th- or 14th- bits are memory banks (see [JEONG11])
@@ -94,7 +105,9 @@ ErrorStack NumaCoreMemory::initialize_once() {
   small_thread_local_memory_pieces_.xct_lock_free_write_access_memory_ = memory;
   memory += sizeof(xct::LockFreeWriteXctAccess) * xct_opt.max_lock_free_write_set_size_;
   retired_volatile_pool_chunks_ = reinterpret_cast<PagePoolOffsetAndEpochChunk*>(memory);
-  memory += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;;
+  memory += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
+
+  memory += static_cast<uint64_t>(thread_per_group - core_local_ordinal_) << 12;
   ASSERT_ND(reinterpret_cast<char*>(small_thread_local_memory_.get_block())
     + memory_size == memory);
 

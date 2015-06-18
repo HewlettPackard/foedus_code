@@ -278,7 +278,10 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * following locks trivially have sequential block index from it.
    */
   xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size);
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  /**
+   * This doesn't use any atomic operation to take a lock. only allowed when there is no race.
+   * TASK(Hideaki): This will be renamed to mcs_non_racy_lock(). "initial_lock" is ambiguous.
+   */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
