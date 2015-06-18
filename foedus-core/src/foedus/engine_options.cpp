@@ -184,13 +184,19 @@ void EngineOptions::prescreen_ulimits(
   // nofile (number of file/socket that can be opened)
   ::rlimit nofile_limit;
   ::getrlimit(RLIMIT_NOFILE, &nofile_limit);
-  const uint64_t kMinNoFile = 1U << 16;
+  const uint64_t kMinNoFile = std::max(1U << 13, thread_.get_total_thread_count() * 16U);
   if (nofile_limit.rlim_cur < kMinNoFile) {
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] ulimit -n is too small. You must have at least " << kMinNoFile << std::endl;
+      << "[FOEDUS] ulimit -n is too small (" << nofile_limit.rlim_cur
+      << "). You must have at least " << kMinNoFile << std::endl;
   }
+  // Record of a struggle: WTF,, no idea why, but I'm seeing an weird behavior only on Ubuntu.
+  // I did set limits.conf, and ulimit -n is saying 100000, but the above code returns "8192"
+  // on Ubuntu. As a tentative solution, reduced the min value to 8192.
+  // This happens only when I run the code as jenkins user from jenkins service.
+  // If I run it as myself, or "sudo su jenkins" then run it, it runs fine. WWWTTTTFFF.
 
   // Note that proc means threads in linux.
   ::rlimit proc_limit;
@@ -200,7 +206,8 @@ void EngineOptions::prescreen_ulimits(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] ulimit -u is too small. You must have at least " << kMinProc << std::endl;
+      << "[FOEDUS] ulimit -u is too small(" << proc_limit.rlim_cur
+      << "). You must have at least " << kMinProc << std::endl;
   }
 
   // memlock
@@ -210,7 +217,8 @@ void EngineOptions::prescreen_ulimits(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] ulimit -l is too small. You must have at least "
+      << "[FOEDUS] ulimit -l is too small(" << memlock_limit.rlim_cur
+      << "). You must have at least "
       << (required_total_safe_bytes >> 10) << std::endl;
   }
 
@@ -243,7 +251,7 @@ void EngineOptions::prescreen_sysctl(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] /proc/sys/kernel/shmall is too small."
+      << "[FOEDUS] /proc/sys/kernel/shmall is too small (" << shmall << ".)"
       << " It must be at least " << required_shared_safe_bytes
       << ". We recommend to simply set semi-inifinite value: "
       << " sudo sysctl -w kernel.shmall=1152921504606846720"
@@ -257,7 +265,7 @@ void EngineOptions::prescreen_sysctl(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] /proc/sys/kernel/shmmax is too small."
+      << "[FOEDUS] /proc/sys/kernel/shmmax is too small(" << shmmax << ")."
       << " It must be at least " << required_shared_safe_bytes
       << ". We recommend to simply set semi-inifinite value: "
       << " sudo sysctl -w kernel.shmmax=9223372036854775807"
@@ -272,7 +280,7 @@ void EngineOptions::prescreen_sysctl(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] /proc/sys/kernel/shmmni is too small."
+      << "[FOEDUS] /proc/sys/kernel/shmmni is too small(" << shmmni << ")."
       << " It must be at least " << kMinShmmni
       << ". We recommend to set : "
       << " sudo sysctl -w kernel.shmmni=" << kMinShmmni
