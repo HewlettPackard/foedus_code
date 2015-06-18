@@ -184,7 +184,7 @@ void EngineOptions::prescreen_ulimits(
   // nofile (number of file/socket that can be opened)
   ::rlimit nofile_limit;
   ::getrlimit(RLIMIT_NOFILE, &nofile_limit);
-  const uint64_t kMinNoFile = 1U << 16;
+  const uint64_t kMinNoFile = std::max(1U << 13, thread_.get_total_thread_count() * 16U);
   if (nofile_limit.rlim_cur < kMinNoFile) {
     *has_any_error = true;
 
@@ -192,6 +192,11 @@ void EngineOptions::prescreen_ulimits(
       << "[FOEDUS] ulimit -n is too small (" << nofile_limit.rlim_cur
       << "). You must have at least " << kMinNoFile << std::endl;
   }
+  // Record of a struggle: WTF,, no idea why, but I'm seeing an weird behavior only on Ubuntu.
+  // I did set limits.conf, and ulimit -n is saying 100000, but the above code returns "8192"
+  // on Ubuntu. As a tentative solution, reduced the min value to 8192.
+  // This happens only when I run the code as jenkins user from jenkins service.
+  // If I run it as myself, or "sudo su jenkins" then run it, it runs fine. WWWTTTTFFF.
 
   // Note that proc means threads in linux.
   ::rlimit proc_limit;
