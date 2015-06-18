@@ -112,6 +112,12 @@ struct EngineOptions CXX11_FINAL : public virtual externalize::Externalizable {
     bool* has_any_error,
     std::ostream* details_out) const;
 
+  /** Subroutine of prescreen to check sysctl values */
+  void prescreen_sysctl(
+    uint64_t required_shared_safe_bytes,
+    bool* has_any_error,
+    std::ostream* details_out) const;
+
   // options for each module
   cache::CacheOptions         cache_;
   debugging::DebuggingOptions debugging_;
