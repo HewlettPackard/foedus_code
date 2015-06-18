@@ -189,7 +189,8 @@ void EngineOptions::prescreen_ulimits(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] ulimit -n is too small. You must have at least " << kMinNoFile << std::endl;
+      << "[FOEDUS] ulimit -n is too small (" << nofile_limit.rlim_cur
+      << "). You must have at least " << kMinNoFile << std::endl;
   }
 
   // Note that proc means threads in linux.
@@ -200,7 +201,8 @@ void EngineOptions::prescreen_ulimits(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] ulimit -u is too small. You must have at least " << kMinProc << std::endl;
+      << "[FOEDUS] ulimit -u is too small(" << proc_limit.rlim_cur
+      << "). You must have at least " << kMinProc << std::endl;
   }
 
   // memlock
@@ -210,7 +212,8 @@ void EngineOptions::prescreen_ulimits(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] ulimit -l is too small. You must have at least "
+      << "[FOEDUS] ulimit -l is too small(" << memlock_limit.rlim_cur
+      << "). You must have at least "
       << (required_total_safe_bytes >> 10) << std::endl;
   }
 
@@ -243,7 +246,7 @@ void EngineOptions::prescreen_sysctl(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] /proc/sys/kernel/shmall is too small."
+      << "[FOEDUS] /proc/sys/kernel/shmall is too small (" << shmall << ".)"
       << " It must be at least " << required_shared_safe_bytes
       << ". We recommend to simply set semi-inifinite value: "
       << " sudo sysctl -w kernel.shmall=1152921504606846720"
@@ -257,7 +260,7 @@ void EngineOptions::prescreen_sysctl(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] /proc/sys/kernel/shmmax is too small."
+      << "[FOEDUS] /proc/sys/kernel/shmmax is too small(" << shmmax << ")."
       << " It must be at least " << required_shared_safe_bytes
       << ". We recommend to simply set semi-inifinite value: "
       << " sudo sysctl -w kernel.shmmax=9223372036854775807"
@@ -272,7 +275,7 @@ void EngineOptions::prescreen_sysctl(
     *has_any_error = true;
 
     *details_out
-      << "[FOEDUS] /proc/sys/kernel/shmmni is too small."
+      << "[FOEDUS] /proc/sys/kernel/shmmni is too small(" << shmmni << ")."
       << " It must be at least " << kMinShmmni
       << ". We recommend to set : "
       << " sudo sysctl -w kernel.shmmni=" << kMinShmmni
