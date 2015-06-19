@@ -468,7 +468,8 @@ class MasstreeBorderPage final : public MasstreePage {
     /** Maximum value for remaining_key_length_. */
     kKeyLengthMax = 254,
 
-    kDataSize = 4096 - 1872,
+    kDataSize = 4096 - 1936,
+    kMaxPayload = 1024,
   };
   /** Used in FindKeyForReserveResult */
   enum MatchType {
@@ -621,9 +622,33 @@ class MasstreeBorderPage final : public MasstreePage {
   uint16_t get_suffix_length_aligned(uint8_t index) const ALWAYS_INLINE {
     return assorted::align8(get_suffix_length(index));
   }
+  /** @returns the current logical payload length, which might change later. */
   uint16_t get_payload_length(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     return payload_length_[index];
+  }
+  /**
+   * @returns the maximum payload length the physical record allows.
+   * This value is basically immutable once the record is created.
+   * It only increases when this record becomes a next-layer pointer due to suffix-len.
+   */
+  uint16_t get_max_payload_length(uint8_t index) const ALWAYS_INLINE {
+    uint16_t record_size_in_bytes = get_physical_record_size_in_bytes(index);
+    if (does_point_to_layer(index)) {
+      return record_size_in_bytes;
+    } else {
+      uint16_t suffix_length_aligned = get_suffix_length_aligned(index);
+      ASSERT_ND(record_size_in_bytes >= suffix_length_aligned);
+      return record_size_in_bytes - suffix_length_aligned;
+    }
+  }
+  /**
+   * @returns the physical record length in bytes.
+   * This value is immutable once the record is created.
+   */
+  uint16_t get_physical_record_size_in_bytes(uint8_t index) const ALWAYS_INLINE {
+    ASSERT_ND(index < kMaxKeys);
+    return physical_record_size_[index] * 16U;  // the value is divided by 16
   }
 
   static uint8_t calculate_suffix_length(uint8_t remaining_length) ALWAYS_INLINE {
@@ -820,6 +845,7 @@ class MasstreeBorderPage final : public MasstreePage {
     ASSERT_ND(header_.snapshot_ || remaining_key_length_[index] > sizeof(KeySlice));
     ASSERT_ND(!header_.snapshot_ || pointer.volatile_pointer_.is_null());
     remaining_key_length_[index] = kKeyLengthNextLayer;
+    ASSERT_ND(get_max_payload_length(index) >= sizeof(DualPagePointer));
     payload_length_[index] = sizeof(DualPagePointer);
     *get_next_layer(index) = pointer;
     xct::XctId& xct_id = get_owner_id(index)->xct_id_;
@@ -858,6 +884,10 @@ class MasstreeBorderPage final : public MasstreePage {
    * @param[in] trigger The key that triggered this split
    * @param[out] target the page the new key will be inserted. Either foster_child or foster_minor.
    * @param[out] target_lock this thread's MCS block index for target.
+   * @param[in] record_to_expand If specified, index of the record that must have an expanded
+   * record size after split. default (kMaxKeys) means no such record.
+   * @param[in] payload_expand_hint If specified, byte size of payload the expanded record
+   * should be able to contain.
    * @pre !header_.snapshot_ (split happens to only volatile pages)
    * @pre is_locked() (the page must be locked)
    * @post iff successfully exits, target->is_locked(), and target_lock is the MCS block index
@@ -866,7 +896,9 @@ class MasstreeBorderPage final : public MasstreePage {
     thread::Thread* context,
     KeySlice trigger,
     MasstreeBorderPage** target,
-    xct::McsBlockIndex *target_lock);
+    xct::McsBlockIndex *target_lock,
+    uint16_t record_to_expand = kMaxKeys,
+    uint16_t payload_expand_hint = 0);
 
   /** @see StorageManager::track_moved_record() */
   xct::TrackMovedRecordResult track_moved_record(
@@ -912,26 +944,32 @@ class MasstreeBorderPage final : public MasstreePage {
   /** Offset of the beginning of record in data_, divided by 16. */
   uint8_t     offsets_[kMaxKeys];                 // +64  -> 712
   /**
-   * length of the payload.
+   * Physical length of the record, divided by 16.
+   * This value is immutable once the record is created.
    */
-  uint16_t    payload_length_[kMaxKeys];          // +128 -> 840
+  uint8_t     physical_record_size_[kMaxKeys];    // +64  -> 776
+  /**
+   * length of the payload.
+   * This value is mutable, but always small enough to be contained in physical_record_length_.
+   */
+  uint16_t    payload_length_[kMaxKeys];          // +128 -> 904
 
   /**
    * Whether this page is receiving only sequential inserts.
    * If this is true, cursor can skip its sorting phase.
    * If this is a snapshot page, this is always true.
    */
-  bool        consecutive_inserts_;               // +1 -> 842
+  bool        consecutive_inserts_;               // +1 -> 905
 
   /** To make the following 16-bytes aligned */
-  char        dummy_[7];                          // +7 -> 848
+  char        dummy_[7];                          // +7 -> 912
 
   /**
    * Lock of each record. We separate this out from record to avoid destructive change
    * while splitting and page compaction. We have to make sure xct_id is always in a separated
    * area.
    */
-  xct::LockableXctId  owner_ids_[kMaxKeys];               // +1024 -> 1872
+  xct::LockableXctId  owner_ids_[kMaxKeys];               // +1024 -> 1936
 
   /**
    * The main data region of this page. Suffix and payload, both 8-bytes aligned (zero-padded).
@@ -949,6 +987,8 @@ class MasstreeBorderPage final : public MasstreePage {
   void split_foster_migrate_records(
     const MasstreeBorderPage& copy_from,
     uint8_t key_count,
+    uint16_t record_to_expand,
+    uint16_t payload_expand_hint,
     KeySlice from,
     KeySlice to);
 
@@ -1223,6 +1263,7 @@ inline void MasstreeBorderPage::reserve_record_space(
       consecutive_inserts_ = false;
     }
   }
+  physical_record_size_[index] = record_size;
   payload_length_[index] = payload_count;
   offsets_[index] = previous_offset - record_size;
   owner_ids_[index].lock_.reset();
@@ -1254,6 +1295,7 @@ inline void MasstreeBorderPage::append_next_layer_snapshot(
   }
   slices_[index] = slice;
   remaining_key_length_[index] = kKeyLengthNextLayer;
+  physical_record_size_[index] = record_size;
   payload_length_[index] = sizeof(DualPagePointer);
   offsets_[index] = previous_offset - record_size;
   owner_ids_[index].xct_id_ = initial_owner_id;
@@ -1280,6 +1322,7 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
     previous_offset = offsets_[index - 1];
   }
   remaining_key_length_[index] = kKeyLengthNextLayer;
+  physical_record_size_[index] = record_size;
   payload_length_[index] = sizeof(DualPagePointer);
   offsets_[index] = previous_offset - record_size;
   owner_ids_[index].xct_id_.set_next_layer();

@@ -239,6 +239,33 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     // no need to set key in apply(). it's already set when the record is physically inserted
     // (or in other places if this is recovery).
     ASSERT_ND(equal_record_and_log_suffixes(data));
+
+    // TODO(Hideaki) So far we do a super-dirty trick to set payload_count here.
+    // We will make a major change in page layout to simplify this and a few other things.
+    uintptr_t tid_intptr = reinterpret_cast<uintptr_t>(owner_id);
+    uint16_t tid_offset = reinterpret_cast<uint64_t>(tid_intptr) % kPageSize;
+    ASSERT_ND(tid_offset >= 912U);
+    ASSERT_ND(tid_offset < 1936U);
+    ASSERT_ND(tid_offset % sizeof(xct::LockableXctId) == 0);
+    uint16_t record_index = (tid_offset - 912U) / sizeof(xct::LockableXctId);
+    ASSERT_ND(record_index < 64U);
+
+    uint64_t page_int = reinterpret_cast<uint64_t>(tid_intptr) - tid_offset;
+    ASSERT_ND(page_int % kPageSize == 0);
+    const uint8_t* offset_array = reinterpret_cast<const uint8_t*>(
+      reinterpret_cast<void*>(page_int + 648ULL));
+    const uint8_t* physical_record_length_array = reinterpret_cast<const uint8_t*>(
+      reinterpret_cast<void*>(page_int + 712ULL));
+    uint16_t* payload_length_array = reinterpret_cast<uint16_t*>(
+      reinterpret_cast<void*>(page_int + 776ULL));
+    ASSERT_ND(offset_array[record_index] * 16U == data - reinterpret_cast<char*>(
+      reinterpret_cast<void*>(page_int + 1936ULL)));
+    ASSERT_ND(physical_record_length_array[record_index] * 16U + skipped
+      >= assorted::align8(payload_count_) + key_length_aligned);
+
+    payload_length_array[record_index] = payload_count_;
+
+
     if (payload_count_ > 0U) {
       // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
       // if the compiler is smart enough, it will do some optimization here.

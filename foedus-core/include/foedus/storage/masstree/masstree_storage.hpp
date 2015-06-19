@@ -236,12 +236,28 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * If the key already exists, it returns kErrorCodeStrKeyAlreadyExists and also adds the
    * found record to read set because it is part of transactional information.
    */
+  inline ErrorCode insert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count) ALWAYS_INLINE {
+    return insert_record(context, key, key_length, payload, payload_count, payload_count);
+  }
+
+  /**
+   * With this method, you can also specify \e physical_payload_hint, the
+   * physical size of the record's payload part. If you will later expand
+   * the payload of this record, giving a larger value will avoid record migration.
+   * Default value (and minimal value) is same as the initial payload_count.
+   */
   ErrorCode   insert_record(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     const void* payload,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
 
   /**
    * @brief Inserts a new record without payload of the given key in this Masstree.
@@ -266,11 +282,23 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @param[in] payload Value to insert.
    * @param[in] payload_count Length of payload.
    */
+  inline ErrorCode insert_record_normalized(
+    thread::Thread* context,
+    KeySlice key,
+    const void* payload,
+    uint16_t payload_count) ALWAYS_INLINE {
+    return insert_record_normalized(context, key, payload, payload_count, payload_count);
+  }
+
+  /**
+   * With this method, you can also specify \e physical_payload_hint.
+   */
   ErrorCode   insert_record_normalized(
     thread::Thread* context,
     KeySlice key,
     const void* payload,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
 
   /**
    * @brief Inserts a new record without payload of the given primitive key in this Masstree.

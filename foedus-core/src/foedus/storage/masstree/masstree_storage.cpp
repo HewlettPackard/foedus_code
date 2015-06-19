@@ -239,12 +239,29 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
     sizeof(PAYLOAD));
 }
 
+uint16_t adjust_payload_hint(uint16_t payload_count, uint16_t physical_payload_hint) {
+  ASSERT_ND(physical_payload_hint >= payload_count);  // if not, most likely misuse.
+  if (physical_payload_hint < payload_count) {
+    physical_payload_hint = payload_count;
+  }
+  if (physical_payload_hint > MasstreeBorderPage::kMaxPayload) {
+    physical_payload_hint = MasstreeBorderPage::kMaxPayload;
+  }
+  physical_payload_hint = assorted::align8(physical_payload_hint);
+  return physical_payload_hint;
+}
+
 ErrorCode MasstreeStorage::insert_record(
   thread::Thread* context,
   const void* key,
   uint16_t key_length,
   const void* payload,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+    return kErrorCodeStrTooLongPayload;
+  }
+  physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
@@ -254,6 +271,7 @@ ErrorCode MasstreeStorage::insert_record(
     key,
     key_length,
     payload_count,
+    physical_payload_hint,
     &border,
     &index,
     &observed));
@@ -272,7 +290,12 @@ ErrorCode MasstreeStorage::insert_record_normalized(
   thread::Thread* context,
   KeySlice key,
   const void* payload,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+    return kErrorCodeStrTooLongPayload;
+  }
+  physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
   MasstreeBorderPage* border;
   uint8_t index;
   xct::XctId observed;
@@ -281,6 +304,7 @@ ErrorCode MasstreeStorage::insert_record_normalized(
     context,
     key,
     payload_count,
+    physical_payload_hint,
     &border,
     &index,
     &observed));
