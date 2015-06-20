@@ -377,6 +377,8 @@ ErrorCode MasstreeBorderPage::split_foster(
 
   // from now on no failure possible.
   BorderSplitStrategy strategy = split_foster_decide_strategy(key_count, trigger);
+  ASSERT_ND(get_low_fence() <= strategy.mid_slice_);
+  ASSERT_ND(strategy.mid_slice_ <= get_high_fence());
   MasstreeBorderPage* twin[2];
   xct::McsBlockIndex twin_locks[2];
   for (int i = 0; i < 2; ++i) {
@@ -740,7 +742,7 @@ void MasstreeBorderPage::split_foster_migrate_records(
     }
     uint16_t cur_max = copy_from.get_max_payload_length(record_to_expand);
     ASSERT_ND(cur_max < payload_expand_hint);
-    uint16_t additional_bytes = assorted::align16(cur_max - payload_expand_hint);
+    uint16_t additional_bytes = assorted::align16(payload_expand_hint - cur_max);
 
     DVLOG(2) << "record_length_total=" << record_length_total
       << ", cur_max=" << cur_max << ", additional_bytes=" << additional_bytes;
@@ -1221,6 +1223,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       return kErrorCodeOk;
     }
 
+
     // TASK(Hideaki) let's make this a function.
     KeySlice separator_low;
     KeySlice separator_high;
@@ -1246,6 +1249,55 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
       return kErrorCodeOk;
     }
+  }
+
+  // When we are splitting a page just to compact/expand records,
+  // it's possible that one of the foster children have empty range (low-fence==high-fence)
+  // In such a case, adoption is trivial; just replace the current pointer with non-empty one.
+  if (UNLIKELY(child->get_low_fence() == child->get_foster_fence())
+    || UNLIKELY(child->get_high_fence() == child->get_foster_fence())) {
+    VLOG(0) << "Adopting from a child page that contains an empty-range page. This happens when"
+      << " record compaction/expansion created a page without a record.";
+
+    PageVersionLockScope scope_child(context, child->get_version_address());
+    if (child->get_version().is_retired()) {
+      VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
+      return kErrorCodeOk;  // retry
+    }
+
+    VolatilePagePointer nonempty_grandchild_pointer;
+    MasstreePage* empty_grandchild;
+    if (child->get_low_fence() == child->get_foster_fence()) {
+      nonempty_grandchild_pointer = child->get_foster_major();
+      empty_grandchild
+        = context->resolve_cast<MasstreePage>(child->get_foster_minor());
+    } else {
+      nonempty_grandchild_pointer = child->get_foster_minor();
+      empty_grandchild
+        = context->resolve_cast<MasstreePage>(child->get_foster_major());
+    }
+    ASSERT_ND(empty_grandchild->get_low_fence() == empty_grandchild->get_high_fence());
+
+    minipage.pointers_[pointer_index].volatile_pointer_ = nonempty_grandchild_pointer;
+    assorted::memory_fence_release();
+
+    scope_child.set_changed();
+    child->set_retired();
+
+    // The only thread that might be retiring this empty page must be in this function,
+    // holding a page-lock in scope_child. Thus we don't need a lock in empty_grandchild.
+    ASSERT_ND(!empty_grandchild->is_locked());  // none else holding lock on it
+    // and we can safely retire the page. We do not use set_retired because is_moved() is false
+    // It's a special retirement path.
+    empty_grandchild->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
+    context->collect_retired_volatile_page(
+      construct_volatile_page_pointer(empty_grandchild->header().page_id_));
+
+    context->collect_retired_volatile_page(
+      construct_volatile_page_pointer(child->header().page_id_));
+
+    verify_separators();
+    return kErrorCodeOk;
   }
 
   if (minipage.key_count_ == kMaxIntermediateMiniSeparators) {
@@ -1332,6 +1384,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     }
 
     ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
+    ASSERT_ND(pointer_index == 0 || minipage.separators_[pointer_index - 1] < new_separator);
     minipage.separators_[pointer_index] = new_separator;
     minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
     minipage.pointers_[pointer_index + 1].volatile_pointer_ = major_pointer;
