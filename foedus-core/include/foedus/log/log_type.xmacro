@@ -35,3 +35,4 @@ X(kLogCodeMasstreeCreate,     0x1031, foedus::storage::masstree::MasstreeCreateL
 X(kLogCodeMasstreeOverwrite,  0x0032, foedus::storage::masstree::MasstreeOverwriteLogType)
 X(kLogCodeMasstreeInsert,     0x0033, foedus::storage::masstree::MasstreeInsertLogType)
 X(kLogCodeMasstreeDelete,     0x0034, foedus::storage::masstree::MasstreeDeleteLogType)
+X(kLogCodeMasstreeUpdate,     0x0035, foedus::storage::masstree::MasstreeUpdateLogType)

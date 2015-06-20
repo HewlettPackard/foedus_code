@@ -241,6 +241,17 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const void* be_key,
     uint16_t key_length);
 
+  /** implementation of upsert_record family. use with \b reserve_record() */
+  ErrorCode upsert_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    xct::XctId observed,
+    const void* be_key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count);
+
   /** implementation of overwrite_record family. use with locate_record()  */
   ErrorCode overwrite_general(
     thread::Thread* context,

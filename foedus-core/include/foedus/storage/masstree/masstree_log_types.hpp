@@ -330,6 +330,88 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
 };
 
 /**
+ * @brief Log type of masstree-storage's update operation.
+ * @ingroup MASSTREE LOGTYPE
+ * @details
+ * Almost same as insert except this keeps the delete-flag, which must be off.
+ */
+struct MasstreeUpdateLogType : public MasstreeCommonLogType {
+  LOG_TYPE_NO_CONSTRUCT(MasstreeUpdateLogType)
+
+  void            populate(
+    StorageId   storage_id,
+    const void* key,
+    uint16_t    key_length,
+    const void* payload,
+    uint16_t    payload_count) ALWAYS_INLINE {
+    log::LogCode type = log::kLogCodeMasstreeUpdate;
+    populate_base(type, storage_id, key, key_length, payload, 0, payload_count);
+  }
+
+  void            apply_record(
+    thread::Thread* /*context*/,
+    StorageId /*storage_id*/,
+    xct::LockableXctId* owner_id,
+    char* data) const ALWAYS_INLINE {
+    ASSERT_ND(!owner_id->xct_id_.is_deleted());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
+    uint8_t layer = extract_page_layer(owner_id);
+    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
+    uint16_t key_length_aligned = get_key_length_aligned();
+    ASSERT_ND(key_length_aligned >= skipped);
+    // no need to set key in apply(). it's already set when the record is physically inserted
+    // (or in other places if this is recovery).
+    ASSERT_ND(equal_record_and_log_suffixes(data));
+
+    // TODO(Hideaki) So far we do a super-dirty trick to set payload_count here.
+    // We will make a major change in page layout to simplify this and a few other things.
+    // At that point, we can get rid of duplicated code with the insert log.
+    uintptr_t tid_intptr = reinterpret_cast<uintptr_t>(owner_id);
+    uint16_t tid_offset = reinterpret_cast<uint64_t>(tid_intptr) % kPageSize;
+    ASSERT_ND(tid_offset >= 912U);
+    ASSERT_ND(tid_offset < 1936U);
+    ASSERT_ND(tid_offset % sizeof(xct::LockableXctId) == 0);
+    uint16_t record_index = (tid_offset - 912U) / sizeof(xct::LockableXctId);
+    ASSERT_ND(record_index < 64U);
+
+    uint64_t page_int = reinterpret_cast<uint64_t>(tid_intptr) - tid_offset;
+    ASSERT_ND(page_int % kPageSize == 0);
+    const uint8_t* offset_array = reinterpret_cast<const uint8_t*>(
+      reinterpret_cast<void*>(page_int + 648ULL));
+    const uint8_t* physical_record_length_array = reinterpret_cast<const uint8_t*>(
+      reinterpret_cast<void*>(page_int + 712ULL));
+    uint16_t* payload_length_array = reinterpret_cast<uint16_t*>(
+      reinterpret_cast<void*>(page_int + 776ULL));
+    ASSERT_ND(offset_array[record_index] * 16U == data - reinterpret_cast<char*>(
+      reinterpret_cast<void*>(page_int + 1936ULL)));
+    ASSERT_ND(physical_record_length_array[record_index] * 16U + skipped
+      >= assorted::align8(payload_count_) + key_length_aligned);
+
+    payload_length_array[record_index] = payload_count_;
+
+
+    if (payload_count_ > 0U) {
+      // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
+      // if the compiler is smart enough, it will do some optimization here.
+      uint16_t suffix_length_aligned = key_length_aligned - skipped;
+      void* data_payload = ASSUME_ALIGNED(data + suffix_length_aligned, 8U);
+      const void* log_payload = ASSUME_ALIGNED(get_payload(), 8U);
+      std::memcpy(data_payload, log_payload, assorted::align8(payload_count_));
+    }
+    ASSERT_ND(equal_record_and_log_suffixes(data));
+  }
+
+  void            assert_valid() const ALWAYS_INLINE {
+    assert_valid_generic();
+    ASSERT_ND(header_.log_length_ == calculate_log_length(key_length_, payload_count_));
+    ASSERT_ND(header_.get_type() == log::kLogCodeMasstreeUpdate);
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const MasstreeUpdateLogType& v);
+};
+
+/**
  * @brief Log type of masstree-storage's overwrite operation.
  * @ingroup MASSTREE LOGTYPE
  * @details

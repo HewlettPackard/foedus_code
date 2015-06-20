@@ -358,6 +358,75 @@ ErrorCode MasstreeStorage::delete_record_normalized(
     context, border, index, observed, &be_key, sizeof(be_key));
 }
 
+ErrorCode MasstreeStorage::upsert_record(
+  thread::Thread* context,
+  const void* key,
+  uint16_t key_length,
+  const void* payload,
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+    return kErrorCodeStrTooLongPayload;
+  }
+  physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
+  MasstreeBorderPage* border;
+  uint8_t index;
+  xct::XctId observed;
+  MasstreeStoragePimpl pimpl(this);
+  CHECK_ERROR_CODE(pimpl.reserve_record(
+    context,
+    key,
+    key_length,
+    payload_count,
+    physical_payload_hint,
+    &border,
+    &index,
+    &observed));
+  return pimpl.upsert_general(
+    context,
+    border,
+    index,
+    observed,
+    key,
+    key_length,
+    payload,
+    payload_count);
+}
+
+ErrorCode MasstreeStorage::upsert_record_normalized(
+  thread::Thread* context,
+  KeySlice key,
+  const void* payload,
+  uint16_t payload_count,
+  uint16_t physical_payload_hint) {
+  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+    return kErrorCodeStrTooLongPayload;
+  }
+  physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
+  MasstreeBorderPage* border;
+  uint8_t index;
+  xct::XctId observed;
+  MasstreeStoragePimpl pimpl(this);
+  CHECK_ERROR_CODE(pimpl.reserve_record_normalized(
+    context,
+    key,
+    payload_count,
+    physical_payload_hint,
+    &border,
+    &index,
+    &observed));
+  uint64_t be_key = assorted::htobe<uint64_t>(key);
+  return pimpl.upsert_general(
+    context,
+    border,
+    index,
+    observed,
+    &be_key,
+    sizeof(be_key),
+    payload,
+    payload_count);
+}
+
 ErrorCode MasstreeStorage::overwrite_record(
   thread::Thread* context,
   const void* key,

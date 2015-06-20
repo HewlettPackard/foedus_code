@@ -329,6 +329,94 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    */
   ErrorCode   delete_record_normalized(thread::Thread* context, KeySlice key);
 
+  // upsert_record() methods
+
+  /**
+   * @brief Inserts a new record of the given key or replaces the existing one,
+   * or so-called \e upsert.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
+   * @param[in] key_length Byte size of key.
+   * @param[in] payload Value to upsert.
+   * @param[in] payload_count Length of payload.
+   * @details
+   * This method puts the record whether the key already exists or not, which is handy
+   * in many usecases. Internally, the Implementation comes with a bit of complexity.
+   * If there is an existing record of the key (whether logically deleted or not)
+   * that is spacious enough, then we simply replace the record.
+   * If the key doesn't exist or the existing record is no big enough, we create/migrate
+   * the record in a system transaction then install the record.
+   */
+  inline ErrorCode upsert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count) ALWAYS_INLINE {
+    return upsert_record(context, key, key_length, payload, payload_count, payload_count);
+  }
+
+  /**
+   * With this method, you can also specify \e physical_payload_hint, the
+   * physical size of the record's payload part. If you will later expand
+   * the payload of this record, giving a larger value will avoid record migration.
+   * Default value (and minimal value) is same as the initial payload_count.
+   */
+  ErrorCode   upsert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
+
+  /**
+   * @brief Upserts a new record without payload of the given key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Arbitrary length of key that is lexicographically (big-endian) evaluated.
+   * @param[in] key_length Byte size of key.
+   */
+  ErrorCode   upsert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length) ALWAYS_INLINE {
+      return upsert_record(context, key, key_length, CXX11_NULLPTR, 0U);
+  }
+
+  /**
+   * @brief Upserts a new record of the given primitive key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   * @param[in] payload Value to upsert.
+   * @param[in] payload_count Length of payload.
+   */
+  inline ErrorCode upsert_record_normalized(
+    thread::Thread* context,
+    KeySlice key,
+    const void* payload,
+    uint16_t payload_count) ALWAYS_INLINE {
+    return upsert_record_normalized(context, key, payload, payload_count, payload_count);
+  }
+
+  /**
+   * With this method, you can also specify \e physical_payload_hint.
+   */
+  ErrorCode   upsert_record_normalized(
+    thread::Thread* context,
+    KeySlice key,
+    const void* payload,
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
+
+  /**
+   * @brief Upserts a new record without payload of the given primitive key in this Masstree.
+   * @param[in] context Thread context
+   * @param[in] key Primitive key that is evaluated in the primitive type's comparison rule.
+   */
+  ErrorCode   upsert_record_normalized(thread::Thread* context, KeySlice key) ALWAYS_INLINE {
+    return upsert_record_normalized(context, key, CXX11_NULLPTR, 0U);
+  }
+
   // overwrite_record() methods
 
   /**

@@ -365,7 +365,11 @@ ErrorStack expand_task(const proc::ProcArguments& args) {
     } else {
       // in this case we move an active record, using upsert
       CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-      // CHECK_ERROR(storage.upsert_record(context, &kKey, sizeof(kKey), data, len));
+      if (inputs->normalized_case_) {
+        CHECK_ERROR(storage.upsert_record_normalized(context, kKeyNormalized, data, len));
+      } else {
+        CHECK_ERROR(storage.upsert_record(context, kKey.data(), kKey.size(), data, len));
+      }
       CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
     }
 
@@ -434,8 +438,8 @@ void test_expand(bool update_case, bool normalized) {
 
 TEST(MasstreeBasicTest, ExpandInsert) { test_expand(false, false); }
 TEST(MasstreeBasicTest, ExpandInsertNormalized) { test_expand(false, true); }
-// TEST(MasstreeBasicTest, ExpandUpdate) { test_expand(true, false); }
-// TEST(MasstreeBasicTest, ExpandUpdateNormalized) { test_expand(true, true); }
+TEST(MasstreeBasicTest, ExpandUpdate) { test_expand(true, false); }
+TEST(MasstreeBasicTest, ExpandUpdateNormalized) { test_expand(true, true); }
 // TASK(Hideaki): we don't have multi-thread cases here. it's not a "basic" test.
 // no multi-key cases either. we have to make sure the keys hit the same bucket..
 

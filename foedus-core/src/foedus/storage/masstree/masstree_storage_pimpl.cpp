@@ -1101,6 +1101,60 @@ ErrorCode MasstreeStoragePimpl::delete_general(
     log_entry);
 }
 
+ErrorCode MasstreeStoragePimpl::upsert_general(
+  thread::Thread* context,
+  MasstreeBorderPage* border,
+  uint8_t index,
+  xct::XctId observed,
+  const void* be_key,
+  uint16_t key_length,
+  const void* payload,
+  uint16_t payload_count) {
+  // Upsert is a combination of what insert does and what delete does.
+  // If there isn't an existing physical record, it's exactly same as insert.
+  // If there is, it's _basically_ a delete followed by an insert.
+  // There are a few complications, depending on the status of the record.
+  CHECK_ERROR_CODE(check_next_layer_bit(observed));
+
+  // as of reserve_record() it was spacious enough, and this length is
+  // either immutable or only increases, so this must hold.
+  ASSERT_ND(border->get_max_payload_length(index) >= payload_count);
+
+  MasstreeCommonLogType* common_log;
+  if (observed.is_deleted()) {
+    // If it's a deleted record, this turns to be a plain insert.
+    uint16_t log_length = MasstreeInsertLogType::calculate_log_length(key_length, payload_count);
+    MasstreeInsertLogType* log_entry = reinterpret_cast<MasstreeInsertLogType*>(
+      context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(
+      get_id(),
+      be_key,
+      key_length,
+      payload,
+      payload_count);
+    common_log = log_entry;
+  } else {
+    // If not, this is an update operation.
+    uint16_t log_length = MasstreeUpdateLogType::calculate_log_length(key_length, payload_count);
+    MasstreeUpdateLogType* log_entry = reinterpret_cast<MasstreeUpdateLogType*>(
+      context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(
+      get_id(),
+      be_key,
+      key_length,
+      payload,
+      payload_count);
+    common_log = log_entry;
+  }
+  border->header().stat_last_updater_node_ = context->get_numa_node();
+
+  return context->get_current_xct().add_to_read_and_write_set(
+    get_id(),
+    observed,
+    border->get_owner_id(index),
+    border->get_record(index),
+    common_log);
+}
 ErrorCode MasstreeStoragePimpl::overwrite_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
