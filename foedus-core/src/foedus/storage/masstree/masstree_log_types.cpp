@@ -70,6 +70,16 @@ std::ostream& operator<<(std::ostream& o, const MasstreeDeleteLogType& v) {
   return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const MasstreeUpdateLogType& v) {
+  o << "<MasstreeUpdateLogType>"
+    << "<key_length_>" << v.key_length_ << "</key_length_>"
+    << "<key_>" << assorted::Top(v.get_key(), v.key_length_) << "</key_>"
+    << "<payload_count_>" << v.payload_count_ << "</payload_count_>"
+    << "<payload_>" << assorted::Top(v.get_payload(), v.payload_count_) << "</payload_>"
+    << "</MasstreeUpdateLogType>";
+  return o;
+}
+
 std::ostream& operator<<(std::ostream& o, const MasstreeOverwriteLogType& v) {
   o << "<MasstreeOverwriteLog>"
     << "<key_length_>" << v.key_length_ << "</key_length_>"

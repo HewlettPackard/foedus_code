@@ -218,6 +218,16 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo);
 
+  /** @see foedus::storage::hash::HashStorage::upsert_record() */
+  ErrorCode upsert_record(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    const void* payload,
+    uint16_t payload_count,
+    uint16_t physical_payload_hint);
+
   /** @see foedus::storage::hash::HashStorage::overwrite_record() */
   ErrorCode overwrite_record(
     thread::Thread* context,

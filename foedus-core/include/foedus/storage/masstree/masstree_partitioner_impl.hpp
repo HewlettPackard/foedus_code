@@ -225,6 +225,7 @@ inline const MasstreeCommonLogType* resolve_log(
     log_buffer.resolve(pos));
   ASSERT_ND(rec->header_.get_type() == log::kLogCodeMasstreeInsert
     || rec->header_.get_type() == log::kLogCodeMasstreeDelete
+    || rec->header_.get_type() == log::kLogCodeMasstreeUpdate
     || rec->header_.get_type() == log::kLogCodeMasstreeOverwrite);
   return rec;
 }

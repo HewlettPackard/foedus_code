@@ -302,11 +302,13 @@ void MasstreeBorderPage::initialize_layer_root(
   KeySlice new_slice = slice_key(parent_record, remaining);
   uint16_t payload_length = copy_from->payload_length_[copy_index];
   uint8_t suffix_length_aligned = calculate_suffix_length_aligned(remaining);
+  DataOffset record_size = calculate_record_size(remaining, payload_length) >> 4;
 
   slices_[0] = new_slice;
   remaining_key_length_[0] = remaining;
+  physical_record_size_[0] = record_size;
   payload_length_[0] = payload_length;
-  offsets_[0] = (kDataSize - calculate_record_size(remaining, payload_length)) >> 4;
+  offsets_[0] = (kDataSize >> 4) - record_size;
   consecutive_inserts_ = true;
 
   // use the same xct ID. This means we also inherit deleted flag.
@@ -353,11 +355,17 @@ ErrorCode MasstreeBorderPage::split_foster(
   thread::Thread* context,
   KeySlice trigger,
   MasstreeBorderPage** target,
-  xct::McsBlockIndex *target_lock) {
+  xct::McsBlockIndex *target_lock,
+  uint16_t record_to_expand,
+  uint16_t payload_expand_hint) {
   ASSERT_ND(!header_.snapshot_);
   ASSERT_ND(is_locked());
   ASSERT_ND(!is_moved());
   ASSERT_ND(foster_twin_[0].is_null() && foster_twin_[1].is_null());  // same as !is_moved()
+  ASSERT_ND(record_to_expand <= kMaxKeys);
+  bool expand_record = (record_to_expand < kMaxKeys);
+  ASSERT_ND(!expand_record || payload_expand_hint > get_max_payload_length(record_to_expand));
+  ASSERT_ND(!expand_record || record_to_expand < get_key_count());
   *target_lock = 0;
   debugging::RdtscWatch watch;
 
@@ -369,6 +377,8 @@ ErrorCode MasstreeBorderPage::split_foster(
 
   // from now on no failure possible.
   BorderSplitStrategy strategy = split_foster_decide_strategy(key_count, trigger);
+  ASSERT_ND(get_low_fence() <= strategy.mid_slice_);
+  ASSERT_ND(strategy.mid_slice_ <= get_high_fence());
   MasstreeBorderPage* twin[2];
   xct::McsBlockIndex twin_locks[2];
   for (int i = 0; i < 2; ++i) {
@@ -387,7 +397,7 @@ ErrorCode MasstreeBorderPage::split_foster(
     ASSERT_ND(twin[i]->is_locked());
   }
   xct::McsBlockIndex head_lock = split_foster_lock_existing_records(context, key_count);
-  if (strategy.no_record_split_) {
+  if (strategy.no_record_split_ && !expand_record) {
     // in this case, we can move all records in one memcpy.
     // copy everything from the end of header to the end of page
     std::memcpy(
@@ -406,11 +416,15 @@ ErrorCode MasstreeBorderPage::split_foster(
     twin[0]->split_foster_migrate_records(
       *this,
       key_count,
+      record_to_expand,
+      payload_expand_hint,
       strategy.smallest_slice_,
       strategy.mid_slice_ - 1);  // to make it inclusive
     twin[1]->split_foster_migrate_records(
       *this,
       key_count,
+      record_to_expand,
+      payload_expand_hint,
       strategy.mid_slice_,
       strategy.largest_slice_);  // this is inclusive (to avoid supremum hassles)
   }
@@ -624,83 +638,177 @@ xct::McsBlockIndex MasstreeBorderPage::split_foster_lock_existing_records(
 void MasstreeBorderPage::split_foster_migrate_records(
   const MasstreeBorderPage& copy_from,
   uint8_t key_count,
+  uint16_t record_to_expand,
+  uint16_t payload_expand_hint,
   KeySlice inclusive_from,
   KeySlice inclusive_to) {
   ASSERT_ND(get_key_count() == 0);
   uint8_t migrated_count = 0;
   uint16_t unused_space = kDataSize;
-  // utilize the fact that records grow backwards.
-  // memcpy contiguous records as much as possible
-  uint16_t contiguous_copy_size = 0;
-  uint16_t contiguous_copy_to_begin = 0;
-  uint16_t contiguous_copy_from_begin = 0;
   bool sofar_consecutive = true;
-  for (uint8_t i = 0; i < key_count; ++i) {
-    if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
+  bool expand_record
+    = (record_to_expand != kMaxKeys
+      && copy_from.get_slice(record_to_expand) >= inclusive_from
+      && copy_from.get_slice(record_to_expand) <= inclusive_to);
+
+  if (!expand_record) {
+    // Usual migration after split.
+    // utilize the fact that records grow backwards.
+    // memcpy contiguous records as much as possible
+    uint16_t contiguous_copy_size = 0;
+    uint16_t contiguous_copy_to_begin = 0;
+    uint16_t contiguous_copy_from_begin = 0;
+    for (uint8_t i = 0; i < key_count; ++i) {
+      if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
+        // move this record.
+        slices_[migrated_count] = copy_from.slices_[i];
+        const uint8_t remaining_key_len = copy_from.remaining_key_length_[i];
+        remaining_key_length_[migrated_count] = remaining_key_len;
+        payload_length_[migrated_count] = copy_from.payload_length_[i];
+        owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
+        owner_ids_[migrated_count].lock_.reset();
+        if (sofar_consecutive && migrated_count > 0 &&
+            (slices_[migrated_count - 1] > slices_[migrated_count] ||
+              (slices_[migrated_count - 1] == slices_[migrated_count] &&
+              remaining_key_length_[migrated_count - 1] > remaining_key_len))) {
+          sofar_consecutive = false;
+        }
+
+        uint16_t record_length = sizeof(DualPagePointer);
+        if (remaining_key_len != kKeyLengthNextLayer) {
+          record_length = calculate_record_size(remaining_key_len, payload_length_[migrated_count]);
+        }
+        ASSERT_ND(unused_space >= record_length);
+        ASSERT_ND(record_length % 16U == 0);
+        physical_record_size_[migrated_count] = record_length / 16U;
+        unused_space -= record_length;
+        offsets_[migrated_count] = unused_space >> 4;
+
+        uint16_t copy_from_begin = static_cast<uint16_t>(copy_from.offsets_[i]) << 4;
+        if (contiguous_copy_size == 0) {
+          contiguous_copy_size = record_length;
+          contiguous_copy_from_begin = copy_from_begin;
+          contiguous_copy_to_begin = unused_space;
+        } else if (contiguous_copy_from_begin - record_length != copy_from_begin) {
+          // this happens when the record has shrunk (eg now points to next layer).
+          // flush contiguous data.
+          ASSERT_ND(contiguous_copy_from_begin - record_length > copy_from_begin);
+          std::memcpy(
+            data_ + contiguous_copy_to_begin,
+            copy_from.data_ + contiguous_copy_from_begin,
+            contiguous_copy_size);
+          contiguous_copy_size = record_length;
+          contiguous_copy_from_begin = copy_from_begin;
+          contiguous_copy_to_begin = unused_space;
+        } else {
+          ASSERT_ND(contiguous_copy_from_begin - record_length == copy_from_begin);
+          ASSERT_ND(contiguous_copy_to_begin >= record_length);
+          contiguous_copy_size += record_length;
+          contiguous_copy_from_begin = copy_from_begin;
+          contiguous_copy_to_begin -= record_length;
+        }
+        ++migrated_count;
+      } else {
+        // oh, we didn't copy this record, so the contiguity is broken. do the copy now.
+        if (contiguous_copy_size > 0U) {
+          std::memcpy(
+            data_ + contiguous_copy_to_begin,
+            copy_from.data_ + contiguous_copy_from_begin,
+            contiguous_copy_size);
+          contiguous_copy_size = 0;
+        }
+      }
+    }
+    // after all, do the copy now.
+    if (contiguous_copy_size > 0U) {
+      std::memcpy(
+        data_ + contiguous_copy_to_begin,
+        copy_from.data_ + contiguous_copy_from_begin,
+        contiguous_copy_size);
+    }
+  } else {
+    // Special migration for expanding record.
+    // These two cases will be merged once we change page layout.
+    ASSERT_ND(record_to_expand < key_count);
+    ASSERT_ND(!copy_from.does_point_to_layer(record_to_expand));
+
+    // First, can we expand that much? If not, we can just expand as much as possible.
+    // In that case, the caller will re-split.
+    uint16_t record_length_total = 0;
+    for (uint8_t i = 0; i < key_count; ++i) {
+      if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
+        record_length_total += copy_from.physical_record_size_[i] * 16U;
+      }
+    }
+    uint16_t cur_max = copy_from.get_max_payload_length(record_to_expand);
+    ASSERT_ND(cur_max < payload_expand_hint);
+    uint16_t additional_bytes = assorted::align16(payload_expand_hint - cur_max);
+
+    DVLOG(2) << "record_length_total=" << record_length_total
+      << ", cur_max=" << cur_max << ", additional_bytes=" << additional_bytes;
+
+    uint16_t expanded_payload = payload_expand_hint;
+    if (record_length_total + additional_bytes > kDataSize) {
+      // This is quite unfortunate, but it might happen.
+      uint16_t compromised_additional_bytes = kDataSize - record_length_total;
+      LOG(WARNING) << "One page split is not enough to complete this record-expansion."
+        << " We will have to split this page again. record_length_total=" << record_length_total
+        << ", cur_max=" << cur_max << ", additional_bytes=" << additional_bytes << ", "
+        << "compromised_additional_bytes=" << compromised_additional_bytes;
+      expanded_payload = cur_max + compromised_additional_bytes;
+    }
+
+    for (uint8_t i = 0; i < key_count; ++i) {
+      if (copy_from.slices_[i] < inclusive_from || copy_from.slices_[i] > inclusive_to) {
+        continue;
+      }
+
       // move this record.
       slices_[migrated_count] = copy_from.slices_[i];
-      remaining_key_length_[migrated_count] = copy_from.remaining_key_length_[i];
+      const uint8_t remaining_key_len = copy_from.remaining_key_length_[i];
+      remaining_key_length_[migrated_count] = remaining_key_len;
       payload_length_[migrated_count] = copy_from.payload_length_[i];
       owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
       owner_ids_[migrated_count].lock_.reset();
       if (sofar_consecutive && migrated_count > 0 &&
           (slices_[migrated_count - 1] > slices_[migrated_count] ||
             (slices_[migrated_count - 1] == slices_[migrated_count] &&
-            remaining_key_length_[migrated_count - 1] > remaining_key_length_[migrated_count]))) {
+            remaining_key_length_[migrated_count - 1] > remaining_key_len))) {
         sofar_consecutive = false;
       }
 
-      uint16_t record_length = sizeof(DualPagePointer);
-      if (remaining_key_length_[migrated_count] != kKeyLengthNextLayer) {
-        record_length = calculate_record_size(
-          remaining_key_length_[migrated_count],
-          payload_length_[migrated_count]);
+      uint16_t original_record_length;
+      uint16_t new_record_length;
+      if (i == record_to_expand) {
+        ASSERT_ND(payload_expand_hint > copy_from.payload_length_[i]);
+        ASSERT_ND(payload_expand_hint > copy_from.get_max_payload_length(i));
+        original_record_length = calculate_record_size(
+            remaining_key_len,
+            copy_from.payload_length_[i]);
+        new_record_length = calculate_record_size(remaining_key_len, expanded_payload);
+      } else {
+        if (remaining_key_len != kKeyLengthNextLayer) {
+          original_record_length = calculate_record_size(
+            remaining_key_len,
+            copy_from.payload_length_[i]);
+        } else {
+          original_record_length = sizeof(DualPagePointer);
+        }
+        new_record_length = original_record_length;
       }
-      ASSERT_ND(unused_space >= record_length);
-      unused_space -= record_length;
+
+      ASSERT_ND(unused_space >= new_record_length);
+      ASSERT_ND(new_record_length % 16U == 0);
+      physical_record_size_[migrated_count] = new_record_length / 16U;
+      unused_space -= new_record_length;
       offsets_[migrated_count] = unused_space >> 4;
 
-      uint16_t copy_from_begin = static_cast<uint16_t>(copy_from.offsets_[i]) << 4;
-      if (contiguous_copy_size == 0) {
-        contiguous_copy_size = record_length;
-        contiguous_copy_from_begin = copy_from_begin;
-        contiguous_copy_to_begin = unused_space;
-      } else if (contiguous_copy_from_begin - record_length != copy_from_begin) {
-        // this happens when the record has shrunk (eg now points to next layer).
-        // flush contiguous data.
-        ASSERT_ND(contiguous_copy_from_begin - record_length > copy_from_begin);
-        std::memcpy(
-          data_ + contiguous_copy_to_begin,
-          copy_from.data_ + contiguous_copy_from_begin,
-          contiguous_copy_size);
-        contiguous_copy_size = record_length;
-        contiguous_copy_from_begin = copy_from_begin;
-        contiguous_copy_to_begin = unused_space;
-      } else {
-        ASSERT_ND(contiguous_copy_from_begin - record_length == copy_from_begin);
-        ASSERT_ND(contiguous_copy_to_begin >= record_length);
-        contiguous_copy_size += record_length;
-        contiguous_copy_from_begin = copy_from_begin;
-        contiguous_copy_to_begin -= record_length;
-      }
+      std::memcpy(
+        data_ + offsets_[migrated_count] * 16U,
+        copy_from.data_ + copy_from.offsets_[i] * 16U,
+        std::min<uint16_t>(new_record_length, original_record_length));
       ++migrated_count;
-    } else {
-      // oh, we didn't copy this record, so the contiguity is broken. do the copy now.
-      if (contiguous_copy_size > 0U) {
-        std::memcpy(
-          data_ + contiguous_copy_to_begin,
-          copy_from.data_ + contiguous_copy_from_begin,
-          contiguous_copy_size);
-        contiguous_copy_size = 0;
-      }
     }
-  }
-  // after all, do the copy now.
-  if (contiguous_copy_size > 0U) {
-    std::memcpy(
-      data_ + contiguous_copy_to_begin,
-      copy_from.data_ + contiguous_copy_from_begin,
-      contiguous_copy_size);
   }
 
   set_key_count(migrated_count);
@@ -1115,6 +1223,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       return kErrorCodeOk;
     }
 
+
     // TASK(Hideaki) let's make this a function.
     KeySlice separator_low;
     KeySlice separator_high;
@@ -1140,6 +1249,55 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
       return kErrorCodeOk;
     }
+  }
+
+  // When we are splitting a page just to compact/expand records,
+  // it's possible that one of the foster children have empty range (low-fence==high-fence)
+  // In such a case, adoption is trivial; just replace the current pointer with non-empty one.
+  if (UNLIKELY(child->get_low_fence() == child->get_foster_fence())
+    || UNLIKELY(child->get_high_fence() == child->get_foster_fence())) {
+    VLOG(0) << "Adopting from a child page that contains an empty-range page. This happens when"
+      << " record compaction/expansion created a page without a record.";
+
+    PageVersionLockScope scope_child(context, child->get_version_address());
+    if (child->get_version().is_retired()) {
+      VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
+      return kErrorCodeOk;  // retry
+    }
+
+    VolatilePagePointer nonempty_grandchild_pointer;
+    MasstreePage* empty_grandchild;
+    if (child->get_low_fence() == child->get_foster_fence()) {
+      nonempty_grandchild_pointer = child->get_foster_major();
+      empty_grandchild
+        = context->resolve_cast<MasstreePage>(child->get_foster_minor());
+    } else {
+      nonempty_grandchild_pointer = child->get_foster_minor();
+      empty_grandchild
+        = context->resolve_cast<MasstreePage>(child->get_foster_major());
+    }
+    ASSERT_ND(empty_grandchild->get_low_fence() == empty_grandchild->get_high_fence());
+
+    minipage.pointers_[pointer_index].volatile_pointer_ = nonempty_grandchild_pointer;
+    assorted::memory_fence_release();
+
+    scope_child.set_changed();
+    child->set_retired();
+
+    // The only thread that might be retiring this empty page must be in this function,
+    // holding a page-lock in scope_child. Thus we don't need a lock in empty_grandchild.
+    ASSERT_ND(!empty_grandchild->is_locked());  // none else holding lock on it
+    // and we can safely retire the page. We do not use set_retired because is_moved() is false
+    // It's a special retirement path.
+    empty_grandchild->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
+    context->collect_retired_volatile_page(
+      construct_volatile_page_pointer(empty_grandchild->header().page_id_));
+
+    context->collect_retired_volatile_page(
+      construct_volatile_page_pointer(child->header().page_id_));
+
+    verify_separators();
+    return kErrorCodeOk;
   }
 
   if (minipage.key_count_ == kMaxIntermediateMiniSeparators) {
@@ -1226,6 +1384,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     }
 
     ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
+    ASSERT_ND(pointer_index == 0 || minipage.separators_[pointer_index - 1] < new_separator);
     minipage.separators_[pointer_index] = new_separator;
     minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
     minipage.pointers_[pointer_index + 1].volatile_pointer_ = major_pointer;

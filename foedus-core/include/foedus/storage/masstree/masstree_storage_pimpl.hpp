@@ -146,11 +146,33 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     uint8_t* record_index,
     xct::XctId* observed);
 
+  /**
+   * Runs a system transaction to migrate the record to a foster child,
+   * expanding the record to contain at least physical_payload_hint payload.
+   * When this method returns without an error, it is guaranteed that
+   * there are new foster children that contains an expanded record.
+   * However, it might not be enough to split just once to reserve a record
+   * with the given size when it is large. In that case the caller must re-try.
+   * @pre border->is_locked() by this thread. We receive lock_scope just to enforce that.
+   * @pre !border->is_moved(), so we can split this page.
+   * @pre border->get_max_payload_length(record_index) < payload_count. Otherwise why called.
+   * @pre !border->does_point_to_layer(record_index).
+   * @post border->is_moved()
+   */
+  ErrorCode expand_record(
+    thread::Thread* context,
+    uint16_t payload_count,
+    uint16_t physical_payload_hint,
+    MasstreeBorderPage* border,
+    uint8_t record_index,
+    PageVersionLockScope* lock_scope);
+
   ErrorCode reserve_record(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     uint16_t payload_count,
+    uint16_t physical_payload_hint,
     MasstreeBorderPage** out_page,
     uint8_t* record_index,
     xct::XctId* observed);
@@ -158,6 +180,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     thread::Thread* context,
     KeySlice key,
     uint16_t payload_count,
+    uint16_t physical_payload_hint,
     MasstreeBorderPage** out_page,
     uint8_t* record_index,
     xct::XctId* observed);
@@ -217,6 +240,17 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     xct::XctId observed,
     const void* be_key,
     uint16_t key_length);
+
+  /** implementation of upsert_record family. use with \b reserve_record() */
+  ErrorCode upsert_general(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    uint8_t index,
+    xct::XctId observed,
+    const void* be_key,
+    uint16_t key_length,
+    const void* payload,
+    uint16_t payload_count);
 
   /** implementation of overwrite_record family. use with locate_record()  */
   ErrorCode overwrite_general(

@@ -6,7 +6,7 @@ set(test_hash_basic_individuals
   Overwrite
   CreateAndDrop
   ExpandInsert
-#  ExpandUpdate
+  ExpandUpdate
   )
 add_foedus_test_individual(test_hash_basic "${test_hash_basic_individuals}")
 

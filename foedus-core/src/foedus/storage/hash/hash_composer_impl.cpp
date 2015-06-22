@@ -571,6 +571,14 @@ ErrorCode HashComposeContext::apply_batch(uint64_t cur, uint64_t next) {
           hash,
           log->get_payload(),
           log->payload_count_));
+      } else if (log->header_.get_type() == log::kLogCodeHashUpdate) {
+        CHECK_ERROR_CODE(cur_bin_table_.update_record(
+          log->header_.xct_id_,
+          log->get_key(),
+          log->key_length_,
+          hash,
+          log->get_payload(),
+          log->payload_count_));
       } else {
         ASSERT_ND(log->header_.get_type() == log::kLogCodeHashDelete);
         CHECK_ERROR_CODE(cur_bin_table_.delete_record(
