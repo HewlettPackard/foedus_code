@@ -449,6 +449,7 @@ void prepare_sort_entries(const Partitioner::SortBatchArguments& args, SortEntry
       args.log_buffer_.resolve(args.log_positions_[i]));
     ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeMasstreeInsert
       || log_entry->header_.log_type_code_ == log::kLogCodeMasstreeDelete
+      || log_entry->header_.log_type_code_ == log::kLogCodeMasstreeUpdate
       || log_entry->header_.log_type_code_ == log::kLogCodeMasstreeOverwrite);
     ASSERT_ND(log_entry->key_length_ == sizeof(KeySlice));
     Epoch epoch = log_entry->header_.xct_id_.get_epoch();

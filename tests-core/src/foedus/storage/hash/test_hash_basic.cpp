@@ -268,10 +268,9 @@ ErrorStack expand_task_impl(const proc::ProcArguments& args, bool update_case) {
       CHECK_ERROR(hash.insert_record(context, &kKey, sizeof(kKey), data, len));
       CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
     } else {
-      // in this case we move an active record, using update
+      // in this case we move an active record, using upsert
       CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-      // CHECK_ERROR(hash.update_record(context, &kKey, sizeof(kKey), data, len));
-      // TASK(Hideaki): implement update_record
+      CHECK_ERROR(hash.upsert_record(context, &kKey, sizeof(kKey), data, len));
       CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
     }
 
@@ -330,7 +329,7 @@ void test_expand(bool update_case) {
 }
 
 TEST(HashBasicTest, ExpandInsert) { test_expand(false); }
-// TEST(HashBasicTest, ExpandUpdate) { test_expand(true); }
+TEST(HashBasicTest, ExpandUpdate) { test_expand(true); }
 // TASK(Hideaki): we don't have multi-thread cases here. it's not a "basic" test.
 // no multi-key cases either. we have to make sure the keys hit the same bucket..
 

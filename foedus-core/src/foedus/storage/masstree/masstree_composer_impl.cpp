@@ -424,6 +424,8 @@ ErrorStack MasstreeComposeContext::execute() {
           CHECK_ERROR(execute_insert_group(cur, cur + group.count_));
         } else if (log_type == log::kLogCodeMasstreeDelete) {
           CHECK_ERROR(execute_delete_group(cur, cur + group.count_));
+        } else if (log_type == log::kLogCodeMasstreeUpdate) {
+          CHECK_ERROR(execute_update_group(cur, cur + group.count_));
         } else {
           ASSERT_ND(log_type == log::kLogCodeMasstreeOverwrite);
           CHECK_ERROR(execute_overwrite_group(cur, cur + group.count_));
@@ -448,63 +450,228 @@ ErrorStack MasstreeComposeContext::execute() {
 }
 
 ErrorStack MasstreeComposeContext::execute_same_key_group(uint32_t from, uint32_t to) {
-  // before everything else, we look for delete-log, which nullifies all logs before it.
-  bool observed_insert_log = false;
-  bool processed_deletion = false;  // just for sanity check
-  uint32_t processed_count = 0;
-  for (uint32_t i = from; i < to; ++i) {
+  if (from == to) {
+    return kRetOk;
+  }
+  // As these logs are on the same key, we check which logs can be nullified.
+
+  // Let's say I:Insert, U:Update, D:Delete, O:Overwrite
+  // overwrite: this is the easiest one that is nullified by following delete/update.
+  // insert: if there is following delete, everything in-between disappear, including insert/delete.
+  // update: nullified by following delete/update
+  // delete: strongest. never nullified except the insert-delete pairing.
+
+  // Merge rule 1: delete+insert in a row can be converted into one update
+  // because update is delete+insert. Here, we ignore delete log and change insert log to update.
+  // Merge rule 2: insert+update in a row can be converted into one insert
+
+  // As a consequence, we can compact every sequence of logs for the same key into:
+  // - Special case. One delete, nothing else. The old page contains a record of the key.
+  // - Case A. The old page contains a record of the key:
+  //   Zero or one update, followed by zero or more overwrites ("[U]?O*").
+  // - Case B. The old page does not contain a record of the key:
+  //   One insert, followed by zero or one update, followed by zero or more overwrites ("I[U]?O*").
+
+  // Conversion examples..
+  // Case A1: OODIOUO => DIOUO (nullified everything before D)
+  //                  => UOUO (DI -> U conversion)
+  //                  => UUO (nullified O before U)
+  //                  => UO (nullified U before U)
+  // Case A2: OODIOUOD => D (nullified everything before D)
+  // Case B1: IUUDIOU => IOU (I and D cancel each other)
+  //                  => IU (nullified O before U)
+  // Case B2: IOUODID => ID (I and D cancel each other)
+  //                  => <empty> (I and D cancel each other)
+
+
+  // Iff it starts with an insert, the old page doesn't have a record of the key.
+  const bool starts_with_insert
+    = (merge_sort_->get_log_type_from_sort_position(from) == log::kLogCodeMasstreeInsert);
+
+  // Index of non-nullified delete. if this is != to, it's the special case above.
+  // Thus, this value must be "to - 1" in that case.
+  uint32_t last_active_delete = to;
+  // First, look for the last delete. It determines many things if exists.
+  ASSERT_ND(to > 0);
+  for (uint32_t i = static_cast<uint32_t>(to - 1); i >= from; ++i) {
     log::LogCode log_type = merge_sort_->get_log_type_from_sort_position(i);
-    if (log_type == log::kLogCodeMasstreeInsert) {
-      ASSERT_ND(observed_insert_log == false);
-      observed_insert_log = true;
-      processed_deletion = false;
-    } else if (log_type == log::kLogCodeMasstreeDelete) {
-      // bingo! we can ignore everything before this.
-      // 1) if there is an insert-log before this, we don't have to even look at the data page.
-      // the insert-log (and overwrite-logs after that) and delete-log cancel each other.
-      // 2) if there is not an insert-log, we process the deletion as usual.
-      if (observed_insert_log) {
-        observed_insert_log = false;  // case 1)
-      } else {
-        CHECK_ERROR(execute_a_log(i));  // case 2)
+    if (log_type == log::kLogCodeMasstreeDelete) {
+      ASSERT_ND(last_active_delete == to);
+      last_active_delete = i;
+      // Okay, found a delete. Everything before this will be nullified.
+
+#ifndef NDEBUG
+      // Let's do sanity check. Is it consistent with the number of preceding inserts/deletes?
+      uint32_t insert_count = 0;
+      uint32_t delete_count = 0;
+      for (uint32_t j = from; j < i; ++j) {
+        log::LogCode log_type_j = merge_sort_->get_log_type_from_sort_position(j);
+        switch (log_type_j) {
+        case log::kLogCodeMasstreeInsert:
+          ASSERT_ND((starts_with_insert && insert_count == delete_count)
+            || (!starts_with_insert && insert_count + 1U == delete_count));
+          ++insert_count;
+          break;
+        case log::kLogCodeMasstreeDelete:
+          ASSERT_ND((!starts_with_insert && insert_count == delete_count)
+            || (starts_with_insert && insert_count == delete_count + 1U));
+          ++delete_count;
+          break;
+        default:
+          ASSERT_ND(log_type_j == log::kLogCodeMasstreeUpdate
+            || log_type_j == log::kLogCodeMasstreeOverwrite);
+          ASSERT_ND((!starts_with_insert && insert_count == delete_count)
+            || (starts_with_insert && insert_count == delete_count + 1U));
+          break;
+        }
       }
-      ASSERT_ND(!processed_deletion);
-      processed_deletion = true;   // thus, this can be followed only by insertion
-      processed_count = i + 1U - from;
-    } else {
-      ASSERT_ND(log_type == log::kLogCodeMasstreeOverwrite);
-      ASSERT_ND(!processed_deletion);  // if so, we are sure the key doesn't exist!
+
+      // it ends with a delete, so there must be something to delete.
+      ASSERT_ND((!starts_with_insert && insert_count == delete_count)
+        || (starts_with_insert && insert_count == delete_count + 1U));
+#endif  // NDEBUG
+
+      break;
     }
   }
 
-  ASSERT_ND(processed_count + from <= to);
-  if (processed_count + from == to) {
-    DVLOG(1) << "yay, same-key-group completely eliminated a group of "
-      << processed_count << " logs";
+  // Index of non-nullified insert. if this is != to, it's always case B and all other active logs
+  // are after this.
+  uint32_t last_active_insert = to;
+  // Whether the last active insert is a "merged" insert, meaning an update
+  // following an insert. In this case, we treat the update-log as if it's an insert log.
+  bool is_last_active_insert_merged = false;
+
+  // Index of non-nullified update. if this is != to, all active overwrite logs are after this.
+  uint32_t last_active_update = to;
+  // Whether the last active update is a "merged" update, meaning an insert
+  // following a delete. In this case, we treat the insert-log as if it's an update log.
+  bool is_last_active_update_merged = false;
+
+  uint32_t next_to_check = from;
+  if (last_active_delete != to) {
+    ASSERT_ND(last_active_delete >= from && last_active_delete < to);
+    if (last_active_delete + 1U == to) {
+      // This delete concludes the series of logs. Great!
+      if (starts_with_insert) {
+        DVLOG(1) << "yay, same-key-group completely eliminated a group of "
+          << (to - from) << " logs";
+        // TASK(Hideaki) assertion to check if the old snapshot doesn't contain this key.
+      } else {
+        DVLOG(1) << "yay, same-key-group compressed " << (to - from) << " logs into a delete";
+        CHECK_ERROR(execute_a_log(last_active_delete));
+      }
+
+      return kRetOk;
+    } else {
+      // The only possible log right after delete is insert.
+      uint32_t next = last_active_delete + 1U;
+      log::LogCode next_type = merge_sort_->get_log_type_from_sort_position(next);
+      ASSERT_ND(next_type == log::kLogCodeMasstreeInsert);
+
+      if (starts_with_insert) {
+        // I...DI,,,
+        // We are sure the ... has the same number of I/D.
+        // So, we just cancel them each other, turning into I,,,
+        DVLOG(2) << "I and D cancelled each other. from=" << from
+          << " delete at=" << last_active_delete;
+        last_active_insert = next;
+      } else {
+        // ...DI,,,
+        // In ..., #-of-I == #-of-D
+        // Now the merge rule 1 applies. D+I => U, turning into U,,,
+        DVLOG(2) << "D+I merged into U. from=" << from << " delete at=" << last_active_delete;
+        last_active_update = next;
+        is_last_active_update_merged = true;
+      }
+      next_to_check = next + 1U;
+      last_active_delete = to;
+    }
+  }
+
+  // From now on, we are sure there is no more delete or insert.
+  // We just look for updates, which can nullify or merge into other operations.
+  ASSERT_ND(next_to_check >= from);
+  ASSERT_ND(last_active_delete == to);
+  for (uint32_t i = next_to_check; i < to; ++i) {
+    log::LogCode log_type = merge_sort_->get_log_type_from_sort_position(i);
+    ASSERT_ND(log_type != log::kLogCodeMasstreeInsert);
+    ASSERT_ND(log_type != log::kLogCodeMasstreeDelete);
+    if (log_type == log::kLogCodeMasstreeUpdate) {
+      // Update nullifies the preceding overwrite, and also merges with the preceding insert.
+      if (last_active_insert != to) {
+        DVLOG(2) << "U replaced all preceding I and O, turning into a new I. i=" << i;
+        ASSERT_ND(last_active_update == to);  // then it should have already merged
+        ASSERT_ND(!is_last_active_update_merged);
+        last_active_insert = i;
+        is_last_active_insert_merged = true;
+      } else {
+        DVLOG(2) << "U nullified all preceding O and U. i=" << i;
+        last_active_update = i;
+        is_last_active_update_merged = false;
+      }
+    } else {
+      // Overwrites are just skipped.
+      ASSERT_ND(log_type == log::kLogCodeMasstreeOverwrite);
+      ASSERT_ND(starts_with_insert || last_active_insert != to);
+    }
+  }
+
+  // After these conversions, the only remaining log patterns are:
+  //   a) "IO*"  : the data page doesn't have the key.
+  //   b) "U?O*" : the data page already has the key.
+  ASSERT_ND(last_active_delete == to);
+  uint32_t cur = from;
+  if (last_active_insert != to || last_active_update != to) {
+    // Process I/U separately. The I/U might be a merged one.
+    log::LogCode type_before_merge;
+    log::LogCode type_after_merge;
+    if (last_active_insert != to) {
+      ASSERT_ND(last_active_update == to);
+      ASSERT_ND(!is_last_active_update_merged);
+      type_after_merge = log::kLogCodeMasstreeInsert;
+      cur = last_active_insert;
+      if (is_last_active_insert_merged) {
+        type_before_merge = log::kLogCodeMasstreeUpdate;
+      } else {
+        type_before_merge = log::kLogCodeMasstreeInsert;
+      }
+    } else {
+      ASSERT_ND(!is_last_active_insert_merged);
+      type_after_merge = log::kLogCodeMasstreeUpdate;
+      cur = last_active_update;
+      if (is_last_active_update_merged) {
+        type_before_merge = log::kLogCodeMasstreeInsert;
+      } else {
+        type_before_merge = log::kLogCodeMasstreeUpdate;
+      }
+    }
+
+    ASSERT_ND(type_before_merge == merge_sort_->get_log_type_from_sort_position(cur));
+    if (type_after_merge != type_before_merge) {
+      DVLOG(2) << "Disguising log type for merge. cur=" << cur
+        << ", type_before_merge=" << type_before_merge << ", type_after_merge=" << type_after_merge;
+      // Change log type. Insert and Update have exactly same log layout, so it's safe.
+      merge_sort_->change_log_type_at(cur, type_before_merge, type_after_merge);
+    }
+
+    // Process the I/U as usual. This also makes sure that the tail-record is the key.
+  } else {
+    ASSERT_ND(log::kLogCodeMasstreeOverwrite == merge_sort_->get_log_type_from_sort_position(cur));
+    // All logs are overwrites.
+    // Even in this case, we must process the first log as usual so that
+    // the tail-record in the tail page points to the record.
+  }
+  ASSERT_ND(cur < to);
+  CHECK_ERROR(execute_a_log(cur));
+  ++cur;
+  if (cur == to) {
     return kRetOk;
   }
 
-  // after removing deletions, the only possible combinations are:
-  // a) insert-log at first, then all overwrite-logs after that. the data page doesn't have the key.
-  // b) all overwrite-logs. the data page already has the key.
-  if (observed_insert_log) {
-    // case a)
-    // process the first insertion as usual. after this, we are guaranteed to be at the key.
-    ASSERT_ND(merge_sort_->get_log_type_from_sort_position(from + processed_count)
-      == log::kLogCodeMasstreeInsert);
-  } else {
-    // case b)
-    // to simplify the code, process the first overwrite as usual to do seek.
-    // we could do a bit different thing, but performance is same if the group is large.
-    ASSERT_ND(merge_sort_->get_log_type_from_sort_position(from + processed_count)
-      == log::kLogCodeMasstreeOverwrite);
-  }
-
-  // in either case above, we process the first log as usual.
-  CHECK_ERROR(execute_a_log(from + processed_count));
-
-  // then process the remaining overwrites in a tight loop.
-  // we are sure the tail-record in the tail page points to the record.
+  // All the followings are overwrites.
+  // Process the remaining overwrites in a tight loop.
+  // We made sure sure the tail-record in the tail page points to the record.
   PathLevel* last = get_last_level();
   ASSERT_ND(get_page(last->tail_)->is_border());
   MasstreeBorderPage* page = as_border(get_page(last->tail_));
@@ -513,11 +680,28 @@ ErrorStack MasstreeComposeContext::execute_same_key_group(uint32_t from, uint32_
   uint16_t index = key_count - 1;
   ASSERT_ND(!page->does_point_to_layer(index));
   char* record = page->get_record(index);
-  for (uint32_t i = from + processed_count + 1U; i < to; ++i) {
+
+  for (uint32_t i = cur; i < to; ++i) {
     const MasstreeOverwriteLogType* casted =
       reinterpret_cast<const MasstreeOverwriteLogType*>(merge_sort_->resolve_sort_position(i));
     ASSERT_ND(casted->header_.get_type() == log::kLogCodeMasstreeOverwrite);
     ASSERT_ND(page->equal_key(index, casted->get_key(), casted->key_length_));
+
+    // Also, we look for a chance to ignore redundant overwrites.
+    // If next overwrite log covers the same or more data range, we can skip the log.
+    // Ideally, we should have removed such logs back in mappers.
+    if (i < to) {
+      const MasstreeOverwriteLogType* next =
+        reinterpret_cast<const MasstreeOverwriteLogType*>(
+          merge_sort_->resolve_sort_position(i + 1U));
+      if ((next->payload_offset_ <= casted->payload_offset_)
+        && (next->payload_offset_ + next->payload_count_
+          >= casted->payload_offset_ + casted->payload_count_)) {
+        DVLOG(3) << "Skipped redundant overwrites";
+        continue;
+      }
+    }
+
     casted->apply_record(nullptr, id_, page->get_owner_id(index), record);
   }
   return kRetOk;
@@ -832,6 +1016,14 @@ ErrorStack MasstreeComposeContext::execute_delete_group(uint32_t from, uint32_t 
   return kRetOk;
 }
 
+ErrorStack MasstreeComposeContext::execute_update_group(uint32_t from, uint32_t to) {
+  // TASK(Hideaki) batched impl. but this case is not common, so later, later..
+  for (uint32_t i = from; i < to; ++i) {
+    CHECK_ERROR(execute_a_log(i));
+  }
+  return kRetOk;
+}
+
 ErrorStack MasstreeComposeContext::execute_overwrite_group(uint32_t from, uint32_t to) {
   // TASK(Hideaki) batched impl
   for (uint32_t i = from; i < to; ++i) {
@@ -907,25 +1099,37 @@ inline ErrorStack MasstreeComposeContext::execute_a_log(uint32_t cur) {
     const MasstreeOverwriteLogType* casted
       = reinterpret_cast<const MasstreeOverwriteLogType*>(entry);
     casted->apply_record(nullptr, id_, page->get_owner_id(index), record);
-  } else if (entry->header_.get_type() == log::kLogCodeMasstreeDelete) {
-    // [Delete] Physically deletes the last record in this page.
-    uint16_t index = key_count - 1;
-    ASSERT_ND(!page->does_point_to_layer(index));
-    ASSERT_ND(page->equal_key(index, key, key_length));
-    page->set_key_count(index);
   } else {
-    // [Insert] next-layer is already handled above, so just append it.
-    ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeInsert);
-    ASSERT_ND(key_count == 0 || !page->equal_key(key_count - 1, key, key_length));  // no dup
-    uint16_t skip = last->layer_ * kSliceLen;
-    append_border(
-      slice,
-      entry->header_.xct_id_,
-      key_length - skip,
-      key + skip + kSliceLen,
-      entry->payload_count_,
-      entry->get_payload(),
-      last);
+    // DELETE/INSERT/UPDATE
+    ASSERT_ND(
+      entry->header_.get_type() == log::kLogCodeMasstreeDelete
+      || entry->header_.get_type() == log::kLogCodeMasstreeInsert
+      || entry->header_.get_type() == log::kLogCodeMasstreeUpdate);
+
+    if (entry->header_.get_type() == log::kLogCodeMasstreeDelete
+      || entry->header_.get_type() == log::kLogCodeMasstreeUpdate) {
+      // [Delete/Update] Physically deletes the last record in this page.
+      uint16_t index = key_count - 1;
+      ASSERT_ND(!page->does_point_to_layer(index));
+      ASSERT_ND(page->equal_key(index, key, key_length));
+      page->set_key_count(index);
+    }
+    // Notice that this is "if", not "else if". UPDATE = DELETE + INSERT.
+    if (entry->header_.get_type() == log::kLogCodeMasstreeInsert
+      || entry->header_.get_type() == log::kLogCodeMasstreeUpdate) {
+      // [Insert/Update] next-layer is already handled above, so just append it.
+      ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeInsert);
+      ASSERT_ND(key_count == 0 || !page->equal_key(key_count - 1, key, key_length));  // no dup
+      uint16_t skip = last->layer_ * kSliceLen;
+      append_border(
+        slice,
+        entry->header_.xct_id_,
+        key_length - skip,
+        key + skip + kSliceLen,
+        entry->payload_count_,
+        entry->get_payload(),
+        last);
+    }
   }
 
   CHECK_ERROR(flush_if_nearly_full());
