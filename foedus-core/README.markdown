@@ -69,6 +69,9 @@ adjust the number of hugepages as follows.
     # Change the number depending on hugepage size and required memory size.
     # The following command allocates 2GB if Hugepagesize is 2048 kB.
     sudo sh -c 'echo 1000 > /proc/sys/vm/nr_hugepages'
+    # 1000 is a minimal number. It's just for running testcases. Increase the number according your configuration.
+
+**CAUTION: PLEASE REMEMBER! THE ABOVE NUMBER IS TO JUST PASS TESTCASES. YOU MUST ALLOCATE MANY MORE HUGEPAGES DEPENDING ON YOUR CONFIGURATION. **
 
 Note that we no longer rely on transparent hugepages (THP), every hugepage allocation is via
 mmap and shmget. Thus, the user has to explicitly pre-allocate hugepages as above.
