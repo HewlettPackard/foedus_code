@@ -444,6 +444,15 @@ class MasstreeComposeContext {
    */
   ErrorStack  execute_delete_group(uint32_t from, uint32_t to);
   /**
+   * execute() invokes this to process a number of contiguous update-logs.
+   * Optimization benefits:
+   *  \li amortize the cost of adjust_path (per page. still page-shift is required)
+   *
+   * This is not a so common case. Optimization not implemented yet.
+   * Probably more common than execute_delete_group, so we should optimize this one.
+   */
+  ErrorStack  execute_update_group(uint32_t from, uint32_t to);
+  /**
    * execute() invokes this to process a number of contiguous overwrite-logs.
    * Optimization benefits:
    *  \li amortize the cost of adjust_path (per page. still page-shift is required)

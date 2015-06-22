@@ -459,6 +459,22 @@ ErrorCode HashStoragePimpl::upsert_record(
       payload,
       payload_count);
     log_common = log_entry;
+  } else if (location.slot_->payload_length_ == payload_count) {
+    // If it's not changing payload size of existing record, we can conver it to an overwrite,
+    // which is more efficient
+    uint16_t log_length = HashUpdateLogType::calculate_log_length(key_length, payload_count);
+    HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
+      context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(
+      get_id(),
+      key,
+      key_length,
+      get_bin_bits(),
+      combo.hash_,
+      payload,
+      0,
+      payload_count);
+    log_common = log_entry;
   } else {
     // If not, this is an update operation.
     uint16_t log_length = HashUpdateLogType::calculate_log_length(key_length, payload_count);

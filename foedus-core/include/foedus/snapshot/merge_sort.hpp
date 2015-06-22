@@ -386,6 +386,27 @@ class MergeSort CXX11_FINAL : public DefaultInitializable {
     MergedPosition pos = sort_entries_[sort_pos].get_position();
     return resolve_merged_position(pos);
   }
+  /**
+   * used to switch between two compatible log types.
+   * It's a special-purpose method, use it with caution.
+   */
+  void change_log_type_at(uint32_t sort_pos, log::LogCode before, log::LogCode after) {
+    // we have to change two places; PositionEntry and header of the log itself.
+    ASSERT_ND(sort_pos < current_count_);
+    ASSERT_ND(get_log_type_from_sort_position(sort_pos) == before);
+    MergedPosition pos = sort_entries_[sort_pos].get_position();
+    PositionEntry& entry = position_entries_[pos];
+    ASSERT_ND(entry.get_log_type() == before);
+    entry.log_type_ = after;
+    ASSERT_ND(entry.get_log_type() == after);
+    ASSERT_ND(get_log_type_from_sort_position(sort_pos) == after);
+
+    log::RecordLogType* record = const_cast<log::RecordLogType*>(resolve_merged_position(pos));
+    ASSERT_ND(record->header_.get_type() == before);
+    record->header_.log_type_code_ = after;
+    ASSERT_ND(record->header_.get_type() == after);
+  }
+
   inline storage::Page* get_original_pages() const ALWAYS_INLINE { return original_pages_; }
   inline bool are_all_single_layer_logs() const ALWAYS_INLINE { return longest_key_length_ <= 8U; }
   inline uint16_t get_longest_key_length() const ALWAYS_INLINE { return longest_key_length_; }
@@ -506,6 +527,7 @@ inline bool is_masstree_log_type(uint16_t log_type) {
   return
     log_type == log::kLogCodeMasstreeInsert
     || log_type == log::kLogCodeMasstreeDelete
+    || log_type == log::kLogCodeMasstreeUpdate
     || log_type == log::kLogCodeMasstreeOverwrite;
 }
 

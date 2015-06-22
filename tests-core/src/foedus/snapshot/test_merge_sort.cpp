@@ -199,6 +199,7 @@ struct TestBase {
         } else {
           EXPECT_TRUE(pos.get_log_type() == log::kLogCodeMasstreeInsert
             || pos.get_log_type() == log::kLogCodeMasstreeDelete
+            || pos.get_log_type() == log::kLogCodeMasstreeUpdate
             || pos.get_log_type() == log::kLogCodeMasstreeOverwrite);
         }
 

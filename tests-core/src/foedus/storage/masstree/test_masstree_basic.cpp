@@ -441,7 +441,7 @@ TEST(MasstreeBasicTest, ExpandInsertNormalized) { test_expand(false, true); }
 TEST(MasstreeBasicTest, ExpandUpdate) { test_expand(true, false); }
 TEST(MasstreeBasicTest, ExpandUpdateNormalized) { test_expand(true, true); }
 // TASK(Hideaki): we don't have multi-thread cases here. it's not a "basic" test.
-// no multi-key cases either. we have to make sure the keys hit the same bucket..
+// no multi-key cases either.
 
 }  // namespace masstree
 }  // namespace storage

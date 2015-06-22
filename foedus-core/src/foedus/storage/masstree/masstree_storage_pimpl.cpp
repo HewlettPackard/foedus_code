@@ -1133,6 +1133,20 @@ ErrorCode MasstreeStoragePimpl::upsert_general(
       payload,
       payload_count);
     common_log = log_entry;
+  } else if (payload_count == border->get_payload_length(index)) {
+    // If it's not changing payload size of existing record, we can conver it to an overwrite,
+    // which is more efficient
+    uint16_t log_length = MasstreeOverwriteLogType::calculate_log_length(key_length, payload_count);
+    MasstreeOverwriteLogType* log_entry = reinterpret_cast<MasstreeOverwriteLogType*>(
+      context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(
+      get_id(),
+      be_key,
+      key_length,
+      payload,
+      0,
+      payload_count);
+    common_log = log_entry;
   } else {
     // If not, this is an update operation.
     uint16_t log_length = MasstreeUpdateLogType::calculate_log_length(key_length, payload_count);
