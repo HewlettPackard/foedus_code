@@ -50,10 +50,10 @@ bool ends_with(const std::string& str, const std::string& pattern) {
   return str.find(pattern) != str.npos;
 }
 
-void write_dummy_cpp(const fs::Path &header) {
+void write_dummy_cpp(const fs::Path &header, bool cpp11) {
   std::string inc = header.string().substr((std::string(SRC_ROOT_PATH) + "/include/").size());
   std::ofstream stream;
-  stream.open("dummy.cpp", std::ios_base::out | std::ios_base::trunc);
+  stream.open(cpp11 ? "dummy_c11.cpp" : "dummy_c98.cpp", std::ios_base::out | std::ios_base::trunc);
   EXPECT_TRUE(stream.is_open());
   stream << "#include <" << inc << ">" << std::endl;
   stream << "int main() { return 0; }" << std::endl;
@@ -90,10 +90,10 @@ TEST(HeadersTest, IndependenceCXX11) {
   std::cout << "Have " << headers.size() << " headers to check" << std::endl;
   for (const fs::Path& header : headers) {
     std::cout << "Checking " << header << std::endl;
-    write_dummy_cpp(header);
+    write_dummy_cpp(header, true);
     std::stringstream cmd;
     cmd << "g++ -W -std=c++11 -I" << SRC_ROOT_PATH << "/include -I" << TINYXML2_ROOT_PATH
-      << " dummy.cpp";
+      << " dummy_c11.cpp";
     EXPECT_EQ(0, std::system(cmd.str().c_str())) << header.string();
   }
 }
@@ -109,10 +109,10 @@ TEST(HeadersTest, IndependenceCXX98) {
       continue;
     }
     std::cout << "Checking " << header << std::endl;
-    write_dummy_cpp(header);
+    write_dummy_cpp(header, false);
     std::stringstream cmd;
     cmd << "g++ -W -std=c++03 -I" << SRC_ROOT_PATH << "/include -I" << TINYXML2_ROOT_PATH
-      << " -DNO_FOEDUS_CXX11_WARNING dummy.cpp";
+      << " -DNO_FOEDUS_CXX11_WARNING dummy_c98.cpp";
     EXPECT_EQ(0, std::system(cmd.str().c_str())) << header.string();
   }
 }
