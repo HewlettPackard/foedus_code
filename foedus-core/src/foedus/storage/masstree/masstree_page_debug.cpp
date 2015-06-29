@@ -141,10 +141,14 @@ void MasstreeBorderPage::assert_entries_impl() const {
   for (uint8_t i = 1; i < key_count; ++i) {
     uint8_t pre = order[i - 1];
     uint8_t cur = order[i];
-    ASSERT_ND(slices_[pre] <= slices_[cur]);
-    if (slices_[pre] == slices_[cur]) {
-      ASSERT_ND(remaining_key_length_[pre] < remaining_key_length_[cur]);
-      ASSERT_ND(remaining_key_length_[pre] <= sizeof(KeySlice));
+    const KeySlice pre_slice = get_slice(pre);
+    const KeySlice cur_slice = get_slice(cur);
+    ASSERT_ND(pre_slice <= cur_slice);
+    if (pre_slice == cur_slice) {
+      const uint16_t pre_klen = get_remaining_key_length(pre);
+      const uint16_t cur_klen = get_remaining_key_length(cur);
+      ASSERT_ND(pre_klen < cur_klen);
+      ASSERT_ND(pre_klen <= sizeof(KeySlice));
     }
   }
 

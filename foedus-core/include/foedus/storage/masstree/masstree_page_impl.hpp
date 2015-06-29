@@ -174,15 +174,12 @@ class MasstreePage {
   KeySlice            foster_fence_;  // +8 -> 56
 
   /**
-   * tentative child page whose key ranges are right-half of this page.
-   * undefined if has_foster_child of page_version is false.
-   * In case of intermediate page, this is the only foster child.
-   * In case of border page, this is the major foster child. minor foster child is stored
-   * in another field.
-   *
-   * When this page is fostering kids, this is the younger brother, or the new page of
-   * this page itself. This is null if the split was a no-record split.
+   * Points to foster children, or tentative child pages.
+   * Null if has_foster_child of page_version is false.
    * This is core of the foster-twin protocol.
+   *
+   * [0]: Left-half of this page, or minor foster child.
+   * [1]: Right-half of this page, or major foster child.
    */
   VolatilePagePointer foster_twin_[2];  // +16 -> 72
 
@@ -553,13 +550,13 @@ class MasstreeBorderPage final : public MasstreePage {
 
   char* get_record(uint8_t index) ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(offsets_[index] < (kDataSize >> 4));
-    return data_ + (static_cast<uint16_t>(offsets_[index]) << 4);
+    ASSERT_ND(get_offset_in_bytes(index) < kDataSize);
+    return data_ + get_offset_in_bytes(index);
   }
   const char* get_record(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(offsets_[index] < (kDataSize >> 4));
-    return data_ + (static_cast<uint16_t>(offsets_[index]) << 4);
+    ASSERT_ND(get_offset_in_bytes(index) < kDataSize);
+    return data_ + get_offset_in_bytes(index);
   }
   char* get_record_payload(uint8_t index) ALWAYS_INLINE {
     char* record = get_record(index);
@@ -573,28 +570,39 @@ class MasstreeBorderPage final : public MasstreePage {
   }
   DualPagePointer* get_next_layer(uint8_t index) ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(offsets_[index] < (kDataSize >> 4));
+    ASSERT_ND(get_offset_in_bytes(index) < kDataSize);
     return reinterpret_cast<DualPagePointer*>(
-      (data_ + (static_cast<uint16_t>(offsets_[index]) << 4)));
+      (data_ + get_offset_in_bytes(index)));
   }
   const DualPagePointer* get_next_layer(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(offsets_[index] < (kDataSize >> 4));
+    ASSERT_ND(get_offset_in_bytes(index) < kDataSize);
     return reinterpret_cast<const DualPagePointer*>(
-      (data_ + (static_cast<uint16_t>(offsets_[index]) << 4)));
+      (data_ + get_offset_in_bytes(index)));
   }
   bool does_point_to_layer(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
-    return remaining_key_length_[index] == kKeyLengthNextLayer;
+    const uint8_t klen = get_remaining_key_length(index);
+    return klen == kKeyLengthNextLayer;
   }
 
   KeySlice get_slice(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     return slices_[index];
   }
-  uint16_t get_offset_in_bytes(uint8_t index) const ALWAYS_INLINE {
+  void     set_slice(uint8_t index, KeySlice slice) ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
+    slices_[index] = slice;
+  }
+  uint16_t  get_offset_in_bytes(uint8_t index) const ALWAYS_INLINE {
+    // ASSERT_ND(index < kMaxKeys); this method might be called before the record is made.
     return static_cast<uint16_t>(offsets_[index]) << 4;
+  }
+  DataOffset  get_offset_raw(uint8_t index) const ALWAYS_INLINE {
+    return offsets_[index];
+  }
+  void        set_offset_raw(uint8_t index, DataOffset offset) ALWAYS_INLINE {
+    offsets_[index] = offset;
   }
 
   xct::LockableXctId* get_owner_id(uint8_t index) ALWAYS_INLINE {
@@ -606,26 +614,40 @@ class MasstreeBorderPage final : public MasstreePage {
     return owner_ids_ + index;
   }
 
-  uint16_t get_remaining_key_length(uint8_t index) const ALWAYS_INLINE {
+  KeyLength get_remaining_key_length(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     return remaining_key_length_[index];
+  }
+  void      set_remaining_key_length(uint8_t index, KeyLength len) ALWAYS_INLINE {
+    ASSERT_ND(index < kMaxKeys);
+    ASSERT_ND(len <= kKeyLengthMax || len == kKeyLengthNextLayer);
+    remaining_key_length_[index] = len;
+  }
+  void      set_key_length_next_layer(uint8_t index) ALWAYS_INLINE {
+    ASSERT_ND(index < kMaxKeys);
+    remaining_key_length_[index] = kKeyLengthNextLayer;
   }
   uint16_t get_suffix_length(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     ASSERT_ND(!does_point_to_layer(index));
-    if (remaining_key_length_[index] <= sizeof(KeySlice)) {
+    const uint8_t klen = get_remaining_key_length(index);
+    if (klen <= sizeof(KeySlice)) {
       return 0;
     } else {
-      return remaining_key_length_[index] - sizeof(KeySlice);
+      return klen - sizeof(KeySlice);
     }
   }
   uint16_t get_suffix_length_aligned(uint8_t index) const ALWAYS_INLINE {
     return assorted::align8(get_suffix_length(index));
   }
   /** @returns the current logical payload length, which might change later. */
-  uint16_t get_payload_length(uint8_t index) const ALWAYS_INLINE {
+  uint16_t  get_payload_length(uint8_t index) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     return payload_length_[index];
+  }
+  void      set_payload_length(uint8_t index, uint16_t len) ALWAYS_INLINE {
+    ASSERT_ND(index < kMaxKeys);
+    payload_length_[index] = len;
   }
   /**
    * @returns the maximum payload length the physical record allows.
@@ -682,14 +704,16 @@ class MasstreeBorderPage final : public MasstreePage {
     // if we are receiving random inserts, no point to do early split.
     for (uint8_t i = 1; i < new_index - 1; ++i) {
       // this is not a rigorous check, but fine.
-      if (slices_[i - 1] > slices_[i]) {
+      const KeySlice prev_slice = get_slice(i - 1);
+      const KeySlice slice = get_slice(i);
+      if (prev_slice > slice) {
         return false;
       }
     }
     return true;
   }
   inline uint16_t get_unused_region_size(uint8_t last_index) const ALWAYS_INLINE {
-    return static_cast<uint16_t>(offsets_[last_index]) << 4;
+    return get_offset_in_bytes(last_index);
   }
   bool    can_accomodate(
     uint8_t new_index,
@@ -702,18 +726,20 @@ class MasstreeBorderPage final : public MasstreePage {
       return false;
     }
     uint16_t record_size = calculate_record_size(remaining_length, payload_count);
-    uint16_t last_offset = static_cast<uint16_t>(offsets_[new_index - 1]) << 4;
+    uint16_t last_offset = get_offset_in_bytes(new_index - 1);
     return record_size <= last_offset;
   }
   /** actually this method should be renamed to equal_key... */
   bool    compare_key(uint8_t index, const void* be_key, uint16_t key_length) const ALWAYS_INLINE {
     ASSERT_ND(index < kMaxKeys);
     uint16_t remaining = key_length - get_layer() * sizeof(KeySlice);
-    if (remaining != remaining_key_length_[index]) {
+    const uint8_t klen = get_remaining_key_length(index);
+    if (remaining != klen) {
       return false;
     }
     KeySlice slice = slice_layer(be_key, key_length, get_layer());
-    if (slice != slices_[index]) {
+    const KeySlice rec_slice = get_slice(index);
+    if (slice != rec_slice) {
       return false;
     }
     if (remaining > sizeof(KeySlice)) {
@@ -842,11 +868,11 @@ class MasstreeBorderPage final : public MasstreePage {
   /** morph the specified record to a next layer pointer. this needs a record lock to execute. */
   void    set_next_layer(uint8_t index, const DualPagePointer& pointer) {
     ASSERT_ND(header_.snapshot_ || get_owner_id(index)->lock_.is_keylocked());
-    ASSERT_ND(header_.snapshot_ || remaining_key_length_[index] > sizeof(KeySlice));
+    ASSERT_ND(header_.snapshot_ || get_remaining_key_length(index) > sizeof(KeySlice));
     ASSERT_ND(!header_.snapshot_ || pointer.volatile_pointer_.is_null());
-    remaining_key_length_[index] = kKeyLengthNextLayer;
+    set_key_length_next_layer(index);
     ASSERT_ND(get_max_payload_length(index) >= sizeof(DualPagePointer));
-    payload_length_[index] = sizeof(DualPagePointer);
+    set_payload_length(index, sizeof(DualPagePointer));
     *get_next_layer(index) = pointer;
     xct::XctId& xct_id = get_owner_id(index)->xct_id_;
     ASSERT_ND(!xct_id.is_moved());
@@ -940,7 +966,6 @@ class MasstreeBorderPage final : public MasstreePage {
    * we issue another prefetch while searching when appropriate.
    */
   KeySlice    slices_[kMaxKeys];                  // +512 -> 648
-
   /** Offset of the beginning of record in data_, divided by 16. */
   uint8_t     offsets_[kMaxKeys];                 // +64  -> 712
   /**
@@ -1069,13 +1094,15 @@ inline uint8_t MasstreeBorderPage::find_key(
   ASSERT_ND(key_count <= kMaxKeys);
   prefetch_additional_if_needed(key_count);
   for (uint8_t i = 0; i < key_count; ++i) {
-    if (LIKELY(slice != slices_[i])) {
+    const KeySlice rec_slice = get_slice(i);
+    if (LIKELY(slice != rec_slice)) {
       continue;
     }
     // one slice might be used for up to 10 keys, length 0 to 8 and pointer to next layer.
     if (remaining <= sizeof(KeySlice)) {
       // no suffix nor next layer, so just compare length
-      if (remaining_key_length_[i] == remaining) {
+      const uint8_t klen = get_remaining_key_length(i);
+      if (klen == remaining) {
         return i;
       } else {
         continue;  // did not match
@@ -1092,7 +1119,8 @@ inline uint8_t MasstreeBorderPage::find_key(
     ASSERT_ND(!does_point_to_layer(i));
 
     // now, our key is > 8 bytes and we found some local record.
-    if (remaining_key_length_[i] == remaining) {
+    const uint8_t klen = get_remaining_key_length(i);
+    if (klen == remaining) {
       // compare suffix.
       const char* record_suffix = get_record(i);
       if (std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
@@ -1102,7 +1130,7 @@ inline uint8_t MasstreeBorderPage::find_key(
 
     // suppose the record has > 8 bytes key. it must be the only such record in this page
     // because otherwise we must have created a next layer!
-    if (remaining_key_length_[i] > sizeof(KeySlice)) {
+    if (klen > sizeof(KeySlice)) {
       break;  // no more check needed
     } else {
       continue;
@@ -1121,7 +1149,9 @@ inline uint8_t MasstreeBorderPage::find_key_normalized(
     prefetch_additional_if_needed(to_index);
   }
   for (uint8_t i = from_index; i < to_index; ++i) {
-    if (UNLIKELY(slice == slices_[i] && remaining_key_length_[i] == sizeof(KeySlice))) {
+    const KeySlice rec_slice = get_slice(i);
+    const uint8_t klen = get_remaining_key_length(i);
+    if (UNLIKELY(slice == rec_slice && klen == sizeof(KeySlice))) {
       return i;
     }
   }
@@ -1141,11 +1171,13 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
     prefetch_additional_if_needed(to_index);
   }
   for (uint8_t i = from_index; i < to_index; ++i) {
-    if (LIKELY(slice != slices_[i])) {
+    const KeySlice rec_slice = get_slice(i);
+    if (LIKELY(slice != rec_slice)) {
       continue;
     }
+    const uint8_t klen = get_remaining_key_length(i);
     if (remaining <= sizeof(KeySlice)) {
-      if (remaining_key_length_[i] == remaining) {
+      if (klen == remaining) {
         ASSERT_ND(!does_point_to_layer(i));
         return FindKeyForReserveResult(i, kExactMatchLocalRecord);
       } else {
@@ -1160,7 +1192,7 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
 
     ASSERT_ND(!does_point_to_layer(i));
 
-    if (remaining_key_length_[i] <= sizeof(KeySlice)) {
+    if (klen <= sizeof(KeySlice)) {
       continue;
     }
 
@@ -1168,7 +1200,7 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
     // whether the key really matches or not, this IS the slot we are looking for.
     // Either 1) the keys really match, or 2) we will make this record point to next layer.
     const char* record_suffix = get_record(i);
-    if (remaining_key_length_[i] == remaining &&
+    if (klen == remaining &&
       std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
       // case 1)
       return FindKeyForReserveResult(i, kExactMatchLocalRecord);
@@ -1188,21 +1220,23 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
   ASSERT_ND(remaining <= kKeyLengthMax);
   uint8_t key_count = get_key_count();
   for (uint8_t i = 0; i < key_count; ++i) {
-    if (slices_[i] < slice) {
+    const KeySlice rec_slice = get_slice(i);
+    if (rec_slice < slice) {
       continue;
-    } else if (slices_[i] > slice) {
+    } else if (rec_slice > slice) {
       // as keys are sorted in snapshot page, "i" is the place the slice would be inserted.
       return FindKeyForReserveResult(i, kNotFound);
     }
-    ASSERT_ND(slices_[i] == slice);
+    ASSERT_ND(rec_slice == slice);
+    const uint8_t klen = get_remaining_key_length(i);
     if (remaining <= sizeof(KeySlice)) {
-      if (remaining_key_length_[i] == remaining) {
+      if (klen == remaining) {
         ASSERT_ND(!does_point_to_layer(i));
         return FindKeyForReserveResult(i, kExactMatchLocalRecord);
-      } else if (remaining_key_length_[i] < remaining) {
-        continue;  // same as "slices_[i] < slice" case
+      } else if (klen < remaining) {
+        continue;  // same as "rec_slice < slice" case
       } else {
-        return FindKeyForReserveResult(i, kNotFound);  // same as "slices_[i] > slice" case
+        return FindKeyForReserveResult(i, kNotFound);  // same as "rec_slice > slice" case
       }
     }
     ASSERT_ND(remaining > sizeof(KeySlice));
@@ -1213,15 +1247,15 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
 
     ASSERT_ND(!does_point_to_layer(i));
 
-    if (remaining_key_length_[i] <= sizeof(KeySlice)) {
-      continue;  // same as "slices_[i] < slice" case
+    if (klen <= sizeof(KeySlice)) {
+      continue;  // same as "rec_slice < slice" case
     }
 
     // see the comment in MasstreeComposerContext::PathLevel.
     // Even if the record is larger than the current key, we consider it "matched" and cause
     // next layer creation, but keeping the larger record in a dummy original page in nexy layer.
     const char* record_suffix = get_record(i);
-    if (remaining_key_length_[i] == remaining &&
+    if (klen == remaining &&
       std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
       return FindKeyForReserveResult(i, kExactMatchLocalRecord);
     } else {
@@ -1250,22 +1284,23 @@ inline void MasstreeBorderPage::reserve_record_space(
   if (index == 0) {
     previous_offset = kDataSize >> 4;
   } else {
-    previous_offset = offsets_[index - 1];
+    previous_offset = get_offset_raw(index - 1);
   }
-  slices_[index] = slice;
-  remaining_key_length_[index] = remaining_length;
+  set_slice(index, slice);
+  set_remaining_key_length(index, remaining_length);
   if (index == 0) {
     consecutive_inserts_ = true;
   } else if (consecutive_inserts_) {
     // do we have to turn off consecutive_inserts_ now?
-    if (slices_[index - 1] > slice ||
-      (slices_[index - 1] == slice && remaining_key_length_[index - 1] > remaining_length)) {
+    const KeySlice prev_slice = get_slice(index - 1);
+    const uint8_t prev_klen = get_remaining_key_length(index - 1);
+    if (prev_slice > slice || (prev_slice == slice && prev_klen > remaining_length)) {
       consecutive_inserts_ = false;
     }
   }
   physical_record_size_[index] = record_size;
-  payload_length_[index] = payload_count;
-  offsets_[index] = previous_offset - record_size;
+  set_payload_length(index, payload_count);
+  set_offset_raw(index, previous_offset - record_size);
   owner_ids_[index].lock_.reset();
   owner_ids_[index].xct_id_ = initial_owner_id;
   if (suffix_length > 0) {
@@ -1291,13 +1326,13 @@ inline void MasstreeBorderPage::append_next_layer_snapshot(
   if (index == 0) {
     previous_offset = kDataSize >> 4;
   } else {
-    previous_offset = offsets_[index - 1];
+    previous_offset = get_offset_raw(index - 1);
   }
-  slices_[index] = slice;
-  remaining_key_length_[index] = kKeyLengthNextLayer;
+  set_slice(index, slice);
+  set_key_length_next_layer(index);
   physical_record_size_[index] = record_size;
-  payload_length_[index] = sizeof(DualPagePointer);
-  offsets_[index] = previous_offset - record_size;
+  set_payload_length(index, sizeof(DualPagePointer));
+  set_offset_raw(index, previous_offset - record_size);
   owner_ids_[index].xct_id_ = initial_owner_id;
   owner_ids_[index].xct_id_.set_next_layer();
   DualPagePointer* dual_pointer = get_next_layer(index);
@@ -1319,12 +1354,12 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
   if (index == 0) {
     previous_offset = kDataSize >> 4;
   } else {
-    previous_offset = offsets_[index - 1];
+    previous_offset = get_offset_raw(index - 1);
   }
-  remaining_key_length_[index] = kKeyLengthNextLayer;
+  set_key_length_next_layer(index);
   physical_record_size_[index] = record_size;
-  payload_length_[index] = sizeof(DualPagePointer);
-  offsets_[index] = previous_offset - record_size;
+  set_payload_length(index, sizeof(DualPagePointer));
+  set_offset_raw(index, previous_offset - record_size);
   owner_ids_[index].xct_id_.set_next_layer();
   DualPagePointer* dual_pointer = get_next_layer(index);
   dual_pointer->volatile_pointer_.clear();

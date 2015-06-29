@@ -55,10 +55,16 @@ const uint16_t kMaxIntermediatePointers
   = (kMaxIntermediateSeparators + 1U) * (kMaxIntermediateMiniSeparators + 1U);
 
 /**
+ * @brief Represents a byte-length of a key in this package.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t KeyLength;
+
+/**
  * Max length of a key.
  * @ingroup MASSTREE
  */
-const uint16_t kMaxKeyLength = 1024;
+const KeyLength kMaxKeyLength = 1024;
 
 /**
  * @brief Each key slice is an 8-byte integer. Masstree pages store and compare these key slices.

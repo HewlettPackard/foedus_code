@@ -292,7 +292,7 @@ void MasstreeBorderPage::initialize_layer_root(
   ASSERT_ND(get_key_count() == 0);
   ASSERT_ND(!is_locked());  // we don't lock a new page
   ASSERT_ND(copy_from->get_owner_id(copy_index)->is_keylocked());
-  uint8_t parent_key_length = copy_from->remaining_key_length_[copy_index];
+  uint8_t parent_key_length = copy_from->get_remaining_key_length(copy_index);
   ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
   ASSERT_ND(parent_key_length > sizeof(KeySlice));
   uint8_t remaining = parent_key_length - sizeof(KeySlice);
@@ -304,8 +304,8 @@ void MasstreeBorderPage::initialize_layer_root(
   uint8_t suffix_length_aligned = calculate_suffix_length_aligned(remaining);
   DataOffset record_size = calculate_record_size(remaining, payload_length) >> 4;
 
-  slices_[0] = new_slice;
-  remaining_key_length_[0] = remaining;
+  set_slice(0, new_slice);
+  set_remaining_key_length(0, remaining);
   physical_record_size_[0] = record_size;
   payload_length_[0] = payload_length;
   offsets_[0] = (kDataSize >> 4) - record_size;
@@ -481,12 +481,12 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   BorderSplitStrategy ret;
   ret.original_key_count_ = key_count;
   ret.no_record_split_ = false;
-  ret.smallest_slice_ = slices_[0];
-  ret.largest_slice_ = slices_[0];
+  ret.smallest_slice_ = get_slice(0);
+  ret.largest_slice_ = get_slice(0);
 
   // if consecutive_inserts_, we are already sure about the key distributions, so easy.
   if (consecutive_inserts_) {
-    ret.largest_slice_ = slices_[key_count - 1];
+    ret.largest_slice_ = get_slice(key_count - 1);
     if (trigger > ret.largest_slice_) {
       ret.no_record_split_ = true;
       DVLOG(1) << "Obviously no record split. key_count=" << static_cast<int>(key_count);
@@ -494,14 +494,15 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
       return ret;
     } else {
       DVLOG(1) << "Breaks a sequential page. key_count=" << static_cast<int>(key_count);
-      ret.mid_slice_ = slices_[key_count / 2];
+      ret.mid_slice_ = get_slice(key_count / 2);
       return ret;
     }
   }
 
   for (uint8_t i = 1; i < key_count; ++i) {
-    ret.smallest_slice_ = std::min<KeySlice>(slices_[i], ret.smallest_slice_);
-    ret.largest_slice_ = std::max<KeySlice>(slices_[i], ret.largest_slice_);
+    const KeySlice this_slice = get_slice(i);
+    ret.smallest_slice_ = std::min<KeySlice>(this_slice, ret.smallest_slice_);
+    ret.largest_slice_ = std::max<KeySlice>(this_slice, ret.largest_slice_);
   }
 
   ASSERT_ND(key_count >= 2U);  // because it's not consecutive, there must be at least 2 records.
@@ -517,7 +518,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
     KeySlice second_tide_min = kInfimumSlice;
     bool first_tide_broken = false;
     bool both_tides_broken = false;
-    tides_max[0] = slices_[0];
+    tides_max[0] = get_slice(0);
     // for example, consider the following case:
     //   1 2 32 33 3 4 34 x
     // There are two tides 1- and 32-. We detect them as follows.
@@ -527,7 +528,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
     for (uint8_t i = 1; i < key_count; ++i) {
       // look for "tide breaker" that is smaller than the max of the tide.
       // as soon as we found two of them (meaning 3 tides or more), we give up.
-      KeySlice slice = slices_[i];
+      KeySlice slice = get_slice(i);
       if (!first_tide_broken)  {
         if (slice >= tides_max[0]) {
           tides_max[0] = slice;
@@ -537,15 +538,16 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
           first_tide_broken = true;
           uint8_t first_breaker;
           for (first_breaker = 0; first_breaker < i; ++first_breaker) {
-            if (slices_[first_breaker] > slice) {
+            const KeySlice breaker_slice = get_slice(first_breaker);
+            if (breaker_slice > slice) {
               break;
             }
           }
           ASSERT_ND(first_breaker < i);
           tides_max[0] = slice;
           ASSERT_ND(second_tide_min == kInfimumSlice);
-          second_tide_min = slices_[first_breaker];
-          tides_max[1] = slices_[i - 1];
+          second_tide_min = get_slice(first_breaker);
+          tides_max[1] = get_slice(i - 1);
           ASSERT_ND(tides_max[0] < tides_max[1]);
           ASSERT_ND(tides_max[0] < second_tide_min);
           ASSERT_ND(second_tide_min <= tides_max[1]);
@@ -580,7 +582,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   const uint8_t kSamples = 7;
   KeySlice choices[kSamples];
   for (uint8_t i = 0; i < kSamples; ++i) {
-    choices[i] = slices_[uniform_random.uniform_within(0, key_count - 1)];
+    choices[i] = get_slice(uniform_random.uniform_within(0, key_count - 1));
   }
   std::sort(choices, choices + kSamples);
   ret.mid_slice_ = choices[kSamples / 2];
@@ -591,7 +593,8 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
     bool observed = false;
     bool retry = false;
     for (uint8_t i = 0; i < key_count; ++i) {
-      if (slices_[i] == ret.mid_slice_) {
+      const KeySlice this_slice = get_slice(i);
+      if (this_slice == ret.mid_slice_) {
         if (observed) {
           // the key appeared twice! let's try another slice.
           ++ret.mid_slice_;
@@ -659,19 +662,23 @@ void MasstreeBorderPage::split_foster_migrate_records(
     uint16_t contiguous_copy_to_begin = 0;
     uint16_t contiguous_copy_from_begin = 0;
     for (uint8_t i = 0; i < key_count; ++i) {
-      if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
+      const KeySlice from_slice = copy_from.get_slice(i);
+      if (from_slice >= inclusive_from && from_slice <= inclusive_to) {
         // move this record.
-        slices_[migrated_count] = copy_from.slices_[i];
-        const uint8_t remaining_key_len = copy_from.remaining_key_length_[i];
-        remaining_key_length_[migrated_count] = remaining_key_len;
+        set_slice(migrated_count, from_slice);
+        const uint8_t remaining_key_len = copy_from.get_remaining_key_length(i);
+        set_remaining_key_length(migrated_count, remaining_key_len);
         payload_length_[migrated_count] = copy_from.payload_length_[i];
         owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
         owner_ids_[migrated_count].lock_.reset();
-        if (sofar_consecutive && migrated_count > 0 &&
-            (slices_[migrated_count - 1] > slices_[migrated_count] ||
-              (slices_[migrated_count - 1] == slices_[migrated_count] &&
-              remaining_key_length_[migrated_count - 1] > remaining_key_len))) {
-          sofar_consecutive = false;
+        if (sofar_consecutive && migrated_count > 0) {
+          const KeySlice prev_slice = get_slice(migrated_count - 1);
+          const KeySlice cur_slice = get_slice(migrated_count);
+          const KeyLength prev_klen = get_remaining_key_length(migrated_count - 1);
+          if (prev_slice > cur_slice
+            || (prev_slice == cur_slice && prev_klen > remaining_key_len)) {
+            sofar_consecutive = false;
+          }
         }
 
         uint16_t record_length = sizeof(DualPagePointer);
@@ -736,7 +743,8 @@ void MasstreeBorderPage::split_foster_migrate_records(
     // In that case, the caller will re-split.
     uint16_t record_length_total = 0;
     for (uint8_t i = 0; i < key_count; ++i) {
-      if (copy_from.slices_[i] >= inclusive_from && copy_from.slices_[i] <= inclusive_to) {
+      const KeySlice from_slice = copy_from.get_slice(i);
+      if (from_slice >= inclusive_from && from_slice <= inclusive_to) {
         record_length_total += copy_from.physical_record_size_[i] * 16U;
       }
     }
@@ -759,22 +767,26 @@ void MasstreeBorderPage::split_foster_migrate_records(
     }
 
     for (uint8_t i = 0; i < key_count; ++i) {
-      if (copy_from.slices_[i] < inclusive_from || copy_from.slices_[i] > inclusive_to) {
+      const KeySlice from_slice = copy_from.get_slice(i);
+      if (from_slice < inclusive_from || from_slice > inclusive_to) {
         continue;
       }
 
       // move this record.
-      slices_[migrated_count] = copy_from.slices_[i];
-      const uint8_t remaining_key_len = copy_from.remaining_key_length_[i];
-      remaining_key_length_[migrated_count] = remaining_key_len;
+      set_slice(migrated_count, from_slice);
+      const uint8_t remaining_key_len = copy_from.get_remaining_key_length(i);
+      set_remaining_key_length(migrated_count, remaining_key_len);
       payload_length_[migrated_count] = copy_from.payload_length_[i];
       owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
       owner_ids_[migrated_count].lock_.reset();
-      if (sofar_consecutive && migrated_count > 0 &&
-          (slices_[migrated_count - 1] > slices_[migrated_count] ||
-            (slices_[migrated_count - 1] == slices_[migrated_count] &&
-            remaining_key_length_[migrated_count - 1] > remaining_key_len))) {
-        sofar_consecutive = false;
+      if (sofar_consecutive && migrated_count > 0) {
+        const KeySlice prev_slice = get_slice(migrated_count - 1);
+        const KeySlice cur_slice = get_slice(migrated_count);
+        const uint8_t prev_klen = get_remaining_key_length(migrated_count - 1);
+        if (prev_slice > cur_slice
+          || (prev_slice == cur_slice && prev_klen > remaining_key_len)) {
+          sofar_consecutive = false;
+        }
       }
 
       uint16_t original_record_length;
@@ -1524,8 +1536,8 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   ASSERT_ND(!get_foster_minor().is_null());
   ASSERT_ND(!get_foster_major().is_null());
   uint8_t original_index = owner_address - owner_ids_;
-  KeySlice slice = slices_[original_index];
-  uint8_t remaining = remaining_key_length_[original_index];
+  KeySlice slice = get_slice(original_index);
+  uint8_t remaining = get_remaining_key_length(original_index);
   if (remaining == kKeyLengthNextLayer) {  // we just checked it above.. but possible
     LOG(INFO) << "A very rare event. the record has now become a next layer pointer";
     return xct::TrackMovedRecordResult();
@@ -1608,7 +1620,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
   const char* next_suffix = key + (cur_layer + 1U) * sizeof(KeySlice);
 
   uint8_t original_index = owner_address - owner_ids_;
-  ASSERT_ND(slice_layer(key, key_length, cur_layer) == slices_[original_index]);
+  ASSERT_ND(slice_layer(key, key_length, cur_layer) == get_slice(original_index));
   ASSERT_ND(does_point_to_layer(original_index));
 
   VolatilePagePointer root_pointer = get_next_layer(original_index)->volatile_pointer_;
