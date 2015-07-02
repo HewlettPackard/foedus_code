@@ -212,19 +212,19 @@ class MasstreeCursor CXX11_FINAL {
   bool        reached_end_;
 
   /** If this value is zero, it means supremum. */
-  uint16_t    end_key_length_;
+  KeyLength   end_key_length_;
   /** If this value is zero, it means supremum. */
-  uint16_t    cur_key_length_;
-  uint16_t    cur_payload_length_;
+  KeyLength   cur_key_length_;
+  PayloadLength cur_payload_length_;
   /** If this value is zero, it means supremum. */
-  uint16_t    search_key_length_;
+  KeyLength   search_key_length_;
   SearchType  search_type_;
-  uint8_t     search_key_in_layer_extremum_;
+  bool        search_key_in_layer_extremum_;
 
   /** number of higher layer pages. the current border page is not included. so, might be 0. */
   uint16_t    route_count_;
 
-  uint8_t     cur_key_in_layer_remaining_;
+  KeyLength   cur_key_in_layer_remaining_;
   KeySlice    cur_key_in_layer_slice_;
   xct::XctId  cur_key_observed_owner_id_;
   xct::LockableXctId* cur_key_owner_id_address;
@@ -256,7 +256,7 @@ class MasstreeCursor CXX11_FINAL {
     KeySlice slice,
     uint8_t layer,
     const char* full_key,
-    uint16_t full_length) const;
+    KeyLength full_length) const;
 
   uint8_t       get_cur_index() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
@@ -319,24 +319,10 @@ class MasstreeCursor CXX11_FINAL {
   }
   void assert_route() const ALWAYS_INLINE {
 #ifndef NDEBUG
-    for (uint16_t i = 0; i + 1U < route_count_; ++i) {
-      const Route* route = routes_ + i;
-      ASSERT_ND(route->page_);
-      if (route->stable_.is_moved()) {
-        // then we don't use any information in this path
-      } else if (reinterpret_cast<Page*>(route->page_)->get_header().get_page_type()
-        == kMasstreeBorderPageType) {
-        ASSERT_ND(route->index_ < kMaxRecords);
-        ASSERT_ND(route->index_ < route->key_count_);
-      } else {
-        ASSERT_ND(route->index_ <= route->key_count_);
-        ASSERT_ND(route->index_ <= kMaxIntermediateSeparators);
-        ASSERT_ND(route->index_mini_ <= route->key_count_mini_);
-        ASSERT_ND(route->index_mini_ <= kMaxIntermediateMiniSeparators);
-      }
-    }
+    assert_route_impl();
 #endif  // NDEBUG
   }
+  void assert_route_impl() const;
 };
 
 }  // namespace masstree

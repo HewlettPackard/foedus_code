@@ -334,6 +334,10 @@ struct XctId {
     ASSERT_ND(ordinal <= kMaxXctOrdinal);
     data_ = (data_ & (~kXctIdMaskOrdinal)) | ordinal;
   }
+  void      increment_ordinal() ALWAYS_INLINE {
+    uint32_t ordinal = get_ordinal();
+    set_ordinal(ordinal + 1U);
+  }
   /**
    * Returns -1, 0, 1 when this is less than, same, larger than other in terms of epoch/ordinal
    * @pre this->is_valid(), other.is_valid()
@@ -465,14 +469,46 @@ struct LockableXctId {
   friend std::ostream& operator<<(std::ostream& o, const LockableXctId& v);
 };
 
+/**
+ * @brief Auto-release object for MCS locking.
+ * @ingroup XCT
+ */
 struct McsLockScope {
-  McsLockScope(thread::Thread* context, LockableXctId* lock);
-  McsLockScope(thread::Thread* context, McsLock* lock);
+  McsLockScope();
+  McsLockScope(
+    thread::Thread* context,
+    LockableXctId* lock,
+    bool acquire_now = true,
+    bool non_racy_acquire = false);
+  McsLockScope(
+    thread::Thread* context,
+    McsLock* lock,
+    bool acquire_now = true,
+    bool non_racy_acquire = false);
   ~McsLockScope();
 
+  /// scope object is movable, but not copiable.
+  McsLockScope(const McsLockScope& other) CXX11_FUNC_DELETE;
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  McsLockScope(McsLockScope&& other);
+  McsLockScope& operator=(McsLockScope&& other);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+
+  void initialize(thread::Thread* context, McsLock* lock, bool acquire_now, bool non_racy_acquire);
+
+  bool is_valid() const { return lock_; }
+  bool is_locked() const { return block_ != 0; }
+
+  /** Acquires the lock. Does nothing if already acquired or !is_valid(). */
+  void acquire(bool non_racy_acquire);
+  /** Release the lock if acquired. Does nothing if not or !is_valid(). */
+  void release();
+
+ private:
   thread::Thread* context_;
-  McsLock* lock_;
-  McsBlockIndex block_;
+  McsLock*        lock_;
+  /** Non-0 when locked. 0 when already released or not yet acquired. */
+  McsBlockIndex   block_;
 };
 
 /** Result of track_moved_record(). When failed to track, both null. */

@@ -36,23 +36,90 @@ void McsLock::release_lock(thread::Thread* context, McsBlockIndex block) {
   context->mcs_release_lock(this, block);
 }
 
-McsLockScope::McsLockScope(thread::Thread* context, LockableXctId* lock) {
-  context_ = context;
-  lock_ = lock->get_key_lock();
-  block_ = context->mcs_acquire_lock(lock_);
+McsLockScope::McsLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
+
+McsLockScope::McsLockScope(
+  thread::Thread* context,
+  LockableXctId* lock,
+  bool acquire_now,
+  bool non_racy_acquire)
+  : context_(context), lock_(lock->get_key_lock()), block_(0) {
+  if (acquire_now) {
+    acquire(non_racy_acquire);
+  }
 }
 
-McsLockScope::McsLockScope(thread::Thread* context, McsLock* lock) {
+McsLockScope::McsLockScope(
+  thread::Thread* context,
+  McsLock* lock,
+  bool acquire_now,
+  bool non_racy_acquire)
+  : context_(context), lock_(lock), block_(0) {
+  if (acquire_now) {
+    acquire(non_racy_acquire);
+  }
+}
+
+void McsLockScope::initialize(
+  thread::Thread* context,
+  McsLock* lock,
+  bool acquire_now,
+  bool non_racy_acquire) {
+  if (is_valid() && is_locked()) {
+    release();
+  }
   context_ = context;
   lock_ = lock;
-  block_ = context->mcs_acquire_lock(lock_);
+  block_ = 0;
+  if (acquire_now) {
+    acquire(non_racy_acquire);
+  }
 }
 
 McsLockScope::~McsLockScope() {
-  ASSERT_ND(block_);
-  context_->mcs_release_lock(lock_, block_);
+  release();
+  context_ = nullptr;
+  lock_ = nullptr;
 }
 
+McsLockScope::McsLockScope(McsLockScope&& other) {
+  context_ = other.context_;
+  lock_ = other.lock_;
+  block_ = other.block_;
+  other.block_ = 0;
+}
+
+McsLockScope& McsLockScope::operator=(McsLockScope&& other) {
+  if (is_valid()) {
+    release();
+  }
+  context_ = other.context_;
+  lock_ = other.lock_;
+  block_ = other.block_;
+  other.block_ = 0;
+  return *this;
+}
+
+void McsLockScope::acquire(bool non_racy_acquire) {
+  if (is_valid()) {
+    if (block_ == 0) {
+      if (non_racy_acquire) {
+        block_ = context_->mcs_initial_lock(lock_);
+      } else {
+        block_ = context_->mcs_acquire_lock(lock_);
+      }
+    }
+  }
+}
+
+void McsLockScope::release() {
+  if (is_valid()) {
+    if (block_) {
+      context_->mcs_release_lock(lock_, block_);
+      block_ = 0;
+    }
+  }
+}
 
 std::ostream& operator<<(std::ostream& o, const McsLock& v) {
   o << "<McsLock><locked>" << v.is_locked() << "</locked><tail_waiter>"

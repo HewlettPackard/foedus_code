@@ -139,6 +139,7 @@ void MasstreeBorderPage::initialize_volatile_page(
     low_fence,
     high_fence);
   consecutive_inserts_ = true;  // initially key_count = 0, so of course sorted
+  next_offset_ = 0;  // well, already implicitly zero-ed, but to be clear
 }
 
 void MasstreeBorderPage::initialize_snapshot_page(
@@ -156,6 +157,7 @@ void MasstreeBorderPage::initialize_snapshot_page(
     low_fence,
     high_fence);
   consecutive_inserts_ = true;  // snapshot pages are always completely sorted
+  next_offset_ = 0;  // well, already implicitly zero-ed, but to be clear
 }
 
 void MasstreePage::release_pages_recursive_common(
@@ -288,41 +290,58 @@ void MasstreeBorderPage::release_pages_recursive(
 
 void MasstreeBorderPage::initialize_layer_root(
   const MasstreeBorderPage* copy_from,
-  uint8_t copy_index) {
+  SlotIndex copy_index) {
   ASSERT_ND(get_key_count() == 0);
   ASSERT_ND(!is_locked());  // we don't lock a new page
   ASSERT_ND(copy_from->get_owner_id(copy_index)->is_keylocked());
-  uint8_t parent_key_length = copy_from->get_remaining_key_length(copy_index);
-  ASSERT_ND(parent_key_length != kKeyLengthNextLayer);
+
+  // This is a new page, so no worry on race.
+  Slot* slot = get_new_slot(0);
+  const Slot* from_slot = copy_from->get_slot(copy_index);
+  const SlotLengthPart from_lengthes = from_slot->lengthes_.components;
+  const char* from_record = copy_from->get_record(from_lengthes);
+
+  KeyLength parent_key_length = from_lengthes.remaining_key_length_;
+  ASSERT_ND(parent_key_length != kNextLayerKeyLength);
   ASSERT_ND(parent_key_length > sizeof(KeySlice));
-  uint8_t remaining = parent_key_length - sizeof(KeySlice);
+  KeyLength remaining = parent_key_length - sizeof(KeySlice);
 
   // retrieve the first 8 byte (or less) as the new slice.
-  const char* parent_record = copy_from->get_record(copy_index);
-  KeySlice new_slice = slice_key(parent_record, remaining);
-  uint16_t payload_length = copy_from->payload_length_[copy_index];
-  uint8_t suffix_length_aligned = calculate_suffix_length_aligned(remaining);
-  DataOffset record_size = calculate_record_size(remaining, payload_length) >> 4;
+  KeySlice new_slice = slice_key(from_record, remaining);
+  PayloadLength payload_length = from_lengthes.payload_length_;
+  KeyLength suffix_length_aligned = calculate_suffix_length_aligned(remaining);
+  DataOffset record_size = required_space(remaining, payload_length);
 
   set_slice(0, new_slice);
-  set_remaining_key_length(0, remaining);
-  physical_record_size_[0] = record_size;
-  payload_length_[0] = payload_length;
-  offsets_[0] = (kDataSize >> 4) - record_size;
+
+  ASSERT_ND(next_offset_ == 0);
+  slot->lengthes_.components.offset_ = next_offset_;
+  slot->lengthes_.components.remaining_key_length_ = remaining;
+  slot->lengthes_.components.physical_record_length_ = record_size;
+  slot->lengthes_.components.payload_length_ = payload_length;
+  slot->original_physical_record_length_ = record_size;
+  slot->original_remaining_key_length_ = remaining;
+  slot->original_offset_ = next_offset_;
+  next_offset_ += record_size;
   consecutive_inserts_ = true;
 
   // use the same xct ID. This means we also inherit deleted flag.
-  owner_ids_[0].xct_id_ = copy_from->owner_ids_[copy_index].xct_id_;
+  slot->tid_.xct_id_ = from_slot->tid_.xct_id_;
   // but we don't want to inherit locks
-  owner_ids_[0].lock_.reset();
+  slot->tid_.lock_.reset();
   if (suffix_length_aligned > 0) {
     // because suffix parts are 8-byte aligned with zero padding, we can memcpy in 8-bytes unit
-    std::memcpy(get_record(0), parent_record + sizeof(KeySlice), suffix_length_aligned);
+    std::memcpy(
+      get_record(slot->lengthes_.components),
+      from_record + sizeof(KeySlice),
+      suffix_length_aligned);
   }
-  std::memcpy(
-    get_record(0) + suffix_length_aligned,
-    copy_from->get_record_payload(copy_index),
-    assorted::align8(payload_length));  // payload is zero-padded to 8 bytes, too.
+  if (payload_length > 0) {
+    std::memcpy(
+      get_record_payload(slot->lengthes_.components),
+      copy_from->get_record_payload(from_lengthes),
+      assorted::align8(payload_length));  // payload is zero-padded to 8 bytes, too.
+  }
 
   // as we don't lock this page, we directly increment it to avoid is_locked assertion
   ++header_.key_count_;
@@ -354,33 +373,29 @@ inline ErrorCode grab_free_pages(
 ErrorCode MasstreeBorderPage::split_foster(
   thread::Thread* context,
   KeySlice trigger,
+  bool disable_no_record_split,
   MasstreeBorderPage** target,
-  xct::McsBlockIndex *target_lock,
-  uint16_t record_to_expand,
-  uint16_t payload_expand_hint) {
+  xct::McsLockScope* target_lock) {
   ASSERT_ND(!header_.snapshot_);
   ASSERT_ND(is_locked());
+  ASSERT_ND(!target_lock->is_locked());
   ASSERT_ND(!is_moved());
   ASSERT_ND(foster_twin_[0].is_null() && foster_twin_[1].is_null());  // same as !is_moved()
-  ASSERT_ND(record_to_expand <= kMaxKeys);
-  bool expand_record = (record_to_expand < kMaxKeys);
-  ASSERT_ND(!expand_record || payload_expand_hint > get_max_payload_length(record_to_expand));
-  ASSERT_ND(!expand_record || record_to_expand < get_key_count());
-  *target_lock = 0;
   debugging::RdtscWatch watch;
 
-  uint8_t key_count = get_key_count();
+  SlotIndex key_count = get_key_count();
   DVLOG(1) << "Splitting a page... ";
 
   memory::PagePoolOffset offsets[2];
   CHECK_ERROR_CODE(grab_free_pages(context, 2, offsets));
 
   // from now on no failure possible.
-  BorderSplitStrategy strategy = split_foster_decide_strategy(key_count, trigger);
+  BorderSplitStrategy strategy
+    = split_foster_decide_strategy(key_count, trigger, disable_no_record_split);
   ASSERT_ND(get_low_fence() <= strategy.mid_slice_);
   ASSERT_ND(strategy.mid_slice_ <= get_high_fence());
   MasstreeBorderPage* twin[2];
-  xct::McsBlockIndex twin_locks[2];
+  xct::McsLockScope twin_locks[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
@@ -393,38 +408,41 @@ ErrorCode MasstreeBorderPage::split_foster(
       get_layer(),
       i == 0 ? low_fence_ : strategy.mid_slice_,  // low-fence
       i == 0 ? strategy.mid_slice_ : high_fence_);  // high-fence
-    twin_locks[i] = context->mcs_initial_lock(twin[i]->get_lock_address());
+    twin_locks[i].initialize(context, twin[i]->get_lock_address(), true, true);
     ASSERT_ND(twin[i]->is_locked());
+    ASSERT_ND(twin_locks[i].is_locked());
   }
-  xct::McsBlockIndex head_lock = split_foster_lock_existing_records(context, key_count);
-  if (strategy.no_record_split_ && !expand_record) {
+
+  // lock all records
+  xct::McsBlockIndex lock_blocks[kBorderPageMaxSlots];
+  split_foster_lock_existing_records(context, key_count, lock_blocks);
+
+  if (strategy.no_record_split_) {
+    ASSERT_ND(!disable_no_record_split);
     // in this case, we can move all records in one memcpy.
-    // copy everything from the end of header to the end of page
-    std::memcpy(
-      &(twin[0]->remaining_key_length_),
-      &(remaining_key_length_),
-      kPageSize - sizeof(MasstreePage));
-    for (uint8_t i = 0; i < key_count; ++i) {
-      ASSERT_ND(twin[0]->owner_ids_[i].is_keylocked());
-      twin[0]->owner_ids_[i].get_key_lock()->reset();  // no race
+    // well, actually two : one for slices and another for data.
+    std::memcpy(twin[0]->slices_, slices_, sizeof(KeySlice) * key_count);
+    std::memcpy(twin[0]->data_, data_, sizeof(data_));
+    for (SlotIndex i = 0; i < key_count; ++i) {
+      xct::LockableXctId* owner_id = twin[0]->get_owner_id(i);
+      ASSERT_ND(owner_id->is_keylocked());
+      owner_id->get_key_lock()->reset();  // no race
     }
     twin[0]->set_key_count(key_count);
     twin[1]->set_key_count(0);
     twin[0]->consecutive_inserts_ = consecutive_inserts_;
     twin[1]->consecutive_inserts_ = true;
+    twin[0]->next_offset_ = next_offset_;
+    twin[1]->next_offset_ = 0;
   } else {
     twin[0]->split_foster_migrate_records(
       *this,
       key_count,
-      record_to_expand,
-      payload_expand_hint,
       strategy.smallest_slice_,
       strategy.mid_slice_ - 1);  // to make it inclusive
     twin[1]->split_foster_migrate_records(
       *this,
       key_count,
-      record_to_expand,
-      payload_expand_hint,
       strategy.mid_slice_,
       strategy.largest_slice_);  // this is inclusive (to avoid supremum hassles)
   }
@@ -438,18 +456,10 @@ ErrorCode MasstreeBorderPage::split_foster(
 
   // release all record locks, but set the "moved" bit so that concurrent transactions
   // check foster-twin for read-set/write-set checks.
-  for (uint8_t i = 0; i < key_count; ++i) {
-    xct::XctId new_id = owner_ids_[i].xct_id_;
-    new_id.set_moved();
-    owner_ids_[i].xct_id_ = new_id;
-  }
-  {
-    // release locks in a batch
-    xct::McsLock* mcs_locks[kMaxKeys];
-    for (uint8_t i = 0; i < key_count; ++i) {
-      mcs_locks[i] = owner_ids_[i].get_key_lock();
-    }
-    context->mcs_release_lock_batch(mcs_locks, head_lock, key_count);
+  for (SlotIndex i = 0; i < key_count; ++i) {
+    xct::LockableXctId* owner_id = get_owner_id(i);
+    owner_id->xct_id_.set_moved();
+    context->mcs_release_lock(owner_id->get_key_lock(), lock_blocks[i]);
   }
 
   assorted::memory_fence_release();
@@ -458,13 +468,11 @@ ErrorCode MasstreeBorderPage::split_foster(
   // which will be the target page?
   if (within_foster_minor(trigger)) {
     *target = twin[0];
-    *target_lock = twin_locks[0];
-    context->mcs_release_lock(twin[1]->get_lock_address(), twin_locks[1]);
+    *target_lock = std::move(twin_locks[0]);
   } else {
     ASSERT_ND(within_foster_major(trigger));
     *target = twin[1];
-    *target_lock = twin_locks[1];
-    context->mcs_release_lock(twin[0]->get_lock_address(), twin_locks[0]);
+    *target_lock = std::move(twin_locks[1]);
   }
 
   watch.stop();
@@ -475,8 +483,9 @@ ErrorCode MasstreeBorderPage::split_foster(
 }
 
 BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
-  uint8_t key_count,
-  KeySlice trigger) const {
+  SlotIndex key_count,
+  KeySlice trigger,
+  bool disable_no_record_split) const {
   ASSERT_ND(key_count > 0);
   BorderSplitStrategy ret;
   ret.original_key_count_ = key_count;
@@ -485,7 +494,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   ret.largest_slice_ = get_slice(0);
 
   // if consecutive_inserts_, we are already sure about the key distributions, so easy.
-  if (consecutive_inserts_) {
+  if (consecutive_inserts_ && !disable_no_record_split) {
     ret.largest_slice_ = get_slice(key_count - 1);
     if (trigger > ret.largest_slice_) {
       ret.no_record_split_ = true;
@@ -499,7 +508,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
     }
   }
 
-  for (uint8_t i = 1; i < key_count; ++i) {
+  for (SlotIndex i = 1; i < key_count; ++i) {
     const KeySlice this_slice = get_slice(i);
     ret.smallest_slice_ = std::min<KeySlice>(this_slice, ret.smallest_slice_);
     ret.largest_slice_ = std::max<KeySlice>(this_slice, ret.largest_slice_);
@@ -525,7 +534,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
     // We initially consider 1,2,32,33 as the first tide because they are sequential.
     // Then, "3" breaks the first tide. We then consider 1- and 32- as the two tides.
     // If x breaks the tide again, we give up.
-    for (uint8_t i = 1; i < key_count; ++i) {
+    for (SlotIndex i = 1; i < key_count; ++i) {
       // look for "tide breaker" that is smaller than the max of the tide.
       // as soon as we found two of them (meaning 3 tides or more), we give up.
       KeySlice slice = get_slice(i);
@@ -536,7 +545,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
         } else {
           // let's find where a second tide starts.
           first_tide_broken = true;
-          uint8_t first_breaker;
+          SlotIndex first_breaker;
           for (first_breaker = 0; first_breaker < i; ++first_breaker) {
             const KeySlice breaker_slice = get_slice(first_breaker);
             if (breaker_slice > slice) {
@@ -579,7 +588,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   // there are a few smart algorithm out there, but we don't need that much accuracy.
   // just randomly pick a few. good enough.
   assorted::UniformRandom uniform_random(12345);
-  const uint8_t kSamples = 7;
+  const SlotIndex kSamples = 7;
   KeySlice choices[kSamples];
   for (uint8_t i = 0; i < kSamples; ++i) {
     choices[i] = get_slice(uniform_random.uniform_within(0, key_count - 1));
@@ -592,7 +601,7 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   while (true) {
     bool observed = false;
     bool retry = false;
-    for (uint8_t i = 0; i < key_count; ++i) {
+    for (SlotIndex i = 0; i < key_count; ++i) {
       const KeySlice this_slice = get_slice(i);
       if (this_slice == ret.mid_slice_) {
         if (observed) {
@@ -614,17 +623,19 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
   return ret;
 }
 
-xct::McsBlockIndex MasstreeBorderPage::split_foster_lock_existing_records(
+void MasstreeBorderPage::split_foster_lock_existing_records(
   thread::Thread* context,
-  uint8_t key_count) {
+  SlotIndex key_count,
+  xct::McsBlockIndex* out_blocks) {
   debugging::RdtscWatch watch;  // check how expensive this is
-  // lock in address order. so, no deadlock possible
+  // lock in address order (thus, backward in indexes). so, no deadlock possible
   // we have to lock them whether the record is deleted or not. all physical records.
-  xct::McsLock* mcs_locks[kMaxKeys];
-  for (uint8_t i = 0; i < key_count; ++i) {
-    mcs_locks[i] = owner_ids_[i].get_key_lock();
+  for (SlotIndex i = key_count - 1U; i < kBorderPageMaxSlots; --i) {  // SlotIndex is unsigned
+    xct::LockableXctId* owner_id = get_owner_id(i);
+    out_blocks[i] = context->mcs_acquire_lock(owner_id->get_key_lock());
+    ASSERT_ND(owner_id->is_keylocked());
   }
-  xct::McsBlockIndex head_lock_index = context->mcs_acquire_lock_batch(mcs_locks, key_count);
+
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to lock all of "
     << static_cast<int>(key_count) << " records while splitting";
@@ -635,190 +646,69 @@ xct::McsBlockIndex MasstreeBorderPage::split_foster_lock_existing_records(
       << context->get_engine()->get_storage_manager()->get_name(header_.storage_id_)
       << ", thread ID=" << context->get_thread_id();
   }
-  return head_lock_index;
 }
 
 void MasstreeBorderPage::split_foster_migrate_records(
   const MasstreeBorderPage& copy_from,
-  uint8_t key_count,
-  uint16_t record_to_expand,
-  uint16_t payload_expand_hint,
+  SlotIndex key_count,
   KeySlice inclusive_from,
   KeySlice inclusive_to) {
   ASSERT_ND(get_key_count() == 0);
-  uint8_t migrated_count = 0;
-  uint16_t unused_space = kDataSize;
+  ASSERT_ND(next_offset_ == 0);
+  next_offset_ = 0;
+  SlotIndex migrated_count = 0;
+  DataOffset unused_space = sizeof(data_);
   bool sofar_consecutive = true;
-  bool expand_record
-    = (record_to_expand != kMaxKeys
-      && copy_from.get_slice(record_to_expand) >= inclusive_from
-      && copy_from.get_slice(record_to_expand) <= inclusive_to);
+  KeySlice prev_slice = kSupremumSlice;
+  KeyLength prev_remaining = kMaxKeyLength;
 
-  if (!expand_record) {
-    // Usual migration after split.
-    // utilize the fact that records grow backwards.
-    // memcpy contiguous records as much as possible
-    uint16_t contiguous_copy_size = 0;
-    uint16_t contiguous_copy_to_begin = 0;
-    uint16_t contiguous_copy_from_begin = 0;
-    for (uint8_t i = 0; i < key_count; ++i) {
-      const KeySlice from_slice = copy_from.get_slice(i);
-      if (from_slice >= inclusive_from && from_slice <= inclusive_to) {
-        // move this record.
-        set_slice(migrated_count, from_slice);
-        const uint8_t remaining_key_len = copy_from.get_remaining_key_length(i);
-        set_remaining_key_length(migrated_count, remaining_key_len);
-        payload_length_[migrated_count] = copy_from.payload_length_[i];
-        owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
-        owner_ids_[migrated_count].lock_.reset();
-        if (sofar_consecutive && migrated_count > 0) {
-          const KeySlice prev_slice = get_slice(migrated_count - 1);
-          const KeySlice cur_slice = get_slice(migrated_count);
-          const KeyLength prev_klen = get_remaining_key_length(migrated_count - 1);
-          if (prev_slice > cur_slice
-            || (prev_slice == cur_slice && prev_klen > remaining_key_len)) {
-            sofar_consecutive = false;
-          }
-        }
-
-        uint16_t record_length = sizeof(DualPagePointer);
-        if (remaining_key_len != kKeyLengthNextLayer) {
-          record_length = calculate_record_size(remaining_key_len, payload_length_[migrated_count]);
-        }
-        ASSERT_ND(unused_space >= record_length);
-        ASSERT_ND(record_length % 16U == 0);
-        physical_record_size_[migrated_count] = record_length / 16U;
-        unused_space -= record_length;
-        offsets_[migrated_count] = unused_space >> 4;
-
-        uint16_t copy_from_begin = static_cast<uint16_t>(copy_from.offsets_[i]) << 4;
-        if (contiguous_copy_size == 0) {
-          contiguous_copy_size = record_length;
-          contiguous_copy_from_begin = copy_from_begin;
-          contiguous_copy_to_begin = unused_space;
-        } else if (contiguous_copy_from_begin - record_length != copy_from_begin) {
-          // this happens when the record has shrunk (eg now points to next layer).
-          // flush contiguous data.
-          ASSERT_ND(contiguous_copy_from_begin - record_length > copy_from_begin);
-          std::memcpy(
-            data_ + contiguous_copy_to_begin,
-            copy_from.data_ + contiguous_copy_from_begin,
-            contiguous_copy_size);
-          contiguous_copy_size = record_length;
-          contiguous_copy_from_begin = copy_from_begin;
-          contiguous_copy_to_begin = unused_space;
-        } else {
-          ASSERT_ND(contiguous_copy_from_begin - record_length == copy_from_begin);
-          ASSERT_ND(contiguous_copy_to_begin >= record_length);
-          contiguous_copy_size += record_length;
-          contiguous_copy_from_begin = copy_from_begin;
-          contiguous_copy_to_begin -= record_length;
-        }
-        ++migrated_count;
-      } else {
-        // oh, we didn't copy this record, so the contiguity is broken. do the copy now.
-        if (contiguous_copy_size > 0U) {
-          std::memcpy(
-            data_ + contiguous_copy_to_begin,
-            copy_from.data_ + contiguous_copy_from_begin,
-            contiguous_copy_size);
-          contiguous_copy_size = 0;
-        }
-      }
-    }
-    // after all, do the copy now.
-    if (contiguous_copy_size > 0U) {
-      std::memcpy(
-        data_ + contiguous_copy_to_begin,
-        copy_from.data_ + contiguous_copy_from_begin,
-        contiguous_copy_size);
-    }
-  } else {
-    // Special migration for expanding record.
-    // These two cases will be merged once we change page layout.
-    ASSERT_ND(record_to_expand < key_count);
-    ASSERT_ND(!copy_from.does_point_to_layer(record_to_expand));
-
-    // First, can we expand that much? If not, we can just expand as much as possible.
-    // In that case, the caller will re-split.
-    uint16_t record_length_total = 0;
-    for (uint8_t i = 0; i < key_count; ++i) {
-      const KeySlice from_slice = copy_from.get_slice(i);
-      if (from_slice >= inclusive_from && from_slice <= inclusive_to) {
-        record_length_total += copy_from.physical_record_size_[i] * 16U;
-      }
-    }
-    uint16_t cur_max = copy_from.get_max_payload_length(record_to_expand);
-    ASSERT_ND(cur_max < payload_expand_hint);
-    uint16_t additional_bytes = assorted::align16(payload_expand_hint - cur_max);
-
-    DVLOG(2) << "record_length_total=" << record_length_total
-      << ", cur_max=" << cur_max << ", additional_bytes=" << additional_bytes;
-
-    uint16_t expanded_payload = payload_expand_hint;
-    if (record_length_total + additional_bytes > kDataSize) {
-      // This is quite unfortunate, but it might happen.
-      uint16_t compromised_additional_bytes = kDataSize - record_length_total;
-      LOG(WARNING) << "One page split is not enough to complete this record-expansion."
-        << " We will have to split this page again. record_length_total=" << record_length_total
-        << ", cur_max=" << cur_max << ", additional_bytes=" << additional_bytes << ", "
-        << "compromised_additional_bytes=" << compromised_additional_bytes;
-      expanded_payload = cur_max + compromised_additional_bytes;
-    }
-
-    for (uint8_t i = 0; i < key_count; ++i) {
-      const KeySlice from_slice = copy_from.get_slice(i);
-      if (from_slice < inclusive_from || from_slice > inclusive_to) {
-        continue;
-      }
-
+  // Simply iterate over and memcpy one-by-one.
+  // We previously did a bit more complex thing to copy as many records as
+  // possible in one memcpy, but not worth it with the new page layout.
+  // We will keep an eye on the cost of this method, and optimize when it becomes bottleneck.
+  for (SlotIndex i = 0; i < key_count; ++i) {
+    const KeySlice from_slice = copy_from.get_slice(i);
+    if (from_slice >= inclusive_from && from_slice <= inclusive_to) {
       // move this record.
       set_slice(migrated_count, from_slice);
-      const uint8_t remaining_key_len = copy_from.get_remaining_key_length(i);
-      set_remaining_key_length(migrated_count, remaining_key_len);
-      payload_length_[migrated_count] = copy_from.payload_length_[i];
-      owner_ids_[migrated_count].xct_id_ = copy_from.owner_ids_[i].xct_id_;
-      owner_ids_[migrated_count].lock_.reset();
+      Slot* to_slot = get_slot(migrated_count);
+      const Slot* from_slot = copy_from.get_slot(i);
+      ASSERT_ND(from_slot->tid_.is_keylocked());
+      to_slot->tid_.xct_id_ = from_slot->tid_.xct_id_;
+      to_slot->tid_.lock_.reset();
+      const KeyLength remaining = from_slot->lengthes_.components.remaining_key_length_;
+      const PayloadLength payload = from_slot->lengthes_.components.payload_length_;
+      to_slot->lengthes_.components.remaining_key_length_ = remaining;
+      to_slot->lengthes_.components.payload_length_ = payload;
+      // offset/physical_length set later
+      to_slot->original_remaining_key_length_ = remaining;
+
       if (sofar_consecutive && migrated_count > 0) {
-        const KeySlice prev_slice = get_slice(migrated_count - 1);
-        const KeySlice cur_slice = get_slice(migrated_count);
-        const uint8_t prev_klen = get_remaining_key_length(migrated_count - 1);
-        if (prev_slice > cur_slice
-          || (prev_slice == cur_slice && prev_klen > remaining_key_len)) {
+        if (prev_slice > from_slice || (prev_slice == from_slice && prev_remaining > remaining)) {
           sofar_consecutive = false;
         }
       }
+      prev_slice = from_slice;
+      prev_remaining = remaining;
 
-      uint16_t original_record_length;
-      uint16_t new_record_length;
-      if (i == record_to_expand) {
-        ASSERT_ND(payload_expand_hint > copy_from.payload_length_[i]);
-        ASSERT_ND(payload_expand_hint > copy_from.get_max_payload_length(i));
-        original_record_length = calculate_record_size(
-            remaining_key_len,
-            copy_from.payload_length_[i]);
-        new_record_length = calculate_record_size(remaining_key_len, expanded_payload);
-      } else {
-        if (remaining_key_len != kKeyLengthNextLayer) {
-          original_record_length = calculate_record_size(
-            remaining_key_len,
-            copy_from.payload_length_[i]);
-        } else {
-          original_record_length = sizeof(DualPagePointer);
-        }
-        new_record_length = original_record_length;
+      // we migh shrink the physical record size.
+      DataOffset record_length = required_space(remaining, payload);
+      ASSERT_ND(record_length % 8 == 0);
+      ASSERT_ND(record_length <= from_slot->lengthes_.components.physical_record_length_);
+      to_slot->lengthes_.components.physical_record_length_ = record_length;
+      to_slot->lengthes_.components.offset_ = next_offset_;
+      to_slot->original_physical_record_length_ = record_length;
+      to_slot->original_offset_ = next_offset_;
+      next_offset_ += record_length;
+      unused_space -= record_length - sizeof(Slot);
+
+      if (record_length > 0) {
+        std::memcpy(
+          get_record(to_slot->lengthes_.components),
+          copy_from.get_record(i),
+          record_length);
       }
 
-      ASSERT_ND(unused_space >= new_record_length);
-      ASSERT_ND(new_record_length % 16U == 0);
-      physical_record_size_[migrated_count] = new_record_length / 16U;
-      unused_space -= new_record_length;
-      offsets_[migrated_count] = unused_space >> 4;
-
-      std::memcpy(
-        data_ + offsets_[migrated_count] * 16U,
-        copy_from.data_ + copy_from.offsets_[i] * 16U,
-        std::min<uint16_t>(new_record_length, original_record_length));
       ++migrated_count;
     }
   }
@@ -1518,15 +1408,29 @@ MasstreePage* MasstreePage::track_foster_child(
 xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   Engine* engine,
   xct::LockableXctId* owner_address,
-  xct::WriteXctAccess* write_set) {
+  xct::WriteXctAccess* /*write_set*/) {
+  ASSERT_ND(owner_address->is_moved());
   ASSERT_ND(!header().snapshot_);
   ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
-  ASSERT_ND(owner_address >= owner_ids_);
-  ASSERT_ND(owner_address - owner_ids_ < kMaxKeys);
-  ASSERT_ND(owner_address - owner_ids_ < get_key_count());
 
+  // Slot begins with TID, so it's also the slot address
+  Slot* slot = reinterpret_cast<Slot*>(owner_address);
+  ASSERT_ND(&slot->tid_ == owner_address);
+  const SlotIndex original_index = to_slot_index(slot);
+  ASSERT_ND(original_index < kBorderPageMaxSlots);
+  ASSERT_ND(original_index < get_key_count());
+
+  const KeyLength original_remaining = slot->original_remaining_key_length_;
+  // If it's originally a next-layer record, why we took it as a record? This shouldn't happen.
+  // Here we just defensively check it.
+  if (UNLIKELY(original_remaining == kNextLayerKeyLength)) {
+    LOG(ERROR) << "A very rare event. We somehow picked a record which was originally next-layer";
+    return xct::TrackMovedRecordResult();
+  }
+
+  const char* suffix = get_record(original_index);
   if (owner_address->xct_id_.is_next_layer()) {
-    return track_moved_record_next_layer(engine, owner_address, write_set);
+    return track_moved_record_next_layer(engine, owner_address);
   }
 
   // otherwise, we can track without key information within this layer.
@@ -1535,14 +1439,12 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   ASSERT_ND(has_foster_child());
   ASSERT_ND(!get_foster_minor().is_null());
   ASSERT_ND(!get_foster_major().is_null());
-  uint8_t original_index = owner_address - owner_ids_;
   KeySlice slice = get_slice(original_index);
-  uint8_t remaining = get_remaining_key_length(original_index);
-  if (remaining == kKeyLengthNextLayer) {  // we just checked it above.. but possible
+  KeyLength remaining = get_remaining_key_length(original_index);
+  if (remaining == kNextLayerKeyLength) {  // we just checked it above.. but possible
     LOG(INFO) << "A very rare event. the record has now become a next layer pointer";
     return xct::TrackMovedRecordResult();
   }
-  const char* suffix = get_record(original_index);
 
   // if remaining <= 8 : this layer can have only one record that has this slice and this length.
   // if remaining > 8  : this layer has either the exact record, or it's now a next layer pointer.
@@ -1558,19 +1460,20 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
     // the only exception is
     // 1) again the record is being moved concurrently
     // 2) the record was moved to another layer (remaining==kKeyLengthNextLayer).
-    uint8_t index = cur_page->find_key(slice, suffix, remaining);
-    if (index == kMaxKeys) {
+    SlotIndex index = cur_page->find_key(slice, suffix, remaining);
+    if (index == kBorderPageMaxSlots) {
       // this can happen rarely because we are not doing the stable version trick here.
       // this is rare, so we just abort. no safety violation.
       VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
       return xct::TrackMovedRecordResult();
     }
 
-    xct::LockableXctId* new_owner_address = cur_page->get_owner_id(index);
-    char* new_record_address = cur_page->get_record(index);
-    if (cur_page->does_point_to_layer(index)) {
+    Slot* cur_slot = cur_page->get_slot(index);
+    xct::LockableXctId* new_owner_address = &cur_slot->tid_;
+    const SlotLengthPart cur_lengthes = cur_slot->read_lengthes_oneshot();
+    char* new_record_address = cur_page->get_record(cur_lengthes);
+    if (cur_lengthes.does_point_to_layer()) {
       // another rare case. the record has been now moved to another layer.
-
       if (remaining <= sizeof(KeySlice)) {
         // the record we are looking for can't be stored in next layer..
         VLOG(0) << "Wtf 2. moved record in next layer not found. Probably due to concurrent thread";
@@ -1578,7 +1481,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
       }
 
       VLOG(0) << "Interesting. moved record are now in another layer. further track.";
-      return cur_page->track_moved_record_next_layer(engine, new_owner_address, write_set);
+      return cur_page->track_moved_record_next_layer(engine, new_owner_address);
     }
 
     // Otherwise, this is it!
@@ -1589,39 +1492,38 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
 
 xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
   Engine* engine,
-  xct::LockableXctId* owner_address,
-  xct::WriteXctAccess* write_set) {
+  xct::LockableXctId* owner_address) {
   ASSERT_ND(!header().snapshot_);
   ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
-  ASSERT_ND(owner_address >= owner_ids_);
-  ASSERT_ND(owner_address - owner_ids_ < kMaxKeys);
-  ASSERT_ND(owner_address - owner_ids_ < get_key_count());
   ASSERT_ND(owner_address->xct_id_.is_next_layer());
 
-  // if the record went down to next layer, we need write_set (its log) to track the exact key.
-  if (write_set == nullptr) {
-    VLOG(0) << "A rare event. The record went down to next layer. We need write-set to track"
-      << " this, but seems like this is a read-only access. Give up tracking.";
-    return xct::TrackMovedRecordResult();  // which will result in abort
+  Slot* slot = reinterpret_cast<Slot*>(owner_address);
+  ASSERT_ND(&slot->tid_ == owner_address);
+  const SlotIndex original_index = to_slot_index(slot);
+  ASSERT_ND(original_index < kBorderPageMaxSlots);
+  ASSERT_ND(original_index < get_key_count());
+  ASSERT_ND(does_point_to_layer(original_index));
+
+  // The new masstree page layout leaves the original suffix untouched.
+  // Thus, we can always retrieve the original key from it no matter whether
+  // the record moved offset to expand. In case the record was expanded in-page,
+  // we use original_xxx below.
+  const KeyLength original_remaining = slot->original_remaining_key_length_;
+  if (UNLIKELY(original_remaining == kNextLayerKeyLength)) {
+    LOG(ERROR) << "A very rare event. We somehow picked a record which was originally next-layer";
+    return xct::TrackMovedRecordResult();
+  }
+  if (UNLIKELY(original_remaining <= sizeof(KeySlice))) {
+    LOG(ERROR) << "WTF. The original record was too short to get moved to next-layer, but it did?";
+    return xct::TrackMovedRecordResult();
   }
 
-  ASSERT_ND(write_set);
-  ASSERT_ND(write_set->log_entry_);
-  const MasstreeCommonLogType* log_entry
-    = reinterpret_cast<const MasstreeCommonLogType*>(write_set->log_entry_);
-  uint16_t key_length = log_entry->key_length_;
-  const char* key = log_entry->get_key();
-
-  uint8_t cur_layer = get_layer();
-  uint8_t next_layer = cur_layer + 1U;
-  KeySlice next_slice = slice_layer(key, key_length, next_layer);
-  ASSERT_ND(key_length > sizeof(KeySlice) * (cur_layer + 1U));
-  uint16_t next_remaining = key_length - (cur_layer + 1U) * sizeof(KeySlice);
-  const char* next_suffix = key + (cur_layer + 1U) * sizeof(KeySlice);
-
-  uint8_t original_index = owner_address - owner_ids_;
-  ASSERT_ND(slice_layer(key, key_length, cur_layer) == get_slice(original_index));
-  ASSERT_ND(does_point_to_layer(original_index));
+  const char* original_suffix = data_ + slot->original_offset_;
+  const uint8_t cur_layer = get_layer();
+  const uint8_t next_layer = cur_layer + 1U;
+  const KeySlice next_slice = slice_key(original_suffix, original_remaining - sizeof(KeySlice));
+  const KeyLength next_remaining = original_remaining - sizeof(KeySlice);
+  const char* next_suffix = original_suffix + sizeof(KeySlice);
 
   VolatilePagePointer root_pointer = get_next_layer(original_index)->volatile_pointer_;
   if (root_pointer.is_null()) {
@@ -1663,7 +1565,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
     // 2) the record was moved to another layer (remaining==kKeyLengthNextLayer).
     MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(cur_page);
     ASSERT_ND(casted != this);
-    uint8_t index = casted->find_key(next_slice, next_suffix, next_remaining);
+    SlotIndex index = casted->find_key(next_slice, next_suffix, next_remaining);
     if (index == kMaxKeys) {
       VLOG(0) << "Very interesting. moved record not found due to concurrent updates";
       return xct::TrackMovedRecordResult();
@@ -1681,12 +1583,61 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
       }
 
       VLOG(0) << "Interesting. moved record are now in another layer. further track.";
-      return casted->track_moved_record_next_layer(engine, new_owner_address, write_set);
+      return casted->track_moved_record_next_layer(engine, new_owner_address);
     }
 
     // be careful, we give get_record() as "payload". the word "payload" is a bit overused here.
     return xct::TrackMovedRecordResult(new_owner_address, new_record_address);
   }
+}
+
+bool MasstreeBorderPage::verify_slot_lengthes(SlotIndex index) const {
+  const Slot* slot = get_slot(index);
+  SlotLengthPart lengthes = slot->lengthes_.components;
+  if (lengthes.offset_ % 8 != 0) {
+    ASSERT_ND(false);
+    return false;
+  }
+  if (lengthes.physical_record_length_ % 8 != 0) {
+    ASSERT_ND(false);
+    return false;
+  }
+  if (lengthes.offset_ + lengthes.physical_record_length_ > sizeof(data_)) {
+    ASSERT_ND(false);
+    return false;
+  }
+
+  // the only case we change remaining_key_length_ is to move it to next layer
+  if (lengthes.remaining_key_length_ != slot->original_remaining_key_length_) {
+    if (!lengthes.does_point_to_layer()) {
+      ASSERT_ND(false);
+      return false;
+    }
+  }
+  // the only case we move the record in-page is to get a larger record size.
+  if (lengthes.offset_ != slot->original_offset_) {
+    if (lengthes.offset_ < slot->original_offset_) {
+      ASSERT_ND(false);
+      return false;
+    }
+    if (lengthes.physical_record_length_ <= slot->original_physical_record_length_) {
+      ASSERT_ND(false);
+      return false;
+    }
+  }
+
+  if (lengthes.does_point_to_layer()) {
+    if (lengthes.payload_length_ != sizeof(DualPagePointer)) {
+      ASSERT_ND(false);
+      return false;
+    }
+  } else {
+    if (lengthes.payload_length_ > lengthes.get_max_payload()) {
+      ASSERT_ND(false);
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace masstree

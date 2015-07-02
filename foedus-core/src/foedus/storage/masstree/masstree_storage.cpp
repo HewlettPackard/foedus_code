@@ -244,8 +244,8 @@ uint16_t adjust_payload_hint(uint16_t payload_count, uint16_t physical_payload_h
   if (physical_payload_hint < payload_count) {
     physical_payload_hint = payload_count;
   }
-  if (physical_payload_hint > MasstreeBorderPage::kMaxPayload) {
-    physical_payload_hint = MasstreeBorderPage::kMaxPayload;
+  if (physical_payload_hint > kMaxPayloadLength) {
+    physical_payload_hint = kMaxPayloadLength;
   }
   physical_payload_hint = assorted::align8(physical_payload_hint);
   return physical_payload_hint;
@@ -258,7 +258,7 @@ ErrorCode MasstreeStorage::insert_record(
   const void* payload,
   uint16_t payload_count,
   uint16_t physical_payload_hint) {
-  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+  if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
@@ -292,7 +292,7 @@ ErrorCode MasstreeStorage::insert_record_normalized(
   const void* payload,
   uint16_t payload_count,
   uint16_t physical_payload_hint) {
-  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+  if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
@@ -365,7 +365,7 @@ ErrorCode MasstreeStorage::upsert_record(
   const void* payload,
   uint16_t payload_count,
   uint16_t physical_payload_hint) {
-  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+  if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
@@ -399,7 +399,7 @@ ErrorCode MasstreeStorage::upsert_record_normalized(
   const void* payload,
   uint16_t payload_count,
   uint16_t physical_payload_hint) {
-  if (UNLIKELY(payload_count > MasstreeBorderPage::kMaxPayload)) {
+  if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);

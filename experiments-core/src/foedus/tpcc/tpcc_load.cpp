@@ -139,7 +139,7 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     engine,
     "orders",
     true,
-    (storage::masstree::MasstreeBorderPage::kDataSize / sizeof(OrderData)) * 0.75));
+    (storage::masstree::kBorderPageDataPartSize / sizeof(OrderData)) * 0.75));
   CHECK_ERROR(create_masstree(
     engine,
     "orders_secondary",
@@ -149,7 +149,7 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     engine,
     "orderlines",
     true,
-    (storage::masstree::MasstreeBorderPage::kDataSize / sizeof(OrderlineData)) * 0.75));
+    (storage::masstree::kBorderPageDataPartSize / sizeof(OrderlineData)) * 0.75));
 
   CHECK_ERROR(create_array(
     engine,

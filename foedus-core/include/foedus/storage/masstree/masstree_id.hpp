@@ -36,25 +36,6 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 /**
- * Max number of separators stored in the first level of intermediate pages.
- * @ingroup MASSTREE
- */
-const uint8_t kMaxIntermediateSeparators = 9;
-
-/**
- * Max number of separators stored in the second level of intermediate pages.
- * @ingroup MASSTREE
- */
-const uint8_t kMaxIntermediateMiniSeparators = 15;
-
-/**
- * Max number of pointers (if completely filled) stored in an intermediate pages.
- * @ingroup MASSTREE
- */
-const uint16_t kMaxIntermediatePointers
-  = (kMaxIntermediateSeparators + 1U) * (kMaxIntermediateMiniSeparators + 1U);
-
-/**
  * @brief Represents a byte-length of a key in this package.
  * @ingroup MASSTREE
  */
@@ -64,7 +45,40 @@ typedef uint16_t KeyLength;
  * Max length of a key.
  * @ingroup MASSTREE
  */
-const KeyLength kMaxKeyLength = 1024;
+const KeyLength kMaxKeyLength = 1024U;
+
+/**
+ * A special KeyLength that represents a border-page slot pointing to next layer.
+ * @ingroup MASSTREE
+ */
+const KeyLength kNextLayerKeyLength = -1;
+
+/**
+ * @brief Represents a byte-length of a payload in this package.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t PayloadLength;
+
+/**
+ * Max length of a payload.
+ * @ingroup MASSTREE
+ */
+const PayloadLength kMaxPayloadLength = 1024U;
+
+/**
+ * Byte-offset in a page.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t DataOffset;
+
+/**
+ * Index of a record in a (border) page.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t SlotIndex;
+
+/** Used only for sanity checking. offset of data_ member in MasstreeBorderPage */
+const DataOffset kBorderPageDataPartOffset = 880;
 
 /**
  * @brief Each key slice is an 8-byte integer. Masstree pages store and compare these key slices.

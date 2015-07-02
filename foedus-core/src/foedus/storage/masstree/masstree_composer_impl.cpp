@@ -832,13 +832,12 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
       //   still almost empty, we ignore the hint. close at 10-18. same thing happens at 20, ...
       // Hence, we ignore hints if kDubiousHintsThreshold previous hints caused too empty pages.
       const uint32_t kDubiousHintsThreshold = 2;  // to tolerate more, increase this.
-      const uint16_t kTooEmptySize = MasstreeBorderPage::kDataSize * 2 / 10;
+      const uint16_t kTooEmptySize = kBorderPageDataPartSize * 2 / 10;
       bool page_switch_hinted = false;
       KeySlice hint_suggested_slice = kInfimumSlice;
       if (UNLIKELY(next_hint < hint_count && slice >= hints[next_hint])) {
         DVLOG(3) << "the hint tells that we should close the page now.";
-        bool too_empty
-          = key_count == 0 || page->get_unused_region_size(key_count - 1) <= kTooEmptySize;
+        bool too_empty = key_count == 0 || page->available_space() <= kTooEmptySize;
         if (too_empty) {
           DVLOG(1) << "however, the page is still quite empty!";
           if (dubious_hints >= kDubiousHintsThreshold) {
@@ -1567,15 +1566,15 @@ ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_len
 inline void MasstreeComposeContext::append_border(
   KeySlice slice,
   xct::XctId xct_id,
-  uint16_t remaining_length,
+  KeyLength remaining_length,
   const char* suffix,
-  uint16_t payload_count,
+  PayloadLength payload_count,
   const char* payload,
   PathLevel* level) {
-  ASSERT_ND(remaining_length != MasstreeBorderPage::kKeyLengthNextLayer);
+  ASSERT_ND(remaining_length != kNextLayerKeyLength);
   MasstreeBorderPage* target = as_border(get_page(level->tail_));
-  uint16_t key_count = target->get_key_count();
-  uint16_t new_index = key_count;
+  SlotIndex key_count = target->get_key_count();
+  SlotIndex new_index = key_count;
   ASSERT_ND(key_count == 0 || !target->will_conflict(key_count - 1, slice, remaining_length));
   ASSERT_ND(key_count == 0
     || !target->will_contain_next_layer(key_count - 1, slice, remaining_length));
