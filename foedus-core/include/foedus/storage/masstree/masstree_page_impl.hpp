@@ -45,6 +45,9 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
+KeyLength calculate_suffix_length(KeyLength remainder_length) ALWAYS_INLINE;
+KeyLength calculate_suffix_length_aligned(KeyLength remainder_length) ALWAYS_INLINE;
+
 /** Used only for debugging as this is not space efficient. */
 struct HighFence {
   HighFence(KeySlice slice, bool supremum) : slice_(slice), supremum_(supremum) {}
@@ -216,7 +219,7 @@ struct BorderSplitStrategy {
    * is equal or larger than the largest slice in this page.
    */
   bool no_record_split_;
-  uint16_t original_key_count_;
+  SlotIndex original_key_count_;
   KeySlice smallest_slice_;
   KeySlice largest_slice_;
   /**
@@ -546,18 +549,11 @@ class MasstreeBorderPage final : public MasstreePage {
     /**
      * Byte count this record occupies.
      * @invariant physical_record_length_ % 8 == 0
-     * @invariant physical_record_length_
-     *  >= align8(remaining_key_length_) + align8(payload_length_)
+     * @invariant physical_record_length_ >= align8(suffix_length) + align8(payload_length_)
      */
     DataOffset  physical_record_length_;  // +2  -> 4
-    /**
-     * Stores key length excluding previous layers, but including this layer (which might be less
-     * than 8!) and suffix if exists. 8 is kind of optimal, storing everything in slice.
-     * 0-7 also stores everything in slice, but note that you have to distinct the same slice
-     * with different length. 9- stores a suffix in this page.
-     * If this points to next layer, this value is kNextLayerKeyLength.
-     */
-    KeyLength   remaining_key_length_;    // +2  -> 6
+    /** unused so far */
+    uint16_t    unused_;    // +2  -> 6
     /**
      * Byte length of the payload. Padding is not included.
      * This is \b mutable. Only changed with update.
@@ -565,21 +561,6 @@ class MasstreeBorderPage final : public MasstreePage {
      * leaving the \e deleted and \e moved flags in this old record.
      */
     PayloadLength payload_length_;        // +2  -> 8
-
-    inline KeyLength get_aligned_remaining_key_length() const ALWAYS_INLINE {
-      return assorted::align8(remaining_key_length_);
-    }
-    inline PayloadLength get_max_payload() const ALWAYS_INLINE {
-      return physical_record_length_ - get_aligned_remaining_key_length();
-    }
-    inline bool does_point_to_layer() const ALWAYS_INLINE {
-      return remaining_key_length_ == kNextLayerKeyLength;
-    }
-    inline void set_next_layer() ALWAYS_INLINE {
-      ASSERT_ND(get_max_payload() >= sizeof(DualPagePointer));
-      remaining_key_length_ = kNextLayerKeyLength;
-      payload_length_ = sizeof(DualPagePointer);
-    }
   };
   /** @see SlotLengthPart */
   union SlotLengthUnion {
@@ -599,18 +580,27 @@ class MasstreeBorderPage final : public MasstreePage {
     xct::LockableXctId  tid_;       // +16 -> 16
 
     /**
-     * Stores length information of the record.
-     * In some cases, you must read this 8-byte in one-shot. Use read_lengthes_oneshot() then.
+     * Stores mutable length information of the record. Because these are mutable,
+     * in some cases you must read this 8-byte in one-shot. Use read_lengthes_oneshot() then.
      */
     SlotLengthUnion     lengthes_;  // +8  -> 24
 
-    /// Followings are not essential. Used only for sanity check etc. Kind of fillers.
+    /// Followings are immutable.
 
     /**
-     * The value of remaining_key_length_ as of the creation of this record.
+     * Length of \e remainder, the key excluding slices in previous layers,
+     * but including this layer (which might be less than 8!) and suffix if exists.
+     * 8 is kind of optimal, storing everything in slice.
+     * 0-7 also stores everything in slice, but note that you have to distinct the same slice
+     * with different length. 9- stores a suffix in this page.
+     * 0xFFFF (kInitiallyNextLayer) is a special value that is used only for a record
+     * that was initially next-layer.
+     * Unlike the original Masstree, this is an immutable property and unchanged even when
+     * now this record points to next layer.
      * Immutable once made.
+     * @ref MASS_TERM_REMAINDER
      */
-    KeyLength   original_remaining_key_length_;     // +2 -> 26
+    KeyLength           remainder_length_;          // +2  -> 26
     /**
      * The value of physical_record_length_ as of the creation of this record.
      * Immutable once made.
@@ -628,6 +618,24 @@ class MasstreeBorderPage final : public MasstreePage {
     Slot(const Slot&) = delete;
     Slot& operator=(const Slot&) = delete;
     ~Slot() = delete;
+
+    inline KeyLength get_aligned_suffix_length() const ALWAYS_INLINE {
+      return calculate_suffix_length_aligned(remainder_length_);
+    }
+    inline KeyLength get_suffix_length() const ALWAYS_INLINE {
+      return calculate_suffix_length(remainder_length_);
+    }
+    /** This might be affected by concurrent threads */
+    inline PayloadLength get_max_payload_peek() const ALWAYS_INLINE {
+      return lengthes_.components.physical_record_length_ - get_aligned_suffix_length();
+    }
+    /** This is not affected by concurrent threads */
+    inline PayloadLength get_max_payload_stable(SlotLengthPart stable_length) const ALWAYS_INLINE {
+      return stable_length.physical_record_length_ - get_aligned_suffix_length();
+    }
+    inline bool does_point_to_layer() const ALWAYS_INLINE {
+      return tid_.xct_id_.is_next_layer();
+    }
 
     /**
      * Reads lengthes_ of this slot in one-shot.
@@ -738,12 +746,28 @@ class MasstreeBorderPage final : public MasstreePage {
     return sizeof(data_) - consumed;
   }
 
-  /** returns physical_record_length_ for a new record */
-  inline static DataOffset required_space(
-    KeyLength remaining_key_length,
+  /**
+   * returns minimal physical_record_length_ for the given remainder/payload length.
+   * @attention this doesn't count the space for Slot nor slices.
+   * @see required_data_space()
+   */
+  inline static DataOffset to_record_length(
+    KeyLength remainder_length,
     PayloadLength payload_length) {
-    KeyLength suffix_length_aligned = calculate_suffix_length_aligned(remaining_key_length);
-    return suffix_length_aligned + assorted::align8(payload_length) + sizeof(Slot);
+    KeyLength suffix_length_aligned = calculate_suffix_length_aligned(remainder_length);
+    return suffix_length_aligned + assorted::align8(payload_length);
+  }
+
+  /**
+   * returns the byte size of required contiguous space in data_ to insert a new record
+   * of the given remainder/payload length. This includes Slot size.
+   * Slices are not included as they are anyway statically placed.
+   * @see to_record_length()
+   */
+  inline static DataOffset required_data_space(
+    KeyLength remainder_length,
+    PayloadLength payload_length) {
+    return to_record_length(remainder_length, payload_length) + sizeof(Slot);
   }
 
   /**
@@ -753,7 +777,7 @@ class MasstreeBorderPage final : public MasstreePage {
   SlotIndex find_key(
     KeySlice slice,
     const void* suffix,
-    KeyLength remaining) const ALWAYS_INLINE;
+    KeyLength remainder) const ALWAYS_INLINE;
 
   /**
    * Specialized version for 8 byte native integer search. Because such a key never goes to
@@ -773,7 +797,7 @@ class MasstreeBorderPage final : public MasstreePage {
     SlotIndex to_index,
     KeySlice slice,
     const void* suffix,
-    KeyLength remaining) const ALWAYS_INLINE;
+    KeyLength remainder) const ALWAYS_INLINE;
   /**
    * This one is used for snapshot pages.
    * Because keys are fully sorted in snapshot pages, this returns the index of the first record
@@ -783,17 +807,15 @@ class MasstreeBorderPage final : public MasstreePage {
   FindKeyForReserveResult find_key_for_snapshot(
     KeySlice slice,
     const void* suffix,
-    KeyLength remaining) const ALWAYS_INLINE;
+    KeyLength remainder) const ALWAYS_INLINE;
 
   char* get_record(SlotIndex index) ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(get_offset_in_bytes(index) < sizeof(data_));
-    return data_ + get_offset_in_bytes(index);
+    ASSERT_ND(index < kBorderPageMaxSlots);
+    return get_record_from_offset(get_offset_in_bytes(index));
   }
   const char* get_record(SlotIndex index) const ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(get_offset_in_bytes(index) < sizeof(data_));
-    return data_ + get_offset_in_bytes(index);
+    ASSERT_ND(index < kBorderPageMaxSlots);
+    return get_record_from_offset(get_offset_in_bytes(index));
   }
   char* get_record_payload(SlotIndex index) ALWAYS_INLINE {
     char* record = get_record(index);
@@ -806,62 +828,62 @@ class MasstreeBorderPage final : public MasstreePage {
     return record + skipped;
   }
   DualPagePointer* get_next_layer(SlotIndex index) ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
-    DataOffset offset = get_offset_in_bytes(index);
-    KeyLength skipped = get_suffix_length_aligned(index);
-    ASSERT_ND(offset + skipped < sizeof(data_));
-    return reinterpret_cast<DualPagePointer*>(data_ + offset + skipped);
+    return reinterpret_cast<DualPagePointer*>(get_record_payload(index));
   }
   const DualPagePointer* get_next_layer(SlotIndex index) const ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
-    DataOffset offset = get_offset_in_bytes(index);
-    KeyLength skipped = get_suffix_length_aligned(index);
-    ASSERT_ND(offset + skipped < sizeof(data_));
-    return reinterpret_cast<const DualPagePointer*>(data_ + offset + skipped);
+    return reinterpret_cast<const DualPagePointer*>(get_record_payload(index));
   }
 
-  /// overloading for SlotLengthPart
-  char* get_record(const SlotLengthPart& lengthes) ALWAYS_INLINE {
-    ASSERT_ND(lengthes.offset_ < sizeof(data_));
-    return data_ + lengthes.offset_;
+  /// Offset versions
+  char* get_record_from_offset(DataOffset record_offset) ALWAYS_INLINE {
+    ASSERT_ND(record_offset % 8 == 0);
+    ASSERT_ND(record_offset < sizeof(data_));
+    return data_ + record_offset;
   }
-  const char* get_record(const SlotLengthPart& lengthes) const ALWAYS_INLINE {
-    ASSERT_ND(lengthes.offset_ < sizeof(data_));
-    return data_ + lengthes.offset_;
+  const char* get_record_from_offset(DataOffset record_offset) const ALWAYS_INLINE {
+    ASSERT_ND(record_offset % 8 == 0);
+    ASSERT_ND(record_offset < sizeof(data_));
+    return data_ + record_offset;
   }
-  char* get_record_payload(const SlotLengthPart& lengthes) ALWAYS_INLINE {
-    KeyLength skipped = lengthes.get_aligned_remaining_key_length();
-    ASSERT_ND(lengthes.offset_ + skipped < sizeof(data_));
-    char* record = get_record(lengthes);
+  const char* get_record_payload_from_offsets(
+    DataOffset record_offset,
+    KeyLength remainder_length) const ALWAYS_INLINE {
+    const char* record = get_record_from_offset(record_offset);
+    KeyLength skipped = calculate_suffix_length_aligned(remainder_length);
     return record + skipped;
   }
-  const char* get_record_payload(const SlotLengthPart& lengthes) const ALWAYS_INLINE {
-    KeyLength skipped = lengthes.get_aligned_remaining_key_length();
-    ASSERT_ND(lengthes.offset_ + skipped < sizeof(data_));
-    const char* record = get_record(lengthes);
+  char* get_record_payload_from_offsets(
+    DataOffset record_offset,
+    KeyLength remainder_length) ALWAYS_INLINE {
+    char* record = get_record_from_offset(record_offset);
+    KeyLength skipped = calculate_suffix_length_aligned(remainder_length);
     return record + skipped;
   }
-  DualPagePointer* get_next_layer(const SlotLengthPart& lengthes) ALWAYS_INLINE {
-    ASSERT_ND(lengthes.payload_length_ == sizeof(DualPagePointer));
-    return reinterpret_cast<DualPagePointer*>(get_record_payload(lengthes));
+  DualPagePointer* get_next_layer_from_offsets(
+    DataOffset record_offset,
+    KeyLength remainder_length) ALWAYS_INLINE {
+    char* payload = get_record_payload_from_offsets(record_offset, remainder_length);
+    return reinterpret_cast<DualPagePointer*>(payload);
   }
-  const DualPagePointer* get_next_layer(const SlotLengthPart& lengthes) const ALWAYS_INLINE {
-    ASSERT_ND(lengthes.payload_length_ == sizeof(DualPagePointer));
-    return reinterpret_cast<const DualPagePointer*>(get_record_payload(lengthes));
+  const DualPagePointer* get_next_layer_from_offsets(
+    DataOffset record_offset,
+    KeyLength remainder_length) const ALWAYS_INLINE {
+    const char* payload = get_record_payload_from_offsets(record_offset, remainder_length);
+    return reinterpret_cast<const DualPagePointer*>(payload);
   }
+
 
   bool does_point_to_layer(SlotIndex index) const ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
-    const KeyLength klen = get_remaining_key_length(index);
-    return klen == kNextLayerKeyLength;
+    ASSERT_ND(index < kBorderPageMaxSlots);
+    return get_slot(index)->tid_.xct_id_.is_next_layer();
   }
 
   KeySlice get_slice(SlotIndex index) const ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
+    ASSERT_ND(index < kBorderPageMaxSlots);
     return slices_[index];
   }
   void     set_slice(SlotIndex index, KeySlice slice) ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
+    ASSERT_ND(index < kBorderPageMaxSlots);
     slices_[index] = slice;
   }
   DataOffset get_offset_in_bytes(SlotIndex index) const ALWAYS_INLINE {
@@ -875,52 +897,32 @@ class MasstreeBorderPage final : public MasstreePage {
     return &get_slot(index)->tid_;
   }
 
-  KeyLength get_remaining_key_length(SlotIndex index) const ALWAYS_INLINE {
-    return get_slot(index)->lengthes_.components.remaining_key_length_;
+  KeyLength get_remainder_length(SlotIndex index) const ALWAYS_INLINE {
+    return get_slot(index)->remainder_length_;
   }
   KeyLength get_suffix_length(SlotIndex index) const ALWAYS_INLINE {
-    ASSERT_ND(index < kMaxKeys);
-    ASSERT_ND(!does_point_to_layer(index));
-    const KeyLength klen = get_remaining_key_length(index);
-    if (klen <= sizeof(KeySlice)) {
-      return 0;
-    } else {
-      return klen - sizeof(KeySlice);
-    }
+    const KeyLength remainder_length = get_remainder_length(index);
+    return calculate_suffix_length(remainder_length);
   }
   KeyLength get_suffix_length_aligned(SlotIndex index) const ALWAYS_INLINE {
-    return assorted::align8(get_suffix_length(index));
+    const KeyLength remainder_length = get_remainder_length(index);
+    return calculate_suffix_length_aligned(remainder_length);
   }
   /** @returns the current logical payload length, which might change later. */
   PayloadLength  get_payload_length(SlotIndex index) const ALWAYS_INLINE {
     return get_slot(index)->lengthes_.components.payload_length_;
   }
-  void      set_payload_length(SlotIndex index, PayloadLength len) ALWAYS_INLINE {
-    get_slot(index)->lengthes_.components.payload_length_ = len;
-  }
   /**
    * @returns the maximum payload length the physical record allows.
    */
   PayloadLength get_max_payload_length(SlotIndex index) const ALWAYS_INLINE {
-    return get_slot(index)->lengthes_.components.get_max_payload();
-  }
-
-  static KeyLength calculate_suffix_length(KeyLength remaining_length) ALWAYS_INLINE {
-    ASSERT_ND(remaining_length != kNextLayerKeyLength);
-    if (remaining_length >= sizeof(KeySlice)) {
-      return remaining_length - sizeof(KeySlice);
-    } else {
-      return 0;
-    }
-  }
-  static KeyLength calculate_suffix_length_aligned(KeyLength remaining_length) ALWAYS_INLINE {
-    return assorted::align8(calculate_suffix_length(remaining_length));
+    return get_slot(index)->get_max_payload_peek();
   }
 
   bool    should_split_early(SlotIndex new_index, SlotIndex threshold) const ALWAYS_INLINE;
   bool    can_accomodate(
     SlotIndex new_index,
-    KeyLength remaining_key_length,
+    KeyLength remainder_length,
     PayloadLength payload_count) const ALWAYS_INLINE;
   /** actually this method should be renamed to equal_key... */
   bool  compare_key(
@@ -937,14 +939,14 @@ class MasstreeBorderPage final : public MasstreePage {
     SlotIndex index,
     KeySlice slice,
     const char* suffix,
-    KeyLength remaining) const ALWAYS_INLINE;
+    KeyLength remainder) const ALWAYS_INLINE;
   /**
    * Returns whether inserting the key will cause creation of a new next layer.
    * This is mainly used for assertions.
    */
   bool will_conflict(SlotIndex index, const char* be_key, KeyLength key_length) const ALWAYS_INLINE;
   /** Overload to receive slice */
-  bool will_conflict(SlotIndex index, KeySlice slice, KeyLength remaining) const ALWAYS_INLINE;
+  bool will_conflict(SlotIndex index, KeySlice slice, KeyLength remainder) const ALWAYS_INLINE;
   /** Returns whether the record is a next-layer pointer that would contain the key */
   bool will_contain_next_layer(
     SlotIndex index,
@@ -953,7 +955,7 @@ class MasstreeBorderPage final : public MasstreePage {
   bool will_contain_next_layer(
     SlotIndex index,
     KeySlice slice,
-    KeyLength remaining) const ALWAYS_INLINE;
+    KeyLength remainder) const ALWAYS_INLINE;
 
   /**
    * Installs a new physical record that doesn't exist logically (delete bit on).
@@ -965,7 +967,7 @@ class MasstreeBorderPage final : public MasstreePage {
     xct::XctId initial_owner_id,
     KeySlice slice,
     const void* suffix,
-    KeyLength remaining_length,
+    KeyLength remainder_length,
     PayloadLength payload_count);
 
   /**
@@ -1071,7 +1073,7 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   bool        consecutive_inserts_;         // +1 -> 75
 
-  /** To make the remaining part a multiply of 16-bytes. */
+  /** To make the following part a multiply of 16-bytes. */
   char        dummy_[5];                    // +5 -> 80
 
   /**
@@ -1182,55 +1184,75 @@ struct MasstreeIntermediatePointerIterator final {
 };
 
 
+inline KeyLength calculate_suffix_length(KeyLength remainder_length) {
+  if (remainder_length == kInitiallyNextLayer) {
+    return 0;
+  }
+  ASSERT_ND(remainder_length <= kMaxKeyLength);
+  if (remainder_length >= sizeof(KeySlice)) {
+    return remainder_length - sizeof(KeySlice);
+  } else {
+    return 0;
+  }
+}
+inline KeyLength calculate_suffix_length_aligned(KeyLength remainder_length) {
+  return assorted::align8(calculate_suffix_length(remainder_length));
+}
+
 inline SlotIndex MasstreeBorderPage::find_key(
   KeySlice slice,
   const void* suffix,
-  KeyLength remaining) const {
+  KeyLength remainder) const {
   SlotIndex key_count = get_key_count();
-  ASSERT_ND(remaining <= kMaxKeyLength);
-  ASSERT_ND(key_count <= kMaxKeys);
+  ASSERT_ND(remainder <= kMaxKeyLength);
+  ASSERT_ND(key_count <= kBorderPageMaxSlots);
   prefetch_additional_if_needed(key_count);
-  for (SlotIndex i = 0; i < key_count; ++i) {
-    const KeySlice rec_slice = get_slice(i);
-    if (LIKELY(slice != rec_slice)) {
-      continue;
-    }
-    // one slice might be used for up to 10 keys, length 0 to 8 and pointer to next layer.
-    if (remaining <= sizeof(KeySlice)) {
-      // no suffix nor next layer, so just compare length
-      const KeyLength klen = get_remaining_key_length(i);
-      if (klen == remaining) {
-        return i;
-      } else {
-        continue;  // did not match
+
+  // one slice might be used for up to 10 keys, length 0 to 8 and pointer to next layer.
+  if (remainder <= sizeof(KeySlice)) {
+    // then we are looking for length 0-8 only.
+    for (SlotIndex i = 0; i < key_count; ++i) {
+      const KeySlice rec_slice = get_slice(i);
+      if (LIKELY(slice != rec_slice)) {
+        continue;
       }
-    }
-    ASSERT_ND(remaining > sizeof(KeySlice));  // keep this in mind below
-
-    if (does_point_to_layer(i)) {
-      // as it points to next layer, no suffix.
-      // so far we don't delete layers, so in this case the record is always valid.
-      return i;
-    }
-
-    ASSERT_ND(!does_point_to_layer(i));
-
-    // now, our key is > 8 bytes and we found some local record.
-    const KeyLength klen = get_remaining_key_length(i);
-    if (klen == remaining) {
-      // compare suffix.
-      const char* record_suffix = get_record(i);
-      if (std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
+      // no suffix nor next layer, so just compare length. if not match, continue
+      const KeyLength klen = get_remainder_length(i);
+      if (klen == remainder) {
         return i;
       }
     }
+  } else {
+    // then we are only looking for length>8.
+    for (SlotIndex i = 0; i < key_count; ++i) {
+      const KeySlice rec_slice = get_slice(i);
+      if (LIKELY(slice != rec_slice)) {
+        continue;
+      }
 
-    // suppose the record has > 8 bytes key. it must be the only such record in this page
-    // because otherwise we must have created a next layer!
-    if (klen > sizeof(KeySlice)) {
+      if (does_point_to_layer(i)) {
+        // as it points to next layer, no need to check suffix. We are sure this is it.
+        // so far we don't delete layers, so in this case the record is always valid.
+        return i;
+      }
+
+      // now, our key is > 8 bytes and we found some local record.
+      const KeyLength klen = get_remainder_length(i);
+      if (klen <= sizeof(KeySlice)) {
+        continue;  // length 0-8, surely not a match. skip.
+      }
+
+      if (klen == remainder) {
+        // compare suffix.
+        const char* record_suffix = get_record(i);
+        if (std::memcmp(record_suffix, suffix, remainder - sizeof(KeySlice)) == 0) {
+          return i;
+        }
+      }
+
+      // The record has > 8 bytes key of the same slice. it must be the only such record in this
+      // page because otherwise we must have created a next layer!
       break;  // no more check needed
-    } else {
-      continue;
     }
   }
   return kBorderPageMaxSlots;
@@ -1247,7 +1269,7 @@ inline SlotIndex MasstreeBorderPage::find_key_normalized(
   }
   for (SlotIndex i = from_index; i < to_index; ++i) {
     const KeySlice rec_slice = get_slice(i);
-    const KeyLength klen = get_remaining_key_length(i);
+    const KeyLength klen = get_remainder_length(i);
     if (UNLIKELY(slice == rec_slice && klen == sizeof(KeySlice))) {
       return i;
     }
@@ -1260,52 +1282,54 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
   SlotIndex to_index,
   KeySlice slice,
   const void* suffix,
-  KeyLength remaining) const {
+  KeyLength remainder) const {
   ASSERT_ND(to_index <= kBorderPageMaxSlots);
   ASSERT_ND(from_index <= to_index);
-  ASSERT_ND(remaining <= kMaxKeyLength);
+  ASSERT_ND(remainder <= kMaxKeyLength);
   if (from_index == 0) {
     prefetch_additional_if_needed(to_index);
   }
-  for (SlotIndex i = from_index; i < to_index; ++i) {
-    const KeySlice rec_slice = get_slice(i);
-    if (LIKELY(slice != rec_slice)) {
-      continue;
-    }
-    const SlotLengthPart lengthes = get_slot(i)->read_lengthes_oneshot();
-    const KeyLength klen = lengthes.remaining_key_length_;
-    bool next_layer = lengthes.does_point_to_layer();
-    if (remaining <= sizeof(KeySlice)) {
-      if (klen == remaining) {
-        ASSERT_ND(!next_layer);
-        return FindKeyForReserveResult(i, kExactMatchLocalRecord);
-      } else {
+  if (remainder <= sizeof(KeySlice)) {
+    for (SlotIndex i = from_index; i < to_index; ++i) {
+      const KeySlice rec_slice = get_slice(i);
+      if (LIKELY(slice != rec_slice)) {
         continue;
       }
+      const KeyLength klen = get_remainder_length(i);
+      if (klen == remainder) {
+        ASSERT_ND(!does_point_to_layer(i));
+        return FindKeyForReserveResult(i, kExactMatchLocalRecord);
+      }
     }
-    ASSERT_ND(remaining > sizeof(KeySlice));
+  } else {
+    for (SlotIndex i = from_index; i < to_index; ++i) {
+      const KeySlice rec_slice = get_slice(i);
+      if (LIKELY(slice != rec_slice)) {
+        continue;
+      }
 
-    if (next_layer) {
-      return FindKeyForReserveResult(i, kExactMatchLayerPointer);
-    }
+      const bool next_layer = does_point_to_layer(i);
+      const KeyLength klen = get_remainder_length(i);
 
-    ASSERT_ND(!next_layer);
+      if (next_layer) {
+        ASSERT_ND(klen > sizeof(KeySlice));
+        return FindKeyForReserveResult(i, kExactMatchLayerPointer);
+      } else if (klen <= sizeof(KeySlice)) {
+        continue;
+      }
 
-    if (klen <= sizeof(KeySlice)) {
-      continue;
-    }
-
-    // now, both the searching key and this key are more than 8 bytes.
-    // whether the key really matches or not, this IS the slot we are looking for.
-    // Either 1) the keys really match, or 2) we will make this record point to next layer.
-    const char* record_suffix = get_record(lengthes);
-    if (klen == remaining &&
-      std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
-      // case 1)
-      return FindKeyForReserveResult(i, kExactMatchLocalRecord);
-    } else {
-      // case 2)
-      return FindKeyForReserveResult(i, kConflictingLocalRecord);
+      // now, both the searching key and this key are more than 8 bytes.
+      // whether the key really matches or not, this IS the slot we are looking for.
+      // Either 1) the keys really match, or 2) we will make this record point to next layer.
+      const char* record_suffix = get_record(i);
+      if (klen == remainder &&
+        std::memcmp(record_suffix, suffix, remainder - sizeof(KeySlice)) == 0) {
+        // case 1)
+        return FindKeyForReserveResult(i, kExactMatchLocalRecord);
+      } else {
+        // case 2)
+        return FindKeyForReserveResult(i, kConflictingLocalRecord);
+      }
     }
   }
   return FindKeyForReserveResult(kBorderPageMaxSlots, kNotFound);
@@ -1314,51 +1338,64 @@ inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_
 inline MasstreeBorderPage::FindKeyForReserveResult MasstreeBorderPage::find_key_for_snapshot(
   KeySlice slice,
   const void* suffix,
-  KeyLength remaining) const {
+  KeyLength remainder) const {
   ASSERT_ND(header_.snapshot_);
-  ASSERT_ND(remaining <= kMaxKeyLength);
-  SlotIndex key_count = get_key_count();
-  for (SlotIndex i = 0; i < key_count; ++i) {
-    const KeySlice rec_slice = get_slice(i);
-    if (rec_slice < slice) {
-      continue;
-    } else if (rec_slice > slice) {
-      // as keys are sorted in snapshot page, "i" is the place the slice would be inserted.
-      return FindKeyForReserveResult(i, kNotFound);
-    }
-    ASSERT_ND(rec_slice == slice);
-    const uint8_t klen = get_remaining_key_length(i);
-    if (remaining <= sizeof(KeySlice)) {
-      if (klen == remaining) {
+  ASSERT_ND(remainder <= kMaxKeyLength);
+  // Remember, unlike other cases above, there are no worry on concurrency.
+  const SlotIndex key_count = get_key_count();
+  if (remainder <= sizeof(KeySlice)) {
+    for (SlotIndex i = 0; i < key_count; ++i) {
+      const KeySlice rec_slice = get_slice(i);
+      if (rec_slice < slice) {
+        continue;
+      } else if (rec_slice > slice) {
+        // as keys are sorted in snapshot page, "i" is the place the slice would be inserted.
+        return FindKeyForReserveResult(i, kNotFound);
+      }
+      ASSERT_ND(rec_slice == slice);
+      const KeyLength klen = get_remainder_length(i);
+      if (klen == remainder) {
         ASSERT_ND(!does_point_to_layer(i));
         return FindKeyForReserveResult(i, kExactMatchLocalRecord);
-      } else if (klen < remaining) {
+      } else if (klen < remainder) {
+        ASSERT_ND(!does_point_to_layer(i));
         continue;  // same as "rec_slice < slice" case
       } else {
         return FindKeyForReserveResult(i, kNotFound);  // same as "rec_slice > slice" case
       }
     }
-    ASSERT_ND(remaining > sizeof(KeySlice));
+  } else {
+    for (SlotIndex i = 0; i < key_count; ++i) {
+      const KeySlice rec_slice = get_slice(i);
+      if (rec_slice < slice) {
+        continue;
+      } else if (rec_slice > slice) {
+        // as keys are sorted in snapshot page, "i" is the place the slice would be inserted.
+        return FindKeyForReserveResult(i, kNotFound);
+      }
+      ASSERT_ND(rec_slice == slice);
+      const KeyLength klen = get_remainder_length(i);
 
-    if (does_point_to_layer(i)) {
-      return FindKeyForReserveResult(i, kExactMatchLayerPointer);
-    }
+      if (does_point_to_layer(i)) {
+        return FindKeyForReserveResult(i, kExactMatchLayerPointer);
+      }
 
-    ASSERT_ND(!does_point_to_layer(i));
+      ASSERT_ND(!does_point_to_layer(i));
 
-    if (klen <= sizeof(KeySlice)) {
-      continue;  // same as "rec_slice < slice" case
-    }
+      if (klen <= sizeof(KeySlice)) {
+        continue;  // same as "rec_slice < slice" case
+      }
 
-    // see the comment in MasstreeComposerContext::PathLevel.
-    // Even if the record is larger than the current key, we consider it "matched" and cause
-    // next layer creation, but keeping the larger record in a dummy original page in nexy layer.
-    const char* record_suffix = get_record(i);
-    if (klen == remaining &&
-      std::memcmp(record_suffix, suffix, remaining - sizeof(KeySlice)) == 0) {
-      return FindKeyForReserveResult(i, kExactMatchLocalRecord);
-    } else {
-      return FindKeyForReserveResult(i, kConflictingLocalRecord);
+      // see the comment in MasstreeComposerContext::PathLevel.
+      // Even if the record is larger than the current key, we consider it "matched" and cause
+      // next layer creation, but keeping the larger record in a dummy original page in nexy layer.
+      const char* record_suffix = get_record(i);
+      if (klen == remainder &&
+        std::memcmp(record_suffix, suffix, remainder - sizeof(KeySlice)) == 0) {
+        return FindKeyForReserveResult(i, kExactMatchLocalRecord);
+      } else {
+        return FindKeyForReserveResult(i, kConflictingLocalRecord);
+      }
     }
   }
   return FindKeyForReserveResult(key_count, kNotFound);
@@ -1369,43 +1406,45 @@ inline void MasstreeBorderPage::reserve_record_space(
   xct::XctId initial_owner_id,
   KeySlice slice,
   const void* suffix,
-  KeyLength remaining_length,
+  KeyLength remainder_length,
   PayloadLength payload_count) {
   ASSERT_ND(header().snapshot_ || initial_owner_id.is_deleted());
-  ASSERT_ND(index < kMaxKeys);
-  ASSERT_ND(remaining_length <= kMaxKeyLength);
+  ASSERT_ND(index < kBorderPageMaxSlots);
+  ASSERT_ND(remainder_length <= kMaxKeyLength || remainder_length == kInitiallyNextLayer);
+  ASSERT_ND(remainder_length != kInitiallyNextLayer || payload_count == sizeof(DualPagePointer));
   ASSERT_ND(header().snapshot_ || is_locked());
   ASSERT_ND(get_key_count() == index);
-  ASSERT_ND(can_accomodate(index, remaining_length, payload_count));
+  ASSERT_ND(can_accomodate(index, remainder_length, payload_count));
   ASSERT_ND(next_offset_ % 8 == 0);
-  uint16_t suffix_length = calculate_suffix_length(remaining_length);
-  DataOffset record_size = required_space(remaining_length, payload_count);
+  const KeyLength suffix_length = calculate_suffix_length(remainder_length);
+  const DataOffset record_size = to_record_length(remainder_length, payload_count);
   ASSERT_ND(record_size % 8 == 0);
+  const DataOffset new_offset = next_offset_;
   set_slice(index, slice);
   // This is a new slot, so no worry on race.
   Slot* slot = get_new_slot(index);
-  slot->lengthes_.components.offset_ = next_offset_;
-  slot->lengthes_.components.remaining_key_length_ = remaining_length;
+  slot->lengthes_.components.offset_ = new_offset;
+  slot->lengthes_.components.unused_ = 0;
   slot->lengthes_.components.physical_record_length_ = record_size;
   slot->lengthes_.components.payload_length_ = payload_count;
   slot->original_physical_record_length_ = record_size;
-  slot->original_remaining_key_length_ = remaining_length;
-  slot->original_offset_ = next_offset_;
+  slot->remainder_length_ = remainder_length;
+  slot->original_offset_ = new_offset;
   next_offset_ += record_size;
   if (index == 0) {
     consecutive_inserts_ = true;
   } else if (consecutive_inserts_) {
     // do we have to turn off consecutive_inserts_ now?
     const KeySlice prev_slice = get_slice(index - 1);
-    const KeyLength prev_klen = get_remaining_key_length(index - 1);
-    if (prev_slice > slice || (prev_slice == slice && prev_klen > remaining_length)) {
+    const KeyLength prev_klen = get_remainder_length(index - 1);
+    if (prev_slice > slice || (prev_slice == slice && prev_klen > remainder_length)) {
       consecutive_inserts_ = false;
     }
   }
   slot->tid_.lock_.reset();
   slot->tid_.xct_id_ = initial_owner_id;
   if (suffix_length > 0) {
-    char* record = get_record(slot->lengthes_.components);
+    char* record = get_record_from_offset(new_offset);
     std::memcpy(record, suffix, suffix_length);
     KeyLength suffix_length_aligned = assorted::align8(suffix_length);
     // zero-padding
@@ -1420,23 +1459,26 @@ inline void MasstreeBorderPage::append_next_layer_snapshot(
   KeySlice slice,
   SnapshotPagePointer pointer) {
   ASSERT_ND(header().snapshot_);  // this is used only from snapshot composer
-  SlotIndex index = get_key_count();
-  ASSERT_ND(can_accomodate(index, 0, sizeof(DualPagePointer)));
-  DataOffset record_size = required_space(0, sizeof(DualPagePointer));
+  const SlotIndex index = get_key_count();
+  const KeyLength kRemainder = kInitiallyNextLayer;
+  ASSERT_ND(can_accomodate(index, kRemainder, sizeof(DualPagePointer)));
+  const DataOffset record_size = to_record_length(kRemainder, sizeof(DualPagePointer));
+  const DataOffset offset = next_offset_;
   set_slice(index, slice);
   // This is in snapshot page, so no worry on race.
   Slot* slot = get_new_slot(index);
-  slot->lengthes_.components.offset_ = next_offset_;
+  slot->lengthes_.components.offset_ = offset;
+  slot->lengthes_.components.unused_ = 0;
   slot->lengthes_.components.physical_record_length_ = record_size;
-  slot->lengthes_.components.set_next_layer();
+  slot->lengthes_.components.payload_length_ = sizeof(DualPagePointer);
   slot->original_physical_record_length_ = record_size;
-  slot->original_remaining_key_length_ = kNextLayerKeyLength;
-  slot->original_offset_ = next_offset_;
+  slot->remainder_length_ = kRemainder;
+  slot->original_offset_ = offset;
   next_offset_ += record_size;
 
   slot->tid_.xct_id_ = initial_owner_id;
   slot->tid_.xct_id_.set_next_layer();
-  DualPagePointer* dual_pointer = get_next_layer(slot->lengthes_.components);
+  DualPagePointer* dual_pointer = get_next_layer_from_offsets(offset, kRemainder);
   dual_pointer->volatile_pointer_.clear();
   dual_pointer->snapshot_pointer_ = pointer;
   set_key_count(index + 1U);
@@ -1445,23 +1487,29 @@ inline void MasstreeBorderPage::append_next_layer_snapshot(
 inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer pointer) {
   ASSERT_ND(header().snapshot_);  // this is used only from snapshot composer
   ASSERT_ND(get_key_count() > 0);
-  SlotIndex index = get_key_count() - 1U;
+  const SlotIndex index = get_key_count() - 1U;
 
   ASSERT_ND(!does_point_to_layer(index));
   ASSERT_ND(!get_owner_id(index)->xct_id_.is_next_layer());
-  ASSERT_ND(can_accomodate(index, 0, sizeof(DualPagePointer)));
-  DataOffset record_size = required_space(0, sizeof(DualPagePointer));
+
+  // Overwriting an existing slot with kInitiallyNextLayer is not generally safe,
+  // but this is in snapshot page, so no worry on race.
+  const KeyLength kRemainder = kInitiallyNextLayer;
+  ASSERT_ND(can_accomodate(index, kRemainder, sizeof(DualPagePointer)));
+  const DataOffset record_size = to_record_length(kRemainder, sizeof(DualPagePointer));
 
   // This is in snapshot page, so no worry on race.
   Slot* slot = get_slot(index);
+  ASSERT_ND(next_offset_
+    == slot->lengthes_.components.offset_ + slot->lengthes_.components.physical_record_length_);
   slot->lengthes_.components.physical_record_length_ = record_size;
-  slot->lengthes_.components.set_next_layer();
+  slot->lengthes_.components.payload_length_ = sizeof(DualPagePointer);
   slot->original_physical_record_length_ = record_size;
-  slot->original_remaining_key_length_ = kNextLayerKeyLength;
+  slot->remainder_length_ = kRemainder;
   next_offset_ = slot->lengthes_.components.offset_ + record_size;
 
   slot->tid_.xct_id_.set_next_layer();
-  DualPagePointer* dual_pointer = get_next_layer(slot->lengthes_.components);
+  DualPagePointer* dual_pointer = get_next_layer(index);
   dual_pointer->volatile_pointer_.clear();
   dual_pointer->snapshot_pointer_ = pointer;
 
@@ -1573,27 +1621,27 @@ inline bool MasstreeBorderPage::should_split_early(
 }
 inline bool MasstreeBorderPage::can_accomodate(
   SlotIndex new_index,
-  KeyLength remaining_key_length,
+  KeyLength remainder_length,
   PayloadLength payload_count) const {
   if (new_index == 0) {
-    ASSERT_ND(remaining_key_length <= kMaxKeyLength);
+    ASSERT_ND(remainder_length <= kMaxKeyLength || remainder_length == kInitiallyNextLayer);
     ASSERT_ND(payload_count <= kMaxPayloadLength);
     return true;
-  } else if (new_index >= kMaxKeys) {
+  } else if (new_index >= kBorderPageMaxSlots) {
     return false;
   }
-  DataOffset record_size = required_space(remaining_key_length, payload_count);
-  DataOffset available = available_space();
-  return record_size <= available;
+  const DataOffset required = required_data_space(remainder_length, payload_count);
+  const DataOffset available = available_space();
+  return required <= available;
 }
 inline bool MasstreeBorderPage::compare_key(
   SlotIndex index,
   const void* be_key,
   KeyLength key_length) const {
   ASSERT_ND(index < kMaxKeys);
-  KeyLength remaining = key_length - get_layer() * sizeof(KeySlice);
-  const KeyLength klen = get_remaining_key_length(index);
-  if (remaining != klen) {
+  KeyLength remainder = key_length - get_layer() * sizeof(KeySlice);
+  const KeyLength klen = get_remainder_length(index);
+  if (remainder != klen) {
     return false;
   }
   KeySlice slice = slice_layer(be_key, key_length, get_layer());
@@ -1601,11 +1649,11 @@ inline bool MasstreeBorderPage::compare_key(
   if (slice != rec_slice) {
     return false;
   }
-  if (remaining > sizeof(KeySlice)) {
+  if (remainder > sizeof(KeySlice)) {
     return std::memcmp(
       reinterpret_cast<const char*>(be_key) + (get_layer() + 1) * sizeof(KeySlice),
       get_record(index),
-      remaining - sizeof(KeySlice)) == 0;
+      remainder - sizeof(KeySlice)) == 0;
   } else {
     return true;
   }
@@ -1622,80 +1670,100 @@ inline int MasstreeBorderPage::ltgt_key(
   const char* be_key,
   KeyLength key_length) const {
   ASSERT_ND(key_length > get_layer() * kSliceLen);
-  KeyLength remaining = key_length - get_layer() * kSliceLen;
+  KeyLength remainder = key_length - get_layer() * kSliceLen;
   KeySlice slice = slice_layer(be_key, key_length, get_layer());
   const char* suffix = be_key + (get_layer() + 1) * kSliceLen;
-  return ltgt_key(index, slice, suffix, remaining);
+  return ltgt_key(index, slice, suffix, remainder);
 }
 inline int MasstreeBorderPage::ltgt_key(
   SlotIndex index,
   KeySlice slice,
   const char* suffix,
-  KeyLength remaining) const {
-  ASSERT_ND(index < kMaxKeys);
-  ASSERT_ND(remaining > 0);
-  KeyLength rec_remaining = get_remaining_key_length(index);
+  KeyLength remainder) const {
+  ASSERT_ND(index < kBorderPageMaxSlots);
+  ASSERT_ND(remainder > 0);
+  ASSERT_ND(remainder <= kMaxKeyLength);
+  KeyLength rec_remainder = get_remainder_length(index);
   KeySlice rec_slice = get_slice(index);
   if (slice < rec_slice) {
     return -1;
   } else if (slice > rec_slice) {
     return 1;
   }
-  if (remaining <= kSliceLen || rec_remaining <= kSliceLen) {
-    // this is correct even when rec_remaining==255
-    return static_cast<int>(remaining) - static_cast<int>(rec_remaining);
+
+  if (remainder <= kSliceLen) {
+    if (remainder == rec_remainder) {
+      return 0;
+    } else if (remainder < rec_remainder) {
+      return -1;
+    } else {
+      return 1;
+    }
+  }
+
+  ASSERT_ND(remainder > kSliceLen);
+  if (rec_remainder <= kSliceLen) {
+    return 1;
   }
   if (does_point_to_layer(index)) {
     return 0;
   }
-  KeyLength min_remaining = std::min(remaining, rec_remaining);
+  ASSERT_ND(rec_remainder <= kMaxKeyLength);
+  KeyLength min_remainder = std::min(remainder, rec_remainder);
   const char* rec_suffix = get_record(index);
-  int cmp = std::memcmp(suffix, rec_suffix, min_remaining);
+  int cmp = std::memcmp(suffix, rec_suffix, min_remainder);
   if (cmp != 0) {
     return cmp;
   }
-  return static_cast<int>(remaining) - static_cast<int>(rec_remaining);
+
+  if (remainder == rec_remainder) {
+    return 0;
+  } else if (remainder < rec_remainder) {
+    return -1;
+  } else {
+    return 1;
+  }
 }
 inline bool MasstreeBorderPage::will_conflict(
   SlotIndex index,
   const char* be_key,
   KeyLength key_length) const {
   ASSERT_ND(key_length > get_layer() * kSliceLen);
-  KeyLength remaining = key_length - get_layer() * kSliceLen;
+  KeyLength remainder = key_length - get_layer() * kSliceLen;
   KeySlice slice = slice_layer(be_key, key_length, get_layer());
-  return will_conflict(index, slice, remaining);
+  return will_conflict(index, slice, remainder);
 }
 inline bool MasstreeBorderPage::will_conflict(
   SlotIndex index,
   KeySlice slice,
-  KeyLength remaining) const {
+  KeyLength remainder) const {
   ASSERT_ND(index < kMaxKeys);
-  ASSERT_ND(remaining > 0);
+  ASSERT_ND(remainder > 0);
   if (slice != get_slice(index)) {
     return false;
   }
-  KeyLength rec_remaining = get_remaining_key_length(index);
-  if (remaining > kSliceLen && rec_remaining > kSliceLen) {
+  KeyLength rec_remainder = get_remainder_length(index);
+  if (remainder > kSliceLen && rec_remainder > kSliceLen) {
     return true;  // need to create next layer
   }
-  return (remaining == rec_remaining);  // if same, it's exactly the same key
+  return (remainder == rec_remainder);  // if same, it's exactly the same key
 }
 inline bool MasstreeBorderPage::will_contain_next_layer(
   SlotIndex index,
   const char* be_key,
   KeyLength key_length) const {
   ASSERT_ND(key_length > get_layer() * kSliceLen);
-  KeyLength remaining = key_length - get_layer() * kSliceLen;
+  KeyLength remainder = key_length - get_layer() * kSliceLen;
   KeySlice slice = slice_layer(be_key, key_length, get_layer());
-  return will_contain_next_layer(index, slice, remaining);
+  return will_contain_next_layer(index, slice, remainder);
 }
 inline bool MasstreeBorderPage::will_contain_next_layer(
   SlotIndex index,
   KeySlice slice,
-  KeyLength remaining) const {
+  KeyLength remainder) const {
   ASSERT_ND(index < kMaxKeys);
-  ASSERT_ND(remaining > 0);
-  return slice == get_slice(index) && does_point_to_layer(index) && remaining > kSliceLen;
+  ASSERT_ND(remainder > 0);
+  return slice == get_slice(index) && does_point_to_layer(index) && remainder > kSliceLen;
 }
 
 // We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)

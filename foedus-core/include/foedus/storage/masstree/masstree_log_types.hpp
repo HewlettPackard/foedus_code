@@ -185,8 +185,8 @@ struct MasstreeCommonLogType : public log::RecordLogType {
       // compare the rest with memcmp.
       KeyLength min_length = std::min(left->key_length_, right->key_length_);
       if (min_length > kSliceLen) {
-        KeyLength remaining = min_length - kSliceLen;
-        int key_result = std::memcmp(left_key + kSliceLen, right_key + kSliceLen, remaining);
+        KeyLength remainder = min_length - kSliceLen;
+        int key_result = std::memcmp(left_key + kSliceLen, right_key + kSliceLen, remainder);
         if (key_result != 0) {
           return key_result;
         }
@@ -244,11 +244,11 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     ASSERT_ND(equal_record_and_log_suffixes(data));
 
     // In the MasstreeBorderPage Slot, lengthes come right after TID.
-    // [0]: offset, [1]: physical_record_length_, [2]: remaining_key_length_, [3]: payload_length_
+    // [0]: offset, [1]: physical_record_length_, [3]: payload_length_, [4]: remainder_length_
     uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
     lengthes[3] = payload_count_;
     ASSERT_ND(lengthes[1] >= suffix_length_aligned + assorted::align8(payload_count_));
-    ASSERT_ND(lengthes[2] == key_length_ - (layer * sizeof(KeySlice)));
+    ASSERT_ND(lengthes[4] == key_length_ - (layer * sizeof(KeySlice)));
     ASSERT_ND(reinterpret_cast<uint64_t>(reinterpret_cast<uintptr_t>(data)) % kPageSize
       == static_cast<uint64_t>(lengthes[0] + kBorderPageDataPartOffset));
 
@@ -351,11 +351,11 @@ struct MasstreeUpdateLogType : public MasstreeCommonLogType {
     ASSERT_ND(equal_record_and_log_suffixes(data));
 
     // In the MasstreeBorderPage Slot, lengthes come right after TID.
-    // [0]: offset, [1]: physical_record_length_, [2]: remaining_key_length_, [3]: payload_length_
+    // [0]: offset, [1]: physical_record_length_, [3]: payload_length_, [4]: remainder_length_
     uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
     lengthes[3] = payload_count_;
     ASSERT_ND(lengthes[1] >= suffix_length_aligned + assorted::align8(payload_count_));
-    ASSERT_ND(lengthes[2] == key_length_ - (layer * sizeof(KeySlice)));
+    ASSERT_ND(lengthes[4] == key_length_ - (layer * sizeof(KeySlice)));
     ASSERT_ND(reinterpret_cast<uint64_t>(reinterpret_cast<uintptr_t>(data)) % kPageSize
       == static_cast<uint64_t>(lengthes[0] + kBorderPageDataPartOffset));
 
@@ -417,11 +417,11 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     KeyLength suffix_length_aligned = key_length_aligned - skipped;
 
     // In the MasstreeBorderPage Slot, lengthes come right after TID.
-    // [0]: offset, [1]: physical_record_length_, [2]: remaining_key_length_, [3]: payload_length_
+    // [0]: offset, [1]: physical_record_length_, [3]: payload_length_, [4]: remainder_length_
     uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
     ASSERT_ND(lengthes[3] >= payload_offset_ + payload_count_);
     ASSERT_ND(lengthes[1] >= suffix_length_aligned + assorted::align8(payload_count_));
-    ASSERT_ND(lengthes[2] == key_length_ - (layer * sizeof(KeySlice)));
+    ASSERT_ND(lengthes[4] == key_length_ - (layer * sizeof(KeySlice)));
     ASSERT_ND(reinterpret_cast<uint64_t>(reinterpret_cast<uintptr_t>(data)) % kPageSize
       == static_cast<uint64_t>(lengthes[0] + kBorderPageDataPartOffset));
 

@@ -7,8 +7,10 @@ set(test_masstree_basic_individuals
   NextLayer
   CreateAndDrop
   ExpandInsert
+  ExpandInsertNextLayer
   ExpandInsertNormalized
   ExpandUpdate
+  ExpandUpdateNextLayer
   ExpandUpdateNormalized
   )
 add_foedus_test_individual(test_masstree_basic "${test_masstree_basic_individuals}")

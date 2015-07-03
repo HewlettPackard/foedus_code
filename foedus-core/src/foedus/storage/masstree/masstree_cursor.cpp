@@ -58,7 +58,9 @@ MasstreeCursor::MasstreeCursor(MasstreeStorage storage, thread::Thread* context)
   cur_key_ = nullptr;
   cur_key_owner_id_address = nullptr;
   cur_key_in_layer_slice_ = 0;
-  cur_key_in_layer_remaining_ = 0;
+  cur_key_in_layer_remainder_ = 0;
+  cur_key_next_layer_ = false;
+  cur_key_observed_owner_id_.data_ = 0;
 
   cur_payload_length_ = 0;
 
@@ -146,8 +148,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
     }
     if (route->index_ < route->key_count_) {
       fetch_cur_record(page, route->get_cur_original_index());
-      if (!route->snapshot_ &&
-        cur_key_in_layer_remaining_ != kNextLayerKeyLength) {
+      if (!route->snapshot_ && !is_cur_key_next_layer()) {
         CHECK_ERROR_CODE(current_xct_->add_to_read_set(
           storage_.get_id(),
           cur_key_observed_owner_id_,
@@ -156,7 +157,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
       if (cur_key_observed_owner_id_.is_deleted()) {
         continue;
       }
-      if (cur_key_in_layer_remaining_ == kNextLayerKeyLength) {
+      if (is_cur_key_next_layer()) {
         CHECK_ERROR_CODE(proceed_next_layer());
       }
       break;
@@ -367,18 +368,17 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   ASSERT_ND(route->key_count_ > 0);
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(cur_route()->page_);
   route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
-  uint8_t record = route->get_original_index(route->index_);
+  SlotIndex record = route->get_original_index(route->index_);
   fetch_cur_record(page, record);
 
-  if (!route->snapshot_ &&
-    cur_key_in_layer_remaining_ != kNextLayerKeyLength) {
+  if (!route->snapshot_ && !is_cur_key_next_layer()) {
     CHECK_ERROR_CODE(current_xct_->add_to_read_set(
       storage_.get_id(),
       cur_key_observed_owner_id_,
       cur_key_owner_id_address));
   }
 
-  if (cur_key_in_layer_remaining_ == kNextLayerKeyLength) {
+  if (is_cur_key_next_layer()) {
     return proceed_next_layer();
   }
   return kErrorCodeOk;
@@ -424,22 +424,20 @@ inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
 //
 /////////////////////////////////////////////////////////////////////////////////////////
 
-void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, uint8_t record) {
+void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, SlotIndex record) {
   // fetch everything
   ASSERT_ND(record < page->get_key_count());
   cur_key_owner_id_address = page->get_owner_id(record);
-  if (!page->header().snapshot_) {
-    cur_key_observed_owner_id_ = cur_key_owner_id_address->xct_id_;
-  }
-  KeyLength remaining = page->get_remaining_key_length(record);
-  cur_key_in_layer_remaining_ = remaining;
+  cur_key_observed_owner_id_ = cur_key_owner_id_address->xct_id_;
+  KeyLength remainder = page->get_remainder_length(record);
+  cur_key_in_layer_remainder_ = remainder;
   cur_key_in_layer_slice_ = page->get_slice(record);
   uint8_t layer = page->get_layer();
-  cur_key_length_ = layer * sizeof(KeySlice) + remaining;
+  cur_key_length_ = layer * sizeof(KeySlice) + remainder;
   char* layer_key = cur_key_ + layer * sizeof(KeySlice);
   assorted::write_bigendian<KeySlice>(cur_key_in_layer_slice_, layer_key);
   ASSERT_ND(assorted::read_bigendian<KeySlice>(layer_key) == cur_key_in_layer_slice_);
-  if (remaining != kNextLayerKeyLength) {
+  if (!is_cur_key_next_layer()) {
     KeyLength suffix_len = page->get_suffix_length(record);
     if (suffix_len > 0) {
       std::memcpy(cur_key_ + (layer + 1) * sizeof(KeySlice), page->get_record(record), suffix_len);
@@ -455,7 +453,7 @@ inline void MasstreeCursor::Route::setup_order() {
   // we have already called prefetch_general(), which prefetches 4 cachelines (256 bytes).
   // as we are reading up to slices_[key_count - 1], we might want to prefetch more.
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(page_);
-  for (uint8_t i = 0; i < key_count_; ++i) {
+  for (SlotIndex i = 0; i < key_count_; ++i) {
     order_[i] = i;
   }
 
@@ -464,23 +462,16 @@ inline void MasstreeCursor::Route::setup_order() {
     return;
   }
 
-  const uint16_t prefetched = assorted::kCachelineSize * 4;
-  const uint16_t end_of_remaining_key_length = 136U;
-  uint16_t prefetch_upto = key_count_ * sizeof(KeySlice) + end_of_remaining_key_length;
-  if (prefetch_upto > prefetched) {
-    uint16_t additional_prefetches = (prefetch_upto - prefetched) % assorted::kCachelineSize + 1;
-    char* base = reinterpret_cast<char*>(page) + prefetched;
-    assorted::prefetch_cachelines(base, additional_prefetches);
-  }
+  page->prefetch_additional_if_needed(key_count_);
   struct Sorter {
     explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
-    bool operator() (uint8_t left, uint8_t right) {
+    bool operator() (SlotIndex left, SlotIndex right) {
       KeySlice left_slice = target_->get_slice(left);
       KeySlice right_slice = target_->get_slice(right);
       if (left_slice < right_slice) {
         return true;
       } else if (left_slice == right_slice) {
-        return target_->get_remaining_key_length(left) < target_->get_remaining_key_length(right);
+        return target_->get_remainder_length(left) < target_->get_remainder_length(right);
       } else {
         return false;
       }
@@ -656,7 +647,7 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_e
   if (is_end_key_supremum()) {
     return forward_cursor_ ? kCurKeySmaller : kCurKeyLarger;
   }
-  uint16_t min_length = std::min(cur_key_length_, end_key_length_);
+  KeyLength min_length = std::min(cur_key_length_, end_key_length_);
   int cmp = std::memcmp(cur_key_, end_key_, min_length);
   if (cmp < 0) {
     return kCurKeySmaller;
@@ -679,16 +670,16 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
   const char* full_key,
   KeyLength full_length) const {
   ASSERT_ND(full_length >= layer * sizeof(KeySlice));
-  KeyLength remaining = full_length - layer * sizeof(KeySlice);
-  if (cur_key_in_layer_remaining_ == kNextLayerKeyLength) {
+  KeyLength remainder = full_length - layer * sizeof(KeySlice);
+  if (is_cur_key_next_layer()) {
     // treat this case separately
     if (cur_key_in_layer_slice_ < slice) {
       return kCurKeySmaller;
     } else if (cur_key_in_layer_slice_ > slice) {
       return kCurKeyLarger;
-    } else if (remaining < sizeof(KeySlice)) {
+    } else if (remainder < sizeof(KeySlice)) {
       return kCurKeyLarger;
-    } else if (remaining == sizeof(KeySlice)) {
+    } else if (remainder == sizeof(KeySlice)) {
       return kCurKeyBeingsWith;
     } else {
       return kCurKeyContains;
@@ -698,21 +689,21 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
   } else if (cur_key_in_layer_slice_ > slice) {
     return kCurKeyLarger;
   } else {
-    if (cur_key_in_layer_remaining_ <= sizeof(KeySlice)) {
+    if (cur_key_in_layer_remainder_ <= sizeof(KeySlice)) {
       // then simply length determines the <,>,== relation
-      if (cur_key_in_layer_remaining_ < remaining) {
+      if (cur_key_in_layer_remainder_ < remainder) {
         return kCurKeySmaller;
-      } else if (cur_key_in_layer_remaining_ == remaining) {
+      } else if (cur_key_in_layer_remainder_ == remainder) {
         // exactly matches.
         return kCurKeyEquals;
       } else {
         return kCurKeyLarger;
       }
-    } else if (remaining <= sizeof(KeySlice)) {
+    } else if (remainder <= sizeof(KeySlice)) {
       return kCurKeyLarger;
     } else {
       // we have to compare suffix. which suffix is longer?
-      uint16_t min_length = std::min<uint16_t>(remaining, cur_key_in_layer_remaining_);
+      KeyLength min_length = std::min<KeyLength>(remainder, cur_key_in_layer_remainder_);
       int cmp = std::memcmp(
         cur_key_ + layer * sizeof(KeySlice),
         full_key + layer * sizeof(KeySlice),
@@ -722,9 +713,9 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
       } else if (cmp > 0) {
         return kCurKeyLarger;
       } else {
-        if (cur_key_in_layer_remaining_ < remaining) {
+        if (cur_key_in_layer_remainder_ < remainder) {
           return kCurKeySmaller;
-        } else if (cur_key_in_layer_remaining_ == remaining) {
+        } else if (cur_key_in_layer_remainder_ == remainder) {
           return kCurKeyEquals;
         } else {
           return kCurKeyLarger;
@@ -742,9 +733,9 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
 
 ErrorCode MasstreeCursor::open(
   const char* begin_key,
-  uint16_t begin_key_length,
+  KeyLength begin_key_length,
   const char* end_key,
-  uint16_t end_key_length,
+  KeyLength end_key_length,
   bool forward_cursor,
   bool for_writes,
   bool begin_inclusive,
@@ -859,7 +850,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     ASSERT_ND(!route->stable_.is_moved());
     uint8_t layer = border->get_layer();
     // find right record. be aware of backward-exclusive case!
-    uint8_t index;
+    SlotIndex index;
 
     // no need for fast-path for supremum.
     // almost always supremum-search is for backward search, so anyway it finds it first.
@@ -867,7 +858,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     // same for infimum-search for backward.
     if (search_type_ == kForwardExclusive || search_type_ == kForwardInclusive) {
       for (index = 0; index < route->key_count_; ++index) {
-        uint8_t record = route->get_original_index(index);
+        SlotIndex record = route->get_original_index(index);
         if (border->get_slice(record) < slice) {
           // if slice is strictly smaller, we are sure it's not the record we want. skip without
           // reading. Because of key-immutability and purely-increasing key count, this doesn't
@@ -885,8 +876,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
         // okay, this seems to satisfy our search.
         // we need to add this to read set. even if it's deleted.
         // but if that's next layer pointer, don't bother. the pointer is always valid
-        if (!route->snapshot_ &&
-          cur_key_in_layer_remaining_ != kNextLayerKeyLength) {
+        if (!route->snapshot_ && !is_cur_key_next_layer()) {
           CHECK_ERROR_CODE(current_xct_->add_to_read_set(
             storage_.get_id(),
             cur_key_observed_owner_id_,
@@ -896,7 +886,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
       }
     } else {
       for (index = route->key_count_ - 1; index < route->key_count_; --index) {
-        uint8_t record = route->get_original_index(index);
+        SlotIndex record = route->get_original_index(index);
         if (border->get_slice(record) > slice) {
           continue;
         }
@@ -908,8 +898,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
           continue;
         }
 
-        if (!route->snapshot_ &&
-          cur_key_in_layer_remaining_ != kNextLayerKeyLength) {
+        if (!route->snapshot_ && !is_cur_key_next_layer()) {
           CHECK_ERROR_CODE(current_xct_->add_to_read_set(
             storage_.get_id(),
             cur_key_observed_owner_id_,
@@ -945,7 +934,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     }
   }
 
-  if (is_valid_record() && cur_key_in_layer_remaining_ == kNextLayerKeyLength) {
+  if (is_valid_record() && is_cur_key_next_layer()) {
     return locate_next_layer();
   }
 
@@ -980,7 +969,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
 
     ASSERT_ND(!route->stable_.is_moved());
     // find right minipage. be aware of backward-exclusive case!
-    uint8_t index = 0;
+    SlotIndex index = 0;
     // fast path for supremum-search.
     if (search_key_in_layer_extremum_) {
       if (forward_cursor_) {
@@ -1007,7 +996,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     minipage.prefetch();
     route->key_count_mini_ = minipage.key_count_;
 
-    uint8_t index_mini = 0;
+    SlotIndex index_mini = 0;
     if (search_key_in_layer_extremum_) {
       // fast path for supremum-search.
       if (forward_cursor_) {
@@ -1079,8 +1068,8 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
 /////////////////////////////////////////////////////////////////////////////////////////
 ErrorCode MasstreeCursor::overwrite_record(
   const void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
+  PayloadLength payload_offset,
+  PayloadLength payload_count) {
   assert_modify();
   return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
@@ -1095,7 +1084,9 @@ ErrorCode MasstreeCursor::overwrite_record(
 }
 
 template <typename PAYLOAD>
-ErrorCode MasstreeCursor::overwrite_record_primitive(PAYLOAD payload, uint16_t payload_offset) {
+ErrorCode MasstreeCursor::overwrite_record_primitive(
+  PAYLOAD payload,
+  PayloadLength payload_offset) {
   assert_modify();
   return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
@@ -1121,7 +1112,7 @@ ErrorCode MasstreeCursor::delete_record() {
 }
 
 template <typename PAYLOAD>
-ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, uint16_t payload_offset) {
+ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, PayloadLength payload_offset) {
   assert_modify();
   return MasstreeStoragePimpl(&storage_).increment_general<PAYLOAD>(
     context_,

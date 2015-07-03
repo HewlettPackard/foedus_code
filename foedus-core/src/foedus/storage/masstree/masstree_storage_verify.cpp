@@ -197,11 +197,11 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   CHECK_ERROR(verify_page_basic(context, page, kMasstreeBorderPageType, low_fence, high_fence));
   // check consecutive_inserts_. this should be consistent whether it's moved or not.
   bool sorted = true;
-  for (uint8_t i = 1; i < page->get_key_count(); ++i) {
+  for (SlotIndex i = 1; i < page->get_key_count(); ++i) {
     KeySlice prev = page->get_slice(i - 1);
     KeySlice slice = page->get_slice(i);
-    uint8_t prev_len = page->get_remaining_key_length(i - 1);
-    uint8_t len = page->get_remaining_key_length(i);
+    KeyLength prev_len = page->get_remainder_length(i - 1);
+    KeyLength len = page->get_remainder_length(i);
     if (prev > slice || (prev == slice && prev_len > len)) {
       sorted = false;
       break;

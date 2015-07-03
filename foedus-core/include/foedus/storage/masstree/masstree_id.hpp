@@ -48,10 +48,15 @@ typedef uint16_t KeyLength;
 const KeyLength kMaxKeyLength = 1024U;
 
 /**
- * A special KeyLength that represents a border-page slot pointing to next layer.
+ * A special key length value that denotes the record in a border page was initially a next-layer
+ * pointer, thus the record has no suffix region.
+ * This value is stored in the remainder_length member iff the record was originally
+ * created as a next-layer. A record that later turned to be next-layer doesn't use this value.
+ * Also, a record with this length is never expanded.
  * @ingroup MASSTREE
+ * @ref MASS_TERM_REMAINDER
  */
-const KeyLength kNextLayerKeyLength = -1;
+const KeyLength kInitiallyNextLayer = 0xFFFFU;
 
 /**
  * @brief Represents a byte-length of a payload in this package.
@@ -204,14 +209,14 @@ inline KeySlice slice_key(const void* be_bytes, uint16_t slice_length) {
  * @return normalized value that preserves the value-order
  * @ingroup MASSTREE
  */
-inline KeySlice slice_layer(const void* be_bytes, uint16_t key_length, uint8_t current_layer) {
-  uint8_t remaining_length = key_length - current_layer * 8;
-  if (remaining_length >= 8) {
-    return normalize_be_bytes_full(reinterpret_cast<const char*>(be_bytes) + current_layer * 8);
+inline KeySlice slice_layer(const void* be_bytes, KeyLength key_length, uint8_t current_layer) {
+  const KeyLength skipped = current_layer * sizeof(KeySlice);
+  const KeyLength remainder_length = key_length - skipped;
+  const char* casted = reinterpret_cast<const char*>(be_bytes);
+  if (remainder_length >= sizeof(KeySlice)) {
+    return normalize_be_bytes_full(casted + skipped);
   } else {
-    return normalize_be_bytes_fragment(
-      reinterpret_cast<const char*>(be_bytes) + current_layer * 8,
-      remaining_length);
+    return normalize_be_bytes_fragment(casted + skipped, remainder_length);
   }
 }
 
@@ -239,7 +244,7 @@ inline uint16_t count_common_slices(const void* left, const void* right, uint16_
  * for easier slicing (which most of our code does). This method is usually used for assertions.
  * @ingroup MASSTREE
  */
-inline bool is_key_aligned_and_zero_padded(const char* key, uint16_t key_length) {
+inline bool is_key_aligned_and_zero_padded(const char* key, KeyLength key_length) {
   uintptr_t int_address = reinterpret_cast<uintptr_t>(key);
   if (int_address % 8 != 0) {
     return false;

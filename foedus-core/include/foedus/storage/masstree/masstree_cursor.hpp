@@ -65,23 +65,13 @@ class MasstreeCursor CXX11_FINAL {
     /** version as of getting calculating order_. */
     PageVersionStatus stable_;
     /** index in ordered keys. in interior, same. */
-    uint8_t index_;
+    SlotIndex index_;
     /** only for interior. */
-    uint8_t index_mini_;
+    SlotIndex index_mini_;
     /** same as stable_.get_key_count() */
-    uint8_t key_count_;
+    SlotIndex key_count_;
     /** only for interior. */
-    uint8_t key_count_mini_;
-
-    /**
-     * Upto which separator we are done. only for interior.
-     * If forward search, we followed a pointer before this separator.
-     * If backward search, we followed a pointer after this separator.
-     * This is updated whenever we follow a pointer from this interior page,
-     * and used when we have to re-find the separator. In Master-tree, a separator never
-     * disappears from the page, so we can surely find this.
-     */
-    KeySlice latest_separator_;
+    SlotIndex key_count_mini_;
 
     /** whether page_ is a snapshot page */
     bool    snapshot_;
@@ -95,13 +85,23 @@ class MasstreeCursor CXX11_FINAL {
     /** only when stable_ indicates that this page is a moved page */
     MovedPageSearchStatus moved_page_search_status_;
 
-    /** only for border. order_[0] is the index of smallest record, [1] second smallest... */
-    uint8_t order_[64];
+    /**
+     * Upto which separator we are done. only for interior.
+     * If forward search, we followed a pointer before this separator.
+     * If backward search, we followed a pointer after this separator.
+     * This is updated whenever we follow a pointer from this interior page,
+     * and used when we have to re-find the separator. In Master-tree, a separator never
+     * disappears from the page, so we can surely find this.
+     */
+    KeySlice latest_separator_;
 
-    uint8_t get_cur_original_index() const ALWAYS_INLINE {
+    /** only for border. order_[0] is the index of smallest record, [1] second smallest... */
+    SlotIndex order_[64];
+
+    SlotIndex get_cur_original_index() const ALWAYS_INLINE {
       return order_[index_];
     }
-    uint8_t get_original_index(uint8_t index) const ALWAYS_INLINE {
+    SlotIndex get_original_index(SlotIndex index) const ALWAYS_INLINE {
       return order_[index];
     }
     bool    is_valid_record() const ALWAYS_INLINE {
@@ -138,9 +138,9 @@ class MasstreeCursor CXX11_FINAL {
 
   ErrorCode   open(
     const char* begin_key = CXX11_NULLPTR,
-    uint16_t begin_key_length = kKeyLengthExtremum,
+    KeyLength begin_key_length = kKeyLengthExtremum,
     const char* end_key = CXX11_NULLPTR,
-    uint16_t end_key_length = kKeyLengthExtremum,
+    KeyLength end_key_length = kKeyLengthExtremum,
     bool forward_cursor = true,
     bool for_writes = false,
     bool begin_inclusive = true,
@@ -175,7 +175,7 @@ class MasstreeCursor CXX11_FINAL {
     ASSERT_ND(is_valid_record());
     return cur_key_;
   }
-  uint16_t  get_key_length() const ALWAYS_INLINE {
+  KeyLength   get_key_length() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
     return cur_key_length_;
   }
@@ -183,7 +183,7 @@ class MasstreeCursor CXX11_FINAL {
     ASSERT_ND(is_valid_record());
     return cur_payload_;
   }
-  uint16_t  get_payload_length() const ALWAYS_INLINE {
+  PayloadLength  get_payload_length() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
     return cur_payload_length_;
   }
@@ -193,12 +193,17 @@ class MasstreeCursor CXX11_FINAL {
 
   ErrorCode delete_record();
 
-  ErrorCode overwrite_record(const void* payload, uint16_t payload_offset, uint16_t payload_count);
+  ErrorCode overwrite_record(
+    const void* payload,
+    PayloadLength payload_offset,
+    PayloadLength payload_count);
   template <typename PAYLOAD>
-  ErrorCode overwrite_record_primitive(PAYLOAD payload, uint16_t payload_offset);
+  ErrorCode overwrite_record_primitive(
+    PAYLOAD payload,
+    PayloadLength payload_offset);
 
   template <typename PAYLOAD>
-  ErrorCode increment_record(PAYLOAD* value, uint16_t payload_offset);
+  ErrorCode increment_record(PAYLOAD* value, PayloadLength payload_offset);
 
  private:
   Engine* const         engine_;
@@ -224,7 +229,8 @@ class MasstreeCursor CXX11_FINAL {
   /** number of higher layer pages. the current border page is not included. so, might be 0. */
   uint16_t    route_count_;
 
-  KeyLength   cur_key_in_layer_remaining_;
+  bool        cur_key_next_layer_;
+  KeyLength   cur_key_in_layer_remainder_;
   KeySlice    cur_key_in_layer_slice_;
   xct::XctId  cur_key_observed_owner_id_;
   xct::LockableXctId* cur_key_owner_id_address;
@@ -248,8 +254,9 @@ class MasstreeCursor CXX11_FINAL {
   Route*      routes_;
 
   ErrorCode push_route(MasstreePage* page);
-  void      fetch_cur_record(MasstreeBorderPage* page, uint8_t record);
+  void      fetch_cur_record(MasstreeBorderPage* page, SlotIndex record);
   void      check_end_key();
+  bool      is_cur_key_next_layer() const { return cur_key_observed_owner_id_.is_next_layer(); }
   KeyCompareResult compare_cur_key_aginst_search_key(KeySlice slice, uint8_t layer) const;
   KeyCompareResult compare_cur_key_aginst_end_key() const;
   KeyCompareResult compare_cur_key(
@@ -258,7 +265,7 @@ class MasstreeCursor CXX11_FINAL {
     const char* full_key,
     KeyLength full_length) const;
 
-  uint8_t       get_cur_index() const ALWAYS_INLINE {
+  SlotIndex     get_cur_index() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
     return cur_route()->get_cur_original_index();
   }

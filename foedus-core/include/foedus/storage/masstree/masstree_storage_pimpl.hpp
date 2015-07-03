@@ -210,7 +210,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     thread::Thread* context,
     MasstreeBorderPage* border,
     KeySlice key,
-    KeyLength remaining,
+    KeyLength remainder,
     const void* suffix,
     PayloadLength payload_count,
     MasstreeBorderPage** out_page,
@@ -221,7 +221,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     MasstreeBorderPage* target,
     SlotIndex target_index,
     KeySlice slice,
-    KeyLength remaining_key_length,
+    KeyLength remainder_length,
     const void* suffix,
     PayloadLength payload_count,
     xct::XctId* observed);

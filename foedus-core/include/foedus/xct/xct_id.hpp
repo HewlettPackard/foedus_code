@@ -29,6 +29,7 @@
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/endianness.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/storage/fwd.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 
@@ -503,6 +504,9 @@ struct McsLockScope {
   void acquire(bool non_racy_acquire);
   /** Release the lock if acquired. Does nothing if not or !is_valid(). */
   void release();
+
+  /** Just for PageVersionLockScope(McsLockScope*) */
+  void move_to(storage::PageVersionLockScope* new_owner);
 
  private:
   thread::Thread* context_;
