@@ -582,6 +582,17 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @todo testcase for this method. TDD? shut up.
    */
   ErrorStack  fatify_first_root(thread::Thread* context, uint32_t desired_count);
+
+  /**
+   * @param[in] layer B-trie layer most border pages would be in.
+   * @param[in] key_length estimated byte size of each key
+   * @param[in] payload_length estimated byte size of each payload
+   * @returns Estimated number of records that fit in one border page.
+   */
+  static SlotIndex estimate_records_per_page(
+    uint8_t layer,
+    KeyLength key_length,
+    PayloadLength payload_length);
 };
 }  // namespace masstree
 }  // namespace storage

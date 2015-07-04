@@ -77,6 +77,16 @@ ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
   return task.run(context);
 }
 
+storage::masstree::SlotIndex estimate_masstree_records(
+  uint8_t layer,
+  storage::masstree::KeyLength key_length,
+  storage::masstree::PayloadLength payload_length) {
+  return storage::masstree::MasstreeStorage::estimate_records_per_page(
+    layer,
+    key_length,
+    payload_length);
+}
+
 ErrorStack create_all(Engine* engine, Wid total_warehouses) {
   debugging::StopWatch watch;
 
@@ -134,22 +144,22 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     engine,
     "neworders",
     true,
-    64 * 0.75));
+    estimate_masstree_records(0, sizeof(Wdoid), 0) * 0.75));
   CHECK_ERROR(create_masstree(
     engine,
     "orders",
     true,
-    (storage::masstree::kBorderPageDataPartSize / sizeof(OrderData)) * 0.75));
+    estimate_masstree_records(0, sizeof(Wdcoid), sizeof(OrderData)) * 0.75));
   CHECK_ERROR(create_masstree(
     engine,
     "orders_secondary",
     true,
-    64 * 0.75));
+    estimate_masstree_records(0, sizeof(Wdcoid), 0) * 0.75));
   CHECK_ERROR(create_masstree(
     engine,
     "orderlines",
     true,
-    (storage::masstree::kBorderPageDataPartSize / sizeof(OrderlineData)) * 0.75));
+    estimate_masstree_records(0, sizeof(Wdol), sizeof(OrderlineData)) * 0.75));
 
   CHECK_ERROR(create_array(
     engine,

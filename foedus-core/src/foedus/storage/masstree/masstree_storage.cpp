@@ -638,6 +638,20 @@ ErrorStack MasstreeStorage::fatify_first_root(thread::Thread* context, uint32_t 
   return MasstreeStoragePimpl(this).fatify_first_root(context, desired_count);
 }
 
+SlotIndex MasstreeStorage::estimate_records_per_page(
+  uint8_t layer,
+  KeyLength key_length,
+  PayloadLength payload_length) {
+  PayloadLength aligned_payload = assorted::align8(payload_length);
+  KeyLength aligned_suffix = 0;
+  if (key_length > (layer + 1U) * sizeof(KeySlice)) {
+    aligned_suffix = assorted::align8(key_length - (layer + 1U) * sizeof(KeySlice));
+  }
+  SlotIndex ret = kBorderPageDataPartSize
+    / (aligned_suffix + aligned_payload + kBorderPageSlotSize);
+  ASSERT_ND(ret <= kBorderPageMaxSlots);
+  return ret;
+}
 
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE

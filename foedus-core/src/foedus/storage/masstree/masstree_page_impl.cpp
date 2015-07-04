@@ -676,28 +676,40 @@ void MasstreeBorderPage::split_foster_migrate_records(
     const KeySlice from_slice = copy_from.get_slice(i);
     if (from_slice >= inclusive_from && from_slice <= inclusive_to) {
       // move this record.
-      set_slice(migrated_count, from_slice);
       Slot* to_slot = get_new_slot(migrated_count);
       const Slot* from_slot = copy_from.get_slot(i);
       ASSERT_ND(from_slot->tid_.is_keylocked());
+      const KeyLength from_remainder = from_slot->remainder_length_;
+      const KeyLength from_suffix = calculate_suffix_length(from_remainder);
+      const PayloadLength payload = from_slot->lengthes_.components.payload_length_;
+      const KeyLength to_remainder
+        = to_slot->tid_.xct_id_.is_next_layer() ? kInitiallyNextLayer : from_remainder;
+      const KeyLength to_suffix = calculate_suffix_length(to_remainder);
+      if (to_remainder != from_remainder) {
+        ASSERT_ND(to_remainder == kInitiallyNextLayer);
+        ASSERT_ND(from_remainder != kInitiallyNextLayer && from_remainder <= kMaxKeyLength);
+        DVLOG(2) << "the old record is now a next-layer record, this new record can be initially"
+          " a next-layer, saving space for suffixes. from_remainder=" << from_remainder;
+      }
+
+      set_slice(migrated_count, from_slice);
       to_slot->tid_.xct_id_ = from_slot->tid_.xct_id_;
       to_slot->tid_.lock_.reset();
-      const KeyLength remainder = from_slot->remainder_length_;
-      const PayloadLength payload = from_slot->lengthes_.components.payload_length_;
-      to_slot->remainder_length_ = remainder;
+      to_slot->remainder_length_ = to_remainder;
       to_slot->lengthes_.components.payload_length_ = payload;
       // offset/physical_length set later
 
       if (sofar_consecutive && migrated_count > 0) {
-        if (prev_slice > from_slice || (prev_slice == from_slice && prev_remainder > remainder)) {
+        if (prev_slice > from_slice
+          || (prev_slice == from_slice && prev_remainder > from_remainder)) {
           sofar_consecutive = false;
         }
       }
       prev_slice = from_slice;
-      prev_remainder = remainder;
+      prev_remainder = to_remainder;
 
       // we migh shrink the physical record size.
-      DataOffset record_length = to_record_length(remainder, payload);
+      const DataOffset record_length = to_record_length(to_remainder, payload);
       ASSERT_ND(record_length % 8 == 0);
       ASSERT_ND(record_length <= from_slot->lengthes_.components.physical_record_length_);
       to_slot->lengthes_.components.physical_record_length_ = record_length;
@@ -707,11 +719,23 @@ void MasstreeBorderPage::split_foster_migrate_records(
       next_offset_ += record_length;
       unused_space -= record_length - sizeof(Slot);
 
+      // Copy the record. We want to do it in one memcpy if possible.
+      // Be careful on the case where suffix length has changed (kInitiallyNextLayer case)
       if (record_length > 0) {
-        std::memcpy(
-          get_record_from_offset(to_slot->lengthes_.components.offset_),
-          copy_from.get_record(i),
-          record_length);
+        char* to_record = get_record_from_offset(to_slot->lengthes_.components.offset_);
+        if (from_suffix != to_suffix) {
+          ASSERT_ND(to_remainder == kInitiallyNextLayer);
+          ASSERT_ND(from_remainder != kInitiallyNextLayer && from_remainder <= kMaxKeyLength);
+          ASSERT_ND(to_suffix == 0);
+          // Skip suffix part and copy only the payload.
+          std::memcpy(
+            to_record,
+            copy_from.get_record_payload(i),
+            assorted::align8(payload));
+        } else {
+          // Copy suffix (if exists) and payload together.
+          std::memcpy(to_record, copy_from.get_record(i), record_length);
+        }
       }
 
       ++migrated_count;

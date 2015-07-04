@@ -321,6 +321,7 @@ void EngineOptions::calculate_required_memory(
   uint64_t kMaxXmlSize = 1ULL << 22;
   *shared_bytes += soc::SharedMemoryRepo::calculate_global_memory_size(kMaxXmlSize, *this);
   *shared_bytes += soc::SharedMemoryRepo::calculate_node_memory_size(*this) * nodes;
+  *shared_bytes += (static_cast<uint64_t>(memory_.page_pool_size_mb_per_node_) << 20) * nodes;
 
   // Then, local memories, which are allocated in various places, so
   // we need to list up each of them.. maybe missing something.
