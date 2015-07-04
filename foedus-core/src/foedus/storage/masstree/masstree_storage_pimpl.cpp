@@ -503,30 +503,18 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
     char* parent_payload = parent->get_record_payload(parent_index);
 
     // point to the new page. Be careful on ordering.
-    parent_lock->xct_id_.set_being_written();
-    assorted::memory_fence_release();
     std::memcpy(parent_payload, &pointer, sizeof(pointer));
     assorted::memory_fence_release();
     slot->write_lengthes_oneshot(new_lengthes);
     assorted::memory_fence_release();
-    parent_lock->xct_id_.set_next_layer();
-    assorted::memory_fence_release();
+    parent_lock->xct_id_.set_next_layer();  // which also turns off delete-bit
 
     ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.offset == offset);
     ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.numa_node
       == context->get_numa_node());
 
-    if (parent_lock->is_deleted()) {
-      // if the original record was deleted, we inherited it in the new record too.
-      // again, we didn't do anything logically.
-      ASSERT_ND(root->get_owner_id(0)->is_deleted());
-      // as a pointer, now it should be an active pointer.
-      parent_lock->xct_id_.set_notdeleted();
-    }
     // change ordinal just to let concurrent transactions get aware
-    parent_lock->xct_id_.increment_ordinal();
     assorted::memory_fence_release();
-    parent_lock->xct_id_.set_write_complete();
   }
   return kErrorCodeOk;
 }
@@ -664,8 +652,10 @@ ErrorCode MasstreeStoragePimpl::expand_record(
       ASSERT_ND(!slot->tid_.is_moved());
       slot->write_lengthes_oneshot(new_lengthes);
       assorted::memory_fence_release();
-      // Change TID so that other threads will see this change at precommit
-      slot->tid_.xct_id_.increment_ordinal();
+      // We don't have to change TID here because we did nothing logically.
+      // Reading transactions are safe to read either old or new record regions.
+      // See comments in MasstreeCommonLogType::apply_record_prepare() for how we make it safe
+      // for writing transactions.
     }
 
     // Above unlock implies a barrier here

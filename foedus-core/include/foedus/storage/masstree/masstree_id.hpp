@@ -82,7 +82,7 @@ typedef uint16_t DataOffset;
  */
 typedef uint16_t SlotIndex;
 
-/** Used only for sanity checking. offset of data_ member in MasstreeBorderPage */
+/** Offset of data_ member in MasstreeBorderPage */
 const DataOffset kBorderPageDataPartOffset = 880;
 
 /**

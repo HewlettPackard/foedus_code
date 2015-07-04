@@ -298,18 +298,18 @@ void MasstreeBorderPage::initialize_layer_root(
   // This is a new page, so no worry on race.
   const SlotIndex new_index = 0;
   Slot* slot = get_new_slot(new_index);
-  const Slot* from_slot = copy_from->get_slot(copy_index);
-  const SlotLengthPart from_lengthes = from_slot->lengthes_.components;
-  const char* from_record = copy_from->get_record_from_offset(from_lengthes.offset_);
+  const Slot* parent_slot = copy_from->get_slot(copy_index);
+  const SlotLengthPart parent_lengthes = parent_slot->lengthes_.components;
+  const char* parent_record = copy_from->get_record_from_offset(parent_lengthes.offset_);
 
-  KeyLength parent_remainder = from_slot->remainder_length_;
+  KeyLength parent_remainder = parent_slot->remainder_length_;
   ASSERT_ND(parent_remainder != kInitiallyNextLayer);
   ASSERT_ND(parent_remainder > sizeof(KeySlice));
   KeyLength remainder = parent_remainder - sizeof(KeySlice);
 
   // retrieve the first 8 byte (or less) as the new slice.
-  const KeySlice new_slice = slice_key(from_record, remainder);
-  const PayloadLength payload_length = from_lengthes.payload_length_;
+  const KeySlice new_slice = slice_key(parent_record, parent_remainder);
+  const PayloadLength payload_length = parent_lengthes.payload_length_;
   const KeyLength suffix_length_aligned = calculate_suffix_length_aligned(remainder);
   const DataOffset record_size = to_record_length(remainder, payload_length);
   const DataOffset new_offset = next_offset_;
@@ -328,7 +328,7 @@ void MasstreeBorderPage::initialize_layer_root(
   consecutive_inserts_ = true;
 
   // use the same xct ID. This means we also inherit deleted flag.
-  slot->tid_.xct_id_ = from_slot->tid_.xct_id_;
+  slot->tid_.xct_id_ = parent_slot->tid_.xct_id_;
   ASSERT_ND(!slot->tid_.xct_id_.is_next_layer());
   // but we don't want to inherit locks
   slot->tid_.lock_.reset();
@@ -336,7 +336,7 @@ void MasstreeBorderPage::initialize_layer_root(
     // because suffix parts are 8-byte aligned with zero padding, we can memcpy in 8-bytes unit
     std::memcpy(
       get_record_from_offset(new_offset),
-      from_record + sizeof(KeySlice),
+      parent_record + sizeof(KeySlice),
       suffix_length_aligned);
   }
   if (payload_length > 0) {
@@ -1414,7 +1414,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   Engine* engine,
   xct::LockableXctId* owner_address,
   xct::WriteXctAccess* /*write_set*/) {
-  ASSERT_ND(owner_address->is_moved());
+  ASSERT_ND(owner_address->is_moved() || owner_address->is_next_layer());
   ASSERT_ND(!header().snapshot_);
   ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
 

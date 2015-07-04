@@ -375,7 +375,10 @@ struct XctId {
   void    set_deleted() ALWAYS_INLINE { data_ |= kXctIdDeletedBit; }
   void    set_notdeleted() ALWAYS_INLINE { data_ &= (~kXctIdDeletedBit); }
   void    set_moved() ALWAYS_INLINE { data_ |= kXctIdMovedBit; }
-  void    set_next_layer() ALWAYS_INLINE { data_ |= kXctIdNextLayerBit; }
+  void    set_next_layer() ALWAYS_INLINE {
+    // Delete-bit has no meaning for a next-layer record. To avoid confusion, turn it off.
+    data_ = (data_ & (~kXctIdDeletedBit)) | kXctIdNextLayerBit;
+  }
   // note, we should not need this method because becoming a next-layer-pointer is permanent.
   // we never revert it, which simplifies a concurrency control.
   // void    set_not_next_layer() ALWAYS_INLINE { data_ &= (~kXctIdNextLayerBit); }

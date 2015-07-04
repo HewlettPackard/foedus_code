@@ -154,11 +154,11 @@ ErrorCode MasstreeCursor::proceed_route_border() {
           cur_key_observed_owner_id_,
           cur_key_owner_id_address));
       }
-      if (cur_key_observed_owner_id_.is_deleted()) {
-        continue;
-      }
+      // If it points to next-layer, we ignore deleted bit. It has no meaning for next-layer rec.
       if (is_cur_key_next_layer()) {
         CHECK_ERROR_CODE(proceed_next_layer());
+      } else if (cur_key_observed_owner_id_.is_deleted()) {
+        continue;
       }
       break;
     } else {

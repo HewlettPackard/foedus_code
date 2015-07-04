@@ -158,6 +158,7 @@ std::ostream& operator<<(std::ostream& o, const XctId& v) {
       << (v.is_deleted() ? "D" : " ")
       << (v.is_moved() ? "M" : " ")
       << (v.is_being_written() ? "W" : " ")
+      << (v.is_next_layer() ? "N" : " ")
     << "\" />";
   return o;
 }
