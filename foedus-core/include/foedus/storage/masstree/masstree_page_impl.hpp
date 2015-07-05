@@ -883,6 +883,16 @@ class MasstreeBorderPage final : public MasstreePage {
     SlotIndex new_index,
     KeyLength remainder_length,
     PayloadLength payload_count) const ALWAYS_INLINE;
+  /**
+   * Slightly different from can_accomodate() as follows:
+   * \li No race, so no need to receive new_index. It just uses get_key_count().
+   * \li Always guarantees that the payload can be later expanded to sizeof(DualPagePointer).
+   * @see replace_next_layer_snapshot()
+   * @see MasstreeComposeContext::append_border()
+   */
+  bool    can_accomodate_snapshot(
+    KeyLength remainder_length,
+    PayloadLength payload_count) const ALWAYS_INLINE;
   /** actually this method should be renamed to equal_key... */
   bool  compare_key(
     SlotIndex index,
@@ -1503,18 +1513,26 @@ inline void MasstreeBorderPage::replace_next_layer_snapshot(SnapshotPagePointer 
   // Overwriting an existing slot with kInitiallyNextLayer is not generally safe,
   // but this is in snapshot page, so no worry on race.
   const KeyLength kRemainder = kInitiallyNextLayer;
-  ASSERT_ND(can_accomodate(index, kRemainder, sizeof(DualPagePointer)));
-  const DataOffset record_size = to_record_length(kRemainder, sizeof(DualPagePointer));
+  const DataOffset new_record_size = sizeof(DualPagePointer);
+  ASSERT_ND(new_record_size == to_record_length(kRemainder, sizeof(DualPagePointer)));
 
   // This is in snapshot page, so no worry on race.
   Slot* slot = get_slot(index);
+
+  // This is the last record in this page, right?
   ASSERT_ND(next_offset_
     == slot->lengthes_.components.offset_ + slot->lengthes_.components.physical_record_length_);
-  slot->lengthes_.components.physical_record_length_ = record_size;
+
+  // Here, we assume the snapshot border page always leaves sizeof(DualPagePointer) whenever
+  // it creates a record. Otherwise we might not have enough space!
+  // For this reason, we use can_accomodate_snapshot() rather than can_accomodate().
+  ASSERT_ND(slot->lengthes_.components.offset_ + new_record_size + sizeof(Slot) * get_key_count()
+    <= sizeof(data_));
+  slot->lengthes_.components.physical_record_length_ = new_record_size;
   slot->lengthes_.components.payload_length_ = sizeof(DualPagePointer);
-  slot->original_physical_record_length_ = record_size;
+  slot->original_physical_record_length_ = new_record_size;
   slot->remainder_length_ = kRemainder;
-  next_offset_ = slot->lengthes_.components.offset_ + record_size;
+  next_offset_ = slot->lengthes_.components.offset_ + new_record_size;
 
   slot->tid_.xct_id_.set_next_layer();
   DualPagePointer* dual_pointer = get_next_layer(index);
@@ -1639,6 +1657,21 @@ inline bool MasstreeBorderPage::can_accomodate(
     return false;
   }
   const DataOffset required = required_data_space(remainder_length, payload_count);
+  const DataOffset available = available_space();
+  return required <= available;
+}
+inline bool MasstreeBorderPage::can_accomodate_snapshot(
+  KeyLength remainder_length,
+  PayloadLength payload_count) const {
+  ASSERT_ND(header_.snapshot_);
+  SlotIndex new_index = get_key_count();
+  if (new_index == 0) {
+    return true;
+  } else if (new_index >= kBorderPageMaxSlots) {
+    return false;
+  }
+  PayloadLength adjusted_payload = std::max<PayloadLength>(payload_count, sizeof(DualPagePointer));
+  const DataOffset required = required_data_space(remainder_length, adjusted_payload);
   const DataOffset available = available_space();
   return required <= available;
 }

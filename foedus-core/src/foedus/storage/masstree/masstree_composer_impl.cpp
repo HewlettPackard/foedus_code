@@ -857,7 +857,7 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
       }
 
       if (UNLIKELY(page_switch_hinted)
-        || UNLIKELY(!page->can_accomodate(key_count, remainder_length, payload_count))) {
+        || UNLIKELY(!page->can_accomodate_snapshot(remainder_length, payload_count))) {
         // unlike append_border_newpage(), which is used in the per-log method, this does no
         // page migration. much simpler and faster.
         memory::PagePoolOffset new_offset = allocate_page();
@@ -884,7 +884,7 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
         key_count = 0;
       }
 
-      ASSERT_ND(page->can_accomodate(key_count, remainder_length, payload_count));
+      ASSERT_ND(page->can_accomodate_snapshot(remainder_length, payload_count));
       page->reserve_record_space(key_count, xct_id, slice, suffix, remainder_length, payload_count);
       page->increment_key_count();
       fill_payload_padded(page->get_record_payload(key_count), payload, payload_count);
@@ -1580,7 +1580,10 @@ inline void MasstreeComposeContext::append_border(
   ASSERT_ND(key_count == 0
     || !target->will_contain_next_layer(key_count - 1, slice, remainder_length));
   ASSERT_ND(key_count == 0 || target->ltgt_key(key_count - 1, slice, suffix, remainder_length) > 0);
-  if (UNLIKELY(!target->can_accomodate(new_index, remainder_length, payload_count))) {
+
+  // This check is slightly more conservative than can_accomodate() when the page is almost full.
+  const bool spacious = target->can_accomodate_snapshot(remainder_length, payload_count);
+  if (UNLIKELY(!spacious)) {
     append_border_newpage(slice, level);
     MasstreeBorderPage* new_target = as_border(get_page(level->tail_));
     ASSERT_ND(target != new_target);
@@ -1603,7 +1606,7 @@ inline void MasstreeComposeContext::append_border_next_layer(
   SlotIndex new_index = key_count;
   ASSERT_ND(key_count == 0 || !target->will_conflict(key_count - 1, slice, 0xFF));
   ASSERT_ND(key_count == 0 || target->ltgt_key(key_count - 1, slice, nullptr, kSliceLen) > 0);
-  if (UNLIKELY(!target->can_accomodate(new_index, 0, sizeof(DualPagePointer)))) {
+  if (UNLIKELY(!target->can_accomodate(new_index, kInitiallyNextLayer, sizeof(DualPagePointer)))) {
     append_border_newpage(slice, level);
     MasstreeBorderPage* new_target = as_border(get_page(level->tail_));
     ASSERT_ND(target != new_target);
