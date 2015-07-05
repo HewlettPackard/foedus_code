@@ -92,30 +92,29 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * Master-tree (masstree) does use moved bit, so this storage implements this method to handle
    * moved record. There are a few design choices worth noting.
    *
-   * When the record is moved within the same B-trie layer, we can always (aside from very unlucky
-   * timing due to high contention) track down the new location. When the record is moved to
-   * next layer, however, we have to know the entire key to track the record. We can use the
-   * write_set parameter if it is given. So, read-set along with write-set (eg insert_general())
-   * can always track down to any layer.
+   * In the \e new_mpage git branch, we significantly changed the page layout in this package.
+   * One purpose was to allow tracking the moved record in \b all circumstances.
    *
-   * However, if there is a standalone read-access, it cannot track to next layer.
+   * When the record is moved within the same B-trie layer, it is anyway easy to track down the
+   * new location. When the record is moved to next layer, however, we have to know the entire key
+   * to track the record. Previous page layout didn't allow it unless we have the
+   * write_set. When there is a standalone read-access, we could not track to next layer.
    *
-   * One possibility was to always leave the original key of the record in page, as opposed to
-   * we currently overwrite the data region with a dual pointer to create new layer. If we do this,
-   * we don't even need write_set for all cases. Kind of a clean solution, but then we have
-   * to separately reserve a next-layer-pointer region in addition to data region in border pages.
-   * Well, it's even more "clean" in terms of source code, but the amount of usable bytes per border
-   * page would be less than half (always 16b * 64 for data that _might_ be used).
+   * The new page layout always leaves the original key of the record in page, thus the issue
+   * completely went away. This also simplified concurrency control in this package.
+   * See @ref MASS_TERM_REMAINDER.
    *
-   * OTOH, it is a rare case that a standalone read-access hits the next-layer move, and even
-   * when that happens, exposing it as usual contention-aborts wouldn't affect throughput too much.
-   * Thus, we have the current design.
+   * However, this came with the price of wasted space in page.
+   * To ameliorate it, we made a few improvements to reduce wasted space.
    *
-   * As a compromise, I'm now considering a configuration in MasstreMetadata to specify
-   * how many layers the storage expects to have. Such a contention happens always in
-   * the first layer, and in many cases the user knows whether the first 8 bytes differentiate
-   * most records or not. If all records will be anyway moved to next layer, we should create
-   * the records in second layer from the beginning.
+   * \li First, now we have a flag that says the record is \e initially a next-layer.
+   * When this is set, we do not put suffix, thus the price is gone.
+   * \li Second, we also added a configuration to aggressively create next-layer to make most
+   * high-layer records as initially next-layer. See MasstreeMetadata::min_layer_hint_.
+   * \li Third, we also overhauled the way we expand records in page.
+   *
+   * Thanks to these improvements, we now allow \e more records, not less, in a page.
+   * Previously it was 64, but now kBorderPageMaxSlots is 100 for 4kb pages.
    */
   xct::TrackMovedRecordResult track_moved_record(
     xct::LockableXctId* old_address,
@@ -143,9 +142,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   get_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     void* payload,
-    uint16_t* payload_capacity);
+    PayloadLength* payload_capacity);
 
   /**
    * @brief Retrieves a part of the given key in this Masstree.
@@ -161,10 +160,10 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   get_record_part(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
+    PayloadLength payload_offset,
+    PayloadLength payload_count);
 
   /**
    * @brief Retrieves a part of the given key in this Masstree as a primitive value.
@@ -181,9 +180,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   get_record_primitive(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     PAYLOAD* payload,
-    uint16_t payload_offset);
+    PayloadLength payload_offset);
 
   /**
    * @brief Retrieves an entire record of the given primitive key in this Masstree.
@@ -197,7 +196,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     void* payload,
-    uint16_t* payload_capacity);
+    PayloadLength* payload_capacity);
 
   /**
    * @brief Retrieves a part of the given primitive key in this Masstree.
@@ -208,8 +207,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
+    PayloadLength payload_offset,
+    PayloadLength payload_count);
 
   /**
    * @brief Retrieves a part of the given primitive key in this Masstree as a primitive value.
@@ -221,7 +220,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     PAYLOAD* payload,
-    uint16_t payload_offset);
+    PayloadLength payload_offset);
 
   // insert_record() methods
 
@@ -239,9 +238,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   inline ErrorCode insert_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_count) ALWAYS_INLINE {
+    PayloadLength payload_count) ALWAYS_INLINE {
     return insert_record(context, key, key_length, payload, payload_count, payload_count);
   }
 
@@ -254,10 +253,10 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   insert_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_count,
-    uint16_t physical_payload_hint);
+    PayloadLength payload_count,
+    PayloadLength physical_payload_hint);
 
   /**
    * @brief Inserts a new record without payload of the given key in this Masstree.
@@ -271,7 +270,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   insert_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length) ALWAYS_INLINE {
+    KeyLength key_length) ALWAYS_INLINE {
       return insert_record(context, key, key_length, CXX11_NULLPTR, 0U);
   }
 
@@ -286,7 +285,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     const void* payload,
-    uint16_t payload_count) ALWAYS_INLINE {
+    PayloadLength payload_count) ALWAYS_INLINE {
     return insert_record_normalized(context, key, payload, payload_count, payload_count);
   }
 
@@ -297,8 +296,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     const void* payload,
-    uint16_t payload_count,
-    uint16_t physical_payload_hint);
+    PayloadLength payload_count,
+    PayloadLength physical_payload_hint);
 
   /**
    * @brief Inserts a new record without payload of the given primitive key in this Masstree.
@@ -320,7 +319,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * When the key does not exist, it returns kErrorCodeStrKeyNotFound and also adds an appropriate
    * record to \e range-lock read set because it is part of transactional information.
    */
-  ErrorCode   delete_record(thread::Thread* context, const void* key, uint16_t key_length);
+  ErrorCode   delete_record(thread::Thread* context, const void* key, KeyLength key_length);
 
   /**
    * @brief Deletes a record of the given primitive key from this Masstree.
@@ -350,9 +349,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   inline ErrorCode upsert_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_count) ALWAYS_INLINE {
+    PayloadLength payload_count) ALWAYS_INLINE {
     return upsert_record(context, key, key_length, payload, payload_count, payload_count);
   }
 
@@ -365,10 +364,10 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   upsert_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_count,
-    uint16_t physical_payload_hint);
+    PayloadLength payload_count,
+    PayloadLength physical_payload_hint);
 
   /**
    * @brief Upserts a new record without payload of the given key in this Masstree.
@@ -379,7 +378,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   upsert_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length) ALWAYS_INLINE {
+    KeyLength key_length) ALWAYS_INLINE {
       return upsert_record(context, key, key_length, CXX11_NULLPTR, 0U);
   }
 
@@ -394,7 +393,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     const void* payload,
-    uint16_t payload_count) ALWAYS_INLINE {
+    PayloadLength payload_count) ALWAYS_INLINE {
     return upsert_record_normalized(context, key, payload, payload_count, payload_count);
   }
 
@@ -405,8 +404,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     const void* payload,
-    uint16_t payload_count,
-    uint16_t physical_payload_hint);
+    PayloadLength payload_count,
+    PayloadLength physical_payload_hint);
 
   /**
    * @brief Upserts a new record without payload of the given primitive key in this Masstree.
@@ -435,10 +434,10 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   overwrite_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
+    PayloadLength payload_offset,
+    PayloadLength payload_count);
 
   /**
    * @brief Overwrites a part of one record of the given key in this Masstree as a primitive value.
@@ -455,9 +454,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   overwrite_record_primitive(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     PAYLOAD payload,
-    uint16_t payload_offset);
+    PayloadLength payload_offset);
 
   /**
    * @brief Overwrites a part of one record of the given primitive key in this Masstree.
@@ -472,8 +471,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     const void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
+    PayloadLength payload_offset,
+    PayloadLength payload_count);
 
   /**
    * @brief Overwrites a part of one record of the given primitive key
@@ -486,7 +485,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     PAYLOAD payload,
-    uint16_t payload_offset);
+    PayloadLength payload_offset);
 
 
   // increment_record() methods
@@ -507,9 +506,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
   ErrorCode   increment_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     PAYLOAD* value,
-    uint16_t payload_offset);
+    PayloadLength payload_offset);
 
   /**
    * @brief For primitive key.
@@ -520,7 +519,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     PAYLOAD* value,
-    uint16_t payload_offset);
+    PayloadLength payload_offset);
 
   // TODO(Hideaki): Extend/shrink/update methods for payload. A bit faster than delete + insert.
 
@@ -590,7 +589,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @returns Estimated number of records that fit in one border page.
    */
   static SlotIndex estimate_records_per_page(
-    uint8_t layer,
+    Layer layer,
     KeyLength key_length,
     PayloadLength payload_length);
 };

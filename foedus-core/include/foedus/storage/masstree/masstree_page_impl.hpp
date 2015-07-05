@@ -205,13 +205,6 @@ class MasstreePage {
     KeySlice            high_fence);
 };
 
-/**
- * Size of the base page class (MasstreePage), which is the common header for
- * intermediate and border pages placed at the beginning.
- * @ingroup MASSTREE
- */
-const uint32_t kCommonPageHeaderSize = sizeof(MasstreePage);
-
 struct BorderSplitStrategy {
   /**
    * whether this page seems to have had sequential insertions, in which case we do
@@ -465,41 +458,11 @@ class MasstreeIntermediatePage final : public MasstreePage {
 };
 
 /**
- * Misc header attributes specific to MasstreeBorderPage placed after the common header.
- * @ingroup MASSTREE
- */
-const uint32_t kBorderPageAdditionalHeaderSize = 8U;
-
-/**
- * Byte size of one slot in MasstreeBorderPage \e excluding slice information.
- * @ingroup MASSTREE
- */
-const uint32_t kBorderPageSlotSize = 32U;
-
-/**
- * Maximum number of slots in one MasstreeBorderPage.
- * @ingroup MASSTREE
- */
-const uint16_t kBorderPageMaxSlots
-  = (kPageSize - kCommonPageHeaderSize - kBorderPageAdditionalHeaderSize)
-    / (kBorderPageSlotSize + sizeof(KeySlice));
-
-/**
- * Byte size of the record data part (data_) in MasstreeBorderPage.
- * @ingroup MASSTREE
- */
-const uint32_t kBorderPageDataPartSize
-  = kPageSize
-    - kCommonPageHeaderSize
-    - kBorderPageAdditionalHeaderSize
-    - kBorderPageMaxSlots * sizeof(KeySlice);
-
-/**
  * @brief Represents one border page in \ref MASSTREE.
  * @ingroup MASSTREE
  * @details
  * @par Slots
- * One border page has at most 64 slots.
+ * One border page has at most kBorderPageMaxSlots slots.
  * One slot is reserved for one \e physical record, which is never moved except snapshotting
  * and split/compact.
  * A thread first installs a new record by atomically modifying page_version, then
@@ -965,6 +928,13 @@ class MasstreeBorderPage final : public MasstreePage {
     const void* suffix,
     KeyLength remainder_length,
     PayloadLength payload_count);
+
+  /** For creating a record that is initially a next-layer */
+  void    reserve_initially_next_layer(
+    SlotIndex index,
+    xct::XctId initial_owner_id,
+    KeySlice slice,
+    const DualPagePointer& pointer);
 
   /**
    * Installs a next layer pointer. This is used only from snapshot composer, so no race.
@@ -1450,6 +1420,48 @@ inline void MasstreeBorderPage::reserve_record_space(
   }
 }
 
+inline void MasstreeBorderPage::reserve_initially_next_layer(
+  SlotIndex index,
+  xct::XctId initial_owner_id,
+  KeySlice slice,
+  const DualPagePointer& pointer) {
+  ASSERT_ND(index < kBorderPageMaxSlots);
+  ASSERT_ND(header().snapshot_ || is_locked());
+  ASSERT_ND(get_key_count() == index);
+  ASSERT_ND(can_accomodate(index, sizeof(KeySlice), sizeof(DualPagePointer)));
+  ASSERT_ND(next_offset_ % 8 == 0);
+  ASSERT_ND(initial_owner_id.is_next_layer());
+  ASSERT_ND(!initial_owner_id.is_deleted());
+  const KeyLength remainder = kInitiallyNextLayer;
+  const DataOffset record_size = to_record_length(remainder, sizeof(DualPagePointer));
+  ASSERT_ND(record_size % 8 == 0);
+  const DataOffset new_offset = next_offset_;
+  set_slice(index, slice);
+  // This is a new slot, so no worry on race.
+  Slot* slot = get_new_slot(index);
+  slot->lengthes_.components.offset_ = new_offset;
+  slot->lengthes_.components.unused_ = 0;
+  slot->lengthes_.components.physical_record_length_ = record_size;
+  slot->lengthes_.components.payload_length_ = sizeof(DualPagePointer);
+  slot->original_physical_record_length_ = record_size;
+  slot->remainder_length_ = remainder;
+  slot->original_offset_ = new_offset;
+  next_offset_ += record_size;
+  if (index == 0) {
+    consecutive_inserts_ = true;
+  } else if (consecutive_inserts_) {
+    // This record must be the only full-length slice, so the check is simpler
+    const KeySlice prev_slice = get_slice(index - 1);
+    if (prev_slice > slice) {
+      consecutive_inserts_ = false;
+    }
+  }
+  slot->tid_.lock_.reset();
+  slot->tid_.xct_id_ = initial_owner_id;
+  *get_next_layer_from_offsets(new_offset, remainder) = pointer;
+}
+
+
 inline void MasstreeBorderPage::append_next_layer_snapshot(
   xct::XctId initial_owner_id,
   KeySlice slice,
@@ -1763,6 +1775,7 @@ inline bool MasstreeBorderPage::will_contain_next_layer(
 }
 
 // We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)
+STATIC_SIZE_CHECK(sizeof(MasstreePage), kCommonPageHeaderSize)
 STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), kPageSize)
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), kPageSize)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)

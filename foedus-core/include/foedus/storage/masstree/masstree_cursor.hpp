@@ -96,7 +96,7 @@ class MasstreeCursor CXX11_FINAL {
     KeySlice latest_separator_;
 
     /** only for border. order_[0] is the index of smallest record, [1] second smallest... */
-    SlotIndex order_[64];
+    SlotIndex order_[kBorderPageMaxSlots];
 
     SlotIndex get_cur_original_index() const ALWAYS_INLINE {
       return order_[index_];
@@ -124,7 +124,7 @@ class MasstreeCursor CXX11_FINAL {
     kCurKeyContains,
   };
   enum Constants {
-    kMaxRecords = 64,
+    kMaxRecords = kBorderPageMaxSlots,
     kMaxRoutes = kPageSize / sizeof(Route),
     kKeyLengthExtremum = 0,
   };

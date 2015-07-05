@@ -225,6 +225,22 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const void* suffix,
     PayloadLength payload_count,
     xct::XctId* observed);
+  /**
+   * Subroutine of reserve_record() to create an initially next-layer record in border and
+   * returns the new root page of the new layer.
+   * @pre border must be locked by this thread
+   * @pre !border->is_moved()
+   */
+  ErrorCode reserve_record_next_layer(
+    thread::Thread* context,
+    MasstreeBorderPage* border,
+    KeySlice slice,
+    MasstreePage** out_page);
+  ErrorCode reserve_record_next_layer_apply(
+    thread::Thread* context,
+    MasstreeBorderPage* target,
+    KeySlice slice,
+    MasstreePage** out_page);
 
   /** implementation of get_record family. use with locate_record() */
   ErrorCode retrieve_general(

@@ -48,6 +48,7 @@ ErrorStack MasstreeMetadataSerializer::load(tinyxml2::XMLElement* element) {
     element,
     "snapshot_drop_volatile_pages_btree_levels_",
     &data_casted_->snapshot_drop_volatile_pages_btree_levels_))
+  CHECK_ERROR(get_element(element, "min_layer_hint_", &data_casted_->min_layer_hint_))
   return kRetOk;
 }
 
@@ -65,6 +66,7 @@ ErrorStack MasstreeMetadataSerializer::save(tinyxml2::XMLElement* element) const
     "snapshot_drop_volatile_pages_btree_levels_",
     "",
     data_casted_->snapshot_drop_volatile_pages_btree_levels_));
+  CHECK_ERROR(add_element(element, "min_layer_hint_", "", data_casted_->min_layer_hint_));
   return kRetOk;
 }
 

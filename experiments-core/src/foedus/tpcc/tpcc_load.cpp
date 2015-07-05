@@ -115,7 +115,8 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     engine,
     "customers_secondary",
     false,
-    0));  // customer is a static table, so why not 100% fill-factor
+    0,  // customer is a static table, so why not 100% fill-factor
+    1U));  // First 8-byte has a very small cardinality, so most records will be in layer-1.
 
   CHECK_ERROR(create_array(
     engine,
@@ -144,22 +145,26 @@ ErrorStack create_all(Engine* engine, Wid total_warehouses) {
     engine,
     "neworders",
     true,
-    estimate_masstree_records(0, sizeof(Wdoid), 0) * 0.75));
+    estimate_masstree_records(0, sizeof(Wdoid), 0) * 0.75,
+    0));
   CHECK_ERROR(create_masstree(
     engine,
     "orders",
     true,
-    estimate_masstree_records(0, sizeof(Wdcoid), sizeof(OrderData)) * 0.75));
+    estimate_masstree_records(0, sizeof(Wdcoid), sizeof(OrderData)) * 0.75,
+    0));
   CHECK_ERROR(create_masstree(
     engine,
     "orders_secondary",
     true,
-    estimate_masstree_records(0, sizeof(Wdcoid), 0) * 0.75));
+    estimate_masstree_records(0, sizeof(Wdcoid), 0) * 0.75,
+    0));
   CHECK_ERROR(create_masstree(
     engine,
     "orderlines",
     true,
-    estimate_masstree_records(0, sizeof(Wdol), sizeof(OrderlineData)) * 0.75));
+    estimate_masstree_records(0, sizeof(Wdol), sizeof(OrderlineData)) * 0.75,
+    0));
 
   CHECK_ERROR(create_array(
     engine,
@@ -227,9 +232,11 @@ ErrorStack create_masstree(
   Engine* engine,
   const storage::StorageName& name,
   bool keep_all_volatile_pages,
-  float border_fill_factor) {
+  float border_fill_factor,
+  storage::masstree::Layer min_layer_hint) {
   Epoch ep;
   storage::masstree::MasstreeMetadata meta(name, border_fill_factor);
+  meta.min_layer_hint_ = min_layer_hint;
   if (keep_all_volatile_pages) {
     meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
     meta.snapshot_drop_volatile_pages_btree_levels_ = 0;

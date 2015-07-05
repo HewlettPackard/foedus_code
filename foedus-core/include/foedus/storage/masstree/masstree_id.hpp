@@ -109,9 +109,6 @@ typedef uint16_t DataOffset;
  */
 typedef uint16_t SlotIndex;
 
-/** Offset of data_ member in MasstreeBorderPage */
-const DataOffset kBorderPageDataPartOffset = 880;
-
 /**
  * @brief Each key slice is an 8-byte integer. Masstree pages store and compare these key slices.
  * @ingroup MASSTREE
@@ -139,6 +136,45 @@ const KeySlice kInfimumSlice = 0;
 // For a fence, sanity check is "slice < high_fence"
 const KeySlice kSupremumSlice = 0xFFFFFFFFFFFFFFFFULL;
 
+/**
+ * Size of the base page class (MasstreePage), which is the common header for
+ * intermediate and border pages placed at the beginning.
+ * @ingroup MASSTREE
+ */
+const uint32_t kCommonPageHeaderSize = 72U;
+
+/**
+ * Misc header attributes specific to MasstreeBorderPage placed after the common header.
+ * @ingroup MASSTREE
+ */
+const uint32_t kBorderPageAdditionalHeaderSize = 8U;
+
+/**
+ * Byte size of one slot in MasstreeBorderPage \e excluding slice information.
+ * @ingroup MASSTREE
+ */
+const uint32_t kBorderPageSlotSize = 32U;
+
+/**
+ * Maximum number of slots in one MasstreeBorderPage.
+ * @ingroup MASSTREE
+ */
+const SlotIndex kBorderPageMaxSlots
+  = (kPageSize - kCommonPageHeaderSize - kBorderPageAdditionalHeaderSize)
+    / (kBorderPageSlotSize + sizeof(KeySlice));
+
+/**
+ * Byte size of the record data part (data_) in MasstreeBorderPage.
+ * @ingroup MASSTREE
+ */
+const uint32_t kBorderPageDataPartSize
+  = kPageSize
+    - kCommonPageHeaderSize
+    - kBorderPageAdditionalHeaderSize
+    - kBorderPageMaxSlots * sizeof(KeySlice);
+
+/** Offset of data_ member in MasstreeBorderPage */
+const DataOffset kBorderPageDataPartOffset = 880;
 /**
  * @brief Order-preserving normalization for primitive key types.
  * @param[in] value the value to normalize

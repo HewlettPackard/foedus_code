@@ -595,21 +595,24 @@ Cid TpccLoadTask::get_permutation(bool* cid_array) {
 }
 
 
-ErrorStack create_tables(Engine* engine);
-ErrorStack create_masstree(Engine* engine, const StorageName& name);
+ErrorStack create_tables(Engine* engine, bool with_layer_hint);
+ErrorStack create_masstree(Engine* engine, const StorageName& name, bool with_layer_hint);
 
-ErrorStack create_tables(Engine* engine) {
-  CHECK_ERROR(create_masstree(engine, "customers_secondary"));
-  CHECK_ERROR(create_masstree(engine, "neworders"));
-  CHECK_ERROR(create_masstree(engine, "orders"));
-  CHECK_ERROR(create_masstree(engine, "orders_secondary"));
-  CHECK_ERROR(create_masstree(engine, "orderlines"));
+ErrorStack create_tables(Engine* engine, bool with_layer_hint) {
+  CHECK_ERROR(create_masstree(engine, "customers_secondary", with_layer_hint));
+  CHECK_ERROR(create_masstree(engine, "neworders", with_layer_hint));
+  CHECK_ERROR(create_masstree(engine, "orders", with_layer_hint));
+  CHECK_ERROR(create_masstree(engine, "orders_secondary", with_layer_hint));
+  CHECK_ERROR(create_masstree(engine, "orderlines", with_layer_hint));
   return kRetOk;
 }
 
-ErrorStack create_masstree(Engine* engine, const StorageName& name) {
+ErrorStack create_masstree(Engine* engine, const StorageName& name, bool with_layer_hint) {
   Epoch ep;
   MasstreeMetadata meta(name);
+  if (with_layer_hint) {
+    meta.min_layer_hint_ = 1U;
+  }
   MasstreeStorage storage;
   EXPECT_FALSE(storage.exists());
   CHECK_ERROR(engine->get_storage_manager()->create_masstree(&meta, &storage, &ep));
@@ -644,7 +647,8 @@ void run_test(
   bool load_orders_arg,
   bool load_orders_secondary_arg,
   bool load_orderlines_arg,
-  bool parallel_load = false) {
+  bool parallel_load = false,
+  bool with_layer_hint = false) {
   load_customers_secondary = load_customers_secondary_arg;
   load_neworders = load_neworders_arg;
   load_orders = load_orders_arg;
@@ -673,7 +677,7 @@ void run_test(
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
-    COERCE_ERROR(create_tables(&engine));
+    COERCE_ERROR(create_tables(&engine, with_layer_hint));
     storages.init(&engine);
     engine.get_debug()->set_debug_log_min_threshold(
        debugging::DebuggingOptions::kDebugLogWarning);
@@ -928,19 +932,19 @@ ErrorStack district_scan_task(const proc::ProcArguments& args) {
 }
 
 TEST(MasstreeTpccTest, FullscanCustomersSecondary) {
-  run_test(full_scan_task, true, false, false, false, false);
+  run_test(full_scan_task, true, false, false, false, false, false);
 }
 TEST(MasstreeTpccTest, FullscanNeworders) {
-  run_test(full_scan_task, false, true, false, false, false);
+  run_test(full_scan_task, false, true, false, false, false, false);
 }
 TEST(MasstreeTpccTest, FullscanOrders) {
-  run_test(full_scan_task, false, false, true, false, false);
+  run_test(full_scan_task, false, false, true, false, false, false);
 }
 TEST(MasstreeTpccTest, FullscanOrdersSecondary) {
-  run_test(full_scan_task, false, false, false, true, false);
+  run_test(full_scan_task, false, false, false, true, false, false);
 }
 TEST(MasstreeTpccTest, FullscanOrderlines) {
-  run_test(full_scan_task, false, false, false, false, true);
+  run_test(full_scan_task, false, false, false, false, true, false);
 }
 
 TEST(MasstreeTpccTest, ParallelLoadCustomersSecondary) {
@@ -960,19 +964,69 @@ TEST(MasstreeTpccTest, ParallelLoadOrderlines) {
 }
 
 TEST(MasstreeTpccTest, DistrictScanCustomersSecondary) {
-  run_test(district_scan_task, true, false, false, false, false);
+  run_test(district_scan_task, true, false, false, false, false, false);
 }
 TEST(MasstreeTpccTest, DistrictScanNeworders) {
-  run_test(district_scan_task, false, true, false, false, false);
+  run_test(district_scan_task, false, true, false, false, false, false);
 }
 TEST(MasstreeTpccTest, DistrictScanOrders) {
-  run_test(district_scan_task, false, false, true, false, false);
+  run_test(district_scan_task, false, false, true, false, false, false);
 }
 TEST(MasstreeTpccTest, DistrictScanOrdersSecondary) {
-  run_test(district_scan_task, false, false, false, true, false);
+  run_test(district_scan_task, false, false, false, true, false, false);
 }
 TEST(MasstreeTpccTest, DistrictScanOrderlines) {
-  run_test(district_scan_task, false, false, false, false, true);
+  run_test(district_scan_task, false, false, false, false, true, false);
+}
+
+
+
+TEST(MasstreeTpccTest, FullscanCustomersSecondaryWithHint) {
+  run_test(full_scan_task, true, false, false, false, false, false, true);
+}
+TEST(MasstreeTpccTest, FullscanNewordersWithHint) {
+  run_test(full_scan_task, false, true, false, false, false, false, true);
+}
+TEST(MasstreeTpccTest, FullscanOrdersWithHint) {
+  run_test(full_scan_task, false, false, true, false, false, false, true);
+}
+TEST(MasstreeTpccTest, FullscanOrdersSecondaryWithHint) {
+  run_test(full_scan_task, false, false, false, true, false, false, true);
+}
+TEST(MasstreeTpccTest, FullscanOrderlinesWithHint) {
+  run_test(full_scan_task, false, false, false, false, true, false, true);
+}
+
+TEST(MasstreeTpccTest, ParallelLoadCustomersSecondaryWithHint) {
+  run_test(full_scan_task, true, false, false, false, false, true, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadNewordersWithHint) {
+  run_test(full_scan_task, false, true, false, false, false, true, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadOrdersWithHint) {
+  run_test(full_scan_task, false, false, true, false, false, true, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadOrdersSecondaryWithHint) {
+  run_test(full_scan_task, false, false, false, true, false, true, true);
+}
+TEST(MasstreeTpccTest, ParallelLoadOrderlinesWithHint) {
+  run_test(full_scan_task, false, false, false, false, true, true, true);
+}
+
+TEST(MasstreeTpccTest, DistrictScanCustomersSecondaryWithHint) {
+  run_test(district_scan_task, true, false, false, false, false, false, true);
+}
+TEST(MasstreeTpccTest, DistrictScanNewordersWithHint) {
+  run_test(district_scan_task, false, true, false, false, false, false, true);
+}
+TEST(MasstreeTpccTest, DistrictScanOrdersWithHint) {
+  run_test(district_scan_task, false, false, true, false, false, false, true);
+}
+TEST(MasstreeTpccTest, DistrictScanOrdersSecondaryWithHint) {
+  run_test(district_scan_task, false, false, false, true, false, false, true);
+}
+TEST(MasstreeTpccTest, DistrictScanOrderlinesWithHint) {
+  run_test(district_scan_task, false, false, false, false, true, false, true);
 }
 
 }  // namespace masstree

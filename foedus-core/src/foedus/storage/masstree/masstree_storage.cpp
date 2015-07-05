@@ -81,6 +81,12 @@ ErrorCode MasstreeStorage::get_record(
   KeyLength key_length,
   void* payload,
   PayloadLength* payload_capacity) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return get_record_normalized(context, slice, payload, payload_capacity);
+  }
+
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -109,6 +115,12 @@ ErrorCode MasstreeStorage::get_record_part(
   void* payload,
   PayloadLength payload_offset,
   PayloadLength payload_count) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return get_record_part_normalized(context, slice, payload, payload_offset, payload_count);
+  }
+
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -138,6 +150,12 @@ ErrorCode MasstreeStorage::get_record_primitive(
   KeyLength key_length,
   PAYLOAD* payload,
   PayloadLength payload_offset) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return get_record_primitive_normalized<PAYLOAD>(context, slice, payload, payload_offset);
+  }
+
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -260,6 +278,12 @@ ErrorCode MasstreeStorage::insert_record(
   const void* payload,
   PayloadLength payload_count,
   PayloadLength physical_payload_hint) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return insert_record_normalized(context, slice, payload, payload_count, physical_payload_hint);
+  }
+
   if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
@@ -326,6 +350,12 @@ ErrorCode MasstreeStorage::delete_record(
   thread::Thread* context,
   const void* key,
   KeyLength key_length) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return delete_record_normalized(context, slice);
+  }
+
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -367,6 +397,12 @@ ErrorCode MasstreeStorage::upsert_record(
   const void* payload,
   PayloadLength payload_count,
   PayloadLength physical_payload_hint) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return upsert_record_normalized(context, slice, payload, payload_count, physical_payload_hint);
+  }
+
   if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
@@ -436,6 +472,12 @@ ErrorCode MasstreeStorage::overwrite_record(
   const void* payload,
   PayloadLength payload_offset,
   PayloadLength payload_count) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return overwrite_record_normalized(context, slice, payload, payload_offset, payload_count);
+  }
+
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -467,6 +509,12 @@ ErrorCode MasstreeStorage::overwrite_record_primitive(
   KeyLength key_length,
   PAYLOAD payload,
   PayloadLength payload_offset) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return overwrite_record_primitive_normalized<PAYLOAD>(context, slice, payload, payload_offset);
+  }
+
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -558,6 +606,12 @@ ErrorCode MasstreeStorage::increment_record(
   KeyLength key_length,
   PAYLOAD* value,
   PayloadLength payload_offset) {
+  // Automatically switch to faster implementation for 8-byte keys
+  if (key_length == sizeof(KeySlice)) {
+    KeySlice slice = normalize_be_bytes_full(key);
+    return increment_record_normalized<PAYLOAD>(context, slice, value, payload_offset);
+  }
+
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -641,7 +695,7 @@ ErrorStack MasstreeStorage::fatify_first_root(thread::Thread* context, uint32_t 
 }
 
 SlotIndex MasstreeStorage::estimate_records_per_page(
-  uint8_t layer,
+  Layer layer,
   KeyLength key_length,
   PayloadLength payload_length) {
   PayloadLength aligned_payload = assorted::align8(payload_length);

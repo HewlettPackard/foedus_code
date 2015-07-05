@@ -842,6 +842,15 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       if (LIKELY(match.match_type_ == MasstreeBorderPage::kNotFound)) {
         // okay, surely new record. Should be this case unless there is a race.
         scope.set_changed();
+        if (get_meta().should_aggresively_create_next_layer(layer, remainder)) {
+          // min_layer_hint_ configuration tells that we should start with a next-layer record
+          // rather than creating a usual record and then moving it later.
+          DVLOG(1) << "Aggressively creating a next-layer.";
+          CHECK_ERROR_CODE(reserve_record_next_layer(context, border, slice, &layer_root));
+          ASSERT_ND(layer_root->get_layer() == layer + 1U);
+          break;  // next layer
+        }
+
         ErrorCode code = reserve_record_new_record(
           context,
           border,
@@ -954,8 +963,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   ASSERT_ND(border->get_foster_major().is_null());
   ASSERT_ND(border->get_foster_minor().is_null());
   SlotIndex count = border->get_key_count();
-  if (!border->should_split_early(count, get_meta().border_early_split_threshold_) &&
-    border->can_accomodate(count, remainder, payload_count)) {
+  bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
+  if (!early_split && border->can_accomodate(count, remainder, payload_count)) {
     reserve_record_new_record_apply(
       context,
       border,
@@ -969,9 +978,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
     *record_index = count;
   } else {
 #ifndef NDEBUG
-    if (border->should_split_early(count, get_meta().border_early_split_threshold_)) {
-      DVLOG(1) << "Early split! cur count=" << static_cast<int>(count)
-        << ", storage=" << get_name();
+    if (early_split) {
+      DVLOG(1) << "Early split! cur count=" << count << ", storage=" << get_name();
     }
 #endif  // NDEBUG
     // have to split to make room. the newly created foster child is always the place to insert.
@@ -1036,10 +1044,104 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   // might see the record but find that the key doesn't match. we need a fence to prevent it.
   assorted::memory_fence_release();
   target->increment_key_count();
-  ASSERT_ND(target->get_key_count() <=kBorderPageMaxSlots);
+  ASSERT_ND(target->get_key_count() <= kBorderPageMaxSlots);
   ASSERT_ND(!target->is_moved());
   ASSERT_ND(!target->is_retired());
   target->assert_entries();
+}
+
+ErrorCode MasstreeStoragePimpl::reserve_record_next_layer(
+  thread::Thread* context,
+  MasstreeBorderPage* border,
+  KeySlice slice,
+  MasstreePage** out_page) {
+  ASSERT_ND(border->is_locked());
+  ASSERT_ND(!border->is_moved());
+  ASSERT_ND(border->get_foster_major().is_null());
+  ASSERT_ND(border->get_foster_minor().is_null());
+  SlotIndex count = border->get_key_count();
+  bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
+  if (!early_split && border->can_accomodate(count, sizeof(KeySlice), sizeof(DualPagePointer))) {
+    CHECK_ERROR_CODE(reserve_record_next_layer_apply(context, border, slice, out_page));
+  } else {
+#ifndef NDEBUG
+    if (early_split) {
+      DVLOG(1) << "Early split! cur count=" << count << ", storage=" << get_name();
+    }
+#endif  // NDEBUG
+    // have to split to make room. the newly created foster child is always the place to insert.
+    MasstreeBorderPage* target;
+    xct::McsLockScope target_lock;
+    ASSERT_ND(!target_lock.is_locked());
+    CHECK_ERROR_CODE(border->split_foster(context, slice, false, &target, &target_lock));
+    ASSERT_ND(target->is_locked());
+    ASSERT_ND(target_lock.is_locked());
+    ASSERT_ND(target->within_fences(slice));
+    count = target->get_key_count();
+    if (!target->can_accomodate(count, sizeof(KeySlice), sizeof(DualPagePointer))) {
+      // this might happen if payload_count is huge. so far just error out.
+      LOG(WARNING) << "Wait, not enough space even after splits? should be pretty rare...";
+      return kErrorCodeStrTooLongPayload;
+    }
+    CHECK_ERROR_CODE(reserve_record_next_layer_apply(context, target, slice, out_page));
+  }
+  return kErrorCodeOk;
+}
+
+ErrorCode MasstreeStoragePimpl::reserve_record_next_layer_apply(
+  thread::Thread* context,
+  MasstreeBorderPage* target,
+  KeySlice slice,
+  MasstreePage** out_page) {
+  ASSERT_ND(target->is_locked());
+  ASSERT_ND(!target->is_moved());
+  ASSERT_ND(!target->is_retired());
+  const SlotIndex count = target->get_key_count();
+  ASSERT_ND(target->can_accomodate(count, sizeof(KeySlice), sizeof(DualPagePointer)));
+  xct::XctId initial_id;
+  initial_id.set(
+    Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
+    0);
+  initial_id.set_next_layer();
+
+  memory::NumaCoreMemory* memory = context->get_thread_memory();
+  memory::PagePoolOffset offset = memory->grab_free_volatile_page();
+  if (offset == 0) {
+    return kErrorCodeMemoryNoFreePages;
+  }
+
+  const memory::LocalPageResolver &resolver = context->get_local_volatile_page_resolver();
+  MasstreeBorderPage* root = reinterpret_cast<MasstreeBorderPage*>(
+    resolver.resolve_offset_newpage(offset));
+  DualPagePointer pointer;
+  pointer.snapshot_pointer_ = 0;
+  pointer.volatile_pointer_ = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
+
+  // initialize the root page by copying the record
+  root->initialize_volatile_page(
+    get_id(),
+    pointer.volatile_pointer_,
+    target->get_layer() + 1U,
+    kInfimumSlice,    // infimum slice
+    kSupremumSlice);   // high-fence is supremum
+  ASSERT_ND(!root->is_locked());
+  ASSERT_ND(!root->is_moved());
+  ASSERT_ND(!root->is_retired());
+  ASSERT_ND(root->get_key_count() == 0);
+
+  assorted::memory_fence_release();
+  target->reserve_initially_next_layer(count, initial_id, slice, pointer);
+  assorted::memory_fence_release();
+  target->increment_key_count();
+  ASSERT_ND(target->does_point_to_layer(count));
+  ASSERT_ND(target->get_next_layer(count)->
+    volatile_pointer_.is_equivalent(pointer.volatile_pointer_));
+
+  ASSERT_ND(!target->is_moved());
+  ASSERT_ND(!target->is_retired());
+  target->assert_entries();
+  *out_page = root;
+  return kErrorCodeOk;
 }
 
 inline ErrorCode MasstreeStoragePimpl::check_next_layer_bit(xct::XctId observed) {
