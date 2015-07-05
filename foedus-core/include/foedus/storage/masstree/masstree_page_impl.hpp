@@ -657,10 +657,6 @@ class MasstreeBorderPage final : public MasstreePage {
     }
   };
 
-  enum Constants {
-    /** Max number of keys in this page. TODO replace all occurrences with kBorderPageMaxSlots */
-    kMaxKeys = kBorderPageMaxSlots,
-  };
   /** Used in FindKeyForReserveResult */
   enum MatchType {
     kNotFound = 0,
@@ -1638,7 +1634,7 @@ inline bool MasstreeBorderPage::compare_key(
   SlotIndex index,
   const void* be_key,
   KeyLength key_length) const {
-  ASSERT_ND(index < kMaxKeys);
+  ASSERT_ND(index < kBorderPageMaxSlots);
   KeyLength remainder = key_length - get_layer() * sizeof(KeySlice);
   const KeyLength klen = get_remainder_length(index);
   if (remainder != klen) {
@@ -1737,7 +1733,7 @@ inline bool MasstreeBorderPage::will_conflict(
   SlotIndex index,
   KeySlice slice,
   KeyLength remainder) const {
-  ASSERT_ND(index < kMaxKeys);
+  ASSERT_ND(index < kBorderPageMaxSlots);
   ASSERT_ND(remainder > 0);
   if (slice != get_slice(index)) {
     return false;
@@ -1761,7 +1757,7 @@ inline bool MasstreeBorderPage::will_contain_next_layer(
   SlotIndex index,
   KeySlice slice,
   KeyLength remainder) const {
-  ASSERT_ND(index < kMaxKeys);
+  ASSERT_ND(index < kBorderPageMaxSlots);
   ASSERT_ND(remainder > 0);
   return slice == get_slice(index) && does_point_to_layer(index) && remainder > kSliceLen;
 }

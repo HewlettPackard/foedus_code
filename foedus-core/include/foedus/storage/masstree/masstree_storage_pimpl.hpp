@@ -132,10 +132,10 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   ErrorCode locate_record(
     thread::Thread* context,
     const void* key,
-    uint16_t key_length,
+    KeyLength key_length,
     bool for_writes,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index,
+    SlotIndex* record_index,
     xct::XctId* observed);
   /** Identifies page and record for the normalized key */
   ErrorCode locate_record_normalized(
@@ -143,7 +143,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     KeySlice key,
     bool for_writes,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index,
+    SlotIndex* record_index,
     xct::XctId* observed);
 
   /**
@@ -196,7 +196,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     PayloadLength payload_count,
     PayloadLength physical_payload_hint,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index,
+    SlotIndex* record_index,
     xct::XctId* observed);
   ErrorCode reserve_record_normalized(
     thread::Thread* context,
@@ -204,7 +204,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     PayloadLength payload_count,
     PayloadLength physical_payload_hint,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index,
+    SlotIndex* record_index,
     xct::XctId* observed);
   ErrorCode reserve_record_new_record(
     thread::Thread* context,
@@ -214,7 +214,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const void* suffix,
     PayloadLength payload_count,
     MasstreeBorderPage** out_page,
-    uint8_t* record_index,
+    SlotIndex* record_index,
     xct::XctId* observed);
   void      reserve_record_new_record_apply(
     thread::Thread* context,
@@ -230,73 +230,73 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   ErrorCode retrieve_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
-    uint8_t index,
+    SlotIndex index,
     xct::XctId observed,
     void* payload,
-    uint16_t* payload_capacity);
+    PayloadLength* payload_capacity);
   ErrorCode retrieve_part_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
-    uint8_t index,
+    SlotIndex index,
     xct::XctId observed,
     void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
+    PayloadLength payload_offset,
+    PayloadLength payload_count);
 
   /** implementation of insert_record family. use with \b reserve_record() */
   ErrorCode insert_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
-    uint8_t index,
+    SlotIndex index,
     xct::XctId observed,
     const void* be_key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_count);
+    PayloadLength payload_count);
 
   /** implementation of delete_record family. use with locate_record()  */
   ErrorCode delete_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
-    uint8_t index,
+    SlotIndex index,
     xct::XctId observed,
     const void* be_key,
-    uint16_t key_length);
+    KeyLength key_length);
 
   /** implementation of upsert_record family. use with \b reserve_record() */
   ErrorCode upsert_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
-    uint8_t index,
+    SlotIndex index,
     xct::XctId observed,
     const void* be_key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_count);
+    PayloadLength payload_count);
 
   /** implementation of overwrite_record family. use with locate_record()  */
   ErrorCode overwrite_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
-    uint8_t index,
+    SlotIndex index,
     xct::XctId observed,
     const void* be_key,
-    uint16_t key_length,
+    KeyLength key_length,
     const void* payload,
-    uint16_t payload_offset,
-    uint16_t payload_count);
+    PayloadLength payload_offset,
+    PayloadLength payload_count);
 
   /** implementation of increment_record family. use with locate_record()  */
   template <typename PAYLOAD>
   ErrorCode increment_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
-    uint8_t index,
+    SlotIndex index,
     xct::XctId observed,
     const void* be_key,
-    uint16_t key_length,
+    KeyLength key_length,
     PAYLOAD* value,
-    uint16_t payload_offset);
+    PayloadLength payload_offset);
 
   /** These are defined in masstree_storage_verify.cpp */
   ErrorStack verify_single_thread(thread::Thread* context);
@@ -344,7 +344,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     thread::Thread* context,
     bool for_writes,
     MasstreeBorderPage* parent,
-    uint8_t record_index,
+    SlotIndex record_index,
     MasstreePage** page) ALWAYS_INLINE;
 
   /**
@@ -354,7 +354,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   ErrorCode create_next_layer(
     thread::Thread* context,
     MasstreeBorderPage* parent,
-    uint8_t parent_index);
+    SlotIndex parent_index);
 
   /** defined in masstree_storage_prefetch.cpp */
   ErrorCode prefetch_pages_normalized(

@@ -369,10 +369,10 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
 ErrorCode MasstreeStoragePimpl::locate_record(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   bool for_writes,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index,
+  SlotIndex* record_index,
   xct::XctId* observed) {
   ASSERT_ND(key_length <= kMaxKeyLength);
   MasstreePage* layer_root;
@@ -424,16 +424,16 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   KeySlice key,
   bool for_writes,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index,
+  SlotIndex* record_index,
   xct::XctId* observed) {
   MasstreeBorderPage* border;
 
   MasstreeIntermediatePage* layer_root;
   CHECK_ERROR_CODE(get_first_root(context, for_writes, &layer_root));
   CHECK_ERROR_CODE(find_border(context, layer_root, 0, for_writes, key, &border));
-  uint8_t index = border->find_key_normalized(0, border->get_key_count(), key);
+  SlotIndex index = border->find_key_normalized(0, border->get_key_count(), key);
   PageVersionStatus border_version = border->get_version().status_;
-  if (index == MasstreeBorderPage::kMaxKeys) {
+  if (index == kBorderPageMaxSlots) {
     // this means not found
     if (!border->header().snapshot_) {
       CHECK_ERROR_CODE(context->get_current_xct().add_to_page_version_set(
@@ -455,7 +455,7 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
 ErrorCode MasstreeStoragePimpl::create_next_layer(
   thread::Thread* context,
   MasstreeBorderPage* parent,
-  uint8_t parent_index) {
+  SlotIndex parent_index) {
   // This method assumes that the record's payload space is spacious enough.
   // The caller must make it sure as pre-condition.
   ASSERT_ND(parent->get_max_payload_length(parent_index) >= sizeof(DualPagePointer));
@@ -539,9 +539,9 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   thread::Thread* context,
   bool for_writes,
   MasstreeBorderPage* parent,
-  uint8_t record_index,
+  SlotIndex record_index,
   MasstreePage** page) {
-  ASSERT_ND(record_index < MasstreeBorderPage::kMaxKeys);
+  ASSERT_ND(record_index < kBorderPageMaxSlots);
   ASSERT_ND(parent->does_point_to_layer(record_index));
   DualPagePointer* pointer = parent->get_next_layer(record_index);
   xct::LockableXctId* owner = parent->get_owner_id(record_index);
@@ -717,7 +717,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
   PayloadLength payload_count,
   PayloadLength physical_payload_hint,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index,
+  SlotIndex* record_index,
   xct::XctId* observed) {
   ASSERT_ND(key_length <= kMaxKeyLength);
   ASSERT_ND(physical_payload_hint >= payload_count);
@@ -874,7 +874,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
   PayloadLength payload_count,
   PayloadLength physical_payload_hint,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index,
+  SlotIndex* record_index,
   xct::XctId* observed) {
   MasstreeBorderPage* border;
 
@@ -906,7 +906,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     SlotIndex count = border->get_key_count();
     SlotIndex index = border->find_key_normalized(0, count, key);
 
-    if (index != MasstreeBorderPage::kMaxKeys) {
+    if (index != kBorderPageMaxSlots) {
       // If the record space is too small, we can't insert.
       if (border->get_max_payload_length(index) < payload_count) {
         CHECK_ERROR_CODE(expand_record(
@@ -947,7 +947,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   const void* suffix,
   PayloadLength payload_count,
   MasstreeBorderPage** out_page,
-  uint8_t* record_index,
+  SlotIndex* record_index,
   xct::XctId* observed) {
   ASSERT_ND(border->is_locked());
   ASSERT_ND(!border->is_moved());
@@ -983,7 +983,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
     ASSERT_ND(target_lock.is_locked());
     ASSERT_ND(target->within_fences(key));
     count = target->get_key_count();
-    ASSERT_ND(target->find_key(key, suffix, remainder) == MasstreeBorderPage::kMaxKeys);
+    ASSERT_ND(target->find_key(key, suffix, remainder) == kBorderPageMaxSlots);
     if (!target->can_accomodate(count, remainder, payload_count)) {
       // this might happen if payload_count is huge. so far just error out.
       LOG(WARNING) << "Wait, not enough space even after splits? should be pretty rare...";
@@ -1018,7 +1018,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   ASSERT_ND(!target->is_moved());
   ASSERT_ND(!target->is_retired());
   ASSERT_ND(target->can_accomodate(target_index, remainder_length, payload_count));
-  ASSERT_ND(target->get_key_count() < MasstreeBorderPage::kMaxKeys);
+  ASSERT_ND(target->get_key_count() < kBorderPageMaxSlots);
   xct::XctId initial_id;
   initial_id.set(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
@@ -1036,7 +1036,7 @@ void MasstreeStoragePimpl::reserve_record_new_record_apply(
   // might see the record but find that the key doesn't match. we need a fence to prevent it.
   assorted::memory_fence_release();
   target->increment_key_count();
-  ASSERT_ND(target->get_key_count() <= MasstreeBorderPage::kMaxKeys);
+  ASSERT_ND(target->get_key_count() <=kBorderPageMaxSlots);
   ASSERT_ND(!target->is_moved());
   ASSERT_ND(!target->is_retired());
   target->assert_entries();
@@ -1055,10 +1055,10 @@ inline ErrorCode MasstreeStoragePimpl::check_next_layer_bit(xct::XctId observed)
 ErrorCode MasstreeStoragePimpl::retrieve_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
-  uint8_t index,
+  SlotIndex index,
   xct::XctId observed,
   void* payload,
-  uint16_t* payload_capacity) {
+  PayloadLength* payload_capacity) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
@@ -1071,7 +1071,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
 
   // here, we do NOT have to do another optimistic-read protocol because we already took
   // the owner_id into read-set. If this read is corrupted, we will be aware of it at commit time.
-  uint16_t payload_length = border->get_payload_length(index);
+  PayloadLength payload_length = border->get_payload_length(index);
   if (payload_length > *payload_capacity) {
     // buffer too small
     DVLOG(0) << "buffer too small??" << payload_length << ":" << *payload_capacity;
@@ -1086,11 +1086,11 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
 ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
-  uint8_t index,
+  SlotIndex index,
   xct::XctId observed,
   void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
+  PayloadLength payload_offset,
+  PayloadLength  payload_count) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
@@ -1111,12 +1111,12 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
 ErrorCode MasstreeStoragePimpl::insert_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
-  uint8_t index,
+  SlotIndex index,
   xct::XctId observed,
   const void* be_key,
-  uint16_t key_length,
+  KeyLength key_length,
   const void* payload,
-  uint16_t payload_count) {
+  PayloadLength  payload_count) {
   if (!observed.is_deleted()) {
     return kErrorCodeStrKeyAlreadyExists;
   }
@@ -1148,10 +1148,10 @@ ErrorCode MasstreeStoragePimpl::insert_general(
 ErrorCode MasstreeStoragePimpl::delete_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
-  uint8_t index,
+  SlotIndex index,
   xct::XctId observed,
   const void* be_key,
-  uint16_t key_length) {
+  KeyLength key_length) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
@@ -1175,12 +1175,12 @@ ErrorCode MasstreeStoragePimpl::delete_general(
 ErrorCode MasstreeStoragePimpl::upsert_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
-  uint8_t index,
+  SlotIndex index,
   xct::XctId observed,
   const void* be_key,
-  uint16_t key_length,
+  KeyLength key_length,
   const void* payload,
-  uint16_t payload_count) {
+  PayloadLength  payload_count) {
   // Upsert is a combination of what insert does and what delete does.
   // If there isn't an existing physical record, it's exactly same as insert.
   // If there is, it's _basically_ a delete followed by an insert.
@@ -1243,13 +1243,13 @@ ErrorCode MasstreeStoragePimpl::upsert_general(
 ErrorCode MasstreeStoragePimpl::overwrite_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
-  uint8_t index,
+  SlotIndex index,
   xct::XctId observed,
   const void* be_key,
-  uint16_t key_length,
+  KeyLength key_length,
   const void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
+  PayloadLength payload_offset,
+  PayloadLength  payload_count) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
@@ -1284,12 +1284,12 @@ template <typename PAYLOAD>
 ErrorCode MasstreeStoragePimpl::increment_general(
   thread::Thread* context,
   MasstreeBorderPage* border,
-  uint8_t index,
+  SlotIndex index,
   xct::XctId observed,
   const void* be_key,
-  uint16_t key_length,
+  KeyLength key_length,
   PAYLOAD* value,
-  uint16_t payload_offset) {
+  PayloadLength payload_offset) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
@@ -1337,8 +1337,8 @@ inline xct::TrackMovedRecordResult MasstreeStoragePimpl::track_moved_record(
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE
 #define EXPIN_5(x) template ErrorCode MasstreeStoragePimpl::increment_general< x > \
-  (thread::Thread* context, MasstreeBorderPage* border, uint8_t index, xct::XctId observed, \
-  const void* be_key, uint16_t key_length, x* value, uint16_t payload_offset)
+  (thread::Thread* context, MasstreeBorderPage* border, SlotIndex index, xct::XctId observed, \
+  const void* be_key, KeyLength key_length, x* value, PayloadLength payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_5);
 // @endcond
 

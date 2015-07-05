@@ -269,7 +269,7 @@ void MasstreeBorderPage::release_pages_recursive(
     }
   } else {
     SlotIndex key_count = get_key_count();
-    ASSERT_ND(key_count <= kMaxKeys);
+    ASSERT_ND(key_count <= kBorderPageMaxSlots);
     for (SlotIndex i = 0; i < key_count; ++i) {
       if (does_point_to_layer(i)) {
         DualPagePointer* pointer = get_next_layer(i);

@@ -36,6 +36,33 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 /**
+ * @brief Represents the depth of a B-trie layer. 0 is the first layer.
+ * @ingroup MASSTREE
+ */
+typedef uint8_t Layer;
+
+/**
+ * @brief Maximum value for Layer.
+ * @ingroup MASSTREE
+ */
+const Layer kMaxLayer = 63U;
+
+/**
+ * @brief Represents the depth of a B-tree node in a B-trie layer. 0 is the root.
+ * @ingroup MASSTREE
+ */
+typedef uint8_t InLayerLevel;
+
+/**
+ * @brief If InLayerLevel exceeds this value, there must be something wrong.
+ * @ingroup MASSTREE
+ * @details
+ * In theory, there is no limit on B-tree levels. But, in reality we can't store
+ * 16-levels of B-tree even with the biggest machine in our universe.
+ */
+const InLayerLevel kMaxSaneInLayerLevel = 15U;
+
+/**
  * @brief Represents a byte-length of a key in this package.
  * @ingroup MASSTREE
  */
@@ -209,7 +236,7 @@ inline KeySlice slice_key(const void* be_bytes, uint16_t slice_length) {
  * @return normalized value that preserves the value-order
  * @ingroup MASSTREE
  */
-inline KeySlice slice_layer(const void* be_bytes, KeyLength key_length, uint8_t current_layer) {
+inline KeySlice slice_layer(const void* be_bytes, KeyLength key_length, Layer current_layer) {
   const KeyLength skipped = current_layer * sizeof(KeySlice);
   const KeyLength remainder_length = key_length - skipped;
   const char* casted = reinterpret_cast<const char*>(be_bytes);

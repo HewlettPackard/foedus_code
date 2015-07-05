@@ -78,11 +78,11 @@ std::ostream& operator<<(std::ostream& o, const MasstreeStorage& v) {
 ErrorCode MasstreeStorage::get_record(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   void* payload,
-  uint16_t* payload_capacity) {
+  PayloadLength* payload_capacity) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record(
@@ -105,12 +105,12 @@ ErrorCode MasstreeStorage::get_record(
 ErrorCode MasstreeStorage::get_record_part(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
+  PayloadLength payload_offset,
+  PayloadLength payload_count) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record(
@@ -135,11 +135,11 @@ template <typename PAYLOAD>
 ErrorCode MasstreeStorage::get_record_primitive(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   PAYLOAD* payload,
-  uint16_t payload_offset) {
+  PayloadLength payload_offset) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record(
@@ -164,9 +164,9 @@ ErrorCode MasstreeStorage::get_record_normalized(
   thread::Thread* context,
   KeySlice key,
   void* payload,
-  uint16_t* payload_capacity) {
+  PayloadLength* payload_capacity) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
@@ -189,10 +189,10 @@ ErrorCode MasstreeStorage::get_record_part_normalized(
   thread::Thread* context,
   KeySlice key,
   void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
+  PayloadLength payload_offset,
+  PayloadLength payload_count) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
@@ -217,9 +217,9 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
   thread::Thread* context,
   KeySlice key,
   PAYLOAD* payload,
-  uint16_t payload_offset) {
+  PayloadLength payload_offset) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
@@ -239,7 +239,9 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
     sizeof(PAYLOAD));
 }
 
-uint16_t adjust_payload_hint(uint16_t payload_count, uint16_t physical_payload_hint) {
+PayloadLength adjust_payload_hint(
+  PayloadLength payload_count,
+  PayloadLength physical_payload_hint) {
   ASSERT_ND(physical_payload_hint >= payload_count);  // if not, most likely misuse.
   if (physical_payload_hint < payload_count) {
     physical_payload_hint = payload_count;
@@ -254,16 +256,16 @@ uint16_t adjust_payload_hint(uint16_t payload_count, uint16_t physical_payload_h
 ErrorCode MasstreeStorage::insert_record(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   const void* payload,
-  uint16_t payload_count,
-  uint16_t physical_payload_hint) {
+  PayloadLength payload_count,
+  PayloadLength physical_payload_hint) {
   if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.reserve_record(
@@ -290,14 +292,14 @@ ErrorCode MasstreeStorage::insert_record_normalized(
   thread::Thread* context,
   KeySlice key,
   const void* payload,
-  uint16_t payload_count,
-  uint16_t physical_payload_hint) {
+  PayloadLength payload_count,
+  PayloadLength physical_payload_hint) {
   if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.reserve_record_normalized(
@@ -323,9 +325,9 @@ ErrorCode MasstreeStorage::insert_record_normalized(
 ErrorCode MasstreeStorage::delete_record(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length) {
+  KeyLength key_length) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record(
@@ -343,7 +345,7 @@ ErrorCode MasstreeStorage::delete_record_normalized(
   thread::Thread* context,
   KeySlice key) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
@@ -361,16 +363,16 @@ ErrorCode MasstreeStorage::delete_record_normalized(
 ErrorCode MasstreeStorage::upsert_record(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   const void* payload,
-  uint16_t payload_count,
-  uint16_t physical_payload_hint) {
+  PayloadLength payload_count,
+  PayloadLength physical_payload_hint) {
   if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.reserve_record(
@@ -397,14 +399,14 @@ ErrorCode MasstreeStorage::upsert_record_normalized(
   thread::Thread* context,
   KeySlice key,
   const void* payload,
-  uint16_t payload_count,
-  uint16_t physical_payload_hint) {
+  PayloadLength payload_count,
+  PayloadLength physical_payload_hint) {
   if (UNLIKELY(payload_count > kMaxPayloadLength)) {
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.reserve_record_normalized(
@@ -430,12 +432,12 @@ ErrorCode MasstreeStorage::upsert_record_normalized(
 ErrorCode MasstreeStorage::overwrite_record(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   const void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
+  PayloadLength payload_offset,
+  PayloadLength payload_count) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record(
@@ -462,11 +464,11 @@ template <typename PAYLOAD>
 ErrorCode MasstreeStorage::overwrite_record_primitive(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   PAYLOAD payload,
-  uint16_t payload_offset) {
+  PayloadLength payload_offset) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record(
@@ -493,10 +495,10 @@ ErrorCode MasstreeStorage::overwrite_record_normalized(
   thread::Thread* context,
   KeySlice key,
   const void* payload,
-  uint16_t payload_offset,
-  uint16_t payload_count) {
+  PayloadLength payload_offset,
+  PayloadLength payload_count) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
@@ -524,9 +526,9 @@ ErrorCode MasstreeStorage::overwrite_record_primitive_normalized(
   thread::Thread* context,
   KeySlice key,
   PAYLOAD payload,
-  uint16_t payload_offset) {
+  PayloadLength payload_offset) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
@@ -553,11 +555,11 @@ template <typename PAYLOAD>
 ErrorCode MasstreeStorage::increment_record(
   thread::Thread* context,
   const void* key,
-  uint16_t key_length,
+  KeyLength key_length,
   PAYLOAD* value,
-  uint16_t payload_offset) {
+  PayloadLength payload_offset) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record(
@@ -584,9 +586,9 @@ ErrorCode MasstreeStorage::increment_record_normalized(
   thread::Thread* context,
   KeySlice key,
   PAYLOAD* value,
-  uint16_t payload_offset) {
+  PayloadLength payload_offset) {
   MasstreeBorderPage* border;
-  uint8_t index;
+  SlotIndex index;
   xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
@@ -656,31 +658,32 @@ SlotIndex MasstreeStorage::estimate_records_per_page(
 // Explicit instantiations for each payload type
 // @cond DOXYGEN_IGNORE
 #define EXPIN_1(x) template ErrorCode MasstreeStorage::get_record_primitive< x > \
-  (thread::Thread* context, const void* key, uint16_t key_length, x* payload, \
-    uint16_t payload_offset)
+  (thread::Thread* context, const void* key, KeyLength key_length, x* payload, \
+    PayloadLength payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_1);
 
 #define EXPIN_2(x) template ErrorCode \
   MasstreeStorage::get_record_primitive_normalized< x > \
-  (thread::Thread* context, KeySlice key, x* payload, uint16_t payload_offset)
+  (thread::Thread* context, KeySlice key, x* payload, PayloadLength payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_2);
 
 #define EXPIN_3(x) template ErrorCode MasstreeStorage::overwrite_record_primitive< x > \
-  (thread::Thread* context, const void* key, uint16_t key_length, x payload, \
-  uint16_t payload_offset)
+  (thread::Thread* context, const void* key, KeyLength key_length, x payload, \
+  PayloadLength payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_3);
 
 #define EXPIN_4(x) template ErrorCode \
   MasstreeStorage::overwrite_record_primitive_normalized< x > \
-  (thread::Thread* context, KeySlice key, x payload, uint16_t payload_offset)
+  (thread::Thread* context, KeySlice key, x payload, PayloadLength payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_4);
 
 #define EXPIN_5(x) template ErrorCode MasstreeStorage::increment_record< x > \
-  (thread::Thread* context, const void* key, uint16_t key_length, x* value, uint16_t payload_offset)
+  (thread::Thread* context, const void* key, KeyLength key_length, x* value, \
+  PayloadLength payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_5);
 
 #define EXPIN_6(x) template ErrorCode MasstreeStorage::increment_record_normalized< x > \
-  (thread::Thread* context, KeySlice key, x* value, uint16_t payload_offset)
+  (thread::Thread* context, KeySlice key, x* value, PayloadLength payload_offset)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_6);
 // @endcond
 
