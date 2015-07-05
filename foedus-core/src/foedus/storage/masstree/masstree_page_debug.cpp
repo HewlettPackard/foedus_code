@@ -81,15 +81,16 @@ std::ostream& operator<<(std::ostream& o, const MasstreeBorderPage& v) {
   for (uint16_t i = 0; i < v.get_key_count(); ++i) {
     o << std::endl << "  <record index=\"" << i
       << "\" slice=\"" << assorted::Hex(v.get_slice(i), 16)
-      << "\" remaining_key_len=\"" << static_cast<int>(v.get_remaining_key_length(i))
+      << "\" remainder_len=\"" << static_cast<int>(v.get_remainder_length(i))
       << "\" offset=\"" << v.get_offset_in_bytes(i)
+      << "\" physical_record_len=\"" << v.get_slot(i)->lengthes_.components.physical_record_length_
       << "\" payload_len=\"" << v.get_payload_length(i)
       << "\">";
     if (v.does_point_to_layer(i)) {
       o << "<next_layer>" << *v.get_next_layer(i) << "</next_layer>";
     } else {
-      if (v.get_remaining_key_length(i) > sizeof(KeySlice)) {
-        std::string suffix(v.get_record(i), v.get_remaining_key_length(i) - sizeof(KeySlice));
+      if (v.get_remainder_length(i) > sizeof(KeySlice)) {
+        std::string suffix(v.get_record(i), v.get_suffix_length(i));
         o << "<key_suffix>" << assorted::HexString(suffix) << "</key_suffix>";
       }
       if (v.get_payload_length(i) > 0) {
@@ -111,63 +112,67 @@ void MasstreeBorderPage::assert_entries_impl() const {
   ASSERT_ND(header_.snapshot_ || is_locked());
   struct Sorter {
     explicit Sorter(const MasstreeBorderPage* target) : target_(target) {}
-    bool operator() (uint8_t left, uint8_t right) {
+    bool operator() (SlotIndex left, SlotIndex right) {
       KeySlice left_slice = target_->get_slice(left);
       KeySlice right_slice = target_->get_slice(right);
       if (left_slice < right_slice) {
         return true;
       } else if (left_slice == right_slice) {
-        return target_->get_remaining_key_length(left) < target_->get_remaining_key_length(right);
+        return target_->get_remainder_length(left) < target_->get_remainder_length(right);
       } else {
         return false;
       }
     }
     const MasstreeBorderPage* target_;
   };
-  uint8_t key_count = get_key_count();
-  uint8_t order[kMaxKeys];
-  for (uint8_t i = 0; i < key_count; ++i) {
+  SlotIndex key_count = get_key_count();
+  SlotIndex order[kBorderPageMaxSlots];
+  for (SlotIndex i = 0; i < key_count; ++i) {
     order[i] = i;
   }
   std::sort(order, order + key_count, Sorter(this));
 
   if (header_.snapshot_) {
     // in snapshot page, all entries should be fully sorted
-    for (uint8_t i = 0; i < key_count; ++i) {
+    for (SlotIndex i = 0; i < key_count; ++i) {
       ASSERT_ND(order[i] == i);
     }
   }
 
-  for (uint8_t i = 1; i < key_count; ++i) {
-    uint8_t pre = order[i - 1];
-    uint8_t cur = order[i];
-    ASSERT_ND(slices_[pre] <= slices_[cur]);
-    if (slices_[pre] == slices_[cur]) {
-      ASSERT_ND(remaining_key_length_[pre] < remaining_key_length_[cur]);
-      ASSERT_ND(remaining_key_length_[pre] <= sizeof(KeySlice));
+  for (SlotIndex i = 1; i < key_count; ++i) {
+    SlotIndex pre = order[i - 1];
+    SlotIndex cur = order[i];
+    const KeySlice pre_slice = get_slice(pre);
+    const KeySlice cur_slice = get_slice(cur);
+    ASSERT_ND(pre_slice <= cur_slice);
+    if (pre_slice == cur_slice) {
+      const KeyLength pre_klen = get_remainder_length(pre);
+      const KeyLength cur_klen = get_remainder_length(cur);
+      ASSERT_ND(pre_klen < cur_klen);
+      ASSERT_ND(pre_klen <= sizeof(KeySlice));
     }
   }
 
   // also check the padding between key suffix and payload
   if (header_.snapshot_) {  // this can't be checked in volatile pages that are being changed
-    for (uint8_t i = 0; i < key_count; ++i) {
+    for (SlotIndex i = 0; i < key_count; ++i) {
       if (does_point_to_layer(i)) {
         continue;
       }
-      uint16_t suffix_length = get_suffix_length(i);
-      uint16_t suffix_length_aligned = get_suffix_length_aligned(i);
+      KeyLength suffix_length = get_suffix_length(i);
+      KeyLength suffix_length_aligned = get_suffix_length_aligned(i);
       if (suffix_length > 0 && suffix_length != suffix_length_aligned) {
         ASSERT_ND(suffix_length_aligned > suffix_length);
-        for (uint16_t pos = suffix_length; pos < suffix_length_aligned; ++pos) {
+        for (KeyLength pos = suffix_length; pos < suffix_length_aligned; ++pos) {
           // must be zero-padded
           ASSERT_ND(get_record(i)[pos] == 0);
         }
       }
-      uint16_t payload_length = get_payload_length(i);
-      uint16_t payload_length_aligned = assorted::align8(payload_length);
+      PayloadLength payload_length = get_payload_length(i);
+      PayloadLength payload_length_aligned = assorted::align8(payload_length);
       if (payload_length > 0 && payload_length != payload_length_aligned) {
         ASSERT_ND(payload_length_aligned > payload_length);
-        for (uint16_t pos = payload_length; pos < payload_length_aligned; ++pos) {
+        for (PayloadLength pos = payload_length; pos < payload_length_aligned; ++pos) {
           // must be zero-padded
           ASSERT_ND(get_record(i)[suffix_length_aligned + pos] == 0);
         }

@@ -85,9 +85,9 @@ inline uint8_t extract_page_layer(const void* in_page_pointer) {
  */
 struct MasstreeCommonLogType : public log::RecordLogType {
   LOG_TYPE_NO_CONSTRUCT(MasstreeCommonLogType)
-  uint16_t        key_length_;        // +2 => 18
-  uint16_t        payload_offset_;    // +2 => 20
-  uint16_t        payload_count_;     // +2 => 22
+  KeyLength       key_length_;        // +2 => 18
+  PayloadLength   payload_offset_;    // +2 => 20
+  PayloadLength   payload_count_;     // +2 => 22
   uint16_t        reserved_;          // +2 => 24
   /**
    * Full key and (if exists) payload data, both of which are padded to 8 bytes.
@@ -95,24 +95,32 @@ struct MasstreeCommonLogType : public log::RecordLogType {
    */
   char            aligned_data_[8];   // ~ (+align8(key_length_)+align8(payload_count_))
 
-  static uint16_t calculate_log_length(uint16_t key_length, uint16_t payload_count) ALWAYS_INLINE {
+  static uint16_t calculate_log_length(
+    KeyLength key_length,
+    PayloadLength payload_count) ALWAYS_INLINE {
     return 24U + assorted::align8(key_length) + assorted::align8(payload_count);
   }
 
   char*           get_key() { return aligned_data_; }
   const char*     get_key() const { return aligned_data_; }
   KeySlice        get_first_slice() const { return normalize_be_bytes_full_aligned(aligned_data_); }
-  uint16_t        get_key_length_aligned() const { return assorted::align8(key_length_); }
-  char*           get_payload() { return aligned_data_ + get_key_length_aligned(); }
-  const char*     get_payload() const { return aligned_data_ + get_key_length_aligned(); }
+  KeyLength       get_key_length_aligned() const { return assorted::align8(key_length_); }
+  char*           get_payload() {
+    return reinterpret_cast<char*>(ASSUME_ALIGNED(aligned_data_ + get_key_length_aligned(), 8U));
+  }
+  const char*     get_payload() const {
+    return reinterpret_cast<const char*>(
+      ASSUME_ALIGNED(aligned_data_ + get_key_length_aligned(), 8U));
+  }
+
   void            populate_base(
     log::LogCode  type,
     StorageId     storage_id,
     const void*   key,
-    uint16_t      key_length,
+    KeyLength     key_length,
     const void*   payload = CXX11_NULLPTR,
-    uint16_t      payload_offset = 0,
-    uint16_t      payload_count = 0) ALWAYS_INLINE {
+    PayloadLength payload_offset = 0,
+    PayloadLength payload_count = 0) ALWAYS_INLINE {
     header_.log_type_code_ = type;
     header_.log_length_ = calculate_log_length(key_length, payload_count);
     header_.storage_id_ = storage_id;
@@ -122,12 +130,12 @@ struct MasstreeCommonLogType : public log::RecordLogType {
     reserved_ = 0;
 
     std::memcpy(aligned_data_, key, key_length);
-    uint16_t aligned_key_length = assorted::align8(key_length);
+    KeyLength aligned_key_length = assorted::align8(key_length);
     if (aligned_key_length != key_length) {
       std::memset(aligned_data_ + key_length, 0, aligned_key_length - key_length);
     }
     if (payload_count > 0) {
-      uint16_t aligned_payload_count = assorted::align8(payload_count);
+      PayloadLength aligned_payload_count = assorted::align8(payload_count);
       char* payload_base = aligned_data_ + aligned_key_length;
       std::memcpy(payload_base, payload, payload_count);
       if (aligned_payload_count != payload_count) {
@@ -142,11 +150,11 @@ struct MasstreeCommonLogType : public log::RecordLogType {
     // Keys shorter than 8h+8 bytes are stored at layer <= h
     ASSERT_ND(layer <= key_length_ / sizeof(KeySlice));
     // both record and log keep 8-byte padded keys. so we can simply compare keys
-    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
+    KeyLength skipped = (layer + 1U) * sizeof(KeySlice);
     if (key_length_ > skipped) {
       const char* key = get_key();
-      uint16_t suffix_length = key_length_ - skipped;
-      uint16_t suffix_length_aligned = assorted::align8(suffix_length);
+      KeyLength suffix_length = key_length_ - skipped;
+      KeyLength suffix_length_aligned = assorted::align8(suffix_length);
       // both record and log's suffix keys are 8-byte aligned with zero-padding, so we can
       // compare multiply of 8 bytes
       return std::memcmp(data, key + skipped, suffix_length_aligned) == 0;
@@ -181,10 +189,10 @@ struct MasstreeCommonLogType : public log::RecordLogType {
       }
 
       // compare the rest with memcmp.
-      uint16_t min_length = std::min(left->key_length_, right->key_length_);
+      KeyLength min_length = std::min(left->key_length_, right->key_length_);
       if (min_length > kSliceLen) {
-        uint16_t remaining = min_length - kSliceLen;
-        int key_result = std::memcmp(left_key + kSliceLen, right_key + kSliceLen, remaining);
+        KeyLength remainder = min_length - kSliceLen;
+        int key_result = std::memcmp(left_key + kSliceLen, right_key + kSliceLen, remainder);
         if (key_result != 0) {
           return key_result;
         }
@@ -198,6 +206,92 @@ struct MasstreeCommonLogType : public log::RecordLogType {
 
     // same key, now compare xct_id
     return left->header_.xct_id_.compare_epoch_and_orginal(right->header_.xct_id_);
+  }
+
+  struct RecordAddresses {
+    PayloadLength* record_payload_count_;
+    char* record_payload_;
+  };
+
+  /**
+   * @brief Common parts of apply_record() in these log types that extract relevant
+   * addresses from the record header.
+   * @param[in,out] owner_id TID of the record
+   * @param[out] record data-region of the record _AS OF taking the write-set_.
+   * @pre This record must be locked by this thread.
+   * @return RecordAddresses, to which the type-specific logic applies the change
+   * @details
+   * This method mostly consists of assertions and straightforward calculations of offsets.
+   * The only notable thing is the handling of records \b whose \b offsets \b have \b changed since
+   * we took it as write-set.
+   *
+   * @par When it happens
+   * When the record must contain more space, expand_record() runs a system transaction that might
+   * migrate the record in the same page. When it happens, it \b keeps \b the \b same \b TID because
+   * the sysxct does nothing logically and the new page layout keeps the previous record intact.
+   * Reading xcts are safe to read either new or old records, and don't have to abort unless
+   * the TID actually changes when writing xcts update the TID.
+   *
+   * @par What to do then
+   * Remember, both old and new record regions are complete and correct.
+   * The only thing we have to be careful is that writing xcts write to the new record region.
+   * If they write to the old place, we lose the change.
+   * Fortunately, it is trivial for writing xcts because they always lock the records first.
+   * We can safely retrieve the new offset in apply_record() because lock implies full barriers.
+   * We just overwrite \e "record" pointer.
+   *
+   * @par Other approches considered
+   * We also tried a simpler approach, in sysxct increments TID when it migrates the record in-page.
+   * While it is \e "correct", we of course observed unnecessary aborts especially in transactions
+   * that caused the migration themselves. So, we
+   */
+  inline RecordAddresses apply_record_prepare(xct::LockableXctId* owner_id, char* record) const {
+    ASSERT_ND(owner_id->is_keylocked());
+    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
+    ASSERT_ND(!owner_id->xct_id_.is_moved());
+    const uint8_t layer = extract_page_layer(owner_id);
+    const KeyLength skipped = (layer + 1U) * sizeof(KeySlice);
+    const KeyLength key_length_aligned = this->get_key_length_aligned();
+    ASSERT_ND(key_length_aligned >= skipped);
+    const KeyLength suffix_length_aligned = key_length_aligned - skipped;
+    // no need to set key in apply(). it's already set when the record is physically inserted
+    // (or in other places if this is recovery).
+    ASSERT_ND(equal_record_and_log_suffixes(record));
+
+    // In the MasstreeBorderPage Slot, lengthes come right after TID.
+    // [0]: offset, [1]: physical_record_length_, [3]: payload_length_, [4]: remainder_length_
+    // [5]: original_physical_record_length_, [6]: original_offset_
+    uint16_t* lengthes = reinterpret_cast<uint16_t*>(owner_id + 1);
+    const DataOffset offset = lengthes[0];
+    ASSERT_ND(reinterpret_cast<uint64_t>(reinterpret_cast<uintptr_t>(record)) % kPageSize
+      == static_cast<uint64_t>(offset + kBorderPageDataPartOffset));
+    ASSERT_ND(lengthes[1] >= suffix_length_aligned + assorted::align8(this->payload_count_));
+    ASSERT_ND(lengthes[1] + offset + kBorderPageDataPartOffset <= kPageSize);
+    ASSERT_ND(lengthes[1] >= suffix_length_aligned + assorted::align8(lengthes[3]));
+    ASSERT_ND(lengthes[4] == this->key_length_ - (layer * sizeof(KeySlice)));
+
+    Page* page = to_page(record);
+    char* page_char = reinterpret_cast<char*>(page);
+    ASSERT_ND(record == page_char + offset + kBorderPageDataPartOffset);
+    const DataOffset old_offset = (record - page_char) - kBorderPageDataPartOffset;
+    if (old_offset != offset) {
+      // This happens only when we expanded the record
+      ASSERT_ND(lengthes[5] > lengthes[1]);
+      // Data-region grows forward, so the new offset must be larger
+      ASSERT_ND(lengthes[6] < offset);
+      ASSERT_ND(old_offset < offset);
+
+      record = page_char + kBorderPageDataPartOffset + offset;
+      ASSERT_ND(equal_record_and_log_suffixes(record));
+    }
+
+    PayloadLength* record_payload_count = lengthes + 3;
+    // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
+    // if the compiler is smart enough, it will do some optimization here.
+    char* record_payload = reinterpret_cast<char*>(
+      ASSUME_ALIGNED(record + suffix_length_aligned, 8U));
+    RecordAddresses ret = { record_payload_count, record_payload };
+    return ret;
   }
 };
 
@@ -217,9 +311,9 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
   void            populate(
     StorageId   storage_id,
     const void* key,
-    uint16_t    key_length,
+    KeyLength   key_length,
     const void* payload,
-    uint16_t    payload_count) ALWAYS_INLINE {
+    PayloadLength payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeInsert;
     populate_base(type, storage_id, key, key_length, payload, 0, payload_count);
   }
@@ -229,52 +323,13 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
-    ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
-    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
-    ASSERT_ND(!owner_id->xct_id_.is_moved());
-    uint8_t layer = extract_page_layer(owner_id);
-    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
-    uint16_t key_length_aligned = get_key_length_aligned();
-    ASSERT_ND(key_length_aligned >= skipped);
-    // no need to set key in apply(). it's already set when the record is physically inserted
-    // (or in other places if this is recovery).
-    ASSERT_ND(equal_record_and_log_suffixes(data));
-
-    // TODO(Hideaki) So far we do a super-dirty trick to set payload_count here.
-    // We will make a major change in page layout to simplify this and a few other things.
-    uintptr_t tid_intptr = reinterpret_cast<uintptr_t>(owner_id);
-    uint16_t tid_offset = reinterpret_cast<uint64_t>(tid_intptr) % kPageSize;
-    ASSERT_ND(tid_offset >= 912U);
-    ASSERT_ND(tid_offset < 1936U);
-    ASSERT_ND(tid_offset % sizeof(xct::LockableXctId) == 0);
-    uint16_t record_index = (tid_offset - 912U) / sizeof(xct::LockableXctId);
-    ASSERT_ND(record_index < 64U);
-
-    uint64_t page_int = reinterpret_cast<uint64_t>(tid_intptr) - tid_offset;
-    ASSERT_ND(page_int % kPageSize == 0);
-    const uint8_t* offset_array = reinterpret_cast<const uint8_t*>(
-      reinterpret_cast<void*>(page_int + 648ULL));
-    const uint8_t* physical_record_length_array = reinterpret_cast<const uint8_t*>(
-      reinterpret_cast<void*>(page_int + 712ULL));
-    uint16_t* payload_length_array = reinterpret_cast<uint16_t*>(
-      reinterpret_cast<void*>(page_int + 776ULL));
-    ASSERT_ND(offset_array[record_index] * 16U == data - reinterpret_cast<char*>(
-      reinterpret_cast<void*>(page_int + 1936ULL)));
-    ASSERT_ND(physical_record_length_array[record_index] * 16U + skipped
-      >= assorted::align8(payload_count_) + key_length_aligned);
-
-    payload_length_array[record_index] = payload_count_;
-
-
+    RecordAddresses addresses = apply_record_prepare(owner_id, data);
+    ASSERT_ND(owner_id->xct_id_.is_deleted());
+    *addresses.record_payload_count_ = payload_count_;
     if (payload_count_ > 0U) {
-      // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
-      // if the compiler is smart enough, it will do some optimization here.
-      uint16_t suffix_length_aligned = key_length_aligned - skipped;
-      void* data_payload = ASSUME_ALIGNED(data + suffix_length_aligned, 8U);
-      const void* log_payload = ASSUME_ALIGNED(get_payload(), 8U);
-      std::memcpy(data_payload, log_payload, assorted::align8(payload_count_));
+      const char* log_payload = get_payload();
+      std::memcpy(addresses.record_payload_, log_payload, assorted::align8(payload_count_));
     }
-    ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_notdeleted();
   }
 
@@ -296,14 +351,14 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
 struct MasstreeDeleteLogType : public MasstreeCommonLogType {
   LOG_TYPE_NO_CONSTRUCT(MasstreeDeleteLogType)
 
-  static uint16_t calculate_log_length(uint16_t key_length) ALWAYS_INLINE {
+  static uint16_t calculate_log_length(KeyLength key_length) ALWAYS_INLINE {
     return MasstreeCommonLogType::calculate_log_length(key_length, 0);
   }
 
   void            populate(
     StorageId   storage_id,
     const void* key,
-    uint16_t    key_length) ALWAYS_INLINE {
+    KeyLength   key_length) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeDelete;
     populate_base(type, storage_id, key, key_length);
   }
@@ -313,10 +368,8 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
+    apply_record_prepare(owner_id, data);  // In this log type, just for sanity checks
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
-    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
-    ASSERT_ND(!owner_id->xct_id_.is_moved());
-    ASSERT_ND(equal_record_and_log_suffixes(data));
     owner_id->xct_id_.set_deleted();
   }
 
@@ -341,9 +394,9 @@ struct MasstreeUpdateLogType : public MasstreeCommonLogType {
   void            populate(
     StorageId   storage_id,
     const void* key,
-    uint16_t    key_length,
+    KeyLength   key_length,
     const void* payload,
-    uint16_t    payload_count) ALWAYS_INLINE {
+    PayloadLength payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeUpdate;
     populate_base(type, storage_id, key, key_length, payload, 0, payload_count);
   }
@@ -353,53 +406,13 @@ struct MasstreeUpdateLogType : public MasstreeCommonLogType {
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
+    RecordAddresses addresses = apply_record_prepare(owner_id, data);
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
-    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
-    ASSERT_ND(!owner_id->xct_id_.is_moved());
-    uint8_t layer = extract_page_layer(owner_id);
-    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
-    uint16_t key_length_aligned = get_key_length_aligned();
-    ASSERT_ND(key_length_aligned >= skipped);
-    // no need to set key in apply(). it's already set when the record is physically inserted
-    // (or in other places if this is recovery).
-    ASSERT_ND(equal_record_and_log_suffixes(data));
-
-    // TODO(Hideaki) So far we do a super-dirty trick to set payload_count here.
-    // We will make a major change in page layout to simplify this and a few other things.
-    // At that point, we can get rid of duplicated code with the insert log.
-    uintptr_t tid_intptr = reinterpret_cast<uintptr_t>(owner_id);
-    uint16_t tid_offset = reinterpret_cast<uint64_t>(tid_intptr) % kPageSize;
-    ASSERT_ND(tid_offset >= 912U);
-    ASSERT_ND(tid_offset < 1936U);
-    ASSERT_ND(tid_offset % sizeof(xct::LockableXctId) == 0);
-    uint16_t record_index = (tid_offset - 912U) / sizeof(xct::LockableXctId);
-    ASSERT_ND(record_index < 64U);
-
-    uint64_t page_int = reinterpret_cast<uint64_t>(tid_intptr) - tid_offset;
-    ASSERT_ND(page_int % kPageSize == 0);
-    const uint8_t* offset_array = reinterpret_cast<const uint8_t*>(
-      reinterpret_cast<void*>(page_int + 648ULL));
-    const uint8_t* physical_record_length_array = reinterpret_cast<const uint8_t*>(
-      reinterpret_cast<void*>(page_int + 712ULL));
-    uint16_t* payload_length_array = reinterpret_cast<uint16_t*>(
-      reinterpret_cast<void*>(page_int + 776ULL));
-    ASSERT_ND(offset_array[record_index] * 16U == data - reinterpret_cast<char*>(
-      reinterpret_cast<void*>(page_int + 1936ULL)));
-    ASSERT_ND(physical_record_length_array[record_index] * 16U + skipped
-      >= assorted::align8(payload_count_) + key_length_aligned);
-
-    payload_length_array[record_index] = payload_count_;
-
-
+    *addresses.record_payload_count_ = payload_count_;
     if (payload_count_ > 0U) {
-      // record's payload is also 8-byte aligned, so copy multiply of 8 bytes.
-      // if the compiler is smart enough, it will do some optimization here.
-      uint16_t suffix_length_aligned = key_length_aligned - skipped;
-      void* data_payload = ASSUME_ALIGNED(data + suffix_length_aligned, 8U);
-      const void* log_payload = ASSUME_ALIGNED(get_payload(), 8U);
-      std::memcpy(data_payload, log_payload, assorted::align8(payload_count_));
+      const char* log_payload = get_payload();
+      std::memcpy(addresses.record_payload_, log_payload, assorted::align8(payload_count_));
     }
-    ASSERT_ND(equal_record_and_log_suffixes(data));
   }
 
   void            assert_valid() const ALWAYS_INLINE {
@@ -423,10 +436,10 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
   void            populate(
     StorageId   storage_id,
     const void* key,
-    uint16_t    key_length,
+    KeyLength   key_length,
     const void* payload,
-    uint16_t    payload_offset,
-    uint16_t    payload_count) ALWAYS_INLINE {
+    PayloadLength payload_offset,
+    PayloadLength payload_count) ALWAYS_INLINE {
     log::LogCode type = log::kLogCodeMasstreeOverwrite;
     ASSERT_ND(payload_count > 0U);
     ASSERT_ND(key_length > 0U);
@@ -438,19 +451,16 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
     StorageId /*storage_id*/,
     xct::LockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
+    RecordAddresses addresses = apply_record_prepare(owner_id, data);
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
-    ASSERT_ND(!owner_id->xct_id_.is_next_layer());
-    ASSERT_ND(!owner_id->xct_id_.is_moved());
-
-    uint8_t layer = extract_page_layer(owner_id);
-    uint16_t skipped = (layer + 1U) * sizeof(KeySlice);
-    uint16_t key_length_aligned = get_key_length_aligned();
-    ASSERT_ND(equal_record_and_log_suffixes(data));
-
-    ASSERT_ND(payload_count_ > 0U);
-    // Unlike insert, we can't assume 8-bytes alignment because of payload_offset
-    uint16_t suffix_length_aligned = key_length_aligned - skipped;
-    std::memcpy(data + suffix_length_aligned + payload_offset_, get_payload(), payload_count_);
+    ASSERT_ND(*addresses.record_payload_count_ >= payload_count_ + payload_offset_);
+    if (payload_count_ > 0U) {
+      const char* log_payload = get_payload();
+      std::memcpy(
+        addresses.record_payload_ + payload_offset_,
+        log_payload,
+        payload_count_);
+    }
   }
 
   void            assert_valid() const ALWAYS_INLINE {

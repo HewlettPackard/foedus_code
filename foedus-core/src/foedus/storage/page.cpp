@@ -88,6 +88,17 @@ PageVersionLockScope::PageVersionLockScope(
   }
 }
 
+PageVersionLockScope::PageVersionLockScope(xct::McsLockScope* move_from) {
+  ASSERT_ND(move_from->is_locked());
+  context_ = nullptr;
+  version_ = nullptr;
+  changed_ = false;
+  released_ = false;
+  move_from->move_to(this);
+  ASSERT_ND(!move_from->is_locked());
+}
+
+
 void PageVersionLockScope::release() {
   if (!released_) {
     if (changed_) {

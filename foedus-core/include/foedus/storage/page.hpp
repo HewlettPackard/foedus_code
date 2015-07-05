@@ -194,6 +194,16 @@ STATIC_SIZE_CHECK(sizeof(PageVersion), 8)
 struct PageVersionLockScope {
   PageVersionLockScope(thread::Thread* context, PageVersion* version, bool non_racy_lock = false);
   ~PageVersionLockScope() { release(); }
+
+  /**
+   * Convert an existing McsLockScope on page-version to this object.
+   * This is a tentative solution. Now that page-version doesn't need version counter,
+   * we should be able to use McsLockScope everywhere.
+   * @pre move_from->is_locked()
+   * @post !move_from->is_locked() (we steal the lock from the arg)
+   */
+  explicit PageVersionLockScope(xct::McsLockScope* move_from);
+
   void set_changed() { changed_ = true; }
   void release();
 

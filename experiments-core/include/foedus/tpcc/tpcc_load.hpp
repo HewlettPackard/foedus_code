@@ -28,6 +28,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/storage/fwd.hpp"
+#include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/tpcc/tpcc_scale.hpp"
 #include "foedus/tpcc/tpcc_schema.hpp"
@@ -50,7 +51,8 @@ ErrorStack create_masstree(
   Engine* engine,
   const storage::StorageName& name,
   bool keep_all_volatile_pages,
-  float border_fill_factor);
+  float border_fill_factor,
+  storage::masstree::Layer min_layer_hint);
 ErrorStack create_sequential(Engine* engine, const storage::StorageName& name);
 
 class TpccFinishupTask {

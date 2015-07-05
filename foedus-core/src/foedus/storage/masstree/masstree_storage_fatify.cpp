@@ -153,12 +153,13 @@ ErrorStack split_a_child(
         return kRetOk;
       }
       // trigger doesn't matter. just make sure it doesn't cause no-record-split. so, use low_fence.
+      // also, specify disable_nrs
       KeySlice trigger = casted->get_low_fence();
       MasstreeBorderPage* after = casted;
-      xct::McsBlockIndex after_lock;
-      casted->split_foster(context, trigger, &after, &after_lock);
+      xct::McsLockScope after_lock;
+      casted->split_foster(context, trigger, true, &after, &after_lock);
       ASSERT_ND(after->is_locked());
-      context->mcs_release_lock(after->get_lock_address(), after_lock);
+      ASSERT_ND(after_lock.is_locked());
       ASSERT_ND(casted->is_moved());
     } else {
       MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(original_page);
