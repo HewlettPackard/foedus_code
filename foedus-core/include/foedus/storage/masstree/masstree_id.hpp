@@ -36,29 +36,78 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 /**
- * Max number of separators stored in the first level of intermediate pages.
+ * @brief Represents the depth of a B-trie layer. 0 is the first layer.
  * @ingroup MASSTREE
  */
-const uint8_t kMaxIntermediateSeparators = 9;
+typedef uint8_t Layer;
 
 /**
- * Max number of separators stored in the second level of intermediate pages.
+ * @brief Maximum value for Layer.
  * @ingroup MASSTREE
  */
-const uint8_t kMaxIntermediateMiniSeparators = 15;
+const Layer kMaxLayer = 63U;
 
 /**
- * Max number of pointers (if completely filled) stored in an intermediate pages.
+ * @brief Represents the depth of a B-tree node in a B-trie layer. 0 is the root.
  * @ingroup MASSTREE
  */
-const uint16_t kMaxIntermediatePointers
-  = (kMaxIntermediateSeparators + 1U) * (kMaxIntermediateMiniSeparators + 1U);
+typedef uint8_t InLayerLevel;
+
+/**
+ * @brief If InLayerLevel exceeds this value, there must be something wrong.
+ * @ingroup MASSTREE
+ * @details
+ * In theory, there is no limit on B-tree levels. But, in reality we can't store
+ * 16-levels of B-tree even with the biggest machine in our universe.
+ */
+const InLayerLevel kMaxSaneInLayerLevel = 15U;
+
+/**
+ * @brief Represents a byte-length of a key in this package.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t KeyLength;
 
 /**
  * Max length of a key.
  * @ingroup MASSTREE
  */
-const uint16_t kMaxKeyLength = 1024;
+const KeyLength kMaxKeyLength = 1024U;
+
+/**
+ * A special key length value that denotes the record in a border page was initially a next-layer
+ * pointer, thus the record has no suffix region.
+ * This value is stored in the remainder_length member iff the record was originally
+ * created as a next-layer. A record that later turned to be next-layer doesn't use this value.
+ * Also, a record with this length is never expanded.
+ * @ingroup MASSTREE
+ * @ref MASS_TERM_REMAINDER
+ */
+const KeyLength kInitiallyNextLayer = 0xFFFFU;
+
+/**
+ * @brief Represents a byte-length of a payload in this package.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t PayloadLength;
+
+/**
+ * Max length of a payload.
+ * @ingroup MASSTREE
+ */
+const PayloadLength kMaxPayloadLength = 1024U;
+
+/**
+ * Byte-offset in a page.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t DataOffset;
+
+/**
+ * Index of a record in a (border) page.
+ * @ingroup MASSTREE
+ */
+typedef uint16_t SlotIndex;
 
 /**
  * @brief Each key slice is an 8-byte integer. Masstree pages store and compare these key slices.
@@ -87,6 +136,45 @@ const KeySlice kInfimumSlice = 0;
 // For a fence, sanity check is "slice < high_fence"
 const KeySlice kSupremumSlice = 0xFFFFFFFFFFFFFFFFULL;
 
+/**
+ * Size of the base page class (MasstreePage), which is the common header for
+ * intermediate and border pages placed at the beginning.
+ * @ingroup MASSTREE
+ */
+const uint32_t kCommonPageHeaderSize = 72U;
+
+/**
+ * Misc header attributes specific to MasstreeBorderPage placed after the common header.
+ * @ingroup MASSTREE
+ */
+const uint32_t kBorderPageAdditionalHeaderSize = 8U;
+
+/**
+ * Byte size of one slot in MasstreeBorderPage \e excluding slice information.
+ * @ingroup MASSTREE
+ */
+const uint32_t kBorderPageSlotSize = 32U;
+
+/**
+ * Maximum number of slots in one MasstreeBorderPage.
+ * @ingroup MASSTREE
+ */
+const SlotIndex kBorderPageMaxSlots
+  = (kPageSize - kCommonPageHeaderSize - kBorderPageAdditionalHeaderSize)
+    / (kBorderPageSlotSize + sizeof(KeySlice));
+
+/**
+ * Byte size of the record data part (data_) in MasstreeBorderPage.
+ * @ingroup MASSTREE
+ */
+const uint32_t kBorderPageDataPartSize
+  = kPageSize
+    - kCommonPageHeaderSize
+    - kBorderPageAdditionalHeaderSize
+    - kBorderPageMaxSlots * sizeof(KeySlice);
+
+/** Offset of data_ member in MasstreeBorderPage */
+const DataOffset kBorderPageDataPartOffset = 880;
 /**
  * @brief Order-preserving normalization for primitive key types.
  * @param[in] value the value to normalize
@@ -184,14 +272,14 @@ inline KeySlice slice_key(const void* be_bytes, uint16_t slice_length) {
  * @return normalized value that preserves the value-order
  * @ingroup MASSTREE
  */
-inline KeySlice slice_layer(const void* be_bytes, uint16_t key_length, uint8_t current_layer) {
-  uint8_t remaining_length = key_length - current_layer * 8;
-  if (remaining_length >= 8) {
-    return normalize_be_bytes_full(reinterpret_cast<const char*>(be_bytes) + current_layer * 8);
+inline KeySlice slice_layer(const void* be_bytes, KeyLength key_length, Layer current_layer) {
+  const KeyLength skipped = current_layer * sizeof(KeySlice);
+  const KeyLength remainder_length = key_length - skipped;
+  const char* casted = reinterpret_cast<const char*>(be_bytes);
+  if (remainder_length >= sizeof(KeySlice)) {
+    return normalize_be_bytes_full(casted + skipped);
   } else {
-    return normalize_be_bytes_fragment(
-      reinterpret_cast<const char*>(be_bytes) + current_layer * 8,
-      remaining_length);
+    return normalize_be_bytes_fragment(casted + skipped, remainder_length);
   }
 }
 
@@ -219,7 +307,7 @@ inline uint16_t count_common_slices(const void* left, const void* right, uint16_
  * for easier slicing (which most of our code does). This method is usually used for assertions.
  * @ingroup MASSTREE
  */
-inline bool is_key_aligned_and_zero_padded(const char* key, uint16_t key_length) {
+inline bool is_key_aligned_and_zero_padded(const char* key, KeyLength key_length) {
   uintptr_t int_address = reinterpret_cast<uintptr_t>(key);
   if (int_address % 8 != 0) {
     return false;

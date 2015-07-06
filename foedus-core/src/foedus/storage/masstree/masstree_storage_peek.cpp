@@ -110,9 +110,9 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
   // however, make sure we don't hit something like segfault. check nulls etc.
   ASSERT_ND(border->within_fences(slice));
   uint8_t key_count = border->get_key_count();
-  uint8_t rec = MasstreeBorderPage::kMaxKeys;
+  SlotIndex rec = kBorderPageMaxSlots;
   border->prefetch_additional_if_needed(key_count);
-  for (uint8_t i = 0; i < key_count; ++i) {
+  for (SlotIndex i = 0; i < key_count; ++i) {
     KeySlice cur_slice = border->get_slice(i);
     if (LIKELY(cur_slice < slice)) {
       continue;

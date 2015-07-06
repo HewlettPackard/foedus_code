@@ -308,6 +308,7 @@ TEST(MasstreeBasicTest, CreateAndDrop) {
 struct ExpandTaskInput {
   bool update_case_;
   bool normalized_case_;
+  bool next_layer_case_;
 };
 
 ErrorStack expand_task(const proc::ProcArguments& args) {
@@ -318,93 +319,118 @@ ErrorStack expand_task(const proc::ProcArguments& args) {
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;
 
-  const KeySlice kKeyNormalized = normalize_primitive<uint64_t>(12345ULL);
-  const std::string kKey("key1234567890");
+  // Use two keys and expand in-turn so that we quickly use up the space in the page.
+  // If we have only one-key, the new page layout allows just expanding the only record,
+  // thus we don't cause any page-split (which is good, but we want to test tricky cases).
+  const KeySlice kKeyNormalized[2] = {
+    normalize_primitive<uint64_t>(12345ULL),
+    normalize_primitive<uint64_t>(12346ULL),
+  };
+  std::string kKey[2];
+  if (inputs->next_layer_case_) {
+    // Differ only in next layer. We have a single record in first layer
+    kKey[0] = std::string("key1234567890");
+    kKey[1] = std::string("key1234567891");
+  } else {
+    // Uses only one layer
+    kKey[0] = std::string("key1234567890");
+    kKey[1] = std::string("key1235abcdef");
+  }
+  EXPECT_EQ(kKey[0].size(), kKey[1].size());
+  KeyLength kKeyLen = kKey[0].size();
   char data[512];
-  for (uint16_t c = 0; c < sizeof(data); ++c) {
+  for (PayloadLength c = 0; c < sizeof(data); ++c) {
     data[c] = static_cast<char>(c);
   }
 
-  const uint16_t kInitialLen = 6;
-  const uint16_t kExpandLen = 5;
+  const PayloadLength kInitialLen = 6;
+  const PayloadLength kExpandLen = 5;
   const uint16_t kRep = 80;
   ASSERT_ND(kInitialLen + kExpandLen * kRep <= sizeof(data));
 
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-  if (inputs->normalized_case_) {
-    CHECK_ERROR(storage.insert_record_normalized(context, kKeyNormalized, data, kInitialLen));
-  } else {
-    CHECK_ERROR(storage.insert_record(context, kKey.data(), kKey.size(), data, kInitialLen));
+  for (int i = 0; i < 2; ++i) {
+    if (inputs->normalized_case_) {
+      CHECK_ERROR(storage.insert_record_normalized(context, kKeyNormalized[i], data, kInitialLen));
+    } else {
+      CHECK_ERROR(storage.insert_record(context, kKey[i].data(), kKeyLen, data, kInitialLen));
+    }
   }
   CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
 
   CHECK_ERROR(storage.verify_single_thread(context));
 
   // expand the record many times. this will create a few pages.
-  uint16_t len = kInitialLen;
+  PayloadLength len = kInitialLen;
   for (uint16_t rep = 0; rep < kRep; ++rep) {
     len += kExpandLen;
-    if (!inputs->update_case_) {
-      // in this case we move a deleted record, using insert
-      CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-      if (inputs->normalized_case_) {
-        CHECK_ERROR(storage.delete_record_normalized(context, kKeyNormalized));
+    for (int i = 0; i < 2; ++i) {
+      KeySlice norm_key = kKeyNormalized[i];
+      const char* key = kKey[i].data();
+      if (!inputs->update_case_) {
+        // in this case we move a deleted record, using insert
+        CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+        if (inputs->normalized_case_) {
+          CHECK_ERROR(storage.delete_record_normalized(context, norm_key));
+        } else {
+          CHECK_ERROR(storage.delete_record(context, key, kKeyLen));
+        }
+        CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+        CHECK_ERROR(storage.verify_single_thread(context));
+
+        CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+        if (inputs->normalized_case_) {
+          CHECK_ERROR(storage.insert_record_normalized(context, norm_key, data, len));
+        } else {
+          CHECK_ERROR(storage.insert_record(context, key, kKeyLen, data, len));
+        }
+        CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
       } else {
-        CHECK_ERROR(storage.delete_record(context, kKey.data(), kKey.size()));
+        // in this case we move an active record, using upsert
+        CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+        if (inputs->normalized_case_) {
+          CHECK_ERROR(storage.upsert_record_normalized(context, norm_key, data, len));
+        } else {
+          CHECK_ERROR(storage.upsert_record(context, key, kKeyLen, data, len));
+        }
+        CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
       }
-      CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+
       CHECK_ERROR(storage.verify_single_thread(context));
-
-      CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-      if (inputs->normalized_case_) {
-        CHECK_ERROR(storage.insert_record_normalized(context, kKeyNormalized, data, len));
-      } else {
-        CHECK_ERROR(storage.insert_record(context, kKey.data(), kKey.size(), data, len));
-      }
-      CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
-    } else {
-      // in this case we move an active record, using upsert
-      CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-      if (inputs->normalized_case_) {
-        CHECK_ERROR(storage.upsert_record_normalized(context, kKeyNormalized, data, len));
-      } else {
-        CHECK_ERROR(storage.upsert_record(context, kKey.data(), kKey.size(), data, len));
-      }
-      CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
     }
-
-    CHECK_ERROR(storage.verify_single_thread(context));
   }
 
   // verify that the record exists
   CHECK_ERROR(storage.verify_single_thread(context));
 
-  CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-  char retrieved[sizeof(data)];
-  std::memset(retrieved, 42, sizeof(retrieved));
-  uint16_t retrieved_capacity = sizeof(retrieved);
-  if (inputs->normalized_case_) {
-    CHECK_ERROR(storage.get_record_normalized(
-      context,
-      kKeyNormalized,
-      retrieved,
-      &retrieved_capacity));
-  } else {
-    CHECK_ERROR(storage.get_record(
-      context,
-      kKey.data(),
-      kKey.size(),
-      retrieved,
-      &retrieved_capacity));
-  }
-  CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
+  for (int i = 0; i < 2; ++i) {
+    CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
+    char retrieved[sizeof(data)];
+    std::memset(retrieved, 42, sizeof(retrieved));
+    PayloadLength retrieved_capacity = sizeof(retrieved);
+    if (inputs->normalized_case_) {
+      CHECK_ERROR(storage.get_record_normalized(
+        context,
+        kKeyNormalized[i],
+        retrieved,
+        &retrieved_capacity));
+    } else {
+      CHECK_ERROR(storage.get_record(
+        context,
+        kKey[i].data(),
+        kKeyLen,
+        retrieved,
+        &retrieved_capacity));
+    }
+    CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
 
-  EXPECT_EQ(kInitialLen + kRep * kExpandLen, retrieved_capacity);
-  for (uint16_t c = 0; c < retrieved_capacity; ++c) {
-    EXPECT_EQ(static_cast<char>(c), retrieved[c]) << c;
-  }
-  for (uint16_t c = retrieved_capacity; c < sizeof(retrieved); ++c) {
-    EXPECT_EQ(42, retrieved[c]) << c;
+    EXPECT_EQ(kInitialLen + kRep * kExpandLen, retrieved_capacity);
+    for (PayloadLength c = 0; c < retrieved_capacity; ++c) {
+      EXPECT_EQ(static_cast<char>(c), retrieved[c]) << c;
+    }
+    for (PayloadLength c = retrieved_capacity; c < sizeof(retrieved); ++c) {
+      EXPECT_EQ(42, retrieved[c]) << c;
+    }
   }
 
   CHECK_ERROR(storage.verify_single_thread(context));
@@ -414,7 +440,7 @@ ErrorStack expand_task(const proc::ProcArguments& args) {
   return foedus::kRetOk;
 }
 
-void test_expand(bool update_case, bool normalized) {
+void test_expand(bool update_case, bool normalized, bool next_layer) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("expand_task", expand_task);
@@ -426,7 +452,7 @@ void test_expand(bool update_case, bool normalized) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    ExpandTaskInput inputs = { update_case, normalized };
+    ExpandTaskInput inputs = { update_case, normalized, next_layer };
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous(
       "expand_task",
       &inputs,
@@ -436,10 +462,12 @@ void test_expand(bool update_case, bool normalized) {
   cleanup_test(options);
 }
 
-TEST(MasstreeBasicTest, ExpandInsert) { test_expand(false, false); }
-TEST(MasstreeBasicTest, ExpandInsertNormalized) { test_expand(false, true); }
-TEST(MasstreeBasicTest, ExpandUpdate) { test_expand(true, false); }
-TEST(MasstreeBasicTest, ExpandUpdateNormalized) { test_expand(true, true); }
+TEST(MasstreeBasicTest, ExpandInsert) { test_expand(false, false, false); }
+TEST(MasstreeBasicTest, ExpandInsertNextLayer) { test_expand(false, false, true); }
+TEST(MasstreeBasicTest, ExpandInsertNormalized) { test_expand(false, true, false); }
+TEST(MasstreeBasicTest, ExpandUpdate) { test_expand(true, false, false); }
+TEST(MasstreeBasicTest, ExpandUpdateNextLayer) { test_expand(true, false, true); }
+TEST(MasstreeBasicTest, ExpandUpdateNormalized) { test_expand(true, true, false); }
 // TASK(Hideaki): we don't have multi-thread cases here. it's not a "basic" test.
 // no multi-key cases either.
 

@@ -42,6 +42,9 @@ namespace sequential {
  * @details
  * In \ref SEQUENTIAL, every data page is a leaf page that forms a singly linked list. So simple.
  *
+ * @par Page Layout
+ * See @ref SEQ_LAYOUT
+ *
  * This is a private implementation-details of \ref SEQUENTIAL, thus file name ends with _impl.
  * Do not include this header from a client program unless you know what you are doing.
  * @attention Do NOT instantiate this object or derive from this class.

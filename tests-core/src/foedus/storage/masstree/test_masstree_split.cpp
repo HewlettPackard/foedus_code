@@ -198,7 +198,7 @@ ErrorStack split_in_next_layer_task(const proc::ProcArguments& args) {
   return foedus::kRetOk;
 }
 
-TEST(MasstreeSplitTest, SplitInNextLayer) {
+void test_split_in_next_layer(bool with_hint) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("split_in_next_layer_task", split_in_next_layer_task);
@@ -206,6 +206,9 @@ TEST(MasstreeSplitTest, SplitInNextLayer) {
   {
     UninitializeGuard guard(&engine);
     MasstreeMetadata meta("ggg");
+    if (with_hint) {
+      meta.min_layer_hint_ = 1U;
+    }
     MasstreeStorage storage;
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
@@ -215,6 +218,9 @@ TEST(MasstreeSplitTest, SplitInNextLayer) {
   }
   cleanup_test(options);
 }
+
+TEST(MasstreeSplitTest, SplitInNextLayer)         { test_split_in_next_layer(false); }
+TEST(MasstreeSplitTest, SplitInNextLayerWithHint) { test_split_in_next_layer(true); }
 
 ErrorStack split_intermediate_sequential_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
@@ -263,7 +269,7 @@ ErrorStack split_intermediate_sequential_task(const proc::ProcArguments& args) {
   return foedus::kRetOk;
 }
 
-TEST(MasstreeSplitTest, SplitIntermediateSequential) {
+void test_split_intermediate_sequential(bool with_hint) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", split_intermediate_sequential_task);
@@ -271,6 +277,9 @@ TEST(MasstreeSplitTest, SplitIntermediateSequential) {
   {
     UninitializeGuard guard(&engine);
     MasstreeMetadata meta("ggg");
+    if (with_hint) {
+      meta.min_layer_hint_ = 1U;
+    }
     MasstreeStorage storage;
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
@@ -279,6 +288,10 @@ TEST(MasstreeSplitTest, SplitIntermediateSequential) {
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
+}
+TEST(MasstreeSplitTest, SplitIntermediateSequential) { test_split_intermediate_sequential(false); }
+TEST(MasstreeSplitTest, SplitIntermediateSequentialWithHint) {
+  test_split_intermediate_sequential(true);
 }
 
 }  // namespace masstree
