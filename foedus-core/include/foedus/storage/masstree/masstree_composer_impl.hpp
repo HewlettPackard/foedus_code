@@ -197,19 +197,20 @@ class MasstreeComposeContext {
     /** Offset in page_base_*/
     memory::PagePoolOffset tail_;
     /** B-tri layer of this level */
-    uint8_t   layer_;
+    uint16_t  layer_;
     /**
      * If level is based on an existing snapshot page, the next entry (pointer or
      * record) in the original page to copy. Remember, we copy the entries when it is same as or
-     * less than the next key so that we always append. 255 means no more entry to copy.
+     * less than the next key so that we always append. 0xFFFF means no more entry to copy.
      */
-    uint8_t   next_original_;
+    SlotIndex next_original_;
     /** for intermediate page */
-    uint8_t   next_original_mini_;
-    /** for border page. remaining key_length. 255 for next layer. */
-    uint8_t   next_original_remaining_;
+    SlotIndex next_original_mini_;
+    /** for border page. The record's remainder length. */
+    KeyLength next_original_remainder_;
     /** number of pages in this level including head/tail, without original page (so, initial=1). */
     uint32_t  page_count_;
+    uint32_t  filler_;
     /** same as low_fence of head */
     KeySlice  low_fence_;
     /** same as high_fence of tail */
@@ -221,28 +222,28 @@ class MasstreeComposeContext {
      */
     KeySlice  next_original_slice_;
 
-    bool has_next_original() const { return next_original_ != 0xFFU; }
+    bool has_next_original() const { return next_original_ != 0xFFFFU; }
     void set_no_more_next_original() {
-      next_original_ = 0xFFU;
-      next_original_mini_ = 0xFFU;
-      next_original_remaining_ = 0xFFU;
+      next_original_ = 0xFFFFU;
+      next_original_mini_ = 0xFFFFU;
+      next_original_remainder_ = kInitiallyNextLayer;
       next_original_slice_ = kSupremumSlice;
     }
     bool contains_slice(KeySlice slice) const {
       ASSERT_ND(low_fence_ <= slice);  // as logs are sorted, this must not happen
       return high_fence_ == kSupremumSlice || slice < high_fence_;  // careful on supremum case
     }
-    bool contains_key(const char* key, uint16_t key_length) const {
+    bool contains_key(const char* key, KeyLength key_length) const {
       ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
       KeySlice slice = normalize_be_bytes_full_aligned(key + layer_ * kSliceLen);
       return contains_slice(slice);
     }
-    bool needs_to_consume_original(KeySlice slice, uint16_t key_length) const {
+    bool needs_to_consume_original(KeySlice slice, KeyLength key_length) const {
       return has_next_original()
         && (
           next_original_slice_ < slice
           || (next_original_slice_ == slice
-              && next_original_remaining_ > kSliceLen
+              && next_original_remainder_ > kSliceLen
               && key_length > (layer_ + 1U) * kSliceLen));
     }
 
@@ -466,19 +467,19 @@ class MasstreeComposeContext {
 
   // init/uninit called only once or at most a few times
   ErrorStack  init_root();
-  ErrorStack  open_first_level(const char* key, uint16_t key_length);
+  ErrorStack  open_first_level(const char* key, KeyLength key_length);
   ErrorStack  open_next_level(
     const char* key,
-    uint16_t key_length,
+    KeyLength key_length,
     MasstreePage* parent,
     KeySlice prefix_slice,
     SnapshotPagePointer* next_page_id);
   void        open_next_level_create_layer(
     const char* key,
-    uint16_t key_length,
+    KeyLength key_length,
     MasstreeBorderPage* parent,
     KeySlice prefix_slice,
-    uint8_t parent_index);
+    SlotIndex parent_index);
 
   /**
    * @brief Writes out the main buffer in the writer to the file.
@@ -506,9 +507,9 @@ class MasstreeComposeContext {
     return kRetOk;
   }
 
-  ErrorStack  adjust_path(const char* key, uint16_t key_length);
+  ErrorStack  adjust_path(const char* key, KeyLength key_length);
 
-  ErrorStack  consume_original_upto_border(KeySlice slice, uint16_t key_length, PathLevel* level);
+  ErrorStack  consume_original_upto_border(KeySlice slice, KeyLength key_length, PathLevel* level);
   ErrorStack  consume_original_upto_intermediate(KeySlice slice, PathLevel* level);
   ErrorStack  consume_original_all();
   /**
@@ -529,7 +530,7 @@ class MasstreeComposeContext {
   // next methods called for each log entry. must be efficient! So these methods return ErrorCode.
 
   /** Returns if the given key is not contained in the current path */
-  bool        does_need_to_adjust_path(const char* key, uint16_t key_length) const ALWAYS_INLINE;
+  bool        does_need_to_adjust_path(const char* key, KeyLength key_length) const ALWAYS_INLINE;
 
   /**
    * Close last levels whose layer is deeper than max_layer
@@ -553,9 +554,9 @@ class MasstreeComposeContext {
   void        append_border(
     KeySlice slice,
     xct::XctId xct_id,
-    uint16_t remaining_length,
+    KeyLength remainder_length,
     const char* suffix,
-    uint16_t payload_count,
+    PayloadLength payload_count,
     const char* payload,
     PathLevel* level);
   void        append_border_next_layer(

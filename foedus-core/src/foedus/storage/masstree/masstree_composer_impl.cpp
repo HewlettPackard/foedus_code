@@ -45,7 +45,7 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
-inline void fill_payload_padded(char* destination, const char* source, uint16_t count) {
+inline void fill_payload_padded(char* destination, const char* source, PayloadLength count) {
   if (count > 0) {
     ASSERT_ND(is_key_aligned_and_zero_padded(source, count));
     std::memcpy(destination, source, assorted::align8(count));
@@ -137,9 +137,9 @@ ErrorStack MasstreeComposer::construct_root(const Composer::ConstructRootArgumen
     }
 
     uint16_t updated_count = 0;
-    for (uint16_t i = 0; i <= base->get_key_count(); ++i) {
+    for (SlotIndex i = 0; i <= base->get_key_count(); ++i) {
       MasstreeIntermediatePage::MiniPage& base_mini = base->get_minipage(i);
-      for (uint16_t j = 0; j <= base_mini.key_count_; ++j) {
+      for (SlotIndex j = 0; j <= base_mini.key_count_; ++j) {
         SnapshotPagePointer base_pointer = base_mini.pointers_[j].snapshot_pointer_;
         if (from_this_snapshot(base_pointer, args)) {
           ++updated_count;
@@ -205,7 +205,7 @@ ErrorStack MasstreeComposer::construct_root(const Composer::ConstructRootArgumen
 ErrorStack MasstreeComposer::check_buddies(const Composer::ConstructRootArguments& args) const {
   const MasstreeIntermediatePage* base
     = reinterpret_cast<const MasstreeIntermediatePage*>(args.root_info_pages_[0]);
-  const uint16_t key_count = base->header().key_count_;
+  const SlotIndex key_count = base->header().key_count_;
   const uint32_t buddy_count = args.root_info_pages_count_;
   // check key_count
   for (uint16_t buddy = 1; buddy < buddy_count; ++buddy) {
@@ -224,9 +224,9 @@ ErrorStack MasstreeComposer::check_buddies(const Composer::ConstructRootArgument
   }
 
   // check inside minipages
-  for (uint16_t i = 0; i <= key_count; ++i) {
+  for (SlotIndex i = 0; i <= key_count; ++i) {
     const MasstreeIntermediatePage::MiniPage& base_mini = base->get_minipage(i);
-    uint16_t mini_count = base_mini.key_count_;
+    SlotIndex mini_count = base_mini.key_count_;
     // check separator
     for (uint16_t buddy = 1; buddy < buddy_count; ++buddy) {
       const MasstreeIntermediatePage* page
@@ -239,7 +239,7 @@ ErrorStack MasstreeComposer::check_buddies(const Composer::ConstructRootArgument
       }
     }
     // check individual separator and pointers
-    for (uint16_t j = 0; j <= mini_count; ++j) {
+    for (SlotIndex j = 0; j <= mini_count; ++j) {
       ASSERT_ND(base_mini.pointers_[j].volatile_pointer_.is_null());
       uint16_t updated_by = buddy_count;  // only one should have updated each pointer
       SnapshotPagePointer old_pointer = base_mini.pointers_[j].snapshot_pointer_;
@@ -391,7 +391,7 @@ ErrorStack MasstreeComposeContext::execute() {
       const MasstreeCommonLogType* entry =
         reinterpret_cast<const MasstreeCommonLogType*>(merge_sort_->resolve_sort_position(i));
       const char* key = entry->get_key();
-      uint16_t key_length = entry->key_length_;
+      KeyLength key_length = entry->key_length_;
       ASSERT_ND(key_length > 0);
       if (key_length < debug_prev_length) {
         ASSERT_ND(std::memcmp(debug_prev, key, key_length) <= 0);
@@ -675,9 +675,9 @@ ErrorStack MasstreeComposeContext::execute_same_key_group(uint32_t from, uint32_
   PathLevel* last = get_last_level();
   ASSERT_ND(get_page(last->tail_)->is_border());
   MasstreeBorderPage* page = as_border(get_page(last->tail_));
-  uint16_t key_count = page->get_key_count();
+  SlotIndex key_count = page->get_key_count();
   ASSERT_ND(key_count > 0);
-  uint16_t index = key_count - 1;
+  SlotIndex index = key_count - 1;
   ASSERT_ND(!page->does_point_to_layer(index));
   char* record = page->get_record(index);
 
@@ -801,7 +801,7 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
         = reinterpret_cast<const MasstreeInsertLogType*>(ASSUME_ALIGNED(logs[i], 8));
       ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeInsert);
       const char* key = entry->get_key();
-      uint16_t key_length = entry->key_length_;
+      KeyLength key_length = entry->key_length_;
 
 #ifndef NDEBUG
       ASSERT_ND(key_length > cur_layer * sizeof(KeySlice));
@@ -811,13 +811,13 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
       }
 #endif  // NDEBUG
 
-      uint16_t remaining_length = key_length - cur_layer * sizeof(KeySlice);
+      KeyLength remainder_length = key_length - cur_layer * sizeof(KeySlice);
       const char* suffix = key + (cur_layer + 1) * sizeof(KeySlice);
       KeySlice slice = normalize_be_bytes_full_aligned(key + cur_layer * sizeof(KeySlice));
       ASSERT_ND(page->within_fences(slice));
-      uint8_t key_count = page->get_key_count();
+      SlotIndex key_count = page->get_key_count();
       ASSERT_ND(key_count == 0 || slice > page->get_slice(key_count - 1));
-      uint16_t payload_count = entry->payload_count_;
+      PayloadLength payload_count = entry->payload_count_;
       const char* payload = entry->get_payload();
       xct::XctId xct_id = entry->header_.xct_id_;
       ASSERT_ND(!merge_sort_->get_base_epoch().is_valid()
@@ -832,13 +832,12 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
       //   still almost empty, we ignore the hint. close at 10-18. same thing happens at 20, ...
       // Hence, we ignore hints if kDubiousHintsThreshold previous hints caused too empty pages.
       const uint32_t kDubiousHintsThreshold = 2;  // to tolerate more, increase this.
-      const uint16_t kTooEmptySize = MasstreeBorderPage::kDataSize * 2 / 10;
+      const DataOffset kTooEmptySize = kBorderPageDataPartSize * 2 / 10;
       bool page_switch_hinted = false;
       KeySlice hint_suggested_slice = kInfimumSlice;
       if (UNLIKELY(next_hint < hint_count && slice >= hints[next_hint])) {
         DVLOG(3) << "the hint tells that we should close the page now.";
-        bool too_empty
-          = key_count == 0 || page->get_unused_region_size(key_count - 1) <= kTooEmptySize;
+        bool too_empty = key_count == 0 || page->available_space() <= kTooEmptySize;
         if (too_empty) {
           DVLOG(1) << "however, the page is still quite empty!";
           if (dubious_hints >= kDubiousHintsThreshold) {
@@ -858,7 +857,7 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
       }
 
       if (UNLIKELY(page_switch_hinted)
-        || UNLIKELY(!page->can_accomodate(key_count, remaining_length, payload_count))) {
+        || UNLIKELY(!page->can_accomodate_snapshot(remainder_length, payload_count))) {
         // unlike append_border_newpage(), which is used in the per-log method, this does no
         // page migration. much simpler and faster.
         memory::PagePoolOffset new_offset = allocate_page();
@@ -885,8 +884,8 @@ ErrorCode MasstreeComposeContext::execute_insert_group_append_loop(
         key_count = 0;
       }
 
-      ASSERT_ND(page->can_accomodate(key_count, remaining_length, payload_count));
-      page->reserve_record_space(key_count, xct_id, slice, suffix, remaining_length, payload_count);
+      ASSERT_ND(page->can_accomodate_snapshot(remainder_length, payload_count));
+      page->reserve_record_space(key_count, xct_id, slice, suffix, remainder_length, payload_count);
       page->increment_key_count();
       fill_payload_padded(page->get_record_payload(key_count), payload, payload_count);
     }
@@ -921,7 +920,7 @@ uint32_t MasstreeComposeContext::execute_insert_group_get_cur_run(
   const MasstreeBorderPage* page = as_border(tail_page);
   const KeySlice low_fence = page->get_low_fence();
   const KeySlice high_fence = page->get_high_fence();
-  const uint8_t existing_keys = page->get_key_count();
+  const SlotIndex existing_keys = page->get_key_count();
   const KeySlice existing_slice
     = existing_keys == 0 ? kInfimumSlice : page->get_slice(existing_keys - 1);
   ASSERT_ND(last->layer_ == page->get_layer());
@@ -971,7 +970,7 @@ uint32_t MasstreeComposeContext::execute_insert_group_get_cur_run(
         reinterpret_cast<const MasstreeCommonLogType*>(
           merge_sort_->resolve_sort_position(cur + run_count));
       const char* key = entry->get_key();
-      uint16_t key_length = entry->key_length_;
+      KeyLength key_length = entry->key_length_;
       ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
       if (key_length <= prefix_count * sizeof(KeySlice)) {
         return run_count;
@@ -1038,7 +1037,7 @@ inline ErrorStack MasstreeComposeContext::execute_a_log(uint32_t cur) {
   const MasstreeCommonLogType* entry =
     reinterpret_cast<const MasstreeCommonLogType*>(merge_sort_->resolve_sort_position(cur));
   const char* key = entry->get_key();
-  uint16_t key_length = entry->key_length_;
+  KeyLength key_length = entry->key_length_;
   ASSERT_ND(key_length > 0);
   ASSERT_ND(cur_path_levels_ == 0 || get_page(get_last_level()->tail_)->is_border());
   ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
@@ -1059,14 +1058,14 @@ inline ErrorStack MasstreeComposeContext::execute_a_log(uint32_t cur) {
   }
 
   MasstreeBorderPage* page = as_border(get_page(last->tail_));
-  uint16_t key_count = page->get_key_count();
+  SlotIndex key_count = page->get_key_count();
 
   // we might have to follow next-layer pointers. Check it.
   // notice it's "while", not "if", because we might follow more than one next-layer pointer
   while (key_count > 0
       && key_length > (last->layer_ + 1U) * kSliceLen
       && page->get_slice(key_count - 1) == slice
-      && page->get_remaining_key_length(key_count - 1) > kSliceLen) {
+      && page->get_remainder_length(key_count - 1) > kSliceLen) {
     // then we have to either go next layer.
     if (page->does_point_to_layer(key_count - 1)) {
       // the next layer already exists. just follow it.
@@ -1092,7 +1091,7 @@ inline ErrorStack MasstreeComposeContext::execute_a_log(uint32_t cur) {
   // Now we are sure the tail of the last level is the only relevant record. process the log.
   if (entry->header_.get_type() == log::kLogCodeMasstreeOverwrite) {
     // [Overwrite] simply reuse log.apply
-    uint16_t index = key_count - 1;
+    SlotIndex index = key_count - 1;
     ASSERT_ND(!page->does_point_to_layer(index));
     ASSERT_ND(page->equal_key(index, key, key_length));
     char* record = page->get_record(index);
@@ -1109,7 +1108,7 @@ inline ErrorStack MasstreeComposeContext::execute_a_log(uint32_t cur) {
     if (entry->header_.get_type() == log::kLogCodeMasstreeDelete
       || entry->header_.get_type() == log::kLogCodeMasstreeUpdate) {
       // [Delete/Update] Physically deletes the last record in this page.
-      uint16_t index = key_count - 1;
+      SlotIndex index = key_count - 1;
       ASSERT_ND(!page->does_point_to_layer(index));
       ASSERT_ND(page->equal_key(index, key, key_length));
       page->set_key_count(index);
@@ -1120,7 +1119,7 @@ inline ErrorStack MasstreeComposeContext::execute_a_log(uint32_t cur) {
       // [Insert/Update] next-layer is already handled above, so just append it.
       ASSERT_ND(entry->header_.get_type() == log::kLogCodeMasstreeInsert);
       ASSERT_ND(key_count == 0 || !page->equal_key(key_count - 1, key, key_length));  // no dup
-      uint16_t skip = last->layer_ * kSliceLen;
+      KeyLength skip = last->layer_ * kSliceLen;
       append_border(
         slice,
         entry->header_.xct_id_,
@@ -1171,7 +1170,7 @@ ErrorStack MasstreeComposeContext::init_root() {
   return kRetOk;
 }
 
-ErrorStack MasstreeComposeContext::open_first_level(const char* key, uint16_t key_length) {
+ErrorStack MasstreeComposeContext::open_first_level(const char* key, KeyLength key_length) {
   ASSERT_ND(cur_path_levels_ == 0);
   ASSERT_ND(key_length > 0);
   ASSERT_ND(is_key_aligned_and_zero_padded(key, key_length));
@@ -1224,7 +1223,7 @@ ErrorStack MasstreeComposeContext::open_first_level(const char* key, uint16_t ke
 
 ErrorStack MasstreeComposeContext::open_next_level(
   const char* key,
-  uint16_t key_length,
+  KeyLength key_length,
   MasstreePage* parent,
   KeySlice prefix_slice,
   SnapshotPagePointer* next_page_id) {
@@ -1250,7 +1249,7 @@ ErrorStack MasstreeComposeContext::open_next_level(
 
   SnapshotPagePointer page_id = page_id_base_ + level->head_;
   *next_page_id = page_id;
-  uint16_t skip = level->layer_ * kSliceLen;
+  KeyLength skip = level->layer_ * kSliceLen;
   KeySlice slice = normalize_be_bytes_full_aligned(key + skip);
 
   MasstreePage* target = get_page(level->head_);
@@ -1276,10 +1275,10 @@ ErrorStack MasstreeComposeContext::open_next_level(
   if (original->is_border()) {
     // When this is a border page we might or might not have to go down.
     const MasstreeBorderPage* casted = as_border(original);
-    uint16_t key_count = original->get_key_count();
+    SlotIndex key_count = original->get_key_count();
     auto result = casted->find_key_for_snapshot(slice, key + skip, key_length - skip);
 
-    uint16_t copy_count;
+    SlotIndex copy_count;
     bool go_down = false;
     bool create_layer = false;
     switch (result.match_type_) {
@@ -1312,7 +1311,7 @@ ErrorStack MasstreeComposeContext::open_next_level(
       level->set_no_more_next_original();
     } else {
       level->next_original_slice_ = casted->get_slice(level->next_original_);
-      level->next_original_remaining_ = casted->get_remaining_key_length(level->next_original_);
+      level->next_original_remainder_ = casted->get_remainder_length(level->next_original_);
     }
 
     // now, do we have to go down further?
@@ -1326,7 +1325,7 @@ ErrorStack MasstreeComposeContext::open_next_level(
     // if there are such records, the snapshot page has already done so.
     ASSERT_ND(!level->has_next_original() || level->next_original_slice_ > slice);  // check it
 
-    uint8_t next_layer_index = target_casted->get_key_count() - 1;
+    SlotIndex next_layer_index = target_casted->get_key_count() - 1;
     ASSERT_ND(target_casted->get_slice(next_layer_index) == slice);
     if (create_layer) {
       // this is more complicated. we have to migrate the current record to next layer
@@ -1377,10 +1376,10 @@ ErrorStack MasstreeComposeContext::open_next_level(
 
 void MasstreeComposeContext::open_next_level_create_layer(
   const char* key,
-  uint16_t key_length,
+  KeyLength key_length,
   MasstreeBorderPage* parent,
   KeySlice prefix_slice,
-  uint8_t parent_index) {
+  SlotIndex parent_index) {
   ASSERT_ND(!parent->does_point_to_layer(parent_index));  // not yet a next-layer pointer
   ASSERT_ND(parent->get_slice(parent_index) == prefix_slice);
   ASSERT_ND(key_length > 0);
@@ -1409,13 +1408,13 @@ void MasstreeComposeContext::open_next_level_create_layer(
   // DLOG(INFO) << "eqeqwe2 " << *parent;
 
   // migrate the exiting record from parent.
-  uint16_t remaining_length = parent->get_remaining_key_length(parent_index) - kSliceLen;
+  KeyLength remainder_length = parent->get_remainder_length(parent_index) - kSliceLen;
   const char* parent_suffix = parent->get_record(parent_index);
-  ASSERT_ND(is_key_aligned_and_zero_padded(parent_suffix, remaining_length));
+  ASSERT_ND(is_key_aligned_and_zero_padded(parent_suffix, remainder_length));
   KeySlice slice = normalize_be_bytes_full_aligned(parent_suffix);
   const char* suffix = parent_suffix + kSliceLen;
   const char* payload = parent->get_record_payload(parent_index);
-  uint16_t payload_count = parent->get_payload_length(parent_index);
+  PayloadLength payload_count = parent->get_payload_length(parent_index);
   xct::XctId xct_id = parent->get_owner_id(parent_index)->xct_id_;
 
   // DLOG(INFO) << "eqeqwe3 " << *parent;
@@ -1424,8 +1423,8 @@ void MasstreeComposeContext::open_next_level_create_layer(
   // we move the existing record to a dummy original page here.
   MasstreeBorderPage* original = reinterpret_cast<MasstreeBorderPage*>(get_original(this_level));
   original->initialize_snapshot_page(id_, 0, level->layer_, kInfimumSlice, kSupremumSlice);
-  ASSERT_ND(original->can_accomodate(0, remaining_length, payload_count));
-  original->reserve_record_space(0, xct_id, slice, suffix, remaining_length, payload_count);
+  ASSERT_ND(original->can_accomodate(0, remainder_length, payload_count));
+  original->reserve_record_space(0, xct_id, slice, suffix, remainder_length, payload_count);
   original->increment_key_count();
   fill_payload_padded(original->get_record_payload(0), payload, payload_count);
 
@@ -1435,10 +1434,10 @@ void MasstreeComposeContext::open_next_level_create_layer(
     // as the record is still not supposed to be added, we keep it in the original page
     level->next_original_ = 0;
     level->next_original_slice_ = slice;
-    level->next_original_remaining_ = remaining_length;
+    level->next_original_remainder_ = remainder_length;
   } else {
     // okay, insert it now.
-    target->reserve_record_space(0, xct_id, slice, suffix, remaining_length, payload_count);
+    target->reserve_record_space(0, xct_id, slice, suffix, remainder_length, payload_count);
     target->increment_key_count();
     fill_payload_padded(target->get_record_payload(0), payload, payload_count);
     ASSERT_ND(target->ltgt_key(0, key, key_length) > 0);
@@ -1453,7 +1452,7 @@ void MasstreeComposeContext::open_next_level_create_layer(
 
 inline bool MasstreeComposeContext::does_need_to_adjust_path(
   const char* key,
-  uint16_t key_length) const {
+  KeyLength key_length) const {
   if (cur_path_levels_ == 0) {
     return true;  // the path is empty. need to initialize path
   } else if (!cur_path_[0].contains_key(key, key_length)) {
@@ -1478,12 +1477,12 @@ inline bool MasstreeComposeContext::does_need_to_adjust_path(
 
   // Does the in-layer slice of the key match the current page? if not we have to close them
   // key is 8-bytes padded, so we can simply use normalize_be_bytes_full_aligned
-  uint16_t skip = cur_path_layer * kSliceLen;
+  KeyLength skip = cur_path_layer * kSliceLen;
   KeySlice next_slice = normalize_be_bytes_full_aligned(key + skip);
   return !get_last_level()->contains_slice(next_slice);
 }
 
-ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_length) {
+ErrorStack MasstreeComposeContext::adjust_path(const char* key, KeyLength key_length) {
   // Close levels/layers until prefix slice matches
   bool closed_something = false;
   if (cur_path_levels_ > 0) {
@@ -1502,7 +1501,7 @@ ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_len
 
     last = get_last_level();
     // Close levels upto fence matches
-    uint16_t skip = last->layer_ * kSliceLen;
+    KeyLength skip = last->layer_ * kSliceLen;
     KeySlice next_slice = normalize_be_bytes_full_aligned(key + skip);
     while (cur_path_levels_ > 0 && !last->contains_slice(next_slice)) {
       // the next key doesn't fit in the current path. need to close.
@@ -1527,7 +1526,7 @@ ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_len
   // if it's a border page, we may have to go down, but at this point we are not sure.
   // so, just handle intermediate page case. after doing this, last level should be a border page.
   PathLevel* last = get_last_level();
-  uint16_t skip = last->layer_ * kSliceLen;
+  KeyLength skip = last->layer_ * kSliceLen;
   KeySlice next_slice = normalize_be_bytes_full_aligned(key + skip);
   ASSERT_ND(last->contains_slice(next_slice));
   MasstreePage* page = get_page(last->tail_);
@@ -1546,9 +1545,9 @@ ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_len
     ASSERT_ND(casted->find_minipage(next_slice) == casted->get_key_count());
     ASSERT_ND(casted->get_minipage(casted->get_key_count()).find_pointer(next_slice)
       == casted->get_minipage(casted->get_key_count()).key_count_);
-    uint8_t index = casted->get_key_count();
+    SlotIndex index = casted->get_key_count();
     MasstreeIntermediatePage::MiniPage& minipage = casted->get_minipage(index);
-    uint8_t index_mini = minipage.key_count_;
+    SlotIndex index_mini = minipage.key_count_;
 #ifndef NDEBUG
     KeySlice existing_low;
     KeySlice existing_high;
@@ -1567,20 +1566,24 @@ ErrorStack MasstreeComposeContext::adjust_path(const char* key, uint16_t key_len
 inline void MasstreeComposeContext::append_border(
   KeySlice slice,
   xct::XctId xct_id,
-  uint16_t remaining_length,
+  KeyLength remainder_length,
   const char* suffix,
-  uint16_t payload_count,
+  PayloadLength payload_count,
   const char* payload,
   PathLevel* level) {
-  ASSERT_ND(remaining_length != MasstreeBorderPage::kKeyLengthNextLayer);
+  ASSERT_ND(remainder_length != kInitiallyNextLayer);
+  ASSERT_ND(remainder_length < kMaxKeyLength);
   MasstreeBorderPage* target = as_border(get_page(level->tail_));
-  uint16_t key_count = target->get_key_count();
-  uint16_t new_index = key_count;
-  ASSERT_ND(key_count == 0 || !target->will_conflict(key_count - 1, slice, remaining_length));
+  SlotIndex key_count = target->get_key_count();
+  SlotIndex new_index = key_count;
+  ASSERT_ND(key_count == 0 || !target->will_conflict(key_count - 1, slice, remainder_length));
   ASSERT_ND(key_count == 0
-    || !target->will_contain_next_layer(key_count - 1, slice, remaining_length));
-  ASSERT_ND(key_count == 0 || target->ltgt_key(key_count - 1, slice, suffix, remaining_length) > 0);
-  if (UNLIKELY(!target->can_accomodate(new_index, remaining_length, payload_count))) {
+    || !target->will_contain_next_layer(key_count - 1, slice, remainder_length));
+  ASSERT_ND(key_count == 0 || target->ltgt_key(key_count - 1, slice, suffix, remainder_length) > 0);
+
+  // This check is slightly more conservative than can_accomodate() when the page is almost full.
+  const bool spacious = target->can_accomodate_snapshot(remainder_length, payload_count);
+  if (UNLIKELY(!spacious)) {
     append_border_newpage(slice, level);
     MasstreeBorderPage* new_target = as_border(get_page(level->tail_));
     ASSERT_ND(target != new_target);
@@ -1588,7 +1591,7 @@ inline void MasstreeComposeContext::append_border(
     new_index = 0;
   }
 
-  target->reserve_record_space(new_index, xct_id, slice, suffix, remaining_length, payload_count);
+  target->reserve_record_space(new_index, xct_id, slice, suffix, remainder_length, payload_count);
   target->increment_key_count();
   fill_payload_padded(target->get_record_payload(new_index), payload, payload_count);
 }
@@ -1599,11 +1602,11 @@ inline void MasstreeComposeContext::append_border_next_layer(
   SnapshotPagePointer pointer,
   PathLevel* level) {
   MasstreeBorderPage* target = as_border(get_page(level->tail_));
-  uint16_t key_count = target->get_key_count();
-  uint16_t new_index = key_count;
+  SlotIndex key_count = target->get_key_count();
+  SlotIndex new_index = key_count;
   ASSERT_ND(key_count == 0 || !target->will_conflict(key_count - 1, slice, 0xFF));
   ASSERT_ND(key_count == 0 || target->ltgt_key(key_count - 1, slice, nullptr, kSliceLen) > 0);
-  if (UNLIKELY(!target->can_accomodate(new_index, 0, sizeof(DualPagePointer)))) {
+  if (UNLIKELY(!target->can_accomodate(new_index, kInitiallyNextLayer, sizeof(DualPagePointer)))) {
     append_border_newpage(slice, level);
     MasstreeBorderPage* new_target = as_border(get_page(level->tail_));
     ASSERT_ND(target != new_target);
@@ -1616,7 +1619,7 @@ inline void MasstreeComposeContext::append_border_next_layer(
 
 void MasstreeComposeContext::append_border_newpage(KeySlice slice, PathLevel* level) {
   MasstreeBorderPage* target = as_border(get_page(level->tail_));
-  uint16_t key_count = target->get_key_count();
+  SlotIndex key_count = target->get_key_count();
 
   memory::PagePoolOffset new_offset = allocate_page();
   SnapshotPagePointer new_page_id = page_id_base_ + new_offset;
@@ -1632,29 +1635,29 @@ void MasstreeComposeContext::append_border_newpage(KeySlice slice, PathLevel* le
 
   // We have to make sure the same slice does not span two pages with only length different
   // (masstree protocol). So, we might have to migrate a few more records in rare cases.
-  uint16_t migrate_from;
+  SlotIndex migrate_from;
   for (migrate_from = key_count; target->get_slice(migrate_from - 1U) == slice; --migrate_from) {
     continue;
   }
   if (migrate_from != key_count) {
     LOG(INFO) << "Interesting, migrate records to avoid key slice spanning two pages";
-    for (uint16_t old_index = migrate_from; old_index < key_count; ++old_index) {
+    for (SlotIndex old_index = migrate_from; old_index < key_count; ++old_index) {
       ASSERT_ND(target->get_slice(old_index) == slice);
       xct::XctId xct_id = target->get_owner_id(old_index)->xct_id_;
-      uint16_t new_index = new_target->get_key_count();
+      SlotIndex new_index = new_target->get_key_count();
       if (target->does_point_to_layer(old_index)) {
         const DualPagePointer* pointer = target->get_next_layer(old_index);
         ASSERT_ND(pointer->volatile_pointer_.is_null());
         new_target->append_next_layer_snapshot(xct_id, slice, pointer->snapshot_pointer_);
       } else {
-        uint16_t payload_count = target->get_payload_length(old_index);
-        uint16_t remaining = target->get_remaining_key_length(old_index);
+        PayloadLength payload_count = target->get_payload_length(old_index);
+        KeyLength remainder = target->get_remainder_length(old_index);
         new_target->reserve_record_space(
           new_index,
           xct_id,
           slice,
           target->get_record(old_index),
-          remaining,
+          remainder,
           payload_count);
         new_target->increment_key_count();
         fill_payload_padded(
@@ -1714,7 +1717,7 @@ void MasstreeComposeContext::append_intermediate_newpage_and_pointer(
 
 ErrorStack MasstreeComposeContext::consume_original_upto_border(
   KeySlice slice,
-  uint16_t key_length,
+  KeyLength key_length,
   PathLevel* level) {
   ASSERT_ND(level == get_last_level());  // so far this is the only usecase
   ASSERT_ND(key_length > level->layer_ * kSliceLen);
@@ -1722,13 +1725,13 @@ ErrorStack MasstreeComposeContext::consume_original_upto_border(
   uint16_t level_index = level - cur_path_;
   MasstreeBorderPage* original = as_border(get_original(level_index));
   while (level->needs_to_consume_original(slice, key_length)) {
-    uint16_t index = level->next_original_;
+    SlotIndex index = level->next_original_;
     ASSERT_ND(level->next_original_slice_ == original->get_slice(index));
-    ASSERT_ND(level->next_original_remaining_ == original->get_remaining_key_length(index));
+    ASSERT_ND(level->next_original_remainder_ == original->get_remainder_length(index));
     ASSERT_ND(level->has_next_original());
     ASSERT_ND(level->next_original_slice_ <= slice);
     KeySlice original_slice = original->get_slice(index);
-    uint16_t original_remaining = original->get_remaining_key_length(index);
+    KeyLength original_remainder = original->get_remainder_length(index);
     xct::XctId xct_id = original->get_owner_id(index)->xct_id_;
     if (original->does_point_to_layer(index)) {
       const DualPagePointer* pointer = original->get_next_layer(index);
@@ -1738,7 +1741,7 @@ ErrorStack MasstreeComposeContext::consume_original_upto_border(
       append_border(
         original_slice,
         xct_id,
-        original_remaining,
+        original_remainder,
         original->get_record(index),
         original->get_payload_length(index),
         original->get_record_payload(index),
@@ -1749,7 +1752,7 @@ ErrorStack MasstreeComposeContext::consume_original_upto_border(
       level->set_no_more_next_original();
     } else {
       level->next_original_slice_ = original->get_slice(level->next_original_);
-      level->next_original_remaining_ = original->get_remaining_key_length(level->next_original_);
+      level->next_original_remainder_ = original->get_remainder_length(level->next_original_);
     }
   }
   return kRetOk;
@@ -1790,7 +1793,7 @@ ErrorStack MasstreeComposeContext::consume_original_all() {
   if (page->is_border()) {
     MasstreeBorderPage* original = as_border(page);
     while (last->has_next_original()) {
-      uint16_t index = last->next_original_;
+      SlotIndex index = last->next_original_;
       KeySlice slice = original->get_slice(index);
       xct::XctId xct_id = original->get_owner_id(index)->xct_id_;
       if (original->does_point_to_layer(index)) {
@@ -1801,7 +1804,7 @@ ErrorStack MasstreeComposeContext::consume_original_all() {
         append_border(
           slice,
           xct_id,
-          original->get_remaining_key_length(index),
+          original->get_remainder_length(index),
           original->get_record(index),
           original->get_payload_length(index),
           original->get_record_payload(index),
@@ -1923,9 +1926,9 @@ ErrorStack MasstreeComposeContext::pushup_non_root() {
     bool already_appended = false;
     if (is_head) {
       const MasstreeIntermediatePage* parent_page = as_intermdiate(get_page(parent->tail_));
-      uint8_t index = parent_page->get_key_count();
+      SlotIndex index = parent_page->get_key_count();
       const MasstreeIntermediatePage::MiniPage& mini = parent_page->get_minipage(index);
-      uint16_t index_mini = mini.key_count_;
+      SlotIndex index_mini = mini.key_count_;
       if (mini.pointers_[index_mini].snapshot_pointer_ == pointer) {
         already_appended = true;
 #ifndef NDEBUG
@@ -2504,9 +2507,9 @@ ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse_border(
   // a record in border page is never physically deleted.
   // also once a record becomes next-layer pointer, it never gets reverted to a usual record.
   // just make sure we put consume (no need to be acquire) fence in a few places.
-  uint8_t key_count = volatile_page->get_key_count();
+  SlotIndex key_count = volatile_page->get_key_count();
   assorted::memory_fence_consume();
-  for (uint8_t i = 0; i < key_count; ++i) {
+  for (SlotIndex i = 0; i < key_count; ++i) {
     if (!volatile_page->does_point_to_layer(i)) {
       continue;
     }
@@ -2670,8 +2673,8 @@ void MasstreeComposer::drop_all_recurse_page_only(
   ASSERT_ND(!page->has_foster_child());
   if (page->is_border()) {
     MasstreeBorderPage* border = as_border(page);
-    const uint8_t key_count = page->get_key_count();
-    for (uint8_t i = 0; i < key_count; ++i) {
+    const SlotIndex key_count = page->get_key_count();
+    for (SlotIndex i = 0; i < key_count; ++i) {
       if (border->does_point_to_layer(i)) {
         DualPagePointer* pointer = border->get_next_layer(i);
         drop_all_recurse(args, pointer);
@@ -2814,8 +2817,8 @@ inline Composer::DropResult MasstreeComposer::drop_volatiles_border(
   }
 
   ASSERT_ND(!page->has_foster_child());
-  const uint8_t key_count = page->get_key_count();
-  for (uint8_t i = 0; i < key_count; ++i) {
+  const SlotIndex key_count = page->get_key_count();
+  for (SlotIndex i = 0; i < key_count; ++i) {
     if (page->does_point_to_layer(i)) {
       DualPagePointer* pointer = page->get_next_layer(i);
       result.combine(drop_volatiles_recurse(args, pointer));

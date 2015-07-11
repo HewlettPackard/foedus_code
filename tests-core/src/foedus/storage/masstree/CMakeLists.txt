@@ -7,8 +7,10 @@ set(test_masstree_basic_individuals
   NextLayer
   CreateAndDrop
   ExpandInsert
+  ExpandInsertNextLayer
   ExpandInsertNormalized
   ExpandUpdate
+  ExpandUpdateNextLayer
   ExpandUpdateNormalized
   )
 add_foedus_test_individual(test_masstree_basic "${test_masstree_basic_individuals}")
@@ -21,7 +23,15 @@ add_foedus_test_individual(test_masstree_peek "OneLayer;TwoLayers")
 
 add_foedus_test_individual(test_masstree_random "InsertManyNormalized;InsertManyNormalizedMt;InsertMany")
 
-add_foedus_test_individual(test_masstree_split "SplitBorder;SplitBorderNormalized;SplitInNextLayer")
+set(test_masstree_split_individuals
+  SplitBorder
+  SplitBorderNormalized
+  SplitInNextLayer
+  SplitInNextLayerWithHint
+  SplitIntermediateSequential
+  SplitIntermediateSequentialWithHint
+  )
+add_foedus_test_individual(test_masstree_split "${test_masstree_split_individuals}")
 
 set(test_masstree_tpcb_individuals
   SingleThreadedNoContention
@@ -61,6 +71,21 @@ set(test_masstree_tpcc_individuals
   DistrictScanOrders
   DistrictScanOrdersSecondary
   DistrictScanOrderlines
+  FullscanCustomersSecondaryWithHint
+  FullscanNewordersWithHint
+  FullscanOrdersWithHint
+  FullscanOrdersSecondaryWithHint
+  FullscanOrderlinesWithHint
+  ParallelLoadCustomersSecondaryWithHint
+  ParallelLoadNewordersWithHint
+  ParallelLoadOrdersWithHint
+  ParallelLoadOrdersSecondaryWithHint
+  ParallelLoadOrderlinesWithHint
+  DistrictScanCustomersSecondaryWithHint
+  DistrictScanNewordersWithHint
+  DistrictScanOrdersWithHint
+  DistrictScanOrdersSecondaryWithHint
+  DistrictScanOrderlinesWithHint
   )
 add_foedus_test_individual(test_masstree_tpcc "${test_masstree_tpcc_individuals}")
 

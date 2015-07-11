@@ -197,11 +197,11 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   CHECK_ERROR(verify_page_basic(context, page, kMasstreeBorderPageType, low_fence, high_fence));
   // check consecutive_inserts_. this should be consistent whether it's moved or not.
   bool sorted = true;
-  for (uint8_t i = 1; i < page->get_key_count(); ++i) {
+  for (SlotIndex i = 1; i < page->get_key_count(); ++i) {
     KeySlice prev = page->get_slice(i - 1);
     KeySlice slice = page->get_slice(i);
-    uint8_t prev_len = page->get_remaining_key_length(i - 1);
-    uint8_t len = page->get_remaining_key_length(i);
+    KeyLength prev_len = page->get_remainder_length(i - 1);
+    KeyLength len = page->get_remainder_length(i);
     if (prev > slice || (prev == slice && prev_len > len)) {
       sorted = false;
       break;
@@ -224,27 +224,17 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   }
 
   CHECK_AND_ASSERT(!page->is_moved());
-  CHECK_AND_ASSERT(page->get_key_count() <= MasstreeBorderPage::kMaxKeys);
-  for (uint8_t i = 0; i < page->get_key_count(); ++i) {
+  CHECK_AND_ASSERT(page->get_key_count() <= kBorderPageMaxSlots);
+  for (SlotIndex i = 0; i < page->get_key_count(); ++i) {
     CHECK_AND_ASSERT(!page->get_owner_id(i)->lock_.is_keylocked());
     CHECK_AND_ASSERT(!page->get_owner_id(i)->lock_.is_rangelocked());
     CHECK_AND_ASSERT(!page->get_owner_id(i)->xct_id_.is_being_written());
     CHECK_AND_ASSERT(page->get_owner_id(i)->xct_id_.get_epoch().is_valid());
-    if (i == 0) {
-      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < MasstreeBorderPage::kDataSize);
-      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) + page->get_physical_record_size_in_bytes(i)
-        == MasstreeBorderPage::kDataSize);
-    } else {
-      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) < page->get_offset_in_bytes(i - 1));
-      CHECK_AND_ASSERT(page->get_offset_in_bytes(i) + page->get_physical_record_size_in_bytes(i)
-        == page->get_offset_in_bytes(i - 1));
-    }
+    CHECK_AND_ASSERT(page->verify_slot_lengthes(i));
     KeySlice slice = page->get_slice(i);
     CHECK_AND_ASSERT(slice >= low_fence);
     CHECK_AND_ASSERT(slice < high_fence.slice_ || page->is_high_fence_supremum());
     if (page->does_point_to_layer(i)) {
-      CHECK_AND_ASSERT(page->get_physical_record_size_in_bytes(i)
-        >= sizeof(DualPagePointer));
       CHECK_AND_ASSERT(page->get_owner_id(i)->xct_id_.is_next_layer());
       CHECK_AND_ASSERT(!page->get_next_layer(i)->is_both_null());
       MasstreePage* next;
@@ -254,9 +244,6 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
       CHECK_ERROR(verify_single_thread_layer(context, page->get_layer() + 1, next));
     } else {
       CHECK_AND_ASSERT(!page->get_owner_id(i)->xct_id_.is_next_layer());
-      CHECK_AND_ASSERT(page->get_physical_record_size_in_bytes(i)
-        >= page->get_suffix_length_aligned(i) + page->get_payload_length(i));
-      CHECK_AND_ASSERT(page->get_max_payload_length(i) >= page->get_payload_length(i));
     }
   }
 

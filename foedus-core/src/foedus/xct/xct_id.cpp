@@ -19,6 +19,7 @@
 
 #include <ostream>
 
+#include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -36,23 +37,105 @@ void McsLock::release_lock(thread::Thread* context, McsBlockIndex block) {
   context->mcs_release_lock(this, block);
 }
 
-McsLockScope::McsLockScope(thread::Thread* context, LockableXctId* lock) {
-  context_ = context;
-  lock_ = lock->get_key_lock();
-  block_ = context->mcs_acquire_lock(lock_);
+McsLockScope::McsLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
+
+McsLockScope::McsLockScope(
+  thread::Thread* context,
+  LockableXctId* lock,
+  bool acquire_now,
+  bool non_racy_acquire)
+  : context_(context), lock_(lock->get_key_lock()), block_(0) {
+  if (acquire_now) {
+    acquire(non_racy_acquire);
+  }
 }
 
-McsLockScope::McsLockScope(thread::Thread* context, McsLock* lock) {
+McsLockScope::McsLockScope(
+  thread::Thread* context,
+  McsLock* lock,
+  bool acquire_now,
+  bool non_racy_acquire)
+  : context_(context), lock_(lock), block_(0) {
+  if (acquire_now) {
+    acquire(non_racy_acquire);
+  }
+}
+
+void McsLockScope::initialize(
+  thread::Thread* context,
+  McsLock* lock,
+  bool acquire_now,
+  bool non_racy_acquire) {
+  if (is_valid() && is_locked()) {
+    release();
+  }
   context_ = context;
   lock_ = lock;
-  block_ = context->mcs_acquire_lock(lock_);
+  block_ = 0;
+  if (acquire_now) {
+    acquire(non_racy_acquire);
+  }
 }
 
 McsLockScope::~McsLockScope() {
-  ASSERT_ND(block_);
-  context_->mcs_release_lock(lock_, block_);
+  release();
+  context_ = nullptr;
+  lock_ = nullptr;
 }
 
+McsLockScope::McsLockScope(McsLockScope&& other) {
+  context_ = other.context_;
+  lock_ = other.lock_;
+  block_ = other.block_;
+  other.block_ = 0;
+}
+
+McsLockScope& McsLockScope::operator=(McsLockScope&& other) {
+  if (is_valid()) {
+    release();
+  }
+  context_ = other.context_;
+  lock_ = other.lock_;
+  block_ = other.block_;
+  other.block_ = 0;
+  return *this;
+}
+
+void McsLockScope::move_to(storage::PageVersionLockScope* new_owner) {
+  ASSERT_ND(is_locked());
+  new_owner->context_ = context_;
+  // PageVersion's first member is McsLock, so this is ok.
+  new_owner->version_ = reinterpret_cast<storage::PageVersion*>(lock_);
+  ASSERT_ND(lock_ == &new_owner->version_->lock_);
+  new_owner->block_ = block_;
+  new_owner->changed_ = false;
+  new_owner->released_ = false;
+  context_ = nullptr;
+  lock_ = nullptr;
+  block_ = 0;
+  ASSERT_ND(!is_locked());
+}
+
+void McsLockScope::acquire(bool non_racy_acquire) {
+  if (is_valid()) {
+    if (block_ == 0) {
+      if (non_racy_acquire) {
+        block_ = context_->mcs_initial_lock(lock_);
+      } else {
+        block_ = context_->mcs_acquire_lock(lock_);
+      }
+    }
+  }
+}
+
+void McsLockScope::release() {
+  if (is_valid()) {
+    if (block_) {
+      context_->mcs_release_lock(lock_, block_);
+      block_ = 0;
+    }
+  }
+}
 
 std::ostream& operator<<(std::ostream& o, const McsLock& v) {
   o << "<McsLock><locked>" << v.is_locked() << "</locked><tail_waiter>"
@@ -75,6 +158,7 @@ std::ostream& operator<<(std::ostream& o, const XctId& v) {
       << (v.is_deleted() ? "D" : " ")
       << (v.is_moved() ? "M" : " ")
       << (v.is_being_written() ? "W" : " ")
+      << (v.is_next_layer() ? "N" : " ")
     << "\" />";
   return o;
 }
