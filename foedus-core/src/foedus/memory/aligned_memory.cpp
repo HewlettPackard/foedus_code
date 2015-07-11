@@ -88,9 +88,14 @@ char* alloc_mmap(uint64_t size, uint64_t alignment) {
     nullptr,
     size,
     PROT_READ | PROT_WRITE,
-    MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE | pagesize,
+    MAP_ANONYMOUS | MAP_PRIVATE | pagesize,  // | MAP_NORESERVE
     -1,
     0));
+  // Note: We previously used MAP_NORESERVE to explicitly say we don't want swapping,
+  // but mmap with this flag causes SIGSEGV when there aren't enough hugepages.
+  // In that case mmap doesn't return -1 because it just checks VA space is mappable.
+  // We still don't need swapping, but it won't hurt. sorta. Debuggability matters more.
+
   // when mmap() fails, it returns -1 (MAP_FAILED)
   if (ret == nullptr || ret == MAP_FAILED) {
     LOG(FATAL) << "mmap() failed. size=" << size << ", error=" << assorted::os_error()
