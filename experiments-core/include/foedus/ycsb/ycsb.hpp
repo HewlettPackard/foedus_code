@@ -129,6 +129,10 @@ struct YcsbWorkload {
 
 class YcsbClientTask {
  public:
+  enum Constants {
+    kRandomSeed = 123456,
+  };
+
   struct Inputs {
     uint32_t worker_id_;
     YcsbWorkload workload_;
@@ -150,7 +154,8 @@ class YcsbClientTask {
 
   YcsbClientTask(const Inputs *inputs)
     : worker_id_(inputs->worker_id_),
-      workload_(inputs->workload_) {}
+      workload_(inputs->workload_),
+      rnd_(kRandomSeed + inputs->worker_id_) {}
 
   ErrorStack run(thread::Thread* context);
 
