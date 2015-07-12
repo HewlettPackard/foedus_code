@@ -55,17 +55,22 @@ namespace ycsb {
 
 ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
+  const uint32_t *nr_workers = reinterpret_cast<const uint32_t*>(args.input_buffer_);
+  std::pair<uint32_t, uint32_t> *start_key_pair =
+    reinterpret_cast<std::pair<uint32_t, uint32_t>* >(args.output_buffer_);
   YcsbLoadTask task;
-  return task.run(context);
+  return task.run(context, *nr_workers, start_key_pair);
 }
 
-ErrorStack YcsbLoadTask::run(thread::Thread* context)
+ErrorStack YcsbLoadTask::run(thread::Thread* context,
+  const uint32_t nr_workers, std::pair<uint32_t, uint32_t> *start_key_pair)
 {
   Engine* engine = context->get_engine();
 
   // Create an empty table
   Epoch ep;
-  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100); // fill factor?
+  // TODO: adjust fill factor by workload (A...E)
+  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
   LOG(INFO) << "[YCSB] Created user table";
 
   // "keep volatile pages for now"
@@ -79,32 +84,41 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context)
 
   LOG(INFO) << "[YCSB] Will insert " << kInitialUserTableSize << " records to user table";
 
-  // Now populate the table, in 1000 batches
-  size_t batch_size = 1000;
-  debugging::StopWatch watch;
-  while (next_key < kInitialUserTableSize) {
-    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-    for (size_t i = 0; i < batch_size; i++) {
-      if (next_key++ >= kInitialUserTableSize) {
-        break;
-      }
+  // Now populate the table, round-robin for each worker id (as the high bits).
+  auto remaining_inserts = kInitialUserTableSize;
+  uint32_t high = 0, low = 0;
+  YcsbKey key;
+  YcsbRecord r('a');
 
-      YcsbRecord r('a');
+  debugging::StopWatch watch;
+  while (remaining_inserts) {
+    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+    for (high = 0; high < nr_workers and remaining_inserts--; high++) {
       // other candidates like insert_normalized**?
-      COERCE_ERROR_CODE(user_table.insert_record(context, &next_key, sizeof(YcsbKey), &r, sizeof(r)));
+      key.build(high, low);
+      COERCE_ERROR_CODE(user_table.insert_record(context, &key, sizeof(key), &r, sizeof(r)));
     }
     Epoch commit_epoch;
     COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
     //COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
-    LOG(INFO) << "[YCSB] Inserted " << next_key << " records";
+    low++;
   }
-
   watch.stop();
+
+  // Note we did a low++ in the while loop above, so workers with id < high
+  // actually had low bits=low-1, the rest had low-2. Because the worker will
+  // start with local_key_counter (instead of ++), the initial values for
+  // workers' local_key_counter will be low for those with id < high, and
+  // low-1 for those with id >= high. Both high and low values are passed out
+  // through start_key_pair.
+  start_key_pair->first = high;
+  start_key_pair->second = low;
+  LOG(INFO) << "Start key: high=" << start_key_pair->first << " low=" << start_key_pair->second;
+  ASSERT_ND(remaining_inserts == 0);
   LOG(INFO) << "[YCSB] Finished loading "
     << kInitialUserTableSize
     << " records in user table in "
     << watch.elapsed_sec() << "s";
-
   return kRetOk;
 }
 

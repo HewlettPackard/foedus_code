@@ -51,8 +51,16 @@ const uint64_t kInitialUserTableSize= 10000;
 
 const uint32_t kMaxWorkers = 1024;
 
-// The YCSB paper didn't say key length, assume it's 64-bit for simplicity
-typedef uint64_t YcsbKey;
+const int kKeyPrefixLength = 4; // "user" without \0
+const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
+
+const int32_t kKeyMaxLength = 36; // 4 bytes of char "user" + 32 chars for numbers
+struct YcsbKey {
+  char data_[kKeyMaxLength];
+  YcsbKey();
+  YcsbKey next(uint32_t worker_id, uint32_t* local_counter);
+  YcsbKey build(uint32_t high_bits, uint32_t low_bits);
+};
 
 struct YcsbRecord {
   char data_[kFieldLength][kFields];
@@ -70,6 +78,7 @@ struct YcsbClientChannel {
     start_rendezvous_.initialize();
     exit_nodes_.store(0);
     stop_flag_.store(false);
+    nr_workers_ = 0;
   }
   void uninitialize() {
     start_rendezvous_.uninitialize();
@@ -77,9 +86,8 @@ struct YcsbClientChannel {
   soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
+  uint32_t nr_workers_;
 };
-
-extern YcsbKey next_key;
 
 int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
@@ -89,7 +97,8 @@ YcsbClientChannel* get_channel(Engine* engine);
 class YcsbLoadTask {
  public:
   YcsbLoadTask() {}
-  ErrorStack run(thread::Thread* context);
+  ErrorStack run(thread::Thread* context, const uint32_t nr_workers,
+    std::pair<uint32_t, uint32_t>* start_key_pair);
  private:
   assorted::UniformRandom rnd_;
 };
@@ -136,6 +145,7 @@ class YcsbClientTask {
   struct Inputs {
     uint32_t worker_id_;
     YcsbWorkload workload_;
+    uint32_t local_key_counter_;
     Inputs() {}
   };
 
@@ -155,7 +165,7 @@ class YcsbClientTask {
   YcsbClientTask(const Inputs& inputs)
     : worker_id_(inputs.worker_id_),
       workload_(inputs.workload_),
-      local_key_counter_(0),
+      local_key_counter_(inputs.local_key_counter_),
       rnd_(kRandomSeed + inputs.worker_id_) {}
 
   ErrorStack run(thread::Thread* context);
@@ -169,12 +179,26 @@ class YcsbClientTask {
   thread::Thread* context_;
   uint32_t worker_id_;
   YcsbWorkload workload_;
+  uint32_t local_key_counter_;
+  YcsbKey key_arena_; // Don't use this from other threads!
 
   Engine* engine_;
   xct::XctManager* xct_manager_;
   storage::masstree::MasstreeStorage user_table_;
   YcsbClientChannel *channel_;
   assorted::UniformRandom rnd_;  // TODO: add zipfian etc.
+
+  YcsbKey next_insert_key() {
+    return key_arena_.next(worker_id_, &local_key_counter_);
+  };
+
+  YcsbKey build_key(uint32_t high_bits, uint32_t low_bits) {
+    return key_arena_.build(high_bits, low_bits);
+  }
+
+  YcsbKey build_key(uint32_t low_bits) {
+    return build_key(worker_id_, low_bits);
+  }
 
   ErrorStack do_xct(YcsbWorkload workload_desc);
   ErrorStack do_read(YcsbKey key);

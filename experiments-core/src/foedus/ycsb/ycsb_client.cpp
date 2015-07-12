@@ -87,15 +87,21 @@ ErrorStack YcsbClientTask::do_xct(YcsbWorkload workload_desc) {
   // FIXME: Now everything is uniformly random. Need add Zipfian etc.
   assorted::UniformRandom key_rnd;
   if (xct_type <= workload_desc.read_percent_) {
-    return do_read(YcsbKey(key_rnd.uniform_within(1, *&next_key - 1)));
-  } else if (xct_type <= workload_desc.update_percent_) {
-    return do_update(YcsbKey(key_rnd.uniform_within(1, *&next_key - 1)));
-  } else if (xct_type <= workload_desc.insert_percent_) {
-    return do_insert(YcsbKey(__sync_fetch_and_add(&next_key, 1)));
-  } else {
-    auto max_key = *&next_key;
-    return do_scan(YcsbKey(key_rnd.uniform_within(1, max_key)),
-                   key_rnd.uniform_within(1, max_key));
+    return do_read(build_key(key_rnd.uniform_within(0, local_key_counter_ - 1)));
+  }
+  else if (xct_type <= workload_desc.update_percent_) {
+    return do_update(build_key(key_rnd.uniform_within(0, local_key_counter_ - 1)));
+  }
+  else if (xct_type <= workload_desc.insert_percent_) {
+    return do_insert(next_insert_key());
+  }
+  else {
+    // XXX: So this high | low key generation also gives us a limitation of only able
+    // to scan up to 2**32 = 4T elements.
+    auto high = key_rnd.uniform_within(1, channel_->nr_workers_);
+    auto low = key_rnd.uniform_within(1, local_key_counter_ - 1);
+    auto nrecs = key_rnd.uniform_within(1, local_key_counter_ - 1);
+    return do_scan(build_key(high, low), nrecs);
   }
 }
 
@@ -119,7 +125,6 @@ ErrorStack YcsbClientTask::do_update(YcsbKey key) {
 }
 
 ErrorStack YcsbClientTask::do_insert(YcsbKey key) {
-  // Guess a key... might already exists
   COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   YcsbRecord r('a');
   COERCE_ERROR_CODE(user_table_.insert_record(context_, &key, sizeof(key), &r, sizeof(r)));

@@ -84,13 +84,30 @@ YcsbWorkload YcsbWorkloadD('D', 95U, 0, 100U, 0);
 // Workload E - 5% insert, 95% scan
 YcsbWorkload YcsbWorkloadE('E', 0, 0, 5U, 100U);
 
-// Next key for insert
-// TODO: make this "user + worker_id | local_counter" (a string)
-YcsbKey next_key = 0;
 
 YcsbRecord::YcsbRecord(char value) {
   // So just write some arbitrary characters provided, no need to use rnd
   memset(data_, value, kFields * kFieldLength * sizeof(char));
+}
+
+YcsbKey::YcsbKey() {
+  memset(data_, '\0', kKeyMaxLength);
+  sprintf(data_, "%s", kKeyPrefix.data());
+}
+
+YcsbKey YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
+  auto low = (*local_key_counter)++;
+  return build(worker_id, low);
+}
+
+YcsbKey YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
+  uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
+  auto n = sprintf(data_ + kKeyPrefixLength, "%lu", keynum);
+  assert(n > 0);
+  n += kKeyPrefixLength;
+  assert(n <= kKeyMaxLength);
+  memset(data_ + n, '\0', kKeyMaxLength - n);
+  return *this;
 }
 
 YcsbClientChannel* get_channel(Engine* engine) {
@@ -186,9 +203,24 @@ int driver_main(int argc, char **argv) {
 
 ErrorStack YcsbDriver::run()
 {
+  // Setup the channel so I can synchronize with workers and record nr_workers
+  YcsbClientChannel* channel = get_channel(engine_);
+  channel->initialize();
+
+  // Figure out we have to run how many worker threads first.
+  // The loader needs it to generate keys.
+  const EngineOptions& options = engine_->get_options();
+  for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
+    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
+      // XXX: this should be drawn from numa map actually?
+      channel->nr_workers_++;
+    }
+  }
+
   auto* thread_pool = engine_->get_thread_pool();
   thread::ImpersonateSession load_session;
-  bool ret = thread_pool->impersonate("ycsb_load_task", NULL, 0, &load_session);
+  bool ret = thread_pool->impersonate("ycsb_load_task", &channel->nr_workers_,
+                                      sizeof(uint32_t), &load_session);
   if (not ret) {
     LOG(FATAL) << "Couldn't impersonate";
   }
@@ -200,21 +232,26 @@ ErrorStack YcsbDriver::run()
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
     assorted::memory_fence_acquire();
   }
+  const std::pair<uint32_t, uint32_t> start_key_pair = *reinterpret_cast<const std::pair<uint32_t, uint32_t>* >(load_session.get_raw_output_buffer());
+  ASSERT_ND(start_key_pair.second);
   load_session.release();  // Release the loader session, making the thread available again
 
-  // Setup the channel so I can synchronize with workers
-  YcsbClientChannel* channel = get_channel(engine_);
-  channel->initialize();
-
   // Now try to start transaction worker threads
+  uint32_t worker_id = 0;
   std::vector< thread::ImpersonateSession > worker_sessions;
-  const EngineOptions& options = engine_->get_options();
   for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
-      // XXX: this should be drawn from numa map actually?
       thread::ImpersonateSession session;
       YcsbClientTask::Inputs inputs;
-      inputs.worker_id_ = (node << 8U) + ordinal;
+      //inputs.worker_id_ = (node << 8U) + ordinal;
+      inputs.worker_id_ = worker_id;
+
+      if (worker_id < start_key_pair.first) {
+        inputs.local_key_counter_ = start_key_pair.second;
+      } else {
+        inputs.local_key_counter_ = start_key_pair.second - 1;
+      }
+
       if (FLAGS_workload == "A") {
         inputs.workload_ = YcsbWorkloadA;
       } else if (FLAGS_workload == "B") {
@@ -226,12 +263,12 @@ ErrorStack YcsbDriver::run()
       } else if (FLAGS_workload == "E") {
         inputs.workload_ = YcsbWorkloadE;
       }
-      bool ret = thread_pool->impersonate("ycsb_client_task", &inputs, sizeof(inputs), &session);
+      bool ret = thread_pool->impersonate_on_numa_node(node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
       if (not ret) {
         LOG(FATAL) << "Couldn't impersonate";
       }
       worker_sessions.emplace_back(std::move(session));
-      LOG(INFO) << node << " " << ordinal << " " << inputs.worker_id_;
+      LOG(INFO) << "Thread: " << node << " " << ordinal << " " << inputs.worker_id_;
     }
   }
 
@@ -242,8 +279,8 @@ ErrorStack YcsbDriver::run()
   debugging::StopWatch duration;
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
     // Wait for workers to finish
-    for (auto &session : worker_sessions) {
-    }
+    //for (auto &session : worker_sessions) {
+    //}
     //LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
   }
   duration.stop();
