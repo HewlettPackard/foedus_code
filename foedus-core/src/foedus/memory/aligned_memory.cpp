@@ -93,7 +93,7 @@ char* alloc_mmap(uint64_t size, uint64_t alignment) {
     0));
   // Note: We previously used MAP_NORESERVE to explicitly say we don't want swapping,
   // but mmap with this flag causes SIGSEGV when there aren't enough hugepages.
-  // In that case mmap doesn't return -1 because it just checks VA space is mappable.
+  // In that case mmap doesn't return -1 because it just checks if VA space is mappable.
   // We still don't need swapping, but it won't hurt. sorta. Debuggability matters more.
 
   // when mmap() fails, it returns -1 (MAP_FAILED)
