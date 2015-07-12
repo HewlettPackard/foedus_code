@@ -152,10 +152,11 @@ class YcsbClientTask {
     friend std::ostream& operator<<(std::ostream& o, const Outputs& v);
   };
 
-  YcsbClientTask(const Inputs *inputs)
-    : worker_id_(inputs->worker_id_),
-      workload_(inputs->workload_),
-      rnd_(kRandomSeed + inputs->worker_id_) {}
+  YcsbClientTask(const Inputs& inputs)
+    : worker_id_(inputs.worker_id_),
+      workload_(inputs.workload_),
+      local_key_counter_(0),
+      rnd_(kRandomSeed + inputs.worker_id_) {}
 
   ErrorStack run(thread::Thread* context);
 

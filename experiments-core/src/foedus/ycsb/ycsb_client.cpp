@@ -57,7 +57,7 @@ ErrorStack ycsb_client_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   const YcsbClientTask::Inputs* inputs
     = reinterpret_cast<const YcsbClientTask::Inputs*>(args.input_buffer_);
-  YcsbClientTask task(inputs);
+  YcsbClientTask task(*inputs);
   return task.run(context);
 }
 
