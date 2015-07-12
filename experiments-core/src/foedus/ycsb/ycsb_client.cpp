@@ -134,7 +134,7 @@ ErrorStack YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
   // vs. open_normalized()?
   COERCE_ERROR_CODE(cursor.open((const char *)&start_key,
     sizeof(start_key), nullptr, foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false));
-  while (cursor.is_valid_record()) {
+  while (nrecs-- and cursor.is_valid_record()) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;
     memcpy(&r, pr, sizeof(r));  // need to do this? like do_tuple_read in Silo/ERMIA.
