@@ -55,7 +55,7 @@ DEFINE_int32(volatile_pool_size, 1, "Size of volatile memory pool per NUMA node 
 DEFINE_int32(snapshot_pool_size, 2048, "Size of snapshot memory pool per NUMA node in MB.");
 DEFINE_int32(reducer_buffer_size, 1, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
-DEFINE_int32(thread_per_node, 1, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(numa_nodes, 0, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
