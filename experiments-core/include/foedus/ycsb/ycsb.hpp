@@ -85,6 +85,7 @@ struct YcsbRecord {
  * If the driver spawns client processes, this is allocated in shared memory.
  * This ``channel'' controls/synchoronizes worker threads.
  */
+class YcsbClientTask;
 struct YcsbClientChannel {
   void initialize() {
     start_rendezvous_.initialize();
@@ -95,16 +96,20 @@ struct YcsbClientChannel {
   void uninitialize() {
     start_rendezvous_.uninitialize();
   }
+  uint32_t peek_local_key_counter(uint32_t worker_id);
+
   soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
   uint32_t nr_workers_;
+  std::vector<YcsbClientTask> workers;
 };
 
 int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
 ErrorStack ycsb_client_task(const proc::ProcArguments& args);
 YcsbClientChannel* get_channel(Engine* engine);
+int64_t max_scan_length();
 
 class YcsbLoadTask {
  public:
@@ -127,24 +132,24 @@ class YcsbDriver {
 struct YcsbWorkload {
   YcsbWorkload(
     char desc,
+    uint8_t insert_percent,
     uint8_t read_percent,
     uint8_t update_percent,
-    uint8_t insert_percent,
     uint8_t scan_percent)
     : desc_(desc),
+      insert_percent_(insert_percent),
       read_percent_(read_percent),
       update_percent_(update_percent),
-      insert_percent_(insert_percent),
       scan_percent_(scan_percent) {}
 
   YcsbWorkload() {}
 
   char desc_;
-  // Cumulative percentage of r/u/i/s. From read...scan the percentages
-  // accumulates, e.g., r=5, u=12 => we'll have 12-5=7% of updates in total.
+  // Cumulative percentage of i/r/u/s. From insert...scan the percentages
+  // accumulates, e.g., i=5, r=12 => we'll have 12-5=7% of reads in total.
+  uint8_t insert_percent_;
   uint8_t read_percent_;
   uint8_t update_percent_;
-  uint8_t insert_percent_;
   uint8_t scan_percent_;
 };
 
@@ -185,6 +190,11 @@ class YcsbClientTask {
   bool is_stop_requested() const {
     assorted::memory_fence_acquire();
     return channel_->stop_flag_.load();
+  }
+
+  // Not accurate!
+  uint32_t local_key_counter() {
+	return local_key_counter_;
   }
 
  private:

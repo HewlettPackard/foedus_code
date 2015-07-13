@@ -66,15 +66,21 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
+
+// YCSB-specific options
 DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
 DEFINE_string(non_scan_table_type, "hash", "Storage type (hash or masstree) of user_table for non-scan transactions.");
+DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 
+YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0);     // Workload A - 50% read, 50% update
+YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0);     // Workload B - 95% read, 5% update
+YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0);     // Workload C - 100% read
+YcsbWorkload YcsbWorkloadD('D', 5,  100U, 0,    0);     // Workload D - 95% read, 5% insert
+YcsbWorkload YcsbWorkloadE('E', 5U, 0,    0,    100U);  // Workload E - 5% insert, 95% scan
 
-YcsbWorkload YcsbWorkloadA('A', 50U,  100U, 0,    0);     // Workload A - 50% read, 50% update
-YcsbWorkload YcsbWorkloadB('B', 95U,  100U, 0,    0);     // Workload B - 95% read, 5% update
-YcsbWorkload YcsbWorkloadC('C', 100U, 0,    0,    0);     // Workload C - 100% read
-YcsbWorkload YcsbWorkloadD('D', 95U,  0,    100U, 0);     // Workload D - 95% read, 5% insert
-YcsbWorkload YcsbWorkloadE('E', 0,    0,    5U,   100U);  // Workload E - 5% insert, 95% scan
+int64_t max_scan_length() {
+  return FLAGS_max_scan_length;
+}
 
 YcsbRecord::YcsbRecord(char value) {
   // So just write some arbitrary characters provided, no need to use rnd
@@ -111,6 +117,10 @@ YcsbClientChannel* get_channel(Engine* engine) {
     engine->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
   // It's the caller's responsibility to make sure this channel is initialize()ed
   return channel;
+}
+
+uint32_t YcsbClientChannel::peek_local_key_counter(uint32_t worker_id) {
+  return workers[worker_id].local_key_counter();
 }
 
 int driver_main(int argc, char **argv) {

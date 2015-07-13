@@ -69,6 +69,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   user_table_ = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
   channel_ = get_channel(engine_);
 
+  // Add this task to the tasks list in the channel, so workers can see each
+  // other's local_key_counter
+  channel_->workers.emplace_back(std::move(*this));
+
   // Wait for the driver's order
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "YCSB Client-" << worker_id_
@@ -83,25 +87,24 @@ ErrorStack YcsbClientTask::do_xct(YcsbWorkload workload_desc) {
   uint16_t xct_type = rnd_.uniform_within(1, 100);
   // Will need to remember the seed if we want to retry on (system) abort
   //uint64_t seed = rnd_.get_current_seed();
-  
-  // FIXME: Now everything is uniformly random. Need add Zipfian etc.
-  assorted::UniformRandom key_rnd;
-  if (xct_type <= workload_desc.read_percent_) {
-    return do_read(build_key(key_rnd.uniform_within(0, local_key_counter_ - 1)));
-  }
-  else if (xct_type <= workload_desc.update_percent_) {
-    return do_update(build_key(key_rnd.uniform_within(0, local_key_counter_ - 1)));
-  }
-  else if (xct_type <= workload_desc.insert_percent_) {
+
+  if (xct_type <= workload_desc.insert_percent_) {
     return do_insert(next_insert_key());
   }
   else {
-    // XXX: So this high | low key generation also gives us a limitation of only able
-    // to scan up to 2**32 = 4T elements.
-    auto high = key_rnd.uniform_within(1, channel_->nr_workers_);
-    auto low = key_rnd.uniform_within(1, local_key_counter_ - 1);
-    auto nrecs = key_rnd.uniform_within(1, local_key_counter_ - 1);
-    return do_scan(build_key(high, low), nrecs);
+    // Choose a high-bits field first. Then take a look at that worker's local counter
+    auto high = rnd_.uniform_within(0, channel_->nr_workers_);
+    auto low = rnd_.uniform_within(0, channel_->peek_local_key_counter(high));
+    if (xct_type <= workload_desc.read_percent_) {
+      return do_read(build_key(high, low));
+    }
+    else if (xct_type <= workload_desc.update_percent_) {
+      return do_update(build_key(high, low));
+    }
+    else {
+      auto nrecs = rnd_.uniform_within(1, max_scan_length());
+      return do_scan(build_key(high, low), nrecs);
+    }
   }
 }
 
