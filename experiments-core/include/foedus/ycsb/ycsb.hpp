@@ -208,10 +208,6 @@ class YcsbClientTask {
     return key_arena_.build(high_bits, low_bits);
   }
 
-  YcsbKey build_key(uint32_t low_bits) {
-    return build_key(worker_id_, low_bits);
-  }
-
   ErrorStack do_xct(YcsbWorkload workload_desc);
   ErrorStack do_read(YcsbKey key);
   ErrorStack do_update(YcsbKey key);
