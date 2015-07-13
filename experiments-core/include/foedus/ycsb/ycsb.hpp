@@ -32,6 +32,7 @@
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
 #include "foedus/storage/record.hpp"
+#include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
 namespace foedus {
@@ -200,7 +201,11 @@ class YcsbClientTask {
 
   Engine* engine_;
   xct::XctManager* xct_manager_;
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashStorage user_table_;
+#else
   storage::masstree::MasstreeStorage user_table_;
+#endif
   YcsbClientChannel *channel_;
   assorted::UniformRandom rnd_;  // TODO: add zipfian etc.
 
@@ -225,7 +230,9 @@ class YcsbClientTask {
   ErrorCode do_read(YcsbKey key);
   ErrorCode do_update(YcsbKey key);
   ErrorCode do_insert(YcsbKey key);
+#ifndef YCSB_HASH_STORAGE
   ErrorCode do_scan(YcsbKey start_key, uint64_t nrecs);
+#endif
 };
 
 class YcsbDriver {

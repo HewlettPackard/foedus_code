@@ -69,7 +69,6 @@ DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 
 // YCSB-specific options
 DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
-DEFINE_string(non_scan_table_type, "hash", "Storage type (hash or masstree) of user_table for non-scan transactions.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Whether to read all or only one field(s) in read transactions.");
 

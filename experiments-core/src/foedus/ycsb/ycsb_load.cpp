@@ -40,6 +40,8 @@
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
+#include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
@@ -74,16 +76,27 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
   // Create an empty table
   Epoch ep;
   // TODO: adjust fill factor by workload (A...E)
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashMetadata meta("ycsb_user_table", 100);
+  const float kHashPreferredRecordsPerBin = 5.0;
+  // TODO: tune the multiplier or make it 1 if there's no inserts
+  meta.set_capacity(kInitialUserTableSize * 1.2, kHashPreferredRecordsPerBin);
+#else
   storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
+  meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
+  meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
+#endif
 
   // "keep volatile pages for now"
   meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
-  meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
-  meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
   CHECK_ERROR(engine->get_storage_manager()->create_storage(&meta, &ep));
   LOG(INFO) << "[YCSB] Created user table";
 
+#ifdef YCSB_HASH_STORAGE
+  auto user_table = engine->get_storage_manager()->get_hash("ycsb_user_table");
+#else
   auto user_table = engine->get_storage_manager()->get_masstree("ycsb_user_table");
+#endif
   auto* xct_manager = engine->get_xct_manager();
 
   LOG(INFO) << "[YCSB] Will insert " << kInitialUserTableSize << " records to user table";

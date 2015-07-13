@@ -81,7 +81,11 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   ASSERT_ND(context_);
   engine_ = context_->get_engine();
   xct_manager_ = engine_->get_xct_manager();
+#ifdef YCSB_HASH_STORAGE
+  user_table_ = engine_->get_storage_manager()->get_hash("ycsb_user_table");
+#else
   user_table_ = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
+#endif
   channel_ = get_channel(engine_);
 
   // Add this task to the tasks list in the channel, so workers can see each
@@ -113,8 +117,12 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         } else if (xct_type <= workload_.update_percent_) {
           ret = do_update(build_key(high, low));
         } else {
+#ifdef YCSB_HASH_STORAGE
+          COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
+#else
           auto nrecs = rnd_.uniform_within(1, max_scan_length());
           ret = do_scan(build_key(high, low), nrecs);
+#endif
         }
       }
 
@@ -168,7 +176,11 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 ErrorCode YcsbClientTask::do_read(YcsbKey key) {
   YcsbRecord r;
   if (read_all_fields_) {
+#ifdef YCSB_HASH_STORAGE
+    uint16_t payload_len = sizeof(YcsbRecord);
+#else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
+#endif
     CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
   }
   else {
@@ -196,6 +208,7 @@ ErrorCode YcsbClientTask::do_insert(YcsbKey key) {
   return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
 
+#ifndef YCSB_HASH_STORAGE
 ErrorCode YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
   storage::masstree::MasstreeCursor cursor(user_table_, context_);
   // vs. open_normalized()?
@@ -209,6 +222,7 @@ ErrorCode YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
   Epoch commit_epoch;
   return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
+#endif
 
 }  // namespace ycsb
 }  // namespace foedus
