@@ -109,7 +109,7 @@ ErrorStack YcsbClientTask::do_read(YcsbKey key) {
   COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   YcsbRecord r;
   foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
-  COERCE_ERROR_CODE(user_table_.get_record(context_, &key, sizeof(key), &r, &payload_len));
+  COERCE_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
   Epoch commit_epoch;
   COERCE_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
   return kRetOk;
@@ -118,7 +118,7 @@ ErrorStack YcsbClientTask::do_read(YcsbKey key) {
 ErrorStack YcsbClientTask::do_update(YcsbKey key) {
   COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   YcsbRecord r('b');
-  COERCE_ERROR_CODE(user_table_.overwrite_record(context_, &key, sizeof(key), &r, 0, sizeof(r)));
+  COERCE_ERROR_CODE(user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
   Epoch commit_epoch;
   COERCE_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
   return kRetOk;
@@ -127,7 +127,7 @@ ErrorStack YcsbClientTask::do_update(YcsbKey key) {
 ErrorStack YcsbClientTask::do_insert(YcsbKey key) {
   COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   YcsbRecord r('a');
-  COERCE_ERROR_CODE(user_table_.insert_record(context_, &key, sizeof(key), &r, sizeof(r)));
+  COERCE_ERROR_CODE(user_table_.insert_record(context_, key.ptr(), key.size(), &r, sizeof(r)));
   Epoch commit_epoch;
   COERCE_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
   return kRetOk;
@@ -137,8 +137,8 @@ ErrorStack YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
   COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
   storage::masstree::MasstreeCursor cursor(user_table_, context_);
   // vs. open_normalized()?
-  COERCE_ERROR_CODE(cursor.open((const char *)&start_key,
-    sizeof(start_key), nullptr, foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false));
+  COERCE_ERROR_CODE(cursor.open(start_key.ptr(), start_key.size(), nullptr,
+    foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false));
   while (nrecs-- and cursor.is_valid_record()) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;

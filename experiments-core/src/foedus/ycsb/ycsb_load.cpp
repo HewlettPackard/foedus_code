@@ -94,9 +94,8 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
   while (remaining_inserts) {
     COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     for (high = 0; high < nr_workers and remaining_inserts--; high++) {
-      // other candidates like insert_normalized**?
       key.build(high, low);
-      COERCE_ERROR_CODE(user_table.insert_record(context, &key, sizeof(key), &r, sizeof(r)));
+      COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
     }
     Epoch commit_epoch;
     COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));

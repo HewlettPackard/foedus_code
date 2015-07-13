@@ -82,6 +82,7 @@ YcsbRecord::YcsbRecord(char value) {
 }
 
 YcsbKey::YcsbKey() {
+  size_ = 0;
   memset(data_, '\0', kKeyMaxLength);
   sprintf(data_, "%s", kKeyPrefix.data());
 }
@@ -98,6 +99,7 @@ YcsbKey YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   n += kKeyPrefixLength;
   assert(n <= kKeyMaxLength);
   memset(data_ + n, '\0', kKeyMaxLength - n);
+  size_ = n;
   return *this;
 }
 

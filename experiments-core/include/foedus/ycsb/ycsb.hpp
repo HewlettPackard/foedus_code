@@ -54,12 +54,24 @@ const uint32_t kMaxWorkers = 1024;
 const int kKeyPrefixLength = 4; // "user" without \0
 const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
 
-const int32_t kKeyMaxLength = 36; // 4 bytes of char "user" + 32 chars for numbers
-struct YcsbKey {
+const int32_t kKeyMaxLength = kKeyPrefixLength + 32; // 4 bytes of char "user" + 32 chars for numbers
+class YcsbKey {
+ private:
   char data_[kKeyMaxLength];
+  uint32_t size_;
+
+ public:
   YcsbKey();
   YcsbKey next(uint32_t worker_id, uint32_t* local_counter);
   YcsbKey build(uint32_t high_bits, uint32_t low_bits);
+
+  const char *ptr() {
+    return data_;
+  }
+
+  uint32_t size() {
+    return size_;
+  }
 };
 
 struct YcsbRecord {
