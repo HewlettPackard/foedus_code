@@ -153,6 +153,7 @@ class YcsbClientTask {
   struct Inputs {
     uint32_t worker_id_;
     YcsbWorkload workload_;
+    bool read_all_fields_;
     uint32_t local_key_counter_;
     Inputs() {}
   };
@@ -173,6 +174,7 @@ class YcsbClientTask {
   YcsbClientTask(const Inputs& inputs, Outputs* outputs)
     : worker_id_(inputs.worker_id_),
       workload_(inputs.workload_),
+      read_all_fields_(inputs.read_all_fields_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
       rnd_(kRandomSeed + inputs.worker_id_) {}
@@ -191,6 +193,7 @@ class YcsbClientTask {
   thread::Thread* context_;
   uint32_t worker_id_;
   YcsbWorkload workload_;
+  bool read_all_fields_;
   Outputs* outputs_;
   uint32_t local_key_counter_;
   YcsbKey key_arena_; // Don't use this from other threads!

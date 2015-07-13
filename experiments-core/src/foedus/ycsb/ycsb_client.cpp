@@ -167,8 +167,17 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
 ErrorCode YcsbClientTask::do_read(YcsbKey key) {
   YcsbRecord r;
-  foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
-  CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
+  if (read_all_fields_) {
+    foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
+    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
+  }
+  else {
+    // Randomly pick one field to read
+    uint32_t field = rnd_.uniform_within(0, kFields);
+    uint32_t offset = field * kFieldLength;
+    CHECK_ERROR_CODE(user_table_.get_record_part(context_,
+      key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
+  }
   Epoch commit_epoch;
   return xct_manager_->precommit_xct(context_, &commit_epoch);
 }

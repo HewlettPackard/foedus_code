@@ -71,6 +71,7 @@ DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
 DEFINE_string(non_scan_table_type, "hash", "Storage type (hash or masstree) of user_table for non-scan transactions.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
+DEFINE_bool(read_all_fields, true, "Whether to read all or only one field(s) in read transactions.");
 
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0);     // Workload B - 95% read, 5% update
@@ -249,7 +250,7 @@ ErrorStack YcsbDriver::run()
       YcsbClientTask::Inputs inputs;
       //inputs.worker_id_ = (node << 8U) + ordinal;
       inputs.worker_id_ = worker_id;
-
+      inputs.read_all_fields_ = FLAGS_read_all_fields;
       if (worker_id < start_key_pair.first) {
         inputs.local_key_counter_ = start_key_pair.second;
       } else {
