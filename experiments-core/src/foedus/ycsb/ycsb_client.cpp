@@ -93,8 +93,8 @@ ErrorStack YcsbClientTask::do_xct(YcsbWorkload workload_desc) {
   }
   else {
     // Choose a high-bits field first. Then take a look at that worker's local counter
-    auto high = rnd_.uniform_within(0, channel_->nr_workers_);
-    auto low = rnd_.uniform_within(0, channel_->peek_local_key_counter(high));
+    auto high = rnd_.uniform_within(0, channel_->nr_workers_ - 1);
+    auto low = rnd_.uniform_within(0, channel_->peek_local_key_counter(high) - 1);
     if (xct_type <= workload_desc.read_percent_) {
       return do_read(build_key(high, low));
     }
