@@ -75,13 +75,13 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
   Epoch ep;
   // TODO: adjust fill factor by workload (A...E)
   storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
-  LOG(INFO) << "[YCSB] Created user table";
 
   // "keep volatile pages for now"
   meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
   meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
   meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
   CHECK_ERROR(engine->get_storage_manager()->create_storage(&meta, &ep));
+  LOG(INFO) << "[YCSB] Created user table";
 
   auto user_table = engine->get_storage_manager()->get_masstree("ycsb_user_table");
   auto* xct_manager = engine->get_xct_manager();
