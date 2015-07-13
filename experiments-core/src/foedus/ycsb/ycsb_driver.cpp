@@ -241,7 +241,8 @@ ErrorStack YcsbDriver::run()
 
   // Now try to start transaction worker threads
   uint32_t worker_id = 0;
-  std::vector< thread::ImpersonateSession > worker_sessions;
+  std::vector< thread::ImpersonateSession > sessions;
+  std::vector< const YcsbClientTask::Outputs* > outputs;
   for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
       thread::ImpersonateSession session;
@@ -270,7 +271,9 @@ ErrorStack YcsbDriver::run()
       if (not ret) {
         LOG(FATAL) << "Couldn't impersonate";
       }
-      worker_sessions.emplace_back(std::move(session));
+      outputs.push_back(
+        reinterpret_cast<const YcsbClientTask::Outputs*>(session.get_raw_output_buffer()));
+      sessions.emplace_back(std::move(session));
       LOG(INFO) << "Thread: " << node << " " << ordinal << " " << inputs.worker_id_;
     }
   }
@@ -280,13 +283,57 @@ ErrorStack YcsbDriver::run()
   assorted::memory_fence_release();
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
+  uint32_t total_thread_count = options.thread_.get_total_thread_count();
+  assert(total_thread_count == channel->nr_workers_);
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
-    // Wait for workers to finish
-    //for (auto &session : worker_sessions) {
-    //}
-    //LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
+    // wake up for each second to show intermediate results.
+    uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
+    remaining_duration = std::min<uint64_t>(remaining_duration, 1000000ULL);
+    std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
+    Result result;
+    result.duration_sec_ = static_cast<double>(duration.peek_elapsed_ns()) / 1000000000;
+    result.worker_count_ = total_thread_count;
+    for (uint32_t i = 0; i < sessions.size(); ++i) {
+      const YcsbClientTask::Outputs* output = outputs[i];
+      result.processed_ += output->processed_;
+      result.race_aborts_ += output->race_aborts_;
+      result.unexpected_aborts_ += output->unexpected_aborts_;
+      result.largereadset_aborts_ += output->largereadset_aborts_;
+      result.user_requested_aborts_ += output->user_requested_aborts_;
+      result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
+      result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
+    }
+    LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
+    LOG(INFO) << result;
+    LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
   }
   duration.stop();
+
+  Result result;
+  duration.stop();
+  result.duration_sec_ = duration.elapsed_sec();
+  result.worker_count_ = total_thread_count;
+  result.papi_results_ = debugging::DebuggingSupports::describe_papi_counters(
+    engine_->get_debug()->get_papi_counters());
+  assorted::memory_fence_acquire();
+  for (uint32_t i = 0; i < sessions.size(); ++i) {
+    const YcsbClientTask::Outputs* output = outputs[i];
+    result.workers_[i].id_ = i;
+    result.workers_[i].processed_ = output->processed_;
+    result.workers_[i].race_aborts_ = output->race_aborts_;
+    result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
+    result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
+    result.workers_[i].user_requested_aborts_ = output->user_requested_aborts_;
+    result.workers_[i].snapshot_cache_hits_ = output->snapshot_cache_hits_;
+    result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
+    result.processed_ += output->processed_;
+    result.race_aborts_ += output->race_aborts_;
+    result.unexpected_aborts_ += output->unexpected_aborts_;
+    result.largereadset_aborts_ += output->largereadset_aborts_;
+    result.user_requested_aborts_ += output->user_requested_aborts_;
+    result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
+    result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
+  }
 
   LOG(INFO) << "Shutting down...";
 
@@ -295,13 +342,28 @@ ErrorStack YcsbDriver::run()
 
   channel->stop_flag_.store(true);
 
-  for (uint32_t i = 0; i < worker_sessions.size(); i++) {
-    auto& session = worker_sessions[i];
-    LOG(INFO) << "result[" << i << "]=" << session.get_result();
-    session.release();
+  for (uint32_t i = 0; i < sessions.size(); ++i) {
+    LOG(INFO) << "result[" << i << "]=" << sessions[i].get_result();
+    sessions[i].release();
   }
   channel->uninitialize();
   return kRetOk;
+}
+
+std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
+  o << "<total_result>"
+    << "<duration_sec_>" << v.duration_sec_ << "</duration_sec_>"
+    << "<worker_count_>" << v.worker_count_ << "</worker_count_>"
+    << "<processed_>" << v.processed_ << "</processed_>"
+    << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
+    << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
+    << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
+    << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
+    << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
+    << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
+    << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"
+    << "</total_result>";
+  return o;
 }
 
 }  // namespace ycsb

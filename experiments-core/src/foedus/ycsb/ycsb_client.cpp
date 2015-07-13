@@ -55,11 +55,26 @@ namespace ycsb {
 
 ErrorStack ycsb_client_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
+  if (args.input_len_ != sizeof(YcsbClientTask::Inputs)) {
+    return ERROR_STACK(kErrorCodeUserDefined);
+  }
+  if (args.output_buffer_size_ < sizeof(YcsbClientTask::Outputs)) {
+    return ERROR_STACK(kErrorCodeUserDefined);
+  }
+  *args.output_used_ = sizeof(YcsbClientTask::Outputs);
   const YcsbClientTask::Inputs* inputs
     = reinterpret_cast<const YcsbClientTask::Inputs*>(args.input_buffer_);
-  YcsbClientTask task(*inputs);
-  return task.run(context);
+  YcsbClientTask task(*inputs, reinterpret_cast<YcsbClientTask::Outputs*>(args.output_buffer_));
+
+  auto result = task.run(context);
+  if (result.is_error()) {
+    LOG(ERROR) << "YCSB Client-" << task.get_worker_id() << " exit with an error:" << result;
+  }
+  ++get_channel(context->get_engine())->exit_nodes_;
+  return result;
 }
+
+const uint32_t kMaxUnexpectedErrors = 1;
 
 ErrorStack YcsbClientTask::run(thread::Thread* context) {
   context_ = context;
@@ -78,69 +93,104 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
   while (not is_stop_requested()) {
-    do_xct(workload_);
+    uint16_t xct_type = rnd_.uniform_within(1, 100);
+    // remember the random seed to repeat the same transaction on abort/retry.
+    uint64_t rnd_seed = rnd_.get_current_seed();
+
+    // abort-retry loop
+    while (not is_stop_requested()) {
+      rnd_.set_current_seed(rnd_seed);
+      WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
+      ErrorCode ret;
+      if (xct_type <= workload_.insert_percent_) {
+        ret = do_insert(next_insert_key());
+      } else {
+        // Choose a high-bits field first. Then take a look at that worker's local counter
+        auto high = rnd_.uniform_within(0, channel_->nr_workers_ - 1);
+        auto low = rnd_.uniform_within(0, channel_->peek_local_key_counter(high) - 1);
+        if (xct_type <= workload_.read_percent_) {
+          ret = do_read(build_key(high, low));
+        } else if (xct_type <= workload_.update_percent_) {
+          ret = do_update(build_key(high, low));
+        } else {
+          auto nrecs = rnd_.uniform_within(1, max_scan_length());
+          ret = do_scan(build_key(high, low), nrecs);
+        }
+      }
+
+      if (ret == kErrorCodeOk) {
+        ASSERT_ND(!context->is_running_xct());
+        break;
+      }
+
+      if (context->is_running_xct()) {
+        WRAP_ERROR_CODE(xct_manager_->abort_xct(context));
+      }
+
+      ASSERT_ND(!context->is_running_xct());
+
+      if (ret == kErrorCodeXctUserAbort) {
+        // Fine. This is as defined in the spec.
+        increment_user_requested_aborts();
+        break;
+      } else if (ret == kErrorCodeXctRaceAbort) {
+        increment_race_aborts();
+        continue;
+      } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
+        ret == kErrorCodeXctPointerSetOverflow ||
+        ret == kErrorCodeXctReadSetOverflow ||
+        ret == kErrorCodeXctWriteSetOverflow) {
+        // this usually doesn't happen, but possible.
+        increment_largereadset_aborts();
+        continue;
+      } else {
+        increment_unexpected_aborts();
+        LOG(WARNING) << "Unexpected error: " << get_error_name(ret);
+        if (outputs_->unexpected_aborts_ > kMaxUnexpectedErrors) {
+          LOG(ERROR) << "Too many unexpected errors. What's happening?" << get_error_name(ret);
+          return ERROR_STACK(ret);
+        } else {
+          continue;
+        }
+      }
+    }
+    ++outputs_->processed_;
+    if (UNLIKELY(outputs_->processed_ % (1U << 8) == 0)) {  // it's just stats. not too frequent
+      outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
+      outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();
+    }
   }
+  outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
+  outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();
   return kRetOk;
 }
 
-ErrorStack YcsbClientTask::do_xct(YcsbWorkload workload_desc) {
-  uint16_t xct_type = rnd_.uniform_within(1, 100);
-  // Will need to remember the seed if we want to retry on (system) abort
-  //uint64_t seed = rnd_.get_current_seed();
-
-  if (xct_type <= workload_desc.insert_percent_) {
-    return do_insert(next_insert_key());
-  }
-  else {
-    // Choose a high-bits field first. Then take a look at that worker's local counter
-    auto high = rnd_.uniform_within(0, channel_->nr_workers_ - 1);
-    auto low = rnd_.uniform_within(0, channel_->peek_local_key_counter(high) - 1);
-    if (xct_type <= workload_desc.read_percent_) {
-      return do_read(build_key(high, low));
-    }
-    else if (xct_type <= workload_desc.update_percent_) {
-      return do_update(build_key(high, low));
-    }
-    else {
-      auto nrecs = rnd_.uniform_within(1, max_scan_length());
-      return do_scan(build_key(high, low), nrecs);
-    }
-  }
-}
-
-ErrorStack YcsbClientTask::do_read(YcsbKey key) {
-  COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+ErrorCode YcsbClientTask::do_read(YcsbKey key) {
   YcsbRecord r;
   foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
-  COERCE_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
+  CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
   Epoch commit_epoch;
-  COERCE_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
-  return kRetOk;
+  return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
 
-ErrorStack YcsbClientTask::do_update(YcsbKey key) {
-  COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+ErrorCode YcsbClientTask::do_update(YcsbKey key) {
   YcsbRecord r('b');
-  COERCE_ERROR_CODE(user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
+  CHECK_ERROR_CODE(user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
   Epoch commit_epoch;
-  COERCE_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
-  return kRetOk;
+  return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
 
-ErrorStack YcsbClientTask::do_insert(YcsbKey key) {
-  COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+ErrorCode YcsbClientTask::do_insert(YcsbKey key) {
   YcsbRecord r('a');
-  COERCE_ERROR_CODE(user_table_.insert_record(context_, key.ptr(), key.size(), &r, sizeof(r)));
+  CHECK_ERROR_CODE(user_table_.insert_record(context_, key.ptr(), key.size(), &r, sizeof(r)));
   Epoch commit_epoch;
-  COERCE_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
-  return kRetOk;
+  return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
 
-ErrorStack YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
-  COERCE_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+ErrorCode YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
   storage::masstree::MasstreeCursor cursor(user_table_, context_);
   // vs. open_normalized()?
-  COERCE_ERROR_CODE(cursor.open(start_key.ptr(), start_key.size(), nullptr,
+  CHECK_ERROR_CODE(cursor.open(start_key.ptr(), start_key.size(), nullptr,
     foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false));
   while (nrecs-- and cursor.is_valid_record()) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
@@ -148,8 +198,7 @@ ErrorStack YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
     memcpy(&r, pr, sizeof(r));  // need to do this? like do_tuple_read in Silo/ERMIA.
   }
   Epoch commit_epoch;
-  COERCE_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
-  return kRetOk;
+  return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
 
 }  // namespace ycsb

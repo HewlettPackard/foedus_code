@@ -111,24 +111,6 @@ ErrorStack ycsb_client_task(const proc::ProcArguments& args);
 YcsbClientChannel* get_channel(Engine* engine);
 int64_t max_scan_length();
 
-class YcsbLoadTask {
- public:
-  YcsbLoadTask() {}
-  ErrorStack run(thread::Thread* context, const uint32_t nr_workers,
-    std::pair<uint32_t, uint32_t>* start_key_pair);
- private:
-  assorted::UniformRandom rnd_;
-};
-
-class YcsbDriver {
- public:
-  YcsbDriver(Engine* engine) : engine_(engine) {}
-  ErrorStack run();
-
- private:
-  Engine* engine_;
-};
-
 struct YcsbWorkload {
   YcsbWorkload(
     char desc,
@@ -151,6 +133,15 @@ struct YcsbWorkload {
   uint8_t read_percent_;
   uint8_t update_percent_;
   uint8_t scan_percent_;
+};
+
+class YcsbLoadTask {
+ public:
+  YcsbLoadTask() {}
+  ErrorStack run(thread::Thread* context, const uint32_t nr_workers,
+    std::pair<uint32_t, uint32_t>* start_key_pair);
+ private:
+  assorted::UniformRandom rnd_;
 };
 
 class YcsbClientTask {
@@ -179,9 +170,10 @@ class YcsbClientTask {
     friend std::ostream& operator<<(std::ostream& o, const Outputs& v);
   };
 
-  YcsbClientTask(const Inputs& inputs)
+  YcsbClientTask(const Inputs& inputs, Outputs* outputs)
     : worker_id_(inputs.worker_id_),
       workload_(inputs.workload_),
+      outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
       rnd_(kRandomSeed + inputs.worker_id_) {}
 
@@ -192,15 +184,14 @@ class YcsbClientTask {
     return channel_->stop_flag_.load();
   }
 
-  // Not accurate!
-  uint32_t local_key_counter() {
-	return local_key_counter_;
-  }
+  uint32_t local_key_counter() {return local_key_counter_; }  // Not accurate!
+  uint32_t get_worker_id() const { return worker_id_; }
 
  private:
   thread::Thread* context_;
   uint32_t worker_id_;
   YcsbWorkload workload_;
+  Outputs* outputs_;
   uint32_t local_key_counter_;
   YcsbKey key_arena_; // Don't use this from other threads!
 
@@ -218,39 +209,67 @@ class YcsbClientTask {
     return key_arena_.build(high_bits, low_bits);
   }
 
+  uint32_t get_user_requested_aborts() const { return outputs_->user_requested_aborts_; }
+  uint32_t increment_user_requested_aborts() { return ++outputs_->user_requested_aborts_; }
+  uint32_t get_race_aborts() const { return outputs_->race_aborts_; }
+  uint32_t increment_race_aborts() { return ++outputs_->race_aborts_; }
+  uint32_t get_unexpected_aborts() const { return outputs_->unexpected_aborts_; }
+  uint32_t increment_unexpected_aborts() { return ++outputs_->unexpected_aborts_; }
+  uint32_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
+  uint32_t increment_largereadset_aborts() { return ++outputs_->largereadset_aborts_; }
+
   ErrorStack do_xct(YcsbWorkload workload_desc);
-  ErrorStack do_read(YcsbKey key);
-  ErrorStack do_update(YcsbKey key);
-  ErrorStack do_insert(YcsbKey key);
-  ErrorStack do_scan(YcsbKey start_key, uint64_t nrecs);
+  ErrorCode do_read(YcsbKey key);
+  ErrorCode do_update(YcsbKey key);
+  ErrorCode do_insert(YcsbKey key);
+  ErrorCode do_scan(YcsbKey start_key, uint64_t nrecs);
 };
 
-// Total, summary of all workers
-struct YcsbResult {
-  YcsbResult()
-    : duration_sec_(0),
-      worker_count_(0),
-      processed_(0),
-      user_requested_aborts_(0),
-      race_aborts_(0),
-      largereadset_aborts_(0),
-      unexpected_aborts_(0),
-      snapshot_cache_hits_(0),
-      snapshot_cache_misses_(0) {}
-  double   duration_sec_;
-  uint32_t worker_count_;
-  uint64_t processed_;
-  uint64_t user_requested_aborts_;
-  uint64_t race_aborts_;
-  uint64_t largereadset_aborts_;
-  uint64_t unexpected_aborts_;
-  uint64_t snapshot_cache_hits_;
-  uint64_t snapshot_cache_misses_;
-  YcsbClientTask::Outputs workers_[kMaxWorkers];
-  std::vector<std::string> papi_results_;
-  friend std::ostream& operator<<(std::ostream& o, const YcsbResult& v);
-};
+class YcsbDriver {
+ public:
+  struct WorkerResult {
+    uint32_t id_;
+    uint64_t processed_;
+    uint64_t user_requested_aborts_;
+    uint64_t race_aborts_;
+    uint64_t largereadset_aborts_;
+    uint64_t unexpected_aborts_;
+    uint64_t snapshot_cache_hits_;
+    uint64_t snapshot_cache_misses_;
+    friend std::ostream& operator<<(std::ostream& o, const WorkerResult& v);
+  };
+  // Total, summary of all workers
+  struct Result {
+    Result()
+      : duration_sec_(0),
+        worker_count_(0),
+        processed_(0),
+        user_requested_aborts_(0),
+        race_aborts_(0),
+        largereadset_aborts_(0),
+        unexpected_aborts_(0),
+        snapshot_cache_hits_(0),
+        snapshot_cache_misses_(0) {}
+    double   duration_sec_;
+    uint32_t worker_count_;
+    uint64_t processed_;
+    uint64_t user_requested_aborts_;
+    uint64_t race_aborts_;
+    uint64_t largereadset_aborts_;
+    uint64_t unexpected_aborts_;
+    uint64_t snapshot_cache_hits_;
+    uint64_t snapshot_cache_misses_;
+    WorkerResult workers_[kMaxWorkers];
+    std::vector<std::string> papi_results_;
+    friend std::ostream& operator<<(std::ostream& o, const Result& v);
+  };
 
+  YcsbDriver(Engine* engine) : engine_(engine) {}
+  ErrorStack run();
+
+ private:
+  Engine* engine_;
+};
 }  // namespace ycsb
 }  // namespace foedus
 

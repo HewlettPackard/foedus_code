@@ -55,6 +55,10 @@ namespace ycsb {
 
 ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
+  if (args.output_buffer_size_ < sizeof(std::pair<uint32_t, uint32_t>)) {
+    return ERROR_STACK(kErrorCodeUserDefined);
+  }
+  *args.output_used_ = sizeof(std::pair<uint32_t, uint32_t>);
   const uint32_t *nr_workers = reinterpret_cast<const uint32_t*>(args.input_buffer_);
   std::pair<uint32_t, uint32_t> *start_key_pair =
     reinterpret_cast<std::pair<uint32_t, uint32_t>* >(args.output_buffer_);
