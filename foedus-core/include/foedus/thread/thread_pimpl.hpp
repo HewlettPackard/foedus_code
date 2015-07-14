@@ -19,25 +19,19 @@
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
 
 #include <atomic>
+#include <thread>
 
 #include "foedus/fixed_error_stack.hpp"
 #include "foedus/initializable.hpp"
-#include "foedus/assorted/raw_atomics.hpp"
-#include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/fwd.hpp"
-#include "foedus/memory/numa_core_memory.hpp"
-#include "foedus/memory/page_pool.hpp"
-#include "foedus/memory/page_resolver.hpp"
 #include "foedus/proc/proc_id.hpp"
-#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
 #include "foedus/soc/shared_polling.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/thread/stoppable_thread_impl.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -154,10 +148,7 @@ class ThreadPimpl final : public DefaultInitializable {
   void        handle_tasks();
   /** initializes the thread's policy/priority */
   void        set_thread_schedule();
-  bool        is_stop_requested() const {
-    assorted::memory_fence_acquire();
-    return control_block_->status_ == kWaitingForTerminate;
-  }
+  bool        is_stop_requested() const;
 
   /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(
@@ -345,9 +336,6 @@ inline ErrorCode ThreadPimpl::read_snapshot_pages(
   return snapshot_file_set_.read_pages(page_id_begin, page_count, buffer);
 }
 
-static_assert(
-  sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
-  "ThreadControlBlock is too large.");
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_

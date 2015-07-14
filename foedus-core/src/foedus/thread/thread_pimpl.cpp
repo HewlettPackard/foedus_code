@@ -31,12 +31,14 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
@@ -134,6 +136,11 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   snapshot_cache_hashtable_ = nullptr;
   control_block_->uninitialize();
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+bool ThreadPimpl::is_stop_requested() const {
+  assorted::memory_fence_acquire();
+  return control_block_->status_ == kWaitingForTerminate;
 }
 
 void ThreadPimpl::handle_tasks() {
@@ -1022,6 +1029,9 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
 }
 
 
+static_assert(
+  sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
+  "ThreadControlBlock is too large.");
 
 }  // namespace thread
 }  // namespace foedus
