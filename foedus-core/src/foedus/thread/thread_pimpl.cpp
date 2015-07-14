@@ -31,14 +31,12 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
-#include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/proc/proc_manager.hpp"
-#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
@@ -82,7 +80,6 @@ ErrorStack ThreadPimpl::initialize_once() {
   task_output_memory_ = anchors->task_output_memory_;
   mcs_blocks_ = anchors->mcs_lock_memories_;
 
-  pool_pimpl_ = engine_->get_thread_pool()->get_pimpl();
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
   if (engine_->get_options().cache_.snapshot_cache_enabled_) {
@@ -137,11 +134,6 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   snapshot_cache_hashtable_ = nullptr;
   control_block_->uninitialize();
   return SUMMARIZE_ERROR_BATCH(batch);
-}
-
-bool ThreadPimpl::is_stop_requested() const {
-  assorted::memory_fence_acquire();
-  return control_block_->status_ == kWaitingForTerminate;
 }
 
 void ThreadPimpl::handle_tasks() {
@@ -851,7 +843,8 @@ inline xct::McsBlock* ThreadPimpl::mcs_init_block(
   xct::McsBlock* block = mcs_blocks_ + block_index;
   block->waiting_ = waiting;
   block->lock_addr_tag_ = mcs_lock->last_1byte_addr();
-  block->clear_successor();
+  block->successor_ = 0;
+  block->successor_block_ = 0;
   return block;
 }
 
@@ -919,16 +912,18 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(decompose_numa_local_ordinal(predecessor_id) <
     engine_->get_options().thread_.thread_count_per_group_);
 
-  ThreadRef* predecessor = pool_pimpl_->get_thread(predecessor_id);
+  ThreadRef* predecessor = engine_->get_thread_pool()->get_thread_ref(predecessor_id);
   ASSERT_ND(predecessor);
   ASSERT_ND(block->waiting_);
   ASSERT_ND(predecessor->get_control_block()->mcs_block_current_ >= predecessor_block);
   xct::McsBlock* pred_block = predecessor->get_mcs_blocks() + predecessor_block;
-  ASSERT_ND(pred_block->get_successor_thread_id() == 0);
-  ASSERT_ND(!pred_block->has_successor());
+  ASSERT_ND(pred_block->successor_ == 0);
+  ASSERT_ND(pred_block->successor_block_ == 0);
   ASSERT_ND(pred_block->lock_addr_tag_ == block->lock_addr_tag_);
 
-  pred_block->set_successor(id_, block_index);
+  pred_block->successor_ = id_;
+  assorted::memory_fence_release();  // set successor_, then successor_block_
+  pred_block->successor_block_ = block_index;
   assorted::memory_fence_release();
 
   // spin locally
@@ -979,7 +974,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   xct::McsBlock* block = mcs_blocks_ + block_index;
   ASSERT_ND(!block->waiting_);
   ASSERT_ND(block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
-  if (!block->has_successor()) {
+  if (block->successor_block_ == 0) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
     uint32_t expected = xct::McsLock::to_int(id_, block_index);
     uint32_t* address = &(mcs_lock->data_);
@@ -992,7 +987,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
 #endif  // defined(__GNUC__)
     if (swapped) {
       // we have just unset the locked flag, but someone else might have just acquired it,
-      // so we can't put assertion (eg !mcs_lock->is_locked()) here, but at least it's not me.
+      // so we can't put assertion here.
       ASSERT_ND(id_ == 0 || mcs_lock->get_tail_waiter() != id_);
       DVLOG(2) << "Okay, release a lock uncontended. me=" << id_;
       assorted::memory_fence_acq_rel();
@@ -1003,7 +998,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     // wait for someone else to set the successor
     ASSERT_ND(mcs_lock->is_locked());
     uint64_t spins = 0;
-    while (!block->has_successor()) {
+    while (block->successor_block_ == 0) {
       ASSERT_ND(mcs_lock->is_locked());
       if (((++spins) & 0xFFFFFFU) == 0) {
         assorted::spinlock_yield();
@@ -1012,32 +1007,21 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
       continue;
     }
   }
+  DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << block->successor_;
+  ASSERT_ND(block->successor_ != id_);
 
-  ASSERT_ND(block->has_successor());
-  thread::ThreadId successor_id = block->get_successor_thread_id();
-  xct::McsBlockIndex successor_block = block->get_successor_block();
-  DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ="
-    << successor_id << ", succ_block=" << successor_block;
-  ASSERT_ND(successor_id != id_);
-
-  ThreadRef* successor = pool_pimpl_->get_thread(successor_id);
-  ASSERT_ND(successor->get_control_block()->mcs_block_current_ >= successor_block);
-  xct::McsBlock* succ_block = successor->get_mcs_blocks() + successor_block;
+  ThreadRef* successor = engine_->get_thread_pool()->get_thread_ref(block->successor_);
+  ASSERT_ND(successor->get_control_block()->mcs_block_current_ >= block->successor_block_);
+  xct::McsBlock* succ_block = successor->get_mcs_blocks() + block->successor_block_;
   ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
   ASSERT_ND(succ_block->waiting_);
   ASSERT_ND(mcs_lock->is_locked());
+  assorted::memory_fence_acq_rel();
   succ_block->waiting_ = false;
   assorted::memory_fence_acq_rel();
 }
 
 
-static_assert(
-  sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
-  "ThreadControlBlock is too large.");
-
-static_assert(
-  sizeof(xct::McsBlock) * (1U << 16) <= soc::ThreadMemoryAnchors::kMcsBlockMemorySize,
-  "kMcsBlockMemorySize is too small.");
 
 }  // namespace thread
 }  // namespace foedus

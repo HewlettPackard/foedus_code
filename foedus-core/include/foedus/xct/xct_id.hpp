@@ -88,79 +88,23 @@ enum IsolationLevel {
 /** Index in thread-local MCS block. 0 means not locked. */
 typedef uint32_t McsBlockIndex;
 
-/**
- * @brief Pre-allocated MCS block (node). we so far pre-allocate at most 2^16 nodes per thread.
- * @ingroup XCT
- * @details
- * So far this is an 8-byte struct. We for some reason observed a huge performance drop (60%)
- * after we increased this to 16 bytes whenever there is a lock contention.
- * Need to figure out why.
- */
+/** Pre-allocated MCS block. we so far pre-allocate at most 2^16 nodes per thread. */
 struct McsBlock {
   /**
    * Whether this thread is waiting for some other lock owner.
    * While this is true, the thread spins on this \e local variable.
    * The lock owner updates this when it unlocks.
    */
-  bool      waiting_;             // +1 -> 1
+  bool              waiting_;           // +1 -> 1
   /** just for sanity check. last 1 byte of the MCS lock's address */
-  uint8_t   lock_addr_tag_;       // +1 -> 2
-
-  thread::ThreadId  successor_;         // +2 -> 4
-  McsBlockIndex     successor_block_;   // +4 -> 8
-
-  inline bool             has_successor() const ALWAYS_INLINE {
-    return successor_block_ != 0;
-  }
-  inline thread::ThreadId get_successor_thread_id() const ALWAYS_INLINE {
-    return successor_;
-  }
-  inline McsBlockIndex    get_successor_block() const ALWAYS_INLINE {
-    return successor_block_;
-  }
-  inline void clear_successor() ALWAYS_INLINE {
-    successor_ = 0;
-    successor_block_ = 0;
-  }
-  inline void set_successor(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    // we must make sure we set successor_ before successor_block_. It's the contract.
-    // If these two writes are in one-shot, we don't have to worry about it.
-    successor_ = thread_id;
-    assorted::memory_fence_release();
-    successor_block_ = block;
-  }
-
-  /// The code below makes it a 16-byte struct. So far disabled, but will use this in near future.
-  // char      unused_[6];           // +6 -> 8
-
+  uint8_t           lock_addr_tag_;     // +1 -> 2
   /**
    * The successor of MCS lock queue after this thread (in other words, the thread that is
    * waiting for this thread). Successor is represented by thread ID and block,
-   * the index in mcs_blocks_. This member's high-32 bits are thread ID, low-32 bits are block.
-   * The two must be set in one-shot.
+   * the index in mcs_blocks_.
    */
-  // uint64_t  successor_combined_;  // +8 -> 16
-
-  /// setter/getter for successor_combined_.
-  /*
-  inline bool             has_successor() const ALWAYS_INLINE {
-    return successor_combined_ != 0;
-  }
-  inline thread::ThreadId get_successor_thread_id() const ALWAYS_INLINE {
-    return successor_combined_ >> 32;
-  }
-  inline McsBlockIndex    get_successor_block() const ALWAYS_INLINE {
-    return successor_combined_ & 0xFFFFFFFFU;
-   }
-  inline void clear_successor() ALWAYS_INLINE { successor_combined_ = 0; }
-  inline void set_successor(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    uint64_t new_value = thread_id;
-    new_value <<= 32;
-    new_value |= block;
-    // Install it in always one shot.
-    *(&successor_combined_) = new_value;
-  }
-  */
+  thread::ThreadId  successor_;         // +2 -> 4
+  McsBlockIndex     successor_block_;   // +4 -> 8
 };
 
 
@@ -219,6 +163,18 @@ struct McsLock {
   friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
 
   uint32_t data_;
+
+ private:
+  /** not used. GCC gives a completely weird behavior even with fno-strict-aliasing. */
+  union McsLockData {
+    struct Components {
+      /** last waiter's thread ID */
+      thread::ThreadId  tail_waiter_;
+      /** last waiter's MCS block in the thread. 0 means no one is waiting (not locked) */
+      uint16_t          tail_waiter_block_;  // so far 16bits, so not McsBlockIndex
+    } components;
+    uint32_t word;
+  };
 };
 
 /**

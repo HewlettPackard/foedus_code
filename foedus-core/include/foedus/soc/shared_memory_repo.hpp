@@ -408,7 +408,7 @@ struct ThreadMemoryAnchors {
     kThreadMemorySize = 1 << 15,
     kTaskInputMemorySize = 1 << 19,
     kTaskOutputMemorySize = 1 << 19,
-    kMcsBlockMemorySize = 1 << 19,
+    kMcsLockMemorySize = 1 << 19,
   };
   ThreadMemoryAnchors() { std::memset(this, 0, sizeof(*this)); }
   ~ThreadMemoryAnchors() {}
@@ -438,7 +438,7 @@ struct ThreadMemoryAnchors {
   /**
     * Pre-allocated MCS block for each thread. Index is node-local thread ordinal.
     * Array of McsBlock.
-    * sizeof(McsBlock) * 64k for each thread.
+    * 512kb (==sizeof(McsBlock) * 64k) for each thread.
     */
   xct::McsBlock*  mcs_lock_memories_;
 };
