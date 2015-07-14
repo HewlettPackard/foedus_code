@@ -462,7 +462,7 @@ void SharedMemoryRepo::set_node_memory_anchors(
     put_node_memory_boundary(node, &total, "thread_task_output_memory_boundary", reset_boundaries);
 
     thread_anchor.mcs_lock_memories_ = reinterpret_cast<xct::McsBlock*>(base + total);
-    total += ThreadMemoryAnchors::kMcsBlockMemorySize;
+    total += ThreadMemoryAnchors::kMcsLockMemorySize;
     put_node_memory_boundary(node, &total, "thread_mcs_lock_memories_boundary", reset_boundaries);
   }
 
@@ -508,7 +508,7 @@ uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& optio
   total += threads_per_node * (ThreadMemoryAnchors::kThreadMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kTaskInputMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kTaskOutputMemorySize + kBoundarySize);
-  total += threads_per_node * (ThreadMemoryAnchors::kMcsBlockMemorySize + kBoundarySize);
+  total += threads_per_node * (ThreadMemoryAnchors::kMcsLockMemorySize + kBoundarySize);
 
   total +=
     (static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20)
