@@ -27,6 +27,7 @@
 #include "foedus/test_common.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/proc/proc_manager.hpp"
+#include "foedus/storage/hash/hash_hashinate.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
@@ -125,6 +126,117 @@ TEST(MasstreeBasicTest, CreateAndInsert) {
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task"));
+    COERCE_ERROR(storage.debugout_single_thread(&engine));
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
+ErrorStack insert_task_long_retry(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  char key[36]; // "user" + another max 32 bytes
+  char data[1000];
+  auto n = sprintf(key, "%s", "user");
+  uint64_t remaining_inserts = 2000;
+  uint32_t low = 0;
+  Epoch commit_epoch;
+  while (remaining_inserts) {
+    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+    ErrorCode ret;
+    // Emulate two key partitions
+    for (uint64_t high = 0; high < 2; high++) {
+      uint64_t keynum = (high << 32) | (uint64_t)low++;
+      keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
+      n = snprintf(key + 4, 32, "%lu", keynum) + 4;
+      memset(key + n, '\0', 36 - n);
+      ASSERT_ND(n <= 36);
+      ret = masstree.insert_record(context, key, n, data, 1000);
+      if (ret != kErrorCodeOk or not --remaining_inserts)
+        break;
+    }
+    if (ret != kErrorCodeOk) {
+      WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+      remaining_inserts += 2;
+      continue;
+    }
+
+    ret = xct_manager->precommit_xct(context, &commit_epoch);
+    if (ret != kErrorCodeOk) {  // retry
+      remaining_inserts += 2;
+      continue;
+    }
+  }
+  return foedus::kRetOk;
+}
+
+// Same as insert_task_long_retry, except that this one doesn't allow failures
+ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
+  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  char key[36];
+  char data[1000];
+  auto n = sprintf(key, "%s", "user");
+  uint64_t remaining_inserts = 2000;
+  uint32_t low = 0;
+  Epoch commit_epoch;
+  while (remaining_inserts) {
+    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+    // Emulate two key partitions
+    for (uint64_t high = 0; high < 2; high++) {
+      uint64_t keynum = (high << 32) | (uint64_t)low++;
+      keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
+      n = snprintf(key + 4, 32, "%lu", keynum) + 4;
+      ASSERT_ND(n <= 36);
+      memset(key + n, '\0', 36 - n);
+      COERCE_ERROR_CODE(masstree.insert_record(context, key, n, data, 1000));
+      if (not --remaining_inserts)
+        break;
+    }
+    COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  }
+  return foedus::kRetOk;
+}
+
+// CreateAndInsertLong[Retry, Coerce]
+// These two guys test inserting records with large payload (e.g., 1000 bytes)
+// and more complex keys (e.g., worker-id partitioned and hashed key space).
+TEST(MasstreeBasicTest, CreateAndInsertLongRetry) {
+  EngineOptions options = get_tiny_options();
+  options.memory_.page_pool_size_mb_per_node_ = 2 << 10;  // 2GB volatile pool
+  Engine engine(options);
+  engine.get_proc_manager()->pre_register("insert_task_long_retry", insert_task_long_retry);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    MasstreeMetadata meta("ggg");
+    MasstreeStorage storage;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
+    EXPECT_TRUE(storage.exists());
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task_long_retry"));
+    COERCE_ERROR(storage.debugout_single_thread(&engine));
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
+TEST(MasstreeBasicTest, CreateAndInsertLongCoerce) {
+  EngineOptions options = get_tiny_options();
+  options.memory_.page_pool_size_mb_per_node_ = 2 << 10;  // 2GB volatile pool
+  Engine engine(options);
+  engine.get_proc_manager()->pre_register("insert_task_long_coerce", insert_task_long_coerce);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    MasstreeMetadata meta("ggg");
+    MasstreeStorage storage;
+    Epoch epoch;
+    COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
+    EXPECT_TRUE(storage.exists());
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task_long_coerce"));
     COERCE_ERROR(storage.debugout_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
