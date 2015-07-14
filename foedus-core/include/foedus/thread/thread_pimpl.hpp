@@ -49,6 +49,7 @@ struct ThreadControlBlock {
   void initialize() {
     status_ = kNotInitialized;
     mcs_block_current_ = 0;
+    mcs_waiting_ = false;
     current_ticket_ = 0;
     proc_name_.clear();
     input_len_ = 0;
@@ -72,6 +73,16 @@ struct ThreadControlBlock {
    * for sanity check).
    */
   uint32_t            mcs_block_current_;
+
+  /**
+   * Whether this thread is waiting for some MCS lock.
+   * While this is true, the thread spins on this \e local variable.
+   * The lock owner updates this when it unlocks.
+   * We initially had this flag within each MCS lock node, but we anyway assume
+   * one thread can wait for at most one lock. So, we moved it to a flag
+   * in control block.
+   */
+  bool                mcs_waiting_;
 
   /**
    * The thread sleeps on this conditional when it has no task.
@@ -247,10 +258,7 @@ class ThreadPimpl final : public DefaultInitializable {
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
-  xct::McsBlock* mcs_init_block(
-    const xct::McsLock* mcs_lock,
-    xct::McsBlockIndex block_index,
-    bool waiting) ALWAYS_INLINE;
+  xct::McsBlock*      mcs_init_block(xct::McsBlockIndex block_index) ALWAYS_INLINE;
   void      mcs_toolong_wait(
     xct::McsLock* mcs_lock,
     ThreadId predecessor_id,
