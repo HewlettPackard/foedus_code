@@ -111,7 +111,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       } else {
         // Choose a high-bits field first. Then take a look at that worker's local counter
         auto high = rnd_.uniform_within(0, channel_->nr_workers_ - 1);
-        auto low = rnd_.uniform_within(0, channel_->peek_local_key_counter(high) - 1);
+        auto cnt = channel_->peek_local_key_counter(high);
+        if (cnt == 0) {
+          // So the guy hasn't even inserted anything and the loader didn't insert
+          // in that key space either (because kInitialUserTableSize % nr_workers > 0)
+          cnt = 1;
+        }
+        auto low = rnd_.uniform_within(0, cnt - 1);
         if (xct_type <= workload_.read_percent_) {
           ret = do_read(build_key(high, low));
         } else if (xct_type <= workload_.update_percent_) {

@@ -248,7 +248,7 @@ ErrorStack YcsbDriver::run()
       thread::ImpersonateSession session;
       YcsbClientTask::Inputs inputs;
       //inputs.worker_id_ = (node << 8U) + ordinal;
-      inputs.worker_id_ = worker_id;
+      inputs.worker_id_ = worker_id++;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       if (worker_id < start_key_pair.first) {
         inputs.local_key_counter_ = start_key_pair.second;
@@ -277,6 +277,9 @@ ErrorStack YcsbDriver::run()
       LOG(INFO) << "Thread: " << node << " " << ordinal << " " << inputs.worker_id_;
     }
   }
+
+  // Make sure everyone has finished initialization
+  while (channel->workers.size() != channel->nr_workers_) {}
 
   // Tell everybody to start
   channel->start_rendezvous_.signal();
