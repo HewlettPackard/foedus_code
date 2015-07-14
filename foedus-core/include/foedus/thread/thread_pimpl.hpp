@@ -277,6 +277,13 @@ class ThreadPimpl final : public DefaultInitializable {
   const ThreadGlobalOrdinal global_ordinal_;
 
   /**
+   * An optimization. Used in acquire/release lock.
+   * We don't want a function call overhead within a racy place, so we set this in init.
+   * This damages encapsulation, but we did observe a bottleneck here.
+   */
+  ThreadPoolPimpl*        pool_pimpl_;
+
+  /**
    * Private memory repository of this thread.
    * ThreadPimpl does NOT own it, meaning it doesn't call its initialize()/uninitialize().
    * EngineMemory owns it in terms of that.

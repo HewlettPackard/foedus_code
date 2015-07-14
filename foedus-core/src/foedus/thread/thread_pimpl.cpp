@@ -82,6 +82,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   task_output_memory_ = anchors->task_output_memory_;
   mcs_blocks_ = anchors->mcs_lock_memories_;
 
+  pool_pimpl_ = engine_->get_thread_pool()->get_pimpl();
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
   if (engine_->get_options().cache_.snapshot_cache_enabled_) {
@@ -918,7 +919,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(decompose_numa_local_ordinal(predecessor_id) <
     engine_->get_options().thread_.thread_count_per_group_);
 
-  ThreadRef* predecessor = engine_->get_thread_pool()->get_thread_ref(predecessor_id);
+  ThreadRef* predecessor = pool_pimpl_->get_thread(predecessor_id);
   ASSERT_ND(predecessor);
   ASSERT_ND(block->waiting_);
   ASSERT_ND(predecessor->get_control_block()->mcs_block_current_ >= predecessor_block);
@@ -1001,14 +1002,12 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
       " jumped in. me=" << id_ << ", mcs_lock=" << *mcs_lock;
     // wait for someone else to set the successor
     ASSERT_ND(mcs_lock->is_locked());
+    uint64_t spins = 0;
     while (!block->has_successor()) {
       ASSERT_ND(mcs_lock->is_locked());
-      // This is a quite rare situation, where this thread came in after the successor swapped
-      // the tail but before the successor sets this thread's successor_block_.
-      // Rather than spinning, just poll to make sure we don't burn too much CPU.
-      // Latency doesn't matter in such a rare case.
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      assorted::spinlock_yield();
+      if (((++spins) & 0xFFFFFFU) == 0) {
+        assorted::spinlock_yield();
+      }
       assorted::memory_fence_acquire();
       continue;
     }
@@ -1021,7 +1020,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     << successor_id << ", succ_block=" << successor_block;
   ASSERT_ND(successor_id != id_);
 
-  ThreadRef* successor = engine_->get_thread_pool()->get_thread_ref(successor_id);
+  ThreadRef* successor = pool_pimpl_->get_thread(successor_id);
   ASSERT_ND(successor->get_control_block()->mcs_block_current_ >= successor_block);
   xct::McsBlock* succ_block = successor->get_mcs_blocks() + successor_block;
   ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());

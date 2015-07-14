@@ -92,7 +92,9 @@ typedef uint32_t McsBlockIndex;
  * @brief Pre-allocated MCS block (node). we so far pre-allocate at most 2^16 nodes per thread.
  * @ingroup XCT
  * @details
- * We initially had this as an 8-byte struct, but for
+ * So far this is an 8-byte struct. We for some reason observed a huge performance drop (60%)
+ * after we increased this to 16 bytes whenever there is a lock contention.
+ * Need to figure out why.
  */
 struct McsBlock {
   /**
@@ -103,7 +105,33 @@ struct McsBlock {
   bool      waiting_;             // +1 -> 1
   /** just for sanity check. last 1 byte of the MCS lock's address */
   uint8_t   lock_addr_tag_;       // +1 -> 2
-  char      unused_[6];           // +6 -> 8
+
+  thread::ThreadId  successor_;         // +2 -> 4
+  McsBlockIndex     successor_block_;   // +4 -> 8
+
+  inline bool             has_successor() const ALWAYS_INLINE {
+    return successor_block_ != 0;
+  }
+  inline thread::ThreadId get_successor_thread_id() const ALWAYS_INLINE {
+    return successor_;
+  }
+  inline McsBlockIndex    get_successor_block() const ALWAYS_INLINE {
+    return successor_block_;
+  }
+  inline void clear_successor() ALWAYS_INLINE {
+    successor_ = 0;
+    successor_block_ = 0;
+  }
+  inline void set_successor(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    // we must make sure we set successor_ before successor_block_. It's the contract.
+    // If these two writes are in one-shot, we don't have to worry about it.
+    successor_ = thread_id;
+    assorted::memory_fence_release();
+    successor_block_ = block;
+  }
+
+  /// The code below makes it a 16-byte struct. So far disabled, but will use this in near future.
+  // char      unused_[6];           // +6 -> 8
 
   /**
    * The successor of MCS lock queue after this thread (in other words, the thread that is
@@ -111,20 +139,28 @@ struct McsBlock {
    * the index in mcs_blocks_. This member's high-32 bits are thread ID, low-32 bits are block.
    * The two must be set in one-shot.
    */
-  uint64_t  successor_combined_;  // +8 -> 16
+  // uint64_t  successor_combined_;  // +8 -> 16
 
   /// setter/getter for successor_combined_.
-  inline bool             has_successor() const { return (successor_combined_ & 0xFFFFFFFFU) != 0; }
-  inline thread::ThreadId get_successor_thread_id() const { return successor_combined_ >> 32; }
-  inline McsBlockIndex    get_successor_block() const { return successor_combined_ & 0xFFFFFFFFU; }
-  inline void             clear_successor() { successor_combined_ = 0; }
-  inline void             set_successor(thread::ThreadId thread_id, McsBlockIndex block) {
+  /*
+  inline bool             has_successor() const ALWAYS_INLINE {
+    return successor_combined_ != 0;
+  }
+  inline thread::ThreadId get_successor_thread_id() const ALWAYS_INLINE {
+    return successor_combined_ >> 32;
+  }
+  inline McsBlockIndex    get_successor_block() const ALWAYS_INLINE {
+    return successor_combined_ & 0xFFFFFFFFU;
+   }
+  inline void clear_successor() ALWAYS_INLINE { successor_combined_ = 0; }
+  inline void set_successor(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
     uint64_t new_value = thread_id;
     new_value <<= 32;
     new_value |= block;
     // Install it in always one shot.
     *(&successor_combined_) = new_value;
   }
+  */
 };
 
 
