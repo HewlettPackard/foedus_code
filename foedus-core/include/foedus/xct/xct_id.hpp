@@ -163,18 +163,6 @@ struct McsLock {
   friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
 
   uint32_t data_;
-
- private:
-  /** not used. GCC gives a completely weird behavior even with fno-strict-aliasing. */
-  union McsLockData {
-    struct Components {
-      /** last waiter's thread ID */
-      thread::ThreadId  tail_waiter_;
-      /** last waiter's MCS block in the thread. 0 means no one is waiting (not locked) */
-      uint16_t          tail_waiter_block_;  // so far 16bits, so not McsBlockIndex
-    } components;
-    uint32_t word;
-  };
 };
 
 /**
