@@ -23,9 +23,11 @@
 
 #include "foedus/fixed_error_stack.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/fwd.hpp"
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/shared_mutex.hpp"
 #include "foedus/soc/shared_polling.hpp"
