@@ -206,6 +206,24 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     MasstreeBorderPage** out_page,
     SlotIndex* record_index,
     xct::XctId* observed);
+
+  /**
+   * @brief A sub-routine of reserve_record()/reserve_record_normalized() to allocate a new record
+   * in the given page.
+   * @pre border->is_locked() && !border->is_moved()
+   * @pre !out_page_lock->released_ && border->get_version_address() == out_page_lock->version_
+   * meaning out_page_lock is locking \b border \b initially.
+   * @post !out_page_lock->released_ && *out_page->get_version_address() == out_page_lock->version_
+   * meaning out_page_lock is locking \b out_page (which may or may not be border) \b afterwards.
+   * @post *out_page->is_locked() && !*out_page->is_moved()
+   * @details
+   * This function might internally splits the border page to make room.
+   * out_page returns the page to which the new record landed, which might be border or
+   * its foster-child if page split happens.
+   * The page split might recurse if one split is not enough to make room.
+   * In that case, out_page might be foster-grandchild or even deeper although that should
+   * happen pretty rarely.
+   */
   ErrorCode reserve_record_new_record(
     thread::Thread* context,
     MasstreeBorderPage* border,
@@ -213,9 +231,11 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     KeyLength remainder,
     const void* suffix,
     PayloadLength payload_count,
+    PageVersionLockScope* out_page_lock,
     MasstreeBorderPage** out_page,
     SlotIndex* record_index,
     xct::XctId* observed);
+
   void      reserve_record_new_record_apply(
     thread::Thread* context,
     MasstreeBorderPage* target,

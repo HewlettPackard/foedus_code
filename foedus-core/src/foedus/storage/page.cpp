@@ -109,6 +109,15 @@ void PageVersionLockScope::release() {
   }
 }
 
+void PageVersionLockScope::take_over(PageVersionLockScope* move_from) {
+  release();
+  *this = *move_from;
+  move_from->context_ = nullptr;
+  move_from->version_ = nullptr;
+  move_from->block_ = 0;
+  move_from->changed_ = false;
+  move_from->released_ = true;
+}
 
 }  // namespace storage
 }  // namespace foedus

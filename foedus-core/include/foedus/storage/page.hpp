@@ -204,6 +204,16 @@ struct PageVersionLockScope {
    */
   explicit PageVersionLockScope(xct::McsLockScope* move_from);
 
+  /**
+   * A \e move operator that takes over the other lock, consisting of:
+   * \li Releases this lock if !released
+   * \li Copies all members in move_from
+   * \li Sets "released_" in move_from without releasing the lock
+   *
+   * We don't need c++11 in this case because everything in this object are pointers.
+   */
+  void take_over(PageVersionLockScope* move_from);
+
   void set_changed() { changed_ = true; }
   void release();
 
