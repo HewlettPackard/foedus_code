@@ -39,6 +39,7 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/soc/shared_mutex.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
@@ -90,7 +91,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
   // Add this task to the tasks list in the channel, so workers can see each
   // other's local_key_counter
-  channel_->workers.emplace_back(std::move(*this));
+  {
+    soc::SharedMutexScope scope(&channel_->workers_mutex_);
+    channel_->workers.emplace_back(std::move(*this));
+  }
 
   // Wait for the driver's order
   channel_->start_rendezvous_.wait();

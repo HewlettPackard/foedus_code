@@ -93,9 +93,11 @@ struct YcsbClientChannel {
     exit_nodes_.store(0);
     stop_flag_.store(false);
     nr_workers_ = 0;
+    workers_mutex_.initialize();
   }
   void uninitialize() {
     start_rendezvous_.uninitialize();
+    workers_mutex_.uninitialize();
   }
   uint32_t peek_local_key_counter(uint32_t worker_id);
 
@@ -103,6 +105,7 @@ struct YcsbClientChannel {
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
   uint32_t nr_workers_;
+  soc::SharedMutex workers_mutex_;
   std::vector<YcsbClientTask> workers;
 };
 
