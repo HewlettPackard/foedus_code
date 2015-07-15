@@ -131,7 +131,6 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
   // through start_key_pair.
   start_key_pair->first = high;
   start_key_pair->second = low;
-  LOG(INFO) << "Start key: high=" << start_key_pair->first << " low=" << start_key_pair->second;
   ASSERT_ND(remaining_inserts == 0);
   LOG(INFO) << "[YCSB] Finished loading "
     << kInitialUserTableSize

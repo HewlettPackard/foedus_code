@@ -316,7 +316,6 @@ ErrorStack YcsbDriver::run()
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
-    LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
   }
   duration.stop();
 
