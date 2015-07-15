@@ -108,6 +108,7 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
   YcsbRecord r('a');
 
   debugging::StopWatch watch;
+  Epoch commit_epoch;
   while (remaining_inserts) {
     COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     for (high = 0; high < nr_workers; high++) {
@@ -116,11 +117,10 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
       if (not --remaining_inserts)
         break;
     }
-    Epoch commit_epoch;
     COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-    //COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
     low++;
   }
+  COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   watch.stop();
 
   // Note we did a low++ in the while loop above, so workers with id < high

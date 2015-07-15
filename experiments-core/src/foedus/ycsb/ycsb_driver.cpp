@@ -41,6 +41,7 @@
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
+#include "foedus/storage/hash/hash_hashinate.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -72,6 +73,10 @@ DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Whether to read all or only one field(s) in read transactions.");
 
+// If this is enabled, the original YCSB implementation gives a fully ordered key across all threads.
+// But that's hard to scale in high core counts. What we do for now is to use [worker_id | local_count].
+DEFINE_bool(ordered_inserts, false, "Whether to make the keys ordered, i.e., don't hash(keynum).");
+
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0);     // Workload B - 95% read, 5% update
 YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0);     // Workload C - 100% read
@@ -100,7 +105,10 @@ YcsbKey YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
 
 YcsbKey YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
-  auto n = sprintf(data_ + kKeyPrefixLength, "%lu", keynum);
+  if (not FLAGS_ordered_inserts) {
+    keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
+  }
+  auto n = snprintf(data_ + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength, "%lu", keynum);
   assert(n > 0);
   n += kKeyPrefixLength;
   assert(n <= kKeyMaxLength);
