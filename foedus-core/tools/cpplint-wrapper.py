@@ -195,7 +195,7 @@ def exec_cpplint(files, cpplint_arguments):
               f = line[:line.find(':')]
               if f in clean_index:
                 del clean_index[f]
-            sys.stdout.write(line)
+            sys.stderr.write(line)
 
     # store the clean list to speed up next execution
     store_dir_index(clean_index, history_file)
