@@ -50,9 +50,7 @@ void test_tmpfs(std::string root) {
   // this is mainly testing the O_DIRECT error on tmpfs
   // http://www.gossamer-threads.com/lists/linux/kernel/720702
   Path folder_path(root + "/foedus_test");
-  if (exists(folder_path)) {
-    remove_all(folder_path);
-  }
+  folder_path /= get_random_name();
   EXPECT_FALSE(exists(folder_path));
   EXPECT_TRUE(fs::create_directories(folder_path));
 

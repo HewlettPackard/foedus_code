@@ -858,11 +858,14 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
           remainder,
           suffix,
           physical_payload_hint,
+          &scope,
           out_page,
           record_index,
           observed);
+        ASSERT_ND(!scope.released_);
         ASSERT_ND(!(*out_page)->is_moved());
-        ASSERT_ND(!(*out_page)->is_retired());
+        ASSERT_ND((*out_page)->is_locked());
+        ASSERT_ND((*out_page)->get_version_address() == scope.version_);
         ASSERT_ND(*record_index < (*out_page)->get_key_count());
         return code;
       } else {
@@ -942,6 +945,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       sizeof(KeySlice),
       nullptr,
       physical_payload_hint,
+      &scope,
       out_page,
       record_index,
       observed);
@@ -955,61 +959,66 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
   KeyLength remainder,
   const void* suffix,
   PayloadLength payload_count,
+  PageVersionLockScope* out_page_lock,
   MasstreeBorderPage** out_page,
   SlotIndex* record_index,
   xct::XctId* observed) {
+  // First, split as many times as needed until we can insert the record to this page.
+  *out_page = nullptr;
+  while (true) {
+    ASSERT_ND(!out_page_lock->released_);
+    ASSERT_ND(out_page_lock->version_ == border->get_version_address());
+    ASSERT_ND(border->is_locked());
+    ASSERT_ND(!border->is_moved());
+    ASSERT_ND(border->get_foster_major().is_null());
+    ASSERT_ND(border->get_foster_minor().is_null());
+    SlotIndex count = border->get_key_count();
+    bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
+    if (early_split || !border->can_accomodate(count, remainder, payload_count)) {
+      // have to split to make room. the newly created foster child is always the place to insert.
+      if (early_split) {
+        DVLOG(1) << "Early split! cur count=" << count << ", storage=" << get_name();
+      }
+
+      MasstreeBorderPage* target;
+      xct::McsLockScope target_lock;
+      ASSERT_ND(!target_lock.is_locked());
+      CHECK_ERROR_CODE(border->split_foster(context, key, false, &target, &target_lock));
+      ASSERT_ND(target->is_locked());
+      ASSERT_ND(target_lock.is_locked());
+      ASSERT_ND(target->within_fences(key));
+      ASSERT_ND(target->find_key(key, suffix, remainder) == kBorderPageMaxSlots);
+
+      // go down and keep splitting. out_page_lock now also points to the new target.
+      // Convert McsLockScope to PageVersionLockScope. this is a tentative solution
+      PageVersionLockScope new_scope(&target_lock);
+      out_page_lock->take_over(&new_scope);
+      ASSERT_ND(!target_lock.is_locked());
+      ASSERT_ND(new_scope.released_);
+      ASSERT_ND(!out_page_lock->released_);
+      ASSERT_ND(out_page_lock->version_ == target->get_version_address());
+      border = target;
+    } else {
+      break;  // no need to split
+    }
+  }
+
   ASSERT_ND(border->is_locked());
   ASSERT_ND(!border->is_moved());
-  ASSERT_ND(border->get_foster_major().is_null());
-  ASSERT_ND(border->get_foster_minor().is_null());
   SlotIndex count = border->get_key_count();
-  bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
-  if (!early_split && border->can_accomodate(count, remainder, payload_count)) {
-    reserve_record_new_record_apply(
-      context,
-      border,
-      count,
-      key,
-      remainder,
-      suffix,
-      payload_count,
-      observed);
-    *out_page = border;
-    *record_index = count;
-  } else {
-#ifndef NDEBUG
-    if (early_split) {
-      DVLOG(1) << "Early split! cur count=" << count << ", storage=" << get_name();
-    }
-#endif  // NDEBUG
-    // have to split to make room. the newly created foster child is always the place to insert.
-    MasstreeBorderPage* target;
-    xct::McsLockScope target_lock;
-    ASSERT_ND(!target_lock.is_locked());
-    CHECK_ERROR_CODE(border->split_foster(context, key, false, &target, &target_lock));
-    ASSERT_ND(target->is_locked());
-    ASSERT_ND(target_lock.is_locked());
-    ASSERT_ND(target->within_fences(key));
-    count = target->get_key_count();
-    ASSERT_ND(target->find_key(key, suffix, remainder) == kBorderPageMaxSlots);
-    if (!target->can_accomodate(count, remainder, payload_count)) {
-      // this might happen if payload_count is huge. so far just error out.
-      LOG(WARNING) << "Wait, not enough space even after splits? should be pretty rare...";
-      return kErrorCodeStrTooLongPayload;
-    }
-    target->get_version_address()->increment_version_counter();
-    reserve_record_new_record_apply(
-      context,
-      target,
-      count,
-      key,
-      remainder,
-      suffix,
-      payload_count,
-      observed);
-    *out_page = target;
-    *record_index = count;
-  }
+  ASSERT_ND(border->can_accomodate(count, remainder, payload_count));
+  ASSERT_ND(!border->should_split_early(count, get_meta().border_early_split_threshold_));
+  reserve_record_new_record_apply(
+    context,
+    border,
+    count,
+    key,
+    remainder,
+    suffix,
+    payload_count,
+    observed);
+  *out_page = border;
+  *record_index = count;
   return kErrorCodeOk;
 }
 

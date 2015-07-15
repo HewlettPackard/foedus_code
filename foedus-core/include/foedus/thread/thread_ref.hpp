@@ -100,6 +100,8 @@ class ThreadGroupRef CXX11_FINAL {
 
   /** Returns Thread object for the given ordinal in this group. */
   ThreadRef*              get_thread(ThreadLocalOrdinal ordinal) { return &threads_[ordinal]; }
+  /** Returns a copied instance. ThreadRef itself is a reference object, so it's cheap. */
+  ThreadRef get_thread_ref(ThreadLocalOrdinal ordinal) const { return threads_[ordinal]; }
 
   /**
    * Returns the oldest in-commit epoch of the threads in this group.

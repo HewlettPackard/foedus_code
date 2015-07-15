@@ -67,6 +67,12 @@ class ThreadPoolPimpl final : public DefaultInitializable {
   ThreadGroup*        get_local_group() const { return local_group_; }
   ThreadRef*          get_thread(ThreadId id);
 
+  /**
+   * For better performance, but for some reason this method causes an issue in MCS lock.
+   * We don't use this anywhere so far. Need to figure out what's wrong.
+   */
+  ThreadRef           get_thread_ref(ThreadId id) ALWAYS_INLINE;
+
   friend  std::ostream& operator<<(std::ostream& o, const ThreadPoolPimpl& v);
 
   Engine* const               engine_;
@@ -83,6 +89,13 @@ class ThreadPoolPimpl final : public DefaultInitializable {
    */
   std::vector<ThreadGroupRef> groups_;
 };
+
+inline ThreadRef ThreadPoolPimpl::get_thread_ref(ThreadId id) {
+  ThreadGroupId numa_node = decompose_numa_node(id);
+  ThreadLocalOrdinal core_ordinal = decompose_numa_local_ordinal(id);
+  return groups_[numa_node].get_thread_ref(core_ordinal);
+}
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_POOL_PIMPL_HPP_

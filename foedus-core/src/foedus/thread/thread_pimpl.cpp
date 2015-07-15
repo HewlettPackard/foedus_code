@@ -31,12 +31,14 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/cache/cache_hashtable.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
@@ -80,6 +82,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   task_output_memory_ = anchors->task_output_memory_;
   mcs_blocks_ = anchors->mcs_lock_memories_;
 
+  pool_pimpl_ = engine_->get_thread_pool()->get_pimpl();
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
   if (engine_->get_options().cache_.snapshot_cache_enabled_) {
@@ -134,6 +137,11 @@ ErrorStack ThreadPimpl::uninitialize_once() {
   snapshot_cache_hashtable_ = nullptr;
   control_block_->uninitialize();
   return SUMMARIZE_ERROR_BATCH(batch);
+}
+
+bool ThreadPimpl::is_stop_requested() const {
+  assorted::memory_fence_acquire();
+  return control_block_->status_ == kWaitingForTerminate;
 }
 
 void ThreadPimpl::handle_tasks() {
@@ -835,16 +843,10 @@ inline void assert_mcs_aligned(const void* address) {
   ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 4 == 0);
 }
 
-inline xct::McsBlock* ThreadPimpl::mcs_init_block(
-  const xct::McsLock* mcs_lock,
-  xct::McsBlockIndex block_index,
-  bool waiting) {
+inline xct::McsBlock* ThreadPimpl::mcs_init_block(xct::McsBlockIndex block_index) {
   ASSERT_ND(block_index > 0);
   xct::McsBlock* block = mcs_blocks_ + block_index;
-  block->waiting_ = waiting;
-  block->lock_addr_tag_ = mcs_lock->last_1byte_addr();
-  block->successor_ = 0;
-  block->successor_block_ = 0;
+  block->successor_.clear();
   return block;
 }
 
@@ -872,12 +874,14 @@ void ThreadPimpl::mcs_toolong_wait(
 
 xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   assorted::memory_fence_acq_rel();
+  ASSERT_ND(!control_block_->mcs_waiting_);
   assert_mcs_aligned(mcs_lock);
   // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
-  xct::McsBlock* block = mcs_init_block(mcs_lock, block_index, true);
+  control_block_->mcs_waiting_ = true;
+  mcs_init_block(block_index);
   uint32_t desired = xct::McsLock::to_int(id_, block_index);
   uint32_t* address = &(mcs_lock->data_);
   assert_mcs_aligned(address);
@@ -897,7 +901,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
     // this means it was not locked.
     ASSERT_ND(mcs_lock->is_locked());
     DVLOG(2) << "Okay, got a lock uncontended. me=" << id_;
-    block->waiting_ = false;
+    control_block_->mcs_waiting_ = false;
     // atomic op should imply full barrier, but make sure
     assorted::memory_fence_acq_rel();
     return block_index;
@@ -912,23 +916,19 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   ASSERT_ND(decompose_numa_local_ordinal(predecessor_id) <
     engine_->get_options().thread_.thread_count_per_group_);
 
-  ThreadRef* predecessor = engine_->get_thread_pool()->get_thread_ref(predecessor_id);
+  ThreadRef* predecessor = pool_pimpl_->get_thread(predecessor_id);
   ASSERT_ND(predecessor);
-  ASSERT_ND(block->waiting_);
+  ASSERT_ND(control_block_->mcs_waiting_);
   ASSERT_ND(predecessor->get_control_block()->mcs_block_current_ >= predecessor_block);
   xct::McsBlock* pred_block = predecessor->get_mcs_blocks() + predecessor_block;
-  ASSERT_ND(pred_block->successor_ == 0);
-  ASSERT_ND(pred_block->successor_block_ == 0);
-  ASSERT_ND(pred_block->lock_addr_tag_ == block->lock_addr_tag_);
+  ASSERT_ND(!pred_block->has_successor());
 
-  pred_block->successor_ = id_;
-  assorted::memory_fence_release();  // set successor_, then successor_block_
-  pred_block->successor_block_ = block_index;
+  pred_block->set_successor(id_, block_index);
   assorted::memory_fence_release();
 
   // spin locally
   uint64_t spins = 0;
-  while (block->waiting_) {
+  while (control_block_->mcs_waiting_) {
     ASSERT_ND(mcs_lock->is_locked());
     assorted::memory_fence_acquire();
     if (((++spins) & 0xFFFFFFU) == 0) {
@@ -946,7 +946,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
     continue;
   }
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
-  ASSERT_ND(!block->waiting_);
+  ASSERT_ND(!control_block_->mcs_waiting_);
   ASSERT_ND(mcs_lock->is_locked());
   assorted::memory_fence_acq_rel();
   return block_index;
@@ -954,12 +954,13 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
 
 xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* mcs_lock) {
   assert_mcs_aligned(mcs_lock);
+  ASSERT_ND(!control_block_->mcs_waiting_);
   ASSERT_ND(!mcs_lock->is_locked());
   // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
-  mcs_init_block(mcs_lock, block_index, false);
+  mcs_init_block(block_index);
   mcs_lock->reset(id_, block_index);
   assorted::memory_fence_acq_rel();
   return block_index;
@@ -968,13 +969,12 @@ xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* mcs_lock) {
 void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index) {
   assorted::memory_fence_acq_rel();
   assert_mcs_aligned(mcs_lock);
+  ASSERT_ND(!control_block_->mcs_waiting_);
   ASSERT_ND(mcs_lock->is_locked());
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
   xct::McsBlock* block = mcs_blocks_ + block_index;
-  ASSERT_ND(!block->waiting_);
-  ASSERT_ND(block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
-  if (block->successor_block_ == 0) {
+  if (!block->has_successor()) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
     uint32_t expected = xct::McsLock::to_int(id_, block_index);
     uint32_t* address = &(mcs_lock->data_);
@@ -998,7 +998,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     // wait for someone else to set the successor
     ASSERT_ND(mcs_lock->is_locked());
     uint64_t spins = 0;
-    while (block->successor_block_ == 0) {
+    while (!block->has_successor()) {
       ASSERT_ND(mcs_lock->is_locked());
       if (((++spins) & 0xFFFFFFU) == 0) {
         assorted::spinlock_yield();
@@ -1007,21 +1007,22 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
       continue;
     }
   }
-  DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << block->successor_;
-  ASSERT_ND(block->successor_ != id_);
+  DVLOG(1) << "Okay, I have a successor. me=" << id_
+    << ", succ=" << block->get_successor_thread_id();
+  ASSERT_ND(block->get_successor_thread_id() != id_);
 
-  ThreadRef* successor = engine_->get_thread_pool()->get_thread_ref(block->successor_);
-  ASSERT_ND(successor->get_control_block()->mcs_block_current_ >= block->successor_block_);
-  xct::McsBlock* succ_block = successor->get_mcs_blocks() + block->successor_block_;
-  ASSERT_ND(succ_block->lock_addr_tag_ == mcs_lock->last_1byte_addr());
-  ASSERT_ND(succ_block->waiting_);
+  ThreadRef* successor = pool_pimpl_->get_thread(block->get_successor_thread_id());
+  ThreadControlBlock* successor_cb = successor->get_control_block();
+  ASSERT_ND(successor_cb->mcs_block_current_ >= block->get_successor_block());
+  ASSERT_ND(successor_cb->mcs_waiting_);
   ASSERT_ND(mcs_lock->is_locked());
   assorted::memory_fence_acq_rel();
-  succ_block->waiting_ = false;
+  successor_cb->mcs_waiting_ = false;
   assorted::memory_fence_acq_rel();
 }
 
-
-
+static_assert(
+  sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
+  "ThreadControlBlock is too large.");
 }  // namespace thread
 }  // namespace foedus

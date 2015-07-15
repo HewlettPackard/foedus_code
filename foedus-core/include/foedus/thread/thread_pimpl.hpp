@@ -19,25 +19,21 @@
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
 
 #include <atomic>
+#include <thread>
 
 #include "foedus/fixed_error_stack.hpp"
 #include "foedus/initializable.hpp"
-#include "foedus/assorted/raw_atomics.hpp"
-#include "foedus/cache/cache_hashtable.hpp"
+#include "foedus/cache/fwd.hpp"
 #include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/fwd.hpp"
-#include "foedus/memory/numa_core_memory.hpp"
-#include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/proc/proc_id.hpp"
-#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_mutex.hpp"
 #include "foedus/soc/shared_polling.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/thread/stoppable_thread_impl.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -53,6 +49,7 @@ struct ThreadControlBlock {
   void initialize() {
     status_ = kNotInitialized;
     mcs_block_current_ = 0;
+    mcs_waiting_ = false;
     current_ticket_ = 0;
     proc_name_.clear();
     input_len_ = 0;
@@ -76,6 +73,16 @@ struct ThreadControlBlock {
    * for sanity check).
    */
   uint32_t            mcs_block_current_;
+
+  /**
+   * Whether this thread is waiting for some MCS lock.
+   * While this is true, the thread spins on this \e local variable.
+   * The lock owner updates this when it unlocks.
+   * We initially had this flag within each MCS lock node, but we anyway assume
+   * one thread can wait for at most one lock. So, we moved it to a flag
+   * in control block.
+   */
+  bool                mcs_waiting_;
 
   /**
    * The thread sleeps on this conditional when it has no task.
@@ -154,10 +161,7 @@ class ThreadPimpl final : public DefaultInitializable {
   void        handle_tasks();
   /** initializes the thread's policy/priority */
   void        set_thread_schedule();
-  bool        is_stop_requested() const {
-    assorted::memory_fence_acquire();
-    return control_block_->status_ == kWaitingForTerminate;
-  }
+  bool        is_stop_requested() const;
 
   /** @copydoc foedus::thread::Thread::find_or_read_a_snapshot_page() */
   ErrorCode   find_or_read_a_snapshot_page(
@@ -254,10 +258,7 @@ class ThreadPimpl final : public DefaultInitializable {
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
-  xct::McsBlock* mcs_init_block(
-    const xct::McsLock* mcs_lock,
-    xct::McsBlockIndex block_index,
-    bool waiting) ALWAYS_INLINE;
+  xct::McsBlock*      mcs_init_block(xct::McsBlockIndex block_index) ALWAYS_INLINE;
   void      mcs_toolong_wait(
     xct::McsLock* mcs_lock,
     ThreadId predecessor_id,
@@ -282,6 +283,12 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** globally and contiguously numbered ID of thread */
   const ThreadGlobalOrdinal global_ordinal_;
+  /**
+   * An optimization. Used in acquire/release lock.
+   * We don't want a function call overhead within a racy place, so we set this in init.
+   * This damages encapsulation, but we did observe a bottleneck here.
+   */
+  ThreadPoolPimpl*        pool_pimpl_;
 
   /**
    * Private memory repository of this thread.
@@ -344,10 +351,6 @@ inline ErrorCode ThreadPimpl::read_snapshot_pages(
   storage::Page* buffer) {
   return snapshot_file_set_.read_pages(page_id_begin, page_count, buffer);
 }
-
-static_assert(
-  sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
-  "ThreadControlBlock is too large.");
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_
