@@ -195,7 +195,7 @@ def exec_cpplint(files, cpplint_arguments):
               f = line[:line.find(':')]
               if f in clean_index:
                 del clean_index[f]
-            sys.stderr.write(line)
+            sys.stderr.write('\033[93m' + line + '\033[0m') # Put a color that stands out
 
     # store the clean list to speed up next execution
     store_dir_index(clean_index, history_file)
