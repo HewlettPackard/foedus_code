@@ -136,11 +136,13 @@ ErrorStack insert_task_long_retry(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-  char key[36]; // "user" + another max 32 bytes
-  char data[1000];
-  auto n = sprintf(key, "%s", "user");
+  const int kKeyPrefixLength = 4;  // "user" + another max 32 bytes
+  const int kKeyMaxLength = 36;
+  char key[kKeyMaxLength];
+  auto n = snprintf(key, kKeyPrefixLength, "%s", "user");
   uint64_t remaining_inserts = 2000;
   uint32_t low = 0;
+  char data[1000];
   Epoch commit_epoch;
   while (remaining_inserts) {
     COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -149,11 +151,11 @@ ErrorStack insert_task_long_retry(const proc::ProcArguments& args) {
     for (uint64_t high = 0; high < 2; high++) {
       uint64_t keynum = (high << 32) | (uint64_t)low++;
       keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
-      n = snprintf(key + 4, 32, "%lu", keynum) + 4;
-      memset(key + n, '\0', 36 - n);
-      ASSERT_ND(n <= 36);
+      n = snprintf(key + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength, "%lu", keynum) + 4;
+      memset(key + n, '\0', kKeyMaxLength - n);
+      ASSERT_ND(n <= kKeyMaxLength);
       ret = masstree.insert_record(context, key, n, data, 1000);
-      if (ret != kErrorCodeOk or not --remaining_inserts)
+      if (ret != kErrorCodeOk || !--remaining_inserts)
         break;
     }
     if (ret != kErrorCodeOk) {
@@ -176,11 +178,13 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-  char key[36];
-  char data[1000];
-  auto n = sprintf(key, "%s", "user");
+  const int kKeyPrefixLength = 4;  // "user" + another max 32 bytes
+  const int kKeyMaxLength = 36;
+  char key[kKeyMaxLength];
+  auto n = snprintf(key, kKeyPrefixLength, "%s", "user");
   uint64_t remaining_inserts = 2000;
   uint32_t low = 0;
+  char data[1000];
   Epoch commit_epoch;
   while (remaining_inserts) {
     COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -188,11 +192,11 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
     for (uint64_t high = 0; high < 2; high++) {
       uint64_t keynum = (high << 32) | (uint64_t)low++;
       keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
-      n = snprintf(key + 4, 32, "%lu", keynum) + 4;
-      ASSERT_ND(n <= 36);
-      memset(key + n, '\0', 36 - n);
+      n = snprintf(key + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength, "%lu", keynum) + 4;
+      ASSERT_ND(n <= kKeyMaxLength);
+      memset(key + n, '\0', kKeyMaxLength - n);
       COERCE_ERROR_CODE(masstree.insert_record(context, key, n, data, 1000));
-      if (not --remaining_inserts)
+      if (!--remaining_inserts)
         break;
     }
     COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
@@ -205,7 +209,7 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
 // and more complex keys (e.g., worker-id partitioned and hashed key space).
 TEST(MasstreeBasicTest, CreateAndInsertLongRetry) {
   EngineOptions options = get_tiny_options();
-  options.memory_.page_pool_size_mb_per_node_ = 2 << 10;  // 2GB volatile pool
+  options.memory_.page_pool_size_mb_per_node_ = 128;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_task_long_retry", insert_task_long_retry);
   COERCE_ERROR(engine.initialize());
@@ -225,7 +229,7 @@ TEST(MasstreeBasicTest, CreateAndInsertLongRetry) {
 
 TEST(MasstreeBasicTest, CreateAndInsertLongCoerce) {
   EngineOptions options = get_tiny_options();
-  options.memory_.page_pool_size_mb_per_node_ = 2 << 10;  // 2GB volatile pool
+  options.memory_.page_pool_size_mb_per_node_ = 128;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_task_long_coerce", insert_task_long_coerce);
   COERCE_ERROR(engine.initialize());
