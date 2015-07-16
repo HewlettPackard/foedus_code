@@ -116,9 +116,9 @@ YcsbKey YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
   auto n = snprintf(data_ + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength + 1, "%lu", keynum);
-  assert(n > 0);
+  ASSERT_ND(n > 0);
   n += kKeyPrefixLength;
-  assert(n <= kKeyMaxLength);
+  ASSERT_ND(n <= kKeyMaxLength);
   memset(data_ + n, '\0', kKeyMaxLength - n);
   size_ = n;
   return *this;
@@ -303,7 +303,7 @@ ErrorStack YcsbDriver::run() {
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   uint32_t total_thread_count = options.thread_.get_total_thread_count();
-  assert(total_thread_count == channel->nr_workers_);
+  ASSERT_ND(total_thread_count == channel->nr_workers_);
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
     // wake up for each second to show intermediate results.
     uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;

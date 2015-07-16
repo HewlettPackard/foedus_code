@@ -35,6 +35,7 @@
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
 #include "foedus/storage/record.hpp"
+#include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
