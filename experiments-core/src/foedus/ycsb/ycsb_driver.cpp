@@ -27,6 +27,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "foedus/engine.hpp"
@@ -46,8 +47,8 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/thread/thread_pool_pimpl.hpp"
-#include "foedus/ycsb/ycsb.hpp"
 #include "foedus/xct/xct_id.hpp"
+#include "foedus/ycsb/ycsb.hpp"
 
 namespace foedus {
 namespace ycsb {
@@ -71,10 +72,10 @@ DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 // YCSB-specific options
 DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
-DEFINE_bool(read_all_fields, true, "Whether to read all or only one field(s) in read transactions.");
+DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
 
-// If this is enabled, the original YCSB implementation gives a fully ordered key across all threads.
-// But that's hard to scale in high core counts. What we do for now is to use [worker_id | local_count].
+// If this is enabled, the original YCSB implementation gives a fully ordered key across all
+// threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
 DEFINE_bool(ordered_inserts, false, "Whether to make the keys ordered, i.e., don't hash(keynum).");
 
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0);     // Workload A - 50% read, 50% update
@@ -95,7 +96,7 @@ YcsbRecord::YcsbRecord(char value) {
 YcsbKey::YcsbKey() {
   size_ = 0;
   memset(data_, '\0', kKeyMaxLength);
-  sprintf(data_, "%s", kKeyPrefix.data());
+  snprintf(data_, kKeyPrefixLength, "%s", kKeyPrefix.data());
 }
 
 YcsbKey YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
@@ -105,7 +106,7 @@ YcsbKey YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
 
 YcsbKey YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
-  if (not FLAGS_ordered_inserts) {
+  if (!FLAGS_ordered_inserts) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
   auto n = snprintf(data_ + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength, "%lu", keynum);
@@ -206,14 +207,13 @@ int driver_main(int argc, char **argv) {
     UninitializeGuard guard(&engine);
     // This driver will fire off loading and impersonate clients
     YcsbDriver driver(&engine);
-    driver.run(); // this will wait for the loader thread to finish
+    driver.run();  // this will wait for the loader thread to finish
     COERCE_ERROR(engine.uninitialize());
   }
   return 0;
 }
 
-ErrorStack YcsbDriver::run()
-{
+ErrorStack YcsbDriver::run() {
   // Setup the channel so I can synchronize with workers and record nr_workers
   YcsbClientChannel* channel = get_channel(engine_);
   channel->initialize();
@@ -232,18 +232,19 @@ ErrorStack YcsbDriver::run()
   thread::ImpersonateSession load_session;
   bool ret = thread_pool->impersonate("ycsb_load_task", &channel->nr_workers_,
                                       sizeof(uint32_t), &load_session);
-  if (not ret) {
+  if (!ret) {
     LOG(FATAL) << "Couldn't impersonate";
   }
 
   // Wait for the load task to finish
-  // TODO: parallelize this
+  // TODO(tzwang): parallelize this
   const uint64_t kIntervalMs = 10;
   while (load_session.is_running()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
     assorted::memory_fence_acquire();
   }
-  const std::pair<uint32_t, uint32_t> start_key_pair = *reinterpret_cast<const std::pair<uint32_t, uint32_t>* >(load_session.get_raw_output_buffer());
+  const std::pair<uint32_t, uint32_t> start_key_pair =
+    *reinterpret_cast<const std::pair<uint32_t, uint32_t>* >(load_session.get_raw_output_buffer());
   ASSERT_ND(start_key_pair.second);
   load_session.release();  // Release the loader session, making the thread available again
 
@@ -255,7 +256,6 @@ ErrorStack YcsbDriver::run()
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
       thread::ImpersonateSession session;
       YcsbClientTask::Inputs inputs;
-      //inputs.worker_id_ = (node << 8U) + ordinal;
       inputs.worker_id_ = worker_id++;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       if (worker_id < start_key_pair.first) {
@@ -275,8 +275,9 @@ ErrorStack YcsbDriver::run()
       } else if (FLAGS_workload == "E") {
         inputs.workload_ = YcsbWorkloadE;
       }
-      bool ret = thread_pool->impersonate_on_numa_node(node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
-      if (not ret) {
+      bool ret = thread_pool->impersonate_on_numa_node(
+        node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
+      if (!ret) {
         LOG(FATAL) << "Couldn't impersonate";
       }
       outputs.push_back(

@@ -23,6 +23,9 @@
 
 #include <atomic>
 #include <cstring>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
@@ -47,15 +50,15 @@ const uint32_t kFields = 10;
 /* Record size */
 const uint64_t kRecordSize = kFieldLength * kFields;
 
-// TODO: make it a cmd argument
+// TODO(tzwang): make it a cmd argument
 const uint64_t kInitialUserTableSize= 10000;
 
 const uint32_t kMaxWorkers = 1024;
 
-const int kKeyPrefixLength = 4; // "user" without \0
+const int kKeyPrefixLength = 4;  // "user" without \0
 const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
 
-const int32_t kKeyMaxLength = kKeyPrefixLength + 32; // 4 bytes of char "user" + 32 chars for numbers
+const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 chars for numbers
 class YcsbKey {
  private:
   char data_[kKeyMaxLength];
@@ -77,7 +80,7 @@ class YcsbKey {
 
 struct YcsbRecord {
   char data_[kFieldLength][kFields];
-  YcsbRecord(char value);
+  explicit YcsbRecord(char value);
   YcsbRecord() {}
 };
 
@@ -200,7 +203,7 @@ class YcsbClientTask {
   bool read_all_fields_;
   Outputs* outputs_;
   uint32_t local_key_counter_;
-  YcsbKey key_arena_; // Don't use this from other threads!
+  YcsbKey key_arena_;   // Don't use this from other threads!
 
   Engine* engine_;
   xct::XctManager* xct_manager_;
@@ -210,11 +213,11 @@ class YcsbClientTask {
   storage::masstree::MasstreeStorage user_table_;
 #endif
   YcsbClientChannel *channel_;
-  assorted::UniformRandom rnd_;  // TODO: add zipfian etc.
+  assorted::UniformRandom rnd_;  // TODO(tzwang): add zipfian etc.
 
   YcsbKey next_insert_key() {
     return key_arena_.next(worker_id_, &local_key_counter_);
-  };
+  }
 
   YcsbKey build_key(uint32_t high_bits, uint32_t low_bits) {
     return key_arena_.build(high_bits, low_bits);
@@ -277,7 +280,7 @@ class YcsbDriver {
     friend std::ostream& operator<<(std::ostream& o, const Result& v);
   };
 
-  YcsbDriver(Engine* engine) : engine_(engine) {}
+  explicit YcsbDriver(Engine* engine) : engine_(engine) {}
   ErrorStack run();
 
  private:

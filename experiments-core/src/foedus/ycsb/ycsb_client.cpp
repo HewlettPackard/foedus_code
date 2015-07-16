@@ -27,6 +27,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "foedus/engine.hpp"
@@ -45,11 +46,10 @@
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
-#include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
-#include "foedus/ycsb/ycsb.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_manager.hpp"
+#include "foedus/ycsb/ycsb.hpp"
 
 namespace foedus {
 namespace ycsb {
@@ -100,13 +100,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
-  while (not is_stop_requested()) {
+  while (!is_stop_requested()) {
     uint16_t xct_type = rnd_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_.get_current_seed();
 
     // abort-retry loop
-    while (not is_stop_requested()) {
+    while (!is_stop_requested()) {
       rnd_.set_current_seed(rnd_seed);
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
       ErrorCode ret;
@@ -192,8 +192,7 @@ ErrorCode YcsbClientTask::do_read(YcsbKey key) {
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
     CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
-  }
-  else {
+  } else {
     // Randomly pick one field to read
     uint32_t field = rnd_.uniform_within(0, kFields);
     uint32_t offset = field * kFieldLength;
@@ -224,7 +223,7 @@ ErrorCode YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
   // vs. open_normalized()?
   CHECK_ERROR_CODE(cursor.open(start_key.ptr(), start_key.size(), nullptr,
     foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false));
-  while (nrecs-- and cursor.is_valid_record()) {
+  while (nrecs-- && cursor.is_valid_record()) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;
     memcpy(&r, pr, sizeof(r));  // need to do this? like do_tuple_read in Silo/ERMIA.

@@ -27,6 +27,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "foedus/engine.hpp"
@@ -46,11 +47,10 @@
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
-#include "foedus/storage/storage_manager.hpp"
 #include "foedus/thread/thread.hpp"
-#include "foedus/ycsb/ycsb.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_manager.hpp"
+#include "foedus/ycsb/ycsb.hpp"
 
 namespace foedus {
 namespace ycsb {
@@ -69,17 +69,16 @@ ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
 }
 
 ErrorStack YcsbLoadTask::run(thread::Thread* context,
-  const uint32_t nr_workers, std::pair<uint32_t, uint32_t> *start_key_pair)
-{
+  const uint32_t nr_workers, std::pair<uint32_t, uint32_t> *start_key_pair) {
   Engine* engine = context->get_engine();
 
   // Create an empty table
   Epoch ep;
-  // TODO: adjust fill factor by workload (A...E)
+  // TODO(tzwang): adjust fill factor by workload (A...E)
 #ifdef YCSB_HASH_STORAGE
   storage::hash::HashMetadata meta("ycsb_user_table", 100);
   const float kHashPreferredRecordsPerBin = 5.0;
-  // TODO: tune the multiplier or make it 1 if there's no inserts
+  // TODO(tzwang): tune the multiplier or make it 1 if there's no inserts
   meta.set_capacity(kInitialUserTableSize * 1.2, kHashPreferredRecordsPerBin);
 #else
   storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
@@ -114,7 +113,7 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
     for (high = 0; high < nr_workers; high++) {
       key.build(high, low);
       COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-      if (not --remaining_inserts)
+      if (!--remaining_inserts)
         break;
     }
     COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
