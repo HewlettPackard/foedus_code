@@ -106,7 +106,7 @@ YcsbKey::YcsbKey() {
 }
 
 YcsbKey YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
-  auto low = (*local_key_counter)++;
+  auto low = ++(*local_key_counter);
   return build(worker_id, low);
 }
 
