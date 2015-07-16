@@ -73,6 +73,7 @@ DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
+DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -91,6 +92,11 @@ int64_t max_scan_length() {
 YcsbRecord::YcsbRecord(char value) {
   // So just write some arbitrary characters provided, no need to use rnd
   memset(data_, value, kFields * kFieldLength * sizeof(char));
+}
+
+// TODO(tzwang): make this field content random
+void YcsbRecord::initialize_field(char *field) {
+  memset(field, 'a', kFieldLength);
 }
 
 YcsbKey::YcsbKey() {
@@ -258,6 +264,7 @@ ErrorStack YcsbDriver::run() {
       YcsbClientTask::Inputs inputs;
       inputs.worker_id_ = worker_id++;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
+      inputs.write_all_fields_ = FLAGS_write_all_fields;
       if (worker_id < start_key_pair.first) {
         inputs.local_key_counter_ = start_key_pair.second;
       } else {

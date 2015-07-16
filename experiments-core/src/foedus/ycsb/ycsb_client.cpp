@@ -194,7 +194,7 @@ ErrorCode YcsbClientTask::do_read(YcsbKey key) {
     CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
   } else {
     // Randomly pick one field to read
-    uint32_t field = rnd_.uniform_within(0, kFields);
+    uint32_t field = rnd_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
     CHECK_ERROR_CODE(user_table_.get_record_part(context_,
       key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
@@ -204,8 +204,17 @@ ErrorCode YcsbClientTask::do_read(YcsbKey key) {
 }
 
 ErrorCode YcsbClientTask::do_update(YcsbKey key) {
-  YcsbRecord r('b');
-  CHECK_ERROR_CODE(user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
+  if (write_all_fields_) {
+    YcsbRecord r('b');
+    CHECK_ERROR_CODE(user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
+  } else {
+    // Randomly pick one filed to update
+    uint32_t field = rnd_.uniform_within(0, kFields - 1);
+    uint32_t offset = field * kFieldLength;
+    char f[kFieldLength];
+    YcsbRecord::initialize_field(f);
+    CHECK_ERROR_CODE(user_table_.overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
+  }
   Epoch commit_epoch;
   return xct_manager_->precommit_xct(context_, &commit_epoch);
 }

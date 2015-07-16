@@ -82,6 +82,7 @@ struct YcsbRecord {
   char data_[kFieldLength][kFields];
   explicit YcsbRecord(char value);
   YcsbRecord() {}
+  static void initialize_field(char *field);
 };
 
 /**
@@ -161,6 +162,7 @@ class YcsbClientTask {
     uint32_t worker_id_;
     YcsbWorkload workload_;
     bool read_all_fields_;
+    bool write_all_fields_;
     uint32_t local_key_counter_;
     Inputs() {}
   };
@@ -182,6 +184,7 @@ class YcsbClientTask {
     : worker_id_(inputs.worker_id_),
       workload_(inputs.workload_),
       read_all_fields_(inputs.read_all_fields_),
+      write_all_fields_(inputs.write_all_fields_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
       rnd_(kRandomSeed + inputs.worker_id_) {}
@@ -201,6 +204,7 @@ class YcsbClientTask {
   uint32_t worker_id_;
   YcsbWorkload workload_;
   bool read_all_fields_;
+  bool write_all_fields_;
   Outputs* outputs_;
   uint32_t local_key_counter_;
   YcsbKey key_arena_;   // Don't use this from other threads!
