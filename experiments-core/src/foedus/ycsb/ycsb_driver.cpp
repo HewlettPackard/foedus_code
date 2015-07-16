@@ -96,7 +96,7 @@ YcsbRecord::YcsbRecord(char value) {
 YcsbKey::YcsbKey() {
   size_ = 0;
   memset(data_, '\0', kKeyMaxLength);
-  snprintf(data_, kKeyPrefixLength, "%s", kKeyPrefix.data());
+  snprintf(data_, kKeyPrefixLength + 1, "%s", kKeyPrefix.data());
 }
 
 YcsbKey YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
@@ -109,7 +109,7 @@ YcsbKey YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   if (!FLAGS_ordered_inserts) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
-  auto n = snprintf(data_ + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength, "%lu", keynum);
+  auto n = snprintf(data_ + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength + 1, "%lu", keynum);
   assert(n > 0);
   n += kKeyPrefixLength;
   assert(n <= kKeyMaxLength);
