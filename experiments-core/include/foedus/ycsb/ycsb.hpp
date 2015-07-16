@@ -145,7 +145,7 @@ struct YcsbWorkload {
 
 class YcsbLoadTask {
  public:
-  YcsbLoadTask() {}
+  YcsbLoadTask() : rnd_(48357) {}
   ErrorStack run(thread::Thread* context, const uint32_t nr_workers,
     std::pair<uint32_t, uint32_t>* start_key_pair);
  private:
@@ -154,10 +154,6 @@ class YcsbLoadTask {
 
 class YcsbClientTask {
  public:
-  enum Constants {
-    kRandomSeed = 123456,
-  };
-
   struct Inputs {
     uint32_t worker_id_;
     YcsbWorkload workload_;
@@ -187,7 +183,10 @@ class YcsbClientTask {
       write_all_fields_(inputs.write_all_fields_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
-      rnd_(kRandomSeed + inputs.worker_id_) {}
+      rnd_record_select_(4584287 + inputs.worker_id_),
+      rnd_field_select_(37 + inputs.worker_id_),
+      rnd_scan_length_select_(47920 + inputs.worker_id_),
+      rnd_xct_select_(882746 + inputs.worker_id_) {}
 
   ErrorStack run(thread::Thread* context);
 
@@ -217,7 +216,13 @@ class YcsbClientTask {
   storage::masstree::MasstreeStorage user_table_;
 #endif
   YcsbClientChannel *channel_;
-  assorted::UniformRandom rnd_;  // TODO(tzwang): add zipfian etc.
+
+  // A random source for each type of operation
+  // TODO(tzwang): add zipfian etc.
+  assorted::UniformRandom rnd_record_select_;
+  assorted::UniformRandom rnd_field_select_;
+  assorted::UniformRandom rnd_scan_length_select_;
+  assorted::UniformRandom rnd_xct_select_;
 
   YcsbKey next_insert_key() {
     return key_arena_.next(worker_id_, &local_key_counter_);

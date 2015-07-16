@@ -101,27 +101,27 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
   while (!is_stop_requested()) {
-    uint16_t xct_type = rnd_.uniform_within(1, 100);
+    uint16_t xct_type = rnd_xct_select_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
-    uint64_t rnd_seed = rnd_.get_current_seed();
+    uint64_t rnd_seed = rnd_xct_select_.get_current_seed();
 
     // abort-retry loop
     while (!is_stop_requested()) {
-      rnd_.set_current_seed(rnd_seed);
+      rnd_xct_select_.set_current_seed(rnd_seed);
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
       ErrorCode ret;
       if (xct_type <= workload_.insert_percent_) {
         ret = do_insert(next_insert_key());
       } else {
         // Choose a high-bits field first. Then take a look at that worker's local counter
-        auto high = rnd_.uniform_within(0, channel_->nr_workers_ - 1);
+        auto high = rnd_record_select_.uniform_within(0, channel_->nr_workers_ - 1);
         auto cnt = channel_->peek_local_key_counter(high);
         if (cnt == 0) {
           // So the guy hasn't even inserted anything and the loader didn't insert
           // in that key space either (because kInitialUserTableSize % nr_workers > 0)
           cnt = 1;
         }
-        auto low = rnd_.uniform_within(0, cnt - 1);
+        auto low = rnd_record_select_.uniform_within(0, cnt - 1);
         if (xct_type <= workload_.read_percent_) {
           ret = do_read(build_key(high, low));
         } else if (xct_type <= workload_.update_percent_) {
@@ -130,7 +130,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 #ifdef YCSB_HASH_STORAGE
           COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
 #else
-          auto nrecs = rnd_.uniform_within(1, max_scan_length());
+          auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
           ret = do_scan(build_key(high, low), nrecs);
 #endif
         }
@@ -194,7 +194,7 @@ ErrorCode YcsbClientTask::do_read(YcsbKey key) {
     CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
   } else {
     // Randomly pick one field to read
-    uint32_t field = rnd_.uniform_within(0, kFields - 1);
+    uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
     CHECK_ERROR_CODE(user_table_.get_record_part(context_,
       key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
@@ -210,7 +210,7 @@ ErrorCode YcsbClientTask::do_update(YcsbKey key) {
       user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
   } else {
     // Randomly pick one filed to update
-    uint32_t field = rnd_.uniform_within(0, kFields - 1);
+    uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
     char f[kFieldLength];
     YcsbRecord::initialize_field(f);
