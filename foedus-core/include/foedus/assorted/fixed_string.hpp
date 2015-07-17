@@ -133,6 +133,29 @@ class FixedString {
     std::memcpy(data_, str, length_ * sizeof(CHAR));
   }
 
+  /** Append operator for all FixedString objects. Note that too-long strings are truncated. */
+  template <uint MAXLEN2>
+  void      append(const FixedString<MAXLEN2, CHAR>& other) CXX11_NOEXCEPT {
+    ASSERT_ND(other.length() <= MAXLEN2);
+    uint32_t len = length_ + other.length() > MAXLEN ? MAXLEN - length_ : other.length();
+    std::memcpy(data_ + length_, other.data(), len * sizeof(CHAR));
+    length_ += len;
+  }
+
+  /** Append operator for std::string. Note that too-long strings are truncated. */
+  void      append(const std::basic_string<CHAR>& str) CXX11_NOEXCEPT {
+    uint32_t len = length_ + str.size() > MAXLEN ? MAXLEN - length_ : str.size();
+    std::memcpy(data_ + length_, str.data(), len * sizeof(CHAR));
+    length_ += len;
+  }
+
+  /** Append operator for char* and length. Note that too-long strings are truncated. */
+  void      append(const CHAR* str, uint32_t len) CXX11_NOEXCEPT {
+    len = length_ + len > MAXLEN ? MAXLEN - length_ : len;
+    std::memcpy(data_ + length_, str, len * sizeof(CHAR));
+    length_ += len;
+  }
+
   // the following methods imitate std::string signatures.
 
   /** Returns the length of this string. */
