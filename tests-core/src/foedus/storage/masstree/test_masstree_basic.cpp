@@ -136,10 +136,6 @@ ErrorStack insert_task_long_retry(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-  const int kKeyPrefixLength = 4;  // "user" + another max 32 bytes
-  const int kKeyMaxLength = 36;
-  char key[kKeyMaxLength];
-  auto n = snprintf(key, kKeyPrefixLength + 1, "%s", "user");
   uint64_t remaining_inserts = 2000;
   uint32_t low = 0;
   char data[1000];
@@ -152,10 +148,9 @@ ErrorStack insert_task_long_retry(const proc::ProcArguments& args) {
     for (uint64_t high = 0; high < 2; high++) {
       uint64_t keynum = (high << 32) | (uint64_t)low++;
       keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
-      n = snprintf(key + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength + 1, "%lu", keynum) + 4;
-      memset(key + n, '\0', kKeyMaxLength - n);
-      ASSERT_ND(n <= kKeyMaxLength);
-      ret = masstree.insert_record(context, key, n, data, 1000);
+      foedus::assorted::FixedString<36> key;
+      key.assign("user" + std::to_string(keynum));
+      ret = masstree.insert_record(context, key.data(), key.length(), data, 1000);
       if (ret != kErrorCodeOk || !--remaining_inserts)
         break;
     }
@@ -179,10 +174,6 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-  const int kKeyPrefixLength = 4;  // "user" + another max 32 bytes
-  const int kKeyMaxLength = 36;
-  char key[kKeyMaxLength];
-  auto n = snprintf(key, kKeyPrefixLength + 1, "%s", "user");
   uint64_t remaining_inserts = 2000;
   uint32_t low = 0;
   char data[1000];
@@ -194,10 +185,9 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
     for (uint64_t high = 0; high < 2; high++) {
       uint64_t keynum = (high << 32) | (uint64_t)low++;
       keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
-      n = snprintf(key + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength + 1, "%lu", keynum) + 4;
-      ASSERT_ND(n <= kKeyMaxLength);
-      memset(key + n, '\0', kKeyMaxLength - n);
-      COERCE_ERROR_CODE(masstree.insert_record(context, key, n, data, 1000));
+      foedus::assorted::FixedString<36> key;
+      key.assign("user" + std::to_string(keynum));
+      COERCE_ERROR_CODE(masstree.insert_record(context, key.data(), key.length(), data, 1000));
       if (!--remaining_inserts)
         break;
     }
