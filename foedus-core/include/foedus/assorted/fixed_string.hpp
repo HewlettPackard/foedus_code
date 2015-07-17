@@ -117,7 +117,7 @@ class FixedString {
   /** Assign operator for all FixedString objects. Note that too-long strings are truncated. */
   template <uint MAXLEN2>
   void      assign(const FixedString<MAXLEN2, CHAR>& other) CXX11_NOEXCEPT {
-    ASSERT_ND(other.length() < MAXLEN2);
+    ASSERT_ND(other.length() <= MAXLEN2);
     length_ = other.length() > MAXLEN ? MAXLEN : other.length();
     std::memcpy(data_, other.data(), length_ * sizeof(CHAR));
   }
