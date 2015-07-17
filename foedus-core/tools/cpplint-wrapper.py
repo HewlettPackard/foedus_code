@@ -195,7 +195,10 @@ def exec_cpplint(files, cpplint_arguments):
               f = line[:line.find(':')]
               if f in clean_index:
                 del clean_index[f]
-            sys.stderr.write('\033[93m' + line + '\033[0m') # Put a color that stands out
+            if sys.stderr.isatty():
+              sys.stderr.write('\033[93m' + line + '\033[0m') # Put a color that stands out
+            else:
+              sys.stderr.write(line) # If the client (kdevelop?) doesn't support, avoid it.
 
     # store the clean list to speed up next execution
     store_dir_index(clean_index, history_file)
