@@ -60,6 +60,44 @@ TEST(FixedStringTest, AssignTruncate) {
   EXPECT_EQ(4, str1.length());
 }
 
+TEST(FixedStringTest, Append) {
+  // Append a char string
+  FixedString<8> str1("1234");
+  str1.append("5678", 4);
+  EXPECT_EQ(str1.str(), std::string("12345678"));
+
+  // Append a std::string
+  str1.assign("1234", 4);
+  std::string stdstr("5678");
+  str1.append(stdstr);
+  EXPECT_EQ(str1.str(), std::string("12345678"));
+
+  // Append a FixedString
+  str1.assign("1234", 4);
+  FixedString<4> str2("5678");
+  str1.append(str2);
+  EXPECT_EQ(str1.str(), std::string("12345678"));
+}
+
+TEST(FixedStringTest, AppendTruncate) {
+  // Append a char string
+  FixedString<6> str1("1234");
+  str1.append("5678", 4);
+  EXPECT_EQ(str1.str(), std::string("123456"));
+
+  // Append a std::string
+  str1.assign("1234", 4);
+  std::string stdstr("5678");
+  str1.append(std::string("5678"));
+  EXPECT_EQ(str1.str(), std::string("123456"));
+
+  // Append a FixedString
+  str1.assign("1234", 4);
+  FixedString<4> str2("5678");
+  str1.append(str2);
+  EXPECT_EQ(str1.str(), std::string("123456"));
+}
+
 TEST(FixedStringTest, Copy) {
   FixedString<8> str1("12345");
   FixedString<12> str2;
