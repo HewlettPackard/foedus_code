@@ -163,6 +163,12 @@ struct McsLock {
   /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
   void          release_lock(thread::Thread* context, McsBlockIndex block);
 
+  /// The followings are implemented in thread_pimpl.cpp along with the above methods,
+  /// but these don't use any of Thread's context information.
+  void          ownerless_acquire_lock();
+  void          ownerless_release_lock();
+
+
   thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_ >> 16U; }
   McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return data_ & 0xFFFFU; }
 
