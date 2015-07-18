@@ -851,7 +851,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
           break;  // next layer
         }
 
-        ErrorCode code = reserve_record_new_record(
+        CHECK_ERROR_CODE(reserve_record_new_record(
           context,
           border,
           slice,
@@ -861,13 +861,13 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
           &scope,
           out_page,
           record_index,
-          observed);
+          observed));
         ASSERT_ND(!scope.released_);
         ASSERT_ND(!(*out_page)->is_moved());
         ASSERT_ND((*out_page)->is_locked());
         ASSERT_ND((*out_page)->get_version_address() == scope.version_);
         ASSERT_ND(*record_index < (*out_page)->get_key_count());
-        return code;
+        return kErrorCodeOk;
       } else {
         // This is rare, thus for code simplicity we just retry.
         // It's a bit wasteful as we already know the exact match index,

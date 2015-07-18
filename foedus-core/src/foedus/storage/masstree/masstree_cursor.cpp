@@ -745,6 +745,10 @@ ErrorCode MasstreeCursor::open(
   CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_));
   CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_));
 
+  if (!context_->get_current_xct().is_active()) {
+    return kErrorCodeXctNoXct;
+  }
+
   forward_cursor_ = forward_cursor;
   reached_end_ = false;
   for_writes_ = for_writes;
