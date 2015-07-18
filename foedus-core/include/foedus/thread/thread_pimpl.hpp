@@ -259,7 +259,9 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
   xct::McsBlock*      mcs_init_block(xct::McsBlockIndex block_index) ALWAYS_INLINE;
-  void      mcs_toolong_wait(
+
+  /** not used so far */
+  void                mcs_toolong_wait(
     xct::McsLock* mcs_lock,
     ThreadId predecessor_id,
     xct::McsBlockIndex my_block,

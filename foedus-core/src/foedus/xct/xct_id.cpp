@@ -37,6 +37,12 @@ void McsLock::release_lock(thread::Thread* context, McsBlockIndex block) {
   context->mcs_release_lock(this, block);
 }
 
+void McsLock::ownerless_acquire_lock() {
+}
+
+void McsLock::ownerless_release_lock() {
+}
+
 McsLockScope::McsLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
 
 McsLockScope::McsLockScope(

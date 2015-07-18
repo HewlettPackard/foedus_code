@@ -44,6 +44,7 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/thread/thread_pool_pimpl.hpp"
+#include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
@@ -872,6 +873,32 @@ void ThreadPimpl::mcs_toolong_wait(
     << ", write-set " << index << "/" << count;
 }
 
+/** Spin locally until the given condition returns false */
+template <typename COND>
+void spin_until(COND spin_while_cond) {
+  DVLOG(1) << "Locally spinning...";
+  uint64_t spins = 0;
+  while (spin_while_cond()) {
+    ++spins;
+    if ((spins & 0xFFFU) == 0) {
+      assorted::memory_fence_acquire();
+      if ((spins & 0xFFFFFFU) == 0) {
+        assorted::spinlock_yield();
+      }
+    }
+    /*
+    if (spins == 0x10000000U) {
+      // Probably fixed the root cause (GCC's union handling).. but let's leave it here.
+      // gggrr, I get the deadlock only when I do not put this here.
+      // wtf. gcc bug or my brain is dead. let's figure out later
+      mcs_toolong_wait(mcs_lock, predecessor_id, block_index, predecessor_block);
+    }
+    // NO, if I enable this harmful code, now it starts again. WWWWWTTTTTTTTTTFFFFFFFFFF
+    */
+  }
+  DVLOG(1) << "Spin ended. Spent " << spins << " spins";
+}
+
 xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   assorted::memory_fence_acq_rel();
   ASSERT_ND(!control_block_->mcs_waiting_);
@@ -926,25 +953,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   pred_block->set_successor(id_, block_index);
   assorted::memory_fence_release();
 
-  // spin locally
-  uint64_t spins = 0;
-  while (control_block_->mcs_waiting_) {
-    ASSERT_ND(mcs_lock->is_locked());
-    assorted::memory_fence_acquire();
-    if (((++spins) & 0xFFFFFFU) == 0) {
-      assorted::spinlock_yield();
-    }
-    /*
-    if (spins == 0x10000000U) {
-      // Probably fixed the root cause (GCC's union handling).. but let's leave it here.
-      // gggrr, I get the deadlock only when I do not put this here.
-      // wtf. gcc bug or my brain is dead. let's figure out later
-      mcs_toolong_wait(mcs_lock, predecessor_id, block_index, predecessor_block);
-    }
-    // NO, if I enable this harmful code, now it starts again. WWWWWTTTTTTTTTTFFFFFFFFFF
-    */
-    continue;
-  }
+  spin_until([this]{ return this->control_block_->mcs_waiting_; });
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
   ASSERT_ND(!control_block_->mcs_waiting_);
   ASSERT_ND(mcs_lock->is_locked());
@@ -997,15 +1006,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
       " jumped in. me=" << id_ << ", mcs_lock=" << *mcs_lock;
     // wait for someone else to set the successor
     ASSERT_ND(mcs_lock->is_locked());
-    uint64_t spins = 0;
-    while (!block->has_successor()) {
-      ASSERT_ND(mcs_lock->is_locked());
-      if (((++spins) & 0xFFFFFFU) == 0) {
-        assorted::spinlock_yield();
-      }
-      assorted::memory_fence_acquire();
-      continue;
-    }
+    spin_until([block]{ return !block->has_successor(); });
   }
   DVLOG(1) << "Okay, I have a successor. me=" << id_
     << ", succ=" << block->get_successor_thread_id();
