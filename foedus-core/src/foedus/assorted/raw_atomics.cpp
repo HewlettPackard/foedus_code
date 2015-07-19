@@ -27,26 +27,13 @@ namespace foedus {
 namespace assorted {
 
 template <typename T>
-bool    raw_atomic_compare_exchange_strong(T* target, T* expected, T desired) {
-#if defined(__GNUC__)
-  T expected_val = *expected;
-  T old_val = ::__sync_val_compare_and_swap(target, expected_val, desired);
-  if (old_val == expected_val) {
-    return true;
-  } else {
-    *expected = old_val;
-    return false;
-  }
-#else  // defined(__GNUC__)
-  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
-  // this is super ugly. but this is the only way to do it without compiler-dependent code.
-  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
-  return casted->compare_exchange_strong(*expected, desired);
-#endif  // defined(__GNUC__)
+bool    raw_atomic_compare_exchange_strong_cpp(T* target, T* expected, T desired) {
+  return raw_atomic_compare_exchange_strong_inl<T>(target, expected, desired);
 }
+
 // template explicit instantiations for all integer types.
 #define EXPLICIT_INSTANTIATION_STRONG(x) \
-  template bool raw_atomic_compare_exchange_strong(x *target, x *expected, x desired)
+  template bool raw_atomic_compare_exchange_strong_cpp(x *target, x *expected, x desired)
 INSTANTIATE_ALL_INTEGER_PLUS_BOOL_TYPES(EXPLICIT_INSTANTIATION_STRONG);
 
 bool raw_atomic_compare_exchange_strong_uint128(
@@ -90,24 +77,44 @@ bool raw_atomic_compare_exchange_strong_uint128(
 }
 
 template <typename T>
-T raw_atomic_exchange(T* target, T desired) {
-  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
-  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
-  return casted->exchange(desired);
+T raw_atomic_exchange_cpp(T* target, T desired) {
+  return raw_atomic_exchange_inl<T>(target, desired);
 }
 
 template <typename T>
-T raw_atomic_fetch_add(T* target, T addendum) {
-  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
-  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
-  return casted->fetch_add(addendum);
+T raw_atomic_fetch_add_cpp(T* target, T addendum) {
+  return raw_atomic_fetch_add_inl<T>(target, addendum);
 }
 
-#define EXP_SWAP(x) template x raw_atomic_exchange(x *target, x desired)
+template <typename T>
+T raw_atomic_load_seq_cst_cpp(const T* target) {
+  return raw_atomic_load_seq_cst_inl<T>(target);
+}
+
+template <typename T>
+void raw_atomic_store_seq_cst_cpp(T* target, T value) {
+  raw_atomic_store_seq_cst_inl<T>(target, value);
+}
+
+template <typename T>
+void raw_atomic_store_release_cpp(T* target, T value) {
+  raw_atomic_store_release_inl<T>(target, value);
+}
+
+#define EXP_SWAP(x) template x raw_atomic_exchange_cpp(x *target, x desired)
 INSTANTIATE_ALL_INTEGER_TYPES(EXP_SWAP);
 
-#define EXP_FETCH_ADD(x) template x raw_atomic_fetch_add(x *target, x addendum)
+#define EXP_FETCH_ADD(x) template x raw_atomic_fetch_add_cpp(x *target, x addendum)
 INSTANTIATE_ALL_INTEGER_TYPES(EXP_FETCH_ADD);
+
+#define EXP_LOAD_SEQ_CST(x) template x raw_atomic_load_seq_cst_cpp(const x *target)
+INSTANTIATE_ALL_INTEGER_TYPES(EXP_LOAD_SEQ_CST);
+
+#define EXP_STORE_SEQ_CST(x) template void raw_atomic_store_seq_cst_cpp(x *target, x value)
+INSTANTIATE_ALL_INTEGER_TYPES(EXP_STORE_SEQ_CST);
+
+#define EXP_STORE_RELEASE(x) template void raw_atomic_store_release_cpp(x *target, x value)
+INSTANTIATE_ALL_INTEGER_TYPES(EXP_STORE_RELEASE);
 
 
 }  // namespace assorted
