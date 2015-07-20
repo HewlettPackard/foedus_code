@@ -19,6 +19,7 @@
 
 #include <ostream>
 
+#include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 
@@ -35,6 +36,12 @@ McsBlockIndex McsLock::initial_lock(thread::Thread* context) {
 void McsLock::release_lock(thread::Thread* context, McsBlockIndex block) {
   // not inlined. so, prefer calling it directly
   context->mcs_release_lock(this, block);
+}
+
+void McsLock::ownerless_acquire_lock() {
+}
+
+void McsLock::ownerless_release_lock() {
 }
 
 McsLockScope::McsLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}

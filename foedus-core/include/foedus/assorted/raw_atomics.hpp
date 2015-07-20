@@ -17,9 +17,95 @@
  */
 #ifndef FOEDUS_ASSORTED_RAW_ATOMICS_HPP_
 #define FOEDUS_ASSORTED_RAW_ATOMICS_HPP_
+
 #include <stdint.h>
+
+#include "foedus/cxx11.hpp"
+
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+#include <atomic>  // NOLINT(build/include_order): for the ifdef
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+
 namespace foedus {
 namespace assorted {
+
+/// Defines the implementations in this header.
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+
+template <typename T>
+inline bool raw_atomic_compare_exchange_strong_inl(T* target, T* expected, T desired) {
+#if defined(__GNUC__)
+  T expected_val = *expected;
+  T old_val = ::__sync_val_compare_and_swap(target, expected_val, desired);
+  if (old_val == expected_val) {
+    return true;
+  } else {
+    *expected = old_val;
+    return false;
+  }
+#else  // defined(__GNUC__)
+  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
+  // this is super ugly. but this is the only way to do it without compiler-dependent code.
+  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
+  return casted->compare_exchange_strong(*expected, desired);
+#endif  // defined(__GNUC__)
+}
+
+template <typename T>
+inline T raw_atomic_exchange_inl(T* target, T desired) {
+  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
+  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
+  return casted->exchange(desired);
+}
+
+template <typename T>
+inline T raw_atomic_fetch_add_inl(T* target, T addendum) {
+  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
+  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
+  return casted->fetch_add(addendum);
+}
+
+template <typename T>
+inline T raw_atomic_load_seq_cst_inl(const T* target) {
+  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
+  const std::atomic<T>* casted = reinterpret_cast< const std::atomic<T>* >(target);
+  return casted->load(std::memory_order_seq_cst);
+}
+
+template <typename T>
+inline void raw_atomic_store_seq_cst_inl(T* target, T value) {
+  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
+  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
+  casted->store(value, std::memory_order_seq_cst);
+}
+
+template <typename T>
+inline void raw_atomic_store_release_inl(T* target, T value) {
+  static_assert(sizeof(T) == sizeof(std::atomic< T >), "std::atomic<T> size is not same as T??");
+  std::atomic<T>* casted = reinterpret_cast< std::atomic<T>* >(target);
+  casted->store(value, std::memory_order_release);
+}
+
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+
+template <typename T>
+bool  raw_atomic_compare_exchange_strong_cpp(T* target, T* expected, T desired);
+
+template <typename T>
+T     raw_atomic_exchange_cpp(T* target, T desired);
+
+template <typename T>
+T     raw_atomic_fetch_add_cpp(T* target, T addendum);
+
+template <typename T>
+T     raw_atomic_load_seq_cst_cpp(const T* target);
+
+template <typename T>
+void  raw_atomic_store_seq_cst_cpp(T* target, T value);
+
+template <typename T>
+void  raw_atomic_store_release_cpp(T* target, T value);
+
 /**
  * @brief Strong atomic CAS for raw primitive types rather than std::atomic<T>.
  * @tparam T integer type
@@ -29,12 +115,20 @@ namespace assorted {
  * itself like what gcc's builtin function provides. This is problemetic when we have to store
  * T rather than std::atomic<T>. This method fills the gap.
  *
- * This header only declares this method. The definition and explicit instantiation are in the cpp.
+ * This header \e tries to inline this method. So, it defines the entire method
+ * if DISABLE_CXX11_IN_PUBLIC_HEADERS is not given. Otherwise, it has to delegate to
+ * the definition in cpp (_cpp function).
  * \note The implementation of this method currently does a \e quite ugly stuff.
  * Still, better to be ugly in one place rather than in many places...
  */
 template <typename T>
-bool    raw_atomic_compare_exchange_strong(T* target, T* expected, T desired);
+inline bool raw_atomic_compare_exchange_strong(T* target, T* expected, T desired) {
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_compare_exchange_strong_inl<T>(target, expected, desired);
+#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_compare_exchange_strong_cpp<T>(target, expected, desired);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+}
 
 
 /**
@@ -94,7 +188,13 @@ inline bool raw_atomic_compare_exchange_weak_uint128(
  * This is a non-conditional swap, which always succeeds.
  */
 template <typename T>
-T raw_atomic_exchange(T* target, T desired);
+inline T raw_atomic_exchange(T* target, T desired) {
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_exchange_inl<T>(target, desired);
+#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_exchange_cpp<T>(target, desired);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+}
 
 /**
  * @brief Atomic fetch-add for raw primitive types rather than std::atomic<T>.
@@ -103,7 +203,56 @@ T raw_atomic_exchange(T* target, T desired);
  * @ingroup ASSORTED
  */
 template <typename T>
-T raw_atomic_fetch_add(T* target, T addendum);
+inline T raw_atomic_fetch_add(T* target, T addendum) {
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_fetch_add_inl<T>(target, addendum);
+#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_fetch_add_cpp<T>(target, addendum);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+}
+
+/**
+ * @brief Atomic load with a seq_cst barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @return result of load
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T raw_atomic_load_seq_cst(const T* target) {
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_load_seq_cst_inl<T>(target);
+#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  return raw_atomic_load_seq_cst_cpp<T>(target);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+}
+
+/**
+ * @brief Atomic store with a seq_cst barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline void raw_atomic_store_seq_cst(T* target, T value) {
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  raw_atomic_store_seq_cst_inl<T>(target, value);
+#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  raw_atomic_store_seq_cst_cpp<T>(target, value);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+}
+
+/**
+ * @brief Atomic store with a release barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline void raw_atomic_store_release(T* target, T value) {
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  raw_atomic_store_release_inl<T>(target, value);
+#else  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+  raw_atomic_store_release_cpp<T>(target, value);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+}
 
 }  // namespace assorted
 }  // namespace foedus

@@ -89,7 +89,7 @@ enum IsolationLevel {
 typedef uint32_t McsBlockIndex;
 
 /**
- * Represents on MCS node, a pair of node-owner (thread) and its block index.
+ * Represents an MCS node, a pair of node-owner (thread) and its block index.
  */
 union McsNodeUnion {
   uint64_t word;
@@ -99,7 +99,33 @@ union McsNodeUnion {
   } components;
 
   bool is_valid() const ALWAYS_INLINE { return components.block_ != 0; }
+  bool is_valid_atomic() const ALWAYS_INLINE {
+    McsBlockIndex block = assorted::raw_atomic_load_seq_cst<McsBlockIndex>(&components.block_);
+    return block != 0;
+  }
   void clear() ALWAYS_INLINE { word = 0; }
+  void clear_atomic() ALWAYS_INLINE { set_atomic(0, 0); }
+  void clear_release() ALWAYS_INLINE { set_release(0, 0); }
+  void set(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    McsNodeUnion new_value;
+    new_value.components.thread_id_ = thread_id;
+    new_value.components.block_ = block;
+    word = new_value.word;  // don't do *this = new_value. this must be an assignment of one int
+  }
+  void set_atomic(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    McsNodeUnion new_value;
+    new_value.components.thread_id_ = thread_id;
+    new_value.components.block_ = block;
+    // The following is inlined as far as the compile-unit (caller) is compiled with C++11.
+    // We observed 5%~ performance difference in TPCC with/without the inlining.
+    assorted::raw_atomic_store_seq_cst<uint64_t>(&this->word, new_value.word);
+  }
+  void set_release(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    McsNodeUnion new_value;
+    new_value.components.thread_id_ = thread_id;
+    new_value.components.block_ = block;
+    assorted::raw_atomic_store_release<uint64_t>(&this->word, new_value.word);
+  }
 };
 
 /** Pre-allocated MCS block. we so far pre-allocate at most 2^16 nodes per thread. */
@@ -113,6 +139,7 @@ struct McsBlock {
 
   /// setter/getter for successor_.
   inline bool             has_successor() const ALWAYS_INLINE { return successor_.is_valid(); }
+  inline bool has_successor_atomic() const ALWAYS_INLINE { return successor_.is_valid_atomic(); }
   inline uint32_t         get_successor_thread_id() const ALWAYS_INLINE {
     return successor_.components.thread_id_;
   }
@@ -120,11 +147,16 @@ struct McsBlock {
     return successor_.components.block_;
   }
   inline void             clear_successor() ALWAYS_INLINE { successor_.clear(); }
+  inline void             clear_successor_atomic() ALWAYS_INLINE { successor_.clear_atomic(); }
+  inline void             clear_successor_release() ALWAYS_INLINE { successor_.clear_release(); }
   inline void set_successor(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    McsNodeUnion new_value;
-    new_value.components.thread_id_ = thread_id;
-    new_value.components.block_ = block;
-    successor_ = new_value;
+    successor_.set(thread_id, block);
+  }
+  inline void set_successor_atomic(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    successor_.set_atomic(thread_id, block);
+  }
+  inline void set_successor_release(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    successor_.set_release(thread_id, block);
   }
 };
 
@@ -163,15 +195,32 @@ struct McsLock {
   /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
   void          release_lock(thread::Thread* context, McsBlockIndex block);
 
+  /// The followings are implemented in thread_pimpl.cpp along with the above methods,
+  /// but these don't use any of Thread's context information.
+  void          ownerless_acquire_lock();
+  void          ownerless_release_lock();
+
+
   thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_ >> 16U; }
   McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return data_ & 0xFFFFU; }
 
   /** used only while page initialization */
-  void    reset() ALWAYS_INLINE { data_ = 0; }
+  void  reset() ALWAYS_INLINE { data_ = 0; }
 
   /** used only for initial_lock() */
-  void    reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+  void  reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
     data_ = to_int(tail_waiter, tail_waiter_block);
+  }
+
+  void  reset_atomic() ALWAYS_INLINE { reset_atomic(0, 0); }
+  void  reset_atomic(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    uint32_t data = to_int(tail_waiter, tail_waiter_block);
+    assorted::raw_atomic_store_seq_cst<uint32_t>(&data_, data);
+  }
+  void  reset_release() ALWAYS_INLINE { reset_release(0, 0); }
+  void  reset_release(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    uint32_t data = to_int(tail_waiter, tail_waiter_block);
+    assorted::raw_atomic_store_release<uint32_t>(&data_, data);
   }
 
   static uint32_t to_int(
