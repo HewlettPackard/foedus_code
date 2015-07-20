@@ -894,7 +894,6 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
   // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
-  assorted::memory_fence_acq_rel();
   ASSERT_ND(!control_block_->mcs_waiting_);
   assert_mcs_aligned(mcs_lock);
   // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
@@ -909,13 +908,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   assert_mcs_aligned(address);
 
   // atomic op should imply full barrier, but make sure announcing the initialized new block.
-  assorted::memory_fence_release();  // https://bugzilla.mozilla.org/show_bug.cgi?id=873799
-#if defined(__GNUC__)
-  // GCC's builtin atomic. maybe a bit faster
-  uint32_t old_int = __sync_lock_test_and_set(address, desired);
-#else  // defined(__GNUC__)
   uint32_t old_int = assorted::raw_atomic_exchange<uint32_t>(address, desired);
-#endif  // defined(__GNUC__)
 
   xct::McsLock old;
   old.data_ = old_int;
@@ -949,7 +942,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   }
 #endif  // NDEBUG
 
-  pred_block->set_successor(id_, block_index);
+  pred_block->set_successor_release(id_, block_index);
 
   spin_until([this]{ return this->control_block_->mcs_waiting_.load(); });
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
@@ -981,7 +974,6 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
   // Also, check minimal sufficient lock/mfences.
-  assorted::memory_fence_acq_rel();
   assert_mcs_aligned(mcs_lock);
   ASSERT_ND(!control_block_->mcs_waiting_);
   ASSERT_ND(mcs_lock->is_locked());
@@ -993,12 +985,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
     uint32_t expected = xct::McsLock::to_int(id_, block_index);
     uint32_t* address = &(mcs_lock->data_);
     assert_mcs_aligned(address);
-#if defined(__GNUC__)
-    // GCC's builtin atomic. maybe a bit faster because we don't have to give an address of expected
-    bool swapped = __sync_bool_compare_and_swap(address, expected, 0);
-#else  // defined(__GNUC__)
     bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, &expected, 0);
-#endif  // defined(__GNUC__)
     if (swapped) {
       // we have just unset the locked flag, but someone else might have just acquired it,
       // so we can't put assertion here.
@@ -1031,7 +1018,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   }
 #endif  // NDEBUG
 
-  successor_cb->mcs_waiting_.store(false, std::memory_order_seq_cst);
+  successor_cb->mcs_waiting_.store(false, std::memory_order_release);
 }
 
 static_assert(
