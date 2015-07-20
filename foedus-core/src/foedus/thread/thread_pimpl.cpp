@@ -876,15 +876,6 @@ void spin_until(COND spin_while_cond) {
     if ((spins & 0xFFFFFFU) == 0) {
       assorted::spinlock_yield();
     }
-    /*
-    if (spins == 0x10000000U) {
-      // Probably fixed the root cause (GCC's union handling).. but let's leave it here.
-      // gggrr, I get the deadlock only when I do not put this here.
-      // wtf. gcc bug or my brain is dead. let's figure out later
-      mcs_toolong_wait(mcs_lock, predecessor_id, block_index, predecessor_block);
-    }
-    // NO, if I enable this harmful code, now it starts again. WWWWWTTTTTTTTTTFFFFFFFFFF
-    */
   }
   DVLOG(1) << "Spin ended. Spent " << spins << " spins";
 }
