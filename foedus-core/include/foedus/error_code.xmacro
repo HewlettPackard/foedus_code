@@ -1,0 +1,148 @@
+/*
+ * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
+ * The license and distribution terms for this file are placed in LICENSE.txt.
+ */
+
+/*
+ * Syntax: X(<error code name>, <integer value of the error code>, <error message>)
+ *
+ * To add new errors, just insert at an arbitrary place, but note that the value of
+ * error codes must be unique. To maintain that as easy as possible, you keep the entries
+ * sorted by the value.
+ *
+ * A general naming rule: kErrorCode<module name>_<error name>.
+ * For example, kErrorCodeEngineInvalidOption.
+ * A general error code like out-of-memory might omit module names.
+ */
+X(kErrorCodeOutofmemory,            0x0001, "GENERAL: Out of memory")
+X(kErrorCodeInvalidParameter,       0x0002, "GENERAL: Invalid parameter given")
+X(kErrorCodeAlreadyInitialized,     0x0003, "GENERAL: Already initialized")
+X(kErrorCodeBatchedError,           0x0004, "GENERAL: More than one errors observed")
+X(kErrorCodeDepedentModuleUnavailableInit,      0x0005, "GENERAL: A dependent module is not initialized yet. This implies a wrong initialization order in EnginePimpl.")
+X(kErrorCodeDepedentModuleUnavailableUninit,    0x0006, "GENERAL: A dependent module is already uninitialized. This implies a wrong uninitialization order in EnginePimpl.")
+X(kErrorCodeBeingShutdown,          0x0007, "GENERAL: The engine is being shutdown.")
+X(kErrorCodeTimeout,                0x0008, "GENERAL: Timeout.")
+X(kErrorCodeNotimplemented,         0x0009, "GENERAL: Not implemented yet.")
+X(kErrorCodeSessionExpired,         0x000A, "GENERAL: The session has expired.")
+X(kErrorCodeUserDefined,            0x000B, "GENERAL: User-defined error. The meaning of this error depends on the user code.")
+X(kErrorCodeInternalError,          0x000C, "GENERAL: Other uncategorized errors.")
+
+X(kErrorCodeOsMProtectFailed,       0x000D, "GENERAL: OS: mprotect() failed.")
+
+X(kErrorCodeEnvPrescreenFailed,     0x000E, "GENERAL: Pre-screening of the environment detected"
+    " an issue before start up. This is caused by a misconfiguration on the environment or the"
+    " given parameters. See the console output for more detailed diagnostics.")
+
+X(kErrorCodeEngineInvalidOption,    0x0101, "ENGINE : Invalid Option")
+
+X(kErrorCodeFsAlreadyOpened,    0x0201, "FILESYS: Already opened")
+X(kErrorCodeFsFailedToOpen,     0x0202, "FILESYS: Failed to open a file")
+X(kErrorCodeFsBadSeekInput,     0x0203, "FILESYS: Invalid arguments for seek()")
+X(kErrorCodeFsSeekFailed,       0x0204, "FILESYS: file seek failed")
+X(kErrorCodeFsBufferTooSmall,   0x0205, "FILESYS: file buffer is too small")
+X(kErrorCodeFsBufferNotAligned, 0x0206, "FILESYS: file buffer is not aligned")
+X(kErrorCodeFsTooShortRead,     0x0207, "FILESYS: reached end of file before completing reads")
+X(kErrorCodeFsExcessRead,       0x0208, "FILESYS: read more than expected")
+X(kErrorCodeFsWriteFail,        0x0209, "FILESYS: Disk write failed.")
+X(kErrorCodeFsExcessWrite,      0x020A, "FILESYS: wrote more than expected")
+X(kErrorCodeFsNotOpened,        0x020B, "FILESYS: File not opened yet or failed to open.")
+X(kErrorCodeFsSyncFailed,       0x020C, "FILESYS: fsync() failed.")
+X(kErrorCodeFsMkdirFailed,      0x020D, "FILESYS: Failed to create a directory")
+X(kErrorCodeFsTruncateFailed,   0x020E, "FILESYS: File truncation failed")
+X(kErrorCodeFsResultNotAligned, 0x020F, "FILESYS: Direct I/O operation resulted in non-aligned count of bytes. Filesyste bug?")
+
+X(kErrorCodeMemoryNoFreePages,  0x0301, "MEMORY : Not enough free volatile pages. Check the config of MemoryOptions")
+X(kErrorCodeMemoryDuplicatePage,    0x0302, "MEMORY : Duplicate entry in free-page pool.")
+X(kErrorCodeMemoryPagePoolTooSmall, 0x0303, "MEMORY : Page Pool size is too small.")
+X(kErrorCodeMemoryNumaUnavailable,  0x0304, "MEMORY : NUMA library is not available.")
+
+X(kErrorCodeConfParseFailed,        0x0401, "CONFIG : Config file parsing failed. This usually means an invalid XML file.")
+X(kErrorCodeConfValueOutofrange,    0x0402, "CONFIG : Configuration value out of range.")
+X(kErrorCodeConfMissingElement,     0x0403, "CONFIG : The xml element is missing in the config file.")
+X(kErrorCodeConfInvalidElement,     0x0404, "CONFIG : An invalid valud in the xml element.")
+X(kErrorCodeConfEmptyXml,           0x0405, "CONFIG : No root element in the xml.")
+X(kErrorCodeConfFileNotFount,       0x0406, "CONFIG : The file doesn't exist.")
+X(kErrorCodeConfCouldNotWrite,      0x0407, "CONFIG : Failed to write a configuration file.")
+X(kErrorCodeConfCouldNotRename,     0x0408, "CONFIG : Failed to atomically rename the temporary file to destination.")
+X(kErrorCodeConfMkdirsFailed,       0x0409, "CONFIG : Failed to create a directory. Check permissions.")
+
+X(kErrorCodeLogInvalidLoggerCount,  0x0501, "LOG    : The number of loggers per node must be a submultiple of the number of cores in the node. Check the settings in LogOptions")
+X(kErrorCodeLogInvalidApplyType,    0x0502, "LOG    : This log type does not support this type of apply")
+X(kErrorCodeLogInvalidLogType,      0x0503, "LOG    : LOG_TYPE_INVALID")
+
+X(kErrorCodeSnapshotInvalidLogEnd,  0x0601, "SNAPSHT: Inconsistent end of log entry detected.")
+X(kErrorCodeSnapshotCancelled,      0x0602, "SNAPSHT: (internal error code) Snapshot task cancelled.")
+X(kErrorCodeSnapshotExitTimeout,    0x0603, "SNAPSHT: Snapshot mappers/reducers take too long time to respond to exit request. Timeout happened.")
+
+X(kErrorCodeSpInconsistentSavepoint, 0x0701, "SAVEPNT: Savepoint file is not consistent with other configurations. Check the number of loggers.")
+
+X(kErrorCodeStrDuplicateStrid,      0x0801, "STORAGE: Duplicate StorageID")
+X(kErrorCodeStrAlreadyExists,       0x0802, "STORAGE: This storage already exists")
+X(kErrorCodeStrDuplicateStrname,    0x0803, "STORAGE: This Storage Name already exists")
+X(kErrorCodeStrMustSeparateXct,     0x0804, "STORAGE: This storage operation must be done in a separate transaction.")
+X(kErrorCodeStrArrayInvalidOption,  0x0805, "STORAGE: Invalid Option for array storage")
+X(kErrorCodeStrWrongMetadataType,   0x0806, "STORAGE: Metadata type does not match")
+X(kErrorCodeStrUnsupportedMetadata, 0x0807, "STORAGE: This metadata type is not yet supported")
+X(kErrorCodeStrTooLongPayload,      0x0808, "STORAGE: Payload of the record is too long")
+X(kErrorCodeStrTooSmallPayloadBuffer, 0x0809, "STORAGE: The record's payload is larger than the buffer")
+X(kErrorCodeStrTooShortPayload,     0x080A, "STORAGE: The record's payload is smaller than requested")
+X(kErrorCodeStrKeyAlreadyExists,    0x080B, "STORAGE: This key already exists in this storage")
+X(kErrorCodeStrKeyNotFound,         0x080C, "STORAGE: This key is not found in this storage")
+X(kErrorCodeStrHashBinsTooMany,     0x080D, "STORAGE: HASH: Number of hash-bins too large compared to storage.partitioner_data_memory_mb_.")
+X(kErrorCodeStrMasstreeRetry,       0x0811, "STORAGE: MASSTREE: Retry search. This is an internal error code used to retry find_border.")
+X(kErrorCodeStrMasstreeTooManyRetries, 0x0812, "STORAGE: MASSTREE: Retrying too many times. Gave up")
+X(kErrorCodeStrMasstreeFailedVerification, 0x0813, "STORAGE: MASSTREE: Failed verification. Found an inconsistency")
+X(kErrorCodeStrMasstreeCursorTooDeep, 0x0814, "STORAGE: MASSTREE: Cursor encountered a too deep path")
+X(kErrorCodeStrArrayFailedVerification, 0x0821, "STORAGE: ARRAY: Failed verification. Found an inconsistency")
+X(kErrorCodeStrTooManyStorages,     0x0822, "STORAGE: Reached maximum number of storages. To register more storages, adjust StorageOptions::max_storages.")
+X(kErrorCodeStrAlreadyDropped,      0x0823, "STORAGE: This storage does not exist or has been already dropped")
+X(kErrorCodeStrEmptyName,           0x0824, "STORAGE: Storage name is empty")
+X(kErrorCodeStrPartitionerDataMemoryTooSmall, 0x0825, "STORAGE: Memory for Partitioners ran out during snapshot. Increase StorageOptions::partitioner_data_memory_mb_")
+X(kErrorCodeStrTooLargeArray,       0x0826, "STORAGE: Too large array size specified. The size of an array storage must be smaller than 2^48")
+X(kErrorCodeStrHashFailedVerification, 0x0827, "STORAGE: HASH: Failed verification. Found an inconsistency")
+
+X(kErrorCodeCacheNoFreePages,       0x0901, "SPCACHE: Not enough free snapshot pages. Cleaner is not catching up")
+X(kErrorCodeCacheTableFull,         0x0902, "SPCACHE: Hashtable full or too many skewed inserts")
+X(kErrorCodeCacheTooManyOverflow,   0x0903, "SPCACHE: Hashtable for snapshot cache got too many overflow entries")
+
+X(kErrorCodeXctReadSetOverflow,     0x0A01, "XCTION : Too large read-set. Check the config of XctOptions")
+X(kErrorCodeXctWriteSetOverflow,    0x0A02, "XCTION : Too large write-set. Check the config of XctOptions")
+X(kErrorCodeXctAlreadyRunning,      0x0A03, "XCTION : This thread is already running a transaction. Commit or abort it first.")
+X(kErrorCodeXctNoXct,               0x0A04, "XCTION : This thread is not running any transaction.")
+X(kErrorCodeXctRaceAbort,           0x0A05, "XCTION : Aborted a transaction because of a race condition. This is an expected error in highly contended case. You might retry the transaction.")
+X(kErrorCodeXctPageVersionSetOverflow, 0x0A06, "XCTION : Too large page-version set. Consider using snapshot isolation.")
+X(kErrorCodeXctPointerSetOverflow,  0x0A07, "XCTION : Too large pointer-set. Consider using snapshot isolation.")
+X(kErrorCodeXctUserAbort,           0x0A08, "XCTION : User explicitly aborted a transaction.")
+X(kErrorCodeXctNoMoreLocalWorkMemory, 0x0A09, "XCTION : Out of local work memory for the current transaction. Adjust XctOptions::local_work_memory_size_mb_.")
+
+X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")
+
+X(kErrorCodeSocShmAllocFailed,      0x0C01, "SOC    : Failed to allocate a shared memory. This is usually caused by a misconfigured environment. Check the following:"
+      " - Too small kernel.shmmax/kernel.shmmin. sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -w kernel.shmmni=409600; sudo sysctl -p"
+      " - Too few hugepages. sudo sh -c 'echo 1000 > /proc/sys/vm/nr_hugepages'"
+      " - Too small mlock. Check ulimit -l. Configure /etc/security/limits.conf"
+      " - Too small nofile. Check ulimit -a. Configure /etc/security/limits.conf"
+      " - Simply larger than DRAM in the machine. "
+      " - (Very rare) shm key conflict.")
+X(kErrorCodeSocShmAttachFailed,     0x0C02, "SOC    : Failed to attach a shared memory.")
+X(kErrorCodeSocForkFailed,          0x0C03, "SOC    : Failed to fork child SOCs.")
+X(kErrorCodeSocSpawnFailed,         0x0C04, "SOC    : Failed to spawn child SOCs.")
+X(kErrorCodeSocEmulateFailed,       0x0C05, "SOC    : Failed to launch emulated child SOCs.")
+X(kErrorCodeSocLaunchTimeout,       0x0C06, "SOC    : Timeout happend while waiting for child SOCs to start up. Probably child SOC(s) hanged.")
+X(kErrorCodeSocMasterDied,          0x0C07, "SOC    : Master engine died unexpectedly. This child engine will follow.")
+X(kErrorCodeSocMasterUnexpectedState, 0x0C08, "SOC    : The status of master engine is unexpected.")
+X(kErrorCodeSocTerminateTimeout,    0x0C09, "SOC    : Timeout happend while waiting for child SOCs to terminate. Probably child SOC(s) hanged.")
+X(kErrorCodeSocTerminateFailed,     0x0C0A, "SOC    : Failed to normally terminate some SOC(s)..")
+X(kErrorCodeSocChildInitFailed,     0x0C0B, "SOC    : Child SOC failed to initialize a module.")
+X(kErrorCodeSocChildUninitFailed,   0x0C0C, "SOC    : Child SOC failed to uninitialize a module.")
+
+X(kErrorCodeProcPreRegisterTooLate, 0x0D01, "PROC   : Pre-register can be called only before engine initialization.")
+X(kErrorCodeProcRegisterTooEarly,   0x0D02, "PROC   : Post-register can be called only after engine initialization.")
+X(kErrorCodeProcRegisterUnsupportedSocType, 0x0D03, "PROC   : This registration type cannot be used for this SOC type.")
+X(kErrorCodeProcRegisterMasterOnly, 0x0D04, "PROC   : This registration type can be invoked only at master engine.")
+X(kErrorCodeProcRegisterChildOnly,  0x0D05, "PROC   : This registration type can be invoked only at child engine.")
+X(kErrorCodeProcNotFound,           0x0D06, "PROC   : The specified procedure name is not found in this engine.")
+X(kErrorCodeProcProcAlreadyExists,  0x0D07, "PROC   : The specified procedure name already exists in this engine.")
+
+
+X(kErrorCodeThrNoThreadAvailable,   0x0E01, "THREAD : No worker thread is available for impersonation.")

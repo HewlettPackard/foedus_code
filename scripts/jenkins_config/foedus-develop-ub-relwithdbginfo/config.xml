@@ -1,0 +1,149 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project>
+  <actions/>
+  <description></description>
+  <logRotator class="hudson.tasks.LogRotator">
+    <daysToKeep>42</daysToKeep>
+    <numToKeep>50</numToKeep>
+    <artifactDaysToKeep>21</artifactDaysToKeep>
+    <artifactNumToKeep>25</artifactNumToKeep>
+  </logRotator>
+  <keepDependencies>false</keepDependencies>
+  <properties/>
+  <scm class="hudson.plugins.git.GitSCM" plugin="git@2.2.1">
+    <configVersion>2</configVersion>
+    <userRemoteConfigs>
+      <hudson.plugins.git.UserRemoteConfig>
+        <url>http://github.com/hkimura/foedus_code.git</url>
+      </hudson.plugins.git.UserRemoteConfig>
+    </userRemoteConfigs>
+    <branches>
+      <hudson.plugins.git.BranchSpec>
+        <name>*/develop</name>
+      </hudson.plugins.git.BranchSpec>
+    </branches>
+    <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+    <browser class="hudson.plugins.git.browser.GitLab">
+      <url>http://github.com/hkimura/foedus_code/</url>
+      <version>6.0</version>
+    </browser>
+    <submoduleCfg class="list"/>
+    <extensions/>
+  </scm>
+  <canRoam>true</canRoam>
+  <disabled>false</disabled>
+  <blockBuildWhenDownstreamBuilding>false</blockBuildWhenDownstreamBuilding>
+  <blockBuildWhenUpstreamBuilding>false</blockBuildWhenUpstreamBuilding>
+  <triggers>
+    <jenkins.triggers.ReverseBuildTrigger>
+      <spec></spec>
+      <upstreamProjects>foedus-develop-ub-release</upstreamProjects>
+      <threshold>
+        <name>FAILURE</name>
+        <ordinal>2</ordinal>
+        <color>RED</color>
+        <completeBuild>true</completeBuild>
+      </threshold>
+    </jenkins.triggers.ReverseBuildTrigger>
+  </triggers>
+  <concurrentBuild>false</concurrentBuild>
+  <builders>
+    <hudson.plugins.cmake.CmakeBuilder plugin="cmakebuilder@1.9">
+      <sourceDir>.</sourceDir>
+      <buildDir>build</buildDir>
+      <installDir>install</installDir>
+      <buildType>RelWithDebInfo</buildType>
+      <otherBuildType></otherBuildType>
+      <generator>Unix Makefiles</generator>
+      <makeCommand>make</makeCommand>
+      <installCommand>make install</installCommand>
+      <preloadScript></preloadScript>
+      <cmakeArgs>-DRUN_EXPENSIVE_TESTCASES=ON</cmakeArgs>
+      <projectCmakePath></projectCmakePath>
+      <cleanBuild>true</cleanBuild>
+      <cleanInstallDir>false</cleanInstallDir>
+      <builderImpl/>
+    </hudson.plugins.cmake.CmakeBuilder>
+    <hudson.tasks.Shell>
+      <command>cd build; ctest -E valgrind || true</command>
+    </hudson.tasks.Shell>
+    <hudson.tasks.Shell>
+      <command>cd build; make cloc</command>
+    </hudson.tasks.Shell>
+  </builders>
+  <publishers>
+    <hudson.plugins.warnings.WarningsPublisher plugin="warnings@4.40">
+      <healthy></healthy>
+      <unHealthy></unHealthy>
+      <thresholdLimit>low</thresholdLimit>
+      <pluginName>[WARNINGS] </pluginName>
+      <defaultEncoding></defaultEncoding>
+      <canRunOnFailed>false</canRunOnFailed>
+      <useStableBuildAsReference>false</useStableBuildAsReference>
+      <useDeltaValues>false</useDeltaValues>
+      <thresholds plugin="analysis-core@1.56">
+        <unstableTotalAll></unstableTotalAll>
+        <unstableTotalHigh></unstableTotalHigh>
+        <unstableTotalNormal></unstableTotalNormal>
+        <unstableTotalLow></unstableTotalLow>
+        <failedTotalAll></failedTotalAll>
+        <failedTotalHigh></failedTotalHigh>
+        <failedTotalNormal></failedTotalNormal>
+        <failedTotalLow></failedTotalLow>
+      </thresholds>
+      <shouldDetectModules>false</shouldDetectModules>
+      <dontComputeNew>true</dontComputeNew>
+      <doNotResolveRelativePaths>true</doNotResolveRelativePaths>
+      <parserConfigurations/>
+      <consoleParsers>
+        <hudson.plugins.warnings.ConsoleParser>
+          <parserName>GNU Make + GNU C Compiler (gcc)</parserName>
+        </hudson.plugins.warnings.ConsoleParser>
+        <hudson.plugins.warnings.ConsoleParser>
+          <parserName>CppLint</parserName>
+        </hudson.plugins.warnings.ConsoleParser>
+      </consoleParsers>
+    </hudson.plugins.warnings.WarningsPublisher>
+    <hudson.plugins.sloccount.SloccountPublisher plugin="sloccount@1.20">
+      <pattern>build/cloc_out.xml</pattern>
+      <encoding></encoding>
+      <commentIsCode>true</commentIsCode><numBuildsInGraph>0</numBuildsInGraph>
+      <ignoreBuildFailure>false</ignoreBuildFailure>
+    </hudson.plugins.sloccount.SloccountPublisher>
+    <xunit plugin="xunit@1.89">
+      <types>
+        <GoogleTestType>
+          <pattern>build/test-reports/*.xml</pattern>
+          <skipNoTestFiles>false</skipNoTestFiles>
+          <failIfNotNew>true</failIfNotNew>
+          <deleteOutputFiles>true</deleteOutputFiles>
+          <stopProcessingIfError>true</stopProcessingIfError>
+        </GoogleTestType>
+      </types>
+      <thresholds>
+        <org.jenkinsci.plugins.xunit.threshold.FailedThreshold>
+          <unstableThreshold>0</unstableThreshold>
+          <unstableNewThreshold>0</unstableNewThreshold>
+          <failureThreshold>10</failureThreshold>
+          <failureNewThreshold>10</failureNewThreshold>
+        </org.jenkinsci.plugins.xunit.threshold.FailedThreshold>
+        <org.jenkinsci.plugins.xunit.threshold.SkippedThreshold>
+          <unstableThreshold></unstableThreshold>
+          <unstableNewThreshold></unstableNewThreshold>
+          <failureThreshold></failureThreshold>
+          <failureNewThreshold></failureNewThreshold>
+        </org.jenkinsci.plugins.xunit.threshold.SkippedThreshold>
+      </thresholds>
+      <thresholdMode>1</thresholdMode>
+      <extraConfiguration>
+        <testTimeMargin>3000</testTimeMargin>
+      </extraConfiguration>
+    </xunit>
+    <hudson.tasks.Mailer plugin="mailer@1.8">
+      <recipients>foedus-build-failure-notification-list@googlegroups.com</recipients>
+      <dontNotifyEveryUnstableBuild>false</dontNotifyEveryUnstableBuild>
+      <sendToIndividuals>false</sendToIndividuals>
+    </hudson.tasks.Mailer>
+  </publishers>
+  <buildWrappers/>
+</project>

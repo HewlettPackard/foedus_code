@@ -1,0 +1,198 @@
+## Valgrind suppression file
+## Add false positives and third party's bugs to here.
+## valgrind --leak-check=full --show-leak-kinds=all --suppressions=<path_to_valgrind.supp> --gen-suppressions=all ./<your_program>
+## Put <Reporter> <Date> <Environment> <Some comment> for each of them
+
+## NOTE: Do not use "match-leak-kinds" feature. It's only supported in valgrind 3.9 and later.
+## It works on Fedora 20, but not on Fedora 19.
+## Comment it out before adding the file to repo.
+
+# Hideaki, 2014 Apr, Fedora 19, libunwind's bug.
+{
+   libunwind_bug1
+   Memcheck:Param
+   msync(start)
+   fun:__msync_nocancel
+   obj:/usr/lib64/libunwind.so.*
+   obj:/usr/lib64/libunwind.so.*
+   obj:/usr/lib64/libunwind.so.*
+   obj:/usr/lib64/libunwind.so.*
+   fun:_ULx86_64_step
+   fun:_Z13GetStackTracePPvii
+   fun:_ZN8tcmalloc8PageHeap8GrowHeapEm
+   fun:_ZN8tcmalloc8PageHeap3NewEm
+   fun:_ZN8tcmalloc15CentralFreeList8PopulateEv
+   fun:_ZN8tcmalloc15CentralFreeList18FetchFromSpansSafeEv
+   fun:_ZN8tcmalloc15CentralFreeList11RemoveRangeEPPvS2_i
+}
+{
+   libunwind_bug2
+   Memcheck:Param
+   msync(start)
+   obj:/usr/lib64/libpthread-*
+   obj:/usr/lib64/libunwind.so*
+   obj:/usr/lib64/libunwind.so*
+   obj:/usr/lib64/libunwind.so*
+   obj:/usr/lib64/libunwind.so*
+   fun:_ULx86_64_step
+   fun:_Z13GetStackTracePPvii
+   fun:_ZN8tcmalloc8PageHeap8GrowHeapEm
+   fun:_ZN8tcmalloc8PageHeap3NewEm
+   fun:_ZN8tcmalloc15CentralFreeList8PopulateEv
+   fun:_ZN8tcmalloc15CentralFreeList18FetchFromSpansSafeEv
+   fun:_ZN8tcmalloc15CentralFreeList11RemoveRangeEPPvS2_i
+}
+
+# Hideaki, 2014 Apr, Fedora 20, libprofiler's bug.
+#   match-leak-kinds: reachable
+{
+   libprofiler_bug1
+   Memcheck:Leak
+   fun:_Znwm
+   fun:_ZN14ProfileHandler4InitEv
+   fun:pthread_once
+   fun:_ZN14ProfileHandler8InstanceEv
+   fun:ProfileHandlerRegisterThread
+   obj:/usr/lib64/libprofiler.so*
+}
+
+# Hideaki, 2014 Apr, Fedora 20,
+# http://comments.gmane.org/gmane.linux.kernel.numa/814
+# According to this, these are by design, not a bug of libnuma.
+#   match-leak-kinds: reachable
+{
+   numa_run_on_node_global1
+   Memcheck:Leak
+   ...
+   fun:numa_run_on_node
+}
+
+
+# Hideaki, 2014 May, Fedora 20.
+# Observed "Invalid read of size 4" from std::promise. Someone else has observed the same
+# https://www.mail-archive.com/gcc-bugs@gcc.gnu.org/msg420101.html
+# So, I guess this is libstdc++'s bug.. but not 100% sure yet.
+#{
+#   std_set_once_bug
+#   Memcheck:Addr4
+#   fun:pthread_once
+#   fun:_ZL14__gthread_oncePiPFvvE
+#   fun:_ZSt9call_onceIMNSt13__future_base11_State_baseEFvRSt8functionIFSt10unique_ptrINS0_12_Result_baseENS4_8_DeleterEEvEERbEIKPS1_St17reference_wrapperIS8_ESF_IbEEEvRSt9once_flagOT_DpOT0_
+#    ...
+# }
+# May 14. Ummm, this seems a real bug in libstdc, rather than a false positive (sorry, valgrind).
+# This std::promise issue is causing a crash.
+#   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=60966
+# Maybe I should avoid reuse of std::promise to work it around.
+
+
+# Hideaki, 2014 May, Fedora 20.
+# Most likely this is a bug in GLOG's SetVLOGLevel. Seems like it leaks one std::string.
+# It's not a big issue, probably intentional as it's one-time allocation.
+#   match-leak-kinds: reachable
+{
+   glog_setvloglevel_leak1
+   Memcheck:Leak
+   fun:_Znwm
+   fun:_ZN6google12SetVLOGLevelEPKci
+   ...
+}
+#   match-leak-kinds: possible
+{
+   glog_setvloglevel_leak2
+   Memcheck:Leak
+   fun:_Znwm
+   fun:_ZNSs4_Rep9_S_createEmmRKSaIcE
+   fun:_ZNSs9_M_mutateEmmm
+   fun:_ZNSs15_M_replace_safeEmmPKcm
+   fun:_ZN6google12SetVLOGLevelEPKci
+}
+{
+   glog_setvloglevel_leak3
+   Memcheck:Leak
+   fun:_Znwm
+   ...
+   fun:_ZN6google12SetVLOGLevelEPKci
+   ...
+}
+
+
+# Hideaki, 2014 Aug, Fedora 19.
+# PAPI leaves something even after calling PAPI_shutdown().
+# http://lists.eecs.utk.edu/pipermail/perfapi-devel/2009-October/002923.html
+{
+   papi_init_leak
+   Memcheck:Leak
+   ...
+   fun:PAPI_library_init
+   ...
+}
+{
+   papi_uninit
+   Memcheck:Cond
+   ...
+   fun:_papi_load_preset_table
+   ...
+}
+
+{
+   papi_uninit2
+   Memcheck:Cond
+   ...
+   fun:pfmlib_find_os
+   fun:pfm_get_pmu_info
+   ...
+}
+{
+   papi_addr
+   Memcheck:Addr8
+   ...
+   fun:_Z24GetStackTraceWithContextPPviiPKv
+   ...
+   fun:_ZN14ProfileHandler13SignalHandlerEiP9siginfo_tPv
+   ...
+   fun:intel_x86_attr2umask
+   fun:pfm_intel_x86_get_event_attr_info
+   ...
+}
+{
+   gperftools_addr
+   Memcheck:Addr4
+   ...
+   fun:_Z24GetStackTraceWithContextPPviiPKv
+   ...
+   fun:_ZN14ProfileHandler13SignalHandlerEiP9siginfo_tPv
+   ...
+}
+
+
+######################################################################
+###
+###  AArch64 suppressions BEGIN
+###
+######################################################################
+# Hideaki, 2014 Dec, AArch64-Ubuntu. xgene ARMv8.
+# kimurhid@ms01915-003:~/$ uname -a
+# Linux ms01915-003 3.13.0-37-generic #64-Ubuntu SMP Mon Sep 22 21:32:32 UTC 2014 aarch64 aarch64 aarch64 GNU/Linux
+# valgrind version 3.10.1 (3.10.0.SVN has lots of ARMv8 issues, so we source-build valgrind.)
+{
+   aarch64_gtest_init1
+   Memcheck:Leak
+   ...
+   fun:_Znwm
+   fun:_ZNSs4_Rep9_S_createEmmRKSaIcE
+   ...
+   fun:_GLOBAL__sub_I__ZN7testing8internal17kStackTraceMarkerE
+   fun:__libc_csu_init
+   ...
+}
+{
+   aarch64_gtest_mutate
+   Memcheck:Leak
+   fun:_Znwm
+   fun:_ZNSs4_Rep9_S_createEmmRKSaIcE
+   fun:_ZNSs9_M_mutateEmmm
+   ...
+   fun:_ZN7testing8internal18InitGoogleTestImplIcEEvPiPPT_
+   fun:main
+}

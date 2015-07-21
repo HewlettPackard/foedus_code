@@ -1,0 +1,4 @@
+sudo su
+for CPUFREQ in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -f $CPUFREQ ] || continue; echo -n performance > $CPUFREQ; done
+
+[root@smaug tpcc]# sudo echo 'never' > /sys/kernel/mm/transparent_hugepage/defrag

@@ -1,0 +1,38 @@
+/*
+ * Copyright (c) 2014, Hewlett-Packard Development Company, LP.
+ * The license and distribution terms for this file are placed in LICENSE.txt.
+ */
+
+/*
+ * Syntax: X(<log type code name>, <integer value of the type code>, <log type full class name>)
+ *
+ * To add new log types, just insert at an arbitrary place, but note that the value of
+ * log type codes must be unique. To maintain that as easy as possible, you keep the entries
+ * sorted by the value (ignoring the top 4 bits for log kinds).
+ * Do not forget to include the header file of the new log type in log_type.hpp
+ * if you added a new header file.
+ *
+ * A general naming rule: kLogCode<module type name><log name>.
+ * For example, kLogCodeArrayOverwrite.
+ * A general log code like "filler" might omit module type names.
+ *
+ * See LogCode for conventions on log code values.
+ */
+X(kLogCodeFiller,         0x3001, foedus::log::FillerLogType)
+X(kLogCodeEpochMarker,    0x3002, foedus::log::EpochMarkerLogType)
+X(kLogCodeDropLogType,    0x1011, foedus::storage::DropLogType)
+X(kLogCodeArrayCreate,    0x1021, foedus::storage::array::ArrayCreateLogType)
+X(kLogCodeArrayOverwrite, 0x0022, foedus::storage::array::ArrayOverwriteLogType)
+X(kLogCodeArrayIncrement, 0x0023, foedus::storage::array::ArrayIncrementLogType)
+X(kLogCodeSequentialCreate, 0x1025, foedus::storage::sequential::SequentialCreateLogType)
+X(kLogCodeSequentialAppend, 0x0026, foedus::storage::sequential::SequentialAppendLogType)
+X(kLogCodeHashCreate,     0x1027, foedus::storage::hash::HashCreateLogType)
+X(kLogCodeHashOverwrite,  0x0028, foedus::storage::hash::HashOverwriteLogType)
+X(kLogCodeHashInsert,     0x0029, foedus::storage::hash::HashInsertLogType)
+X(kLogCodeHashDelete,     0x002A, foedus::storage::hash::HashDeleteLogType)
+X(kLogCodeHashUpdate,     0x002B, foedus::storage::hash::HashUpdateLogType)
+X(kLogCodeMasstreeCreate,     0x1031, foedus::storage::masstree::MasstreeCreateLogType)
+X(kLogCodeMasstreeOverwrite,  0x0032, foedus::storage::masstree::MasstreeOverwriteLogType)
+X(kLogCodeMasstreeInsert,     0x0033, foedus::storage::masstree::MasstreeInsertLogType)
+X(kLogCodeMasstreeDelete,     0x0034, foedus::storage::masstree::MasstreeDeleteLogType)
+X(kLogCodeMasstreeUpdate,     0x0035, foedus::storage::masstree::MasstreeUpdateLogType)

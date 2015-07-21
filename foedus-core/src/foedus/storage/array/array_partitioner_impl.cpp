@@ -1,0 +1,364 @@
+/*
+ * Copyright (c) 2014-2015, Hewlett-Packard Development Company, LP.
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details. You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ *
+ * HP designates this particular file as subject to the "Classpath" exception
+ * as provided by HP in the LICENSE.txt file that accompanied this code.
+ */
+#include "foedus/storage/array/array_partitioner_impl.hpp"
+
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <ostream>
+#include <vector>
+
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/debugging/stop_watch.hpp"
+#include "foedus/log/common_log_types.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/storage/partitioner.hpp"
+#include "foedus/storage/storage_manager.hpp"
+#include "foedus/storage/array/array_log_types.hpp"
+#include "foedus/storage/array/array_page_impl.hpp"
+#include "foedus/storage/array/array_storage.hpp"
+#include "foedus/storage/array/array_storage_pimpl.hpp"
+
+namespace foedus {
+namespace storage {
+namespace array {
+
+ArrayPartitioner::ArrayPartitioner(Partitioner* parent)
+  : engine_(parent->get_engine()),
+    id_(parent->get_storage_id()),
+    metadata_(PartitionerMetadata::get_metadata(engine_, id_)) {
+  ASSERT_ND(metadata_->mutex_.is_initialized());
+  if (metadata_->valid_) {
+    data_ = reinterpret_cast<ArrayPartitionerData*>(metadata_->locate_data(engine_));
+  } else {
+    data_ = nullptr;
+  }
+}
+
+ArrayOffset ArrayPartitioner::get_array_size() const {
+  ASSERT_ND(data_);
+  return data_->array_size_;
+}
+
+uint8_t ArrayPartitioner::get_array_levels() const {
+  ASSERT_ND(data_);
+  return data_->array_levels_;
+}
+const PartitionId* ArrayPartitioner::get_bucket_owners() const {
+  ASSERT_ND(data_);
+  return data_->bucket_owners_;
+}
+bool ArrayPartitioner::is_partitionable() const {
+  ASSERT_ND(data_);
+  return data_->partitionable_;
+}
+
+ErrorStack ArrayPartitioner::design_partition(
+  const Partitioner::DesignPartitionArguments& /*args*/) {
+  ASSERT_ND(metadata_->mutex_.is_initialized());
+  ASSERT_ND(data_ == nullptr);
+  ArrayStorage storage(engine_, id_);
+  ASSERT_ND(storage.exists());
+  ArrayStorageControlBlock* control_block = storage.get_control_block();
+
+  soc::SharedMutexScope mutex_scope(&metadata_->mutex_);
+  ASSERT_ND(!metadata_->valid_);
+  WRAP_ERROR_CODE(metadata_->allocate_data(engine_, &mutex_scope, sizeof(ArrayPartitionerData)));
+  data_ = reinterpret_cast<ArrayPartitionerData*>(metadata_->locate_data(engine_));
+
+  data_->array_levels_ = storage.get_levels();
+  data_->array_size_ = storage.get_array_size();
+
+  if (storage.get_levels() == 1U || engine_->get_soc_count() == 1U) {
+    // No partitioning needed.
+    data_->bucket_owners_[0] = 0;
+    data_->partitionable_ = false;
+    data_->bucket_size_ = data_->array_size_;
+    metadata_->valid_ = true;
+    return kRetOk;
+  }
+
+  data_->partitionable_ = true;
+  ASSERT_ND(storage.get_levels() >= 2U);
+
+  // bucket size is interval that corresponds to a direct child of root.
+  // eg) levels==2 : leaf, levels==3: leaf*kInteriorFanout, ...
+  data_->bucket_size_ = control_block->route_finder_.get_records_in_leaf();
+  for (uint32_t level = 1; level < storage.get_levels() - 1U; ++level) {
+    data_->bucket_size_ *= kInteriorFanout;
+  }
+
+  const memory::GlobalVolatilePageResolver& resolver
+    = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  // root page is guaranteed to have volatile version.
+  ArrayPage* root_page = reinterpret_cast<ArrayPage*>(
+    resolver.resolve_offset(control_block->root_page_pointer_.volatile_pointer_));
+  ASSERT_ND(!root_page->is_leaf());
+
+  // how many direct children does this root page have?
+  uint16_t direct_children = storage.get_array_size() / data_->bucket_size_ + 1U;
+  if (storage.get_array_size() % data_->bucket_size_ != 0) {
+    ++direct_children;
+  }
+
+  // do we have enough direct children? if not, some partition will not receive buckets.
+  // Although it's not a critical error, let's log it as an error.
+  uint16_t total_partitions = engine_->get_options().thread_.group_count_;
+  ASSERT_ND(total_partitions > 1U);  // if not, why we are coming here. it's a waste.
+
+  if (direct_children < total_partitions) {
+    LOG(ERROR) << "Warning-like error: This array doesn't have enough direct children in root"
+      " page to assign partitions. #partitions=" << total_partitions << ", #direct children="
+      << direct_children << ". array=" << storage;
+  }
+
+  // two paths. first path simply sees volatile/snapshot pointer and determines owner.
+  // second path addresses excessive assignments, off loading them to needy ones.
+  std::vector<uint16_t> counts(total_partitions, 0);
+  const uint16_t excessive_count = (direct_children / total_partitions) + 1;
+  std::vector<uint16_t> excessive_children;
+  for (uint16_t child = 0; child < direct_children; ++child) {
+    const DualPagePointer &pointer = root_page->get_interior_record(child);
+    PartitionId partition;
+    if (pointer.volatile_pointer_.components.offset != 0) {
+      partition = pointer.volatile_pointer_.components.numa_node;
+    } else {
+      // if no volatile page, see snapshot page owner.
+      partition = extract_numa_node_from_snapshot_pointer(pointer.snapshot_pointer_);
+      // this ignores the case where neither snapshot/volatile page is there.
+      // however, as we create all pages at ArrayStorage::create(), this so far never happens.
+    }
+    ASSERT_ND(partition < total_partitions);
+    if (counts[partition] >= excessive_count) {
+      excessive_children.push_back(child);
+    } else {
+      ++counts[partition];
+      data_->bucket_owners_[child] = partition;
+    }
+  }
+
+  // just add it to the one with least assignments.
+  // a stupid loop, but this part won't be a bottleneck (only 250 elements).
+  for (uint16_t child : excessive_children) {
+    PartitionId most_needy = 0;
+    for (PartitionId partition = 1; partition < total_partitions; ++partition) {
+      if (counts[partition] < counts[most_needy]) {
+        most_needy = partition;
+      }
+    }
+
+    ++counts[most_needy];
+    data_->bucket_owners_[child] = most_needy;
+  }
+
+  metadata_->valid_ = true;
+  return kRetOk;
+}
+
+void ArrayPartitioner::partition_batch(const Partitioner::PartitionBatchArguments& args) const {
+  if (!is_partitionable()) {
+    std::memset(args.results_, 0, sizeof(PartitionId) * args.logs_count_);
+    return;
+  }
+
+  ASSERT_ND(data_->bucket_size_ > 0);
+  assorted::ConstDiv bucket_size_div(data_->bucket_size_);
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
+    const ArrayCommonUpdateLogType *log = reinterpret_cast<const ArrayCommonUpdateLogType*>(
+      args.log_buffer_.resolve(args.log_positions_[i]));
+    ASSERT_ND(log->header_.log_type_code_ == log::kLogCodeArrayOverwrite
+        || log->header_.log_type_code_ == log::kLogCodeArrayIncrement);
+    ASSERT_ND(log->header_.storage_id_ == id_);
+    ASSERT_ND(log->offset_ < get_array_size());
+    uint64_t bucket = bucket_size_div.div64(log->offset_);
+    ASSERT_ND(bucket < kInteriorFanout);
+    args.results_[i] = get_bucket_owners()[bucket];
+  }
+}
+
+/**
+  * Used in sort_batch().
+  * \li 0-5 bytes: ArrayOffset, the most significant.
+  * \li 6-7 bytes: compressed epoch (difference from base_epoch)
+  * \li 8-11 bytes: in-epoch-ordinal
+  * \li 12-15 bytes: BufferPosition (doesn't have to be sorted together, but for simplicity)
+  * Be careful on endian! We use uint128_t to make it easier and faster.
+  */
+struct SortEntry {
+  inline void set(
+    ArrayOffset               offset,
+    uint16_t                  compressed_epoch,
+    uint32_t                  in_epoch_ordinal,
+    snapshot::BufferPosition  position) ALWAYS_INLINE {
+    ASSERT_ND(offset < kMaxArrayOffset);
+    data_
+      = static_cast<__uint128_t>(offset) << 80
+        | static_cast<__uint128_t>(compressed_epoch) << 64
+        | static_cast<__uint128_t>(in_epoch_ordinal) << 32
+        | static_cast<__uint128_t>(position);
+  }
+  inline ArrayOffset get_offset() const ALWAYS_INLINE {
+    return static_cast<ArrayOffset>(data_ >> 80);
+  }
+  inline snapshot::BufferPosition get_position() const ALWAYS_INLINE {
+    return static_cast<snapshot::BufferPosition>(data_);
+  }
+  __uint128_t data_;
+};
+
+/** subroutine of sort_batch */
+// __attribute__ ((noinline))  // was useful to forcibly show it on cpu profile. nothing more.
+void prepare_sort_entries(const Partitioner::SortBatchArguments& args, SortEntry* entries) {
+  // CPU profile of partition_array_perf: 6-10%.
+  const Epoch base_epoch = args.base_epoch_;
+  for (uint32_t i = 0; i < args.logs_count_; ++i) {
+    const ArrayCommonUpdateLogType* log_entry = reinterpret_cast<const ArrayCommonUpdateLogType*>(
+      args.log_buffer_.resolve(args.log_positions_[i]));
+    ASSERT_ND(log_entry->header_.log_type_code_ == log::kLogCodeArrayOverwrite
+      || log_entry->header_.log_type_code_ == log::kLogCodeArrayIncrement);
+    Epoch epoch = log_entry->header_.xct_id_.get_epoch();
+    ASSERT_ND(epoch.subtract(base_epoch) < (1U << 16));
+    uint16_t compressed_epoch = epoch.subtract(base_epoch);
+    entries[i].set(
+      log_entry->offset_,
+      compressed_epoch,
+      log_entry->header_.xct_id_.get_ordinal(),
+      args.log_positions_[i]);
+  }
+}
+
+/** subroutine of sort_batch */
+// __attribute__ ((noinline))  // was useful to forcibly show it on cpu profile. nothing more.
+uint32_t compact_logs(const Partitioner::SortBatchArguments& args, SortEntry* entries) {
+  // CPU profile of partition_array_perf: 30-35%.
+  // Yeah, this is not cheap... but it can dramatically compact the logs.
+  uint32_t result_count = 1;
+  args.output_buffer_[0] = entries[0].get_position();
+  ArrayOffset prev_offset = entries[0].get_offset();
+  for (uint32_t i = 1; i < args.logs_count_; ++i) {
+    // compact the logs if the same offset appears in a row, and covers the same data region.
+    // because we sorted it by offset and then ordinal, later logs can overwrite the earlier one.
+    ArrayOffset cur_offset = entries[i].get_offset();
+    // wow, adding this UNLIKELY changed the CPU cost of this function from 35% to 13%,
+    // throughput of entire partition_array_perf 5M to 8.5M. because in this experiment
+    // there are few entries with same offset. I haven't seen this much difference with
+    // gcc's unlikely hint before! umm, compiler is not that smart, after all.
+    // this will penalize the case where we have many compaction, but in that case
+    // the following code has more cost anyways.
+    if (UNLIKELY(cur_offset == prev_offset)) {
+      const log::RecordLogType* prev_p = args.log_buffer_.resolve(entries[i - 1].get_position());
+      log::RecordLogType* next_p = args.log_buffer_.resolve(entries[i].get_position());
+      if (prev_p->header_.log_type_code_ != next_p->header_.log_type_code_) {
+        // increment log can be superseded by overwrite log,
+        // overwrite log can be merged with increment log.
+        // however, these usecases are probably much less frequent than the following.
+        // so, we don't compact this case so far.
+      } else if (prev_p->header_.get_type() == log::kLogCodeArrayOverwrite) {
+        // two overwrite logs might be compacted
+        const ArrayOverwriteLogType* prev = reinterpret_cast<const ArrayOverwriteLogType*>(prev_p);
+        const ArrayOverwriteLogType* next = reinterpret_cast<const ArrayOverwriteLogType*>(next_p);
+        // is the data region same or superseded?
+        uint16_t prev_begin = prev->payload_offset_;
+        uint16_t prev_end = prev_begin + prev->payload_count_;
+        uint16_t next_begin = next->payload_offset_;
+        uint16_t next_end = next_begin + next->payload_count_;
+        if (next_begin <= prev_begin && next_end >= prev_end) {
+          --result_count;
+        }
+
+        // the logic checks data range against only the previous entry.
+        // we might have a situation where 3 or more log entries have the same array offset
+        // and the data regions are like following
+        // Log 1: [4, 8) bytes, Log 2: [8, 12) bytes, Log 3: [4, 8) bytes
+        // If we check further, Log 3 can eliminate Log 1. However, the check is expensive..
+      } else {
+        // two increment logs of same type/offset can be merged into one.
+        ASSERT_ND(prev_p->header_.get_type() == log::kLogCodeArrayIncrement);
+        const ArrayIncrementLogType* prev = reinterpret_cast<const ArrayIncrementLogType*>(prev_p);
+        ArrayIncrementLogType* next = reinterpret_cast<ArrayIncrementLogType*>(next_p);
+        if (prev->value_type_ == next->value_type_
+          && prev->payload_offset_ == next->payload_offset_) {
+          // add up the prev's addendum to next, then delete prev.
+          next->merge(*prev);
+          --result_count;
+        }
+      }
+    } else {
+      prev_offset = cur_offset;
+    }
+    args.output_buffer_[result_count] = entries[i].get_position();
+    ++result_count;
+  }
+  return result_count;
+}
+
+void ArrayPartitioner::sort_batch(const Partitioner::SortBatchArguments& args) const {
+  if (args.logs_count_ == 0) {
+    *args.written_count_ = 0;
+    return;
+  }
+
+  // we so far sort them in one path.
+  // to save memory, we could do multi-path merge-sort.
+  // however, in reality each log has many bytes, so log_count is not that big.
+  args.work_memory_->assure_capacity(sizeof(SortEntry) * args.logs_count_);
+
+  debugging::StopWatch stop_watch_entire;
+
+  ASSERT_ND(sizeof(SortEntry) == 16U);
+  SortEntry* entries = reinterpret_cast<SortEntry*>(args.work_memory_->get_block());
+  prepare_sort_entries(args, entries);
+
+  debugging::StopWatch stop_watch;
+  // Gave up non-gcc support because of aarch64 support. yes, we can also assume __uint128_t.
+  // CPU profile of partition_array_perf: 50% (introsort_loop) + 7% (other inlined).
+  std::sort(
+    reinterpret_cast<__uint128_t*>(entries),
+    reinterpret_cast<__uint128_t*>(entries + args.logs_count_));
+  stop_watch.stop();
+  VLOG(0) << "Sorted " << args.logs_count_ << " log entries in " << stop_watch.elapsed_ms() << "ms";
+
+  uint32_t result_count = compact_logs(args, entries);
+
+  stop_watch_entire.stop();
+  VLOG(0) << "Array-" << id_ << " sort_batch() done in  " << stop_watch_entire.elapsed_ms()
+      << "ms  for " << args.logs_count_ << " log entries, compacted them to"
+        << result_count << " log entries";
+  *args.written_count_ = result_count;
+}
+
+std::ostream& operator<<(std::ostream& o, const ArrayPartitioner& v) {
+  o << "<ArrayPartitioner>";
+  if (v.data_) {
+    o << "<array_size_>" << v.data_->array_size_ << "</array_size_>"
+      << "<bucket_size_>" << v.data_->bucket_size_ << "</bucket_size_>";
+    for (uint16_t i = 0; i < kInteriorFanout; ++i) {
+      o << "<range bucket=\"" << i << "\" partition=\"" << v.data_->bucket_owners_[i] << "\" />";
+    }
+  } else {
+    o << "Not yet designed";
+  }
+  o << "</ArrayPartitioner>";
+  return o;
+}
+
+}  // namespace array
+}  // namespace storage
+}  // namespace foedus
