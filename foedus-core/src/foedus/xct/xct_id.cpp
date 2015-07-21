@@ -19,6 +19,7 @@
 
 #include <ostream>
 
+#include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 

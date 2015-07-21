@@ -46,10 +46,10 @@ struct ThreadControlBlock {
   ThreadControlBlock() = delete;
   ~ThreadControlBlock() = delete;
 
-  void initialize() {
+  void initialize(ThreadId my_thread_id) {
     status_ = kNotInitialized;
     mcs_block_current_ = 0;
-    mcs_waiting_ = false;
+    mcs_waiting_.store(false);
     current_ticket_ = 0;
     proc_name_.clear();
     input_len_ = 0;
@@ -59,6 +59,7 @@ struct ThreadControlBlock {
     task_mutex_.initialize();
     task_complete_cond_.initialize();
     in_commit_epoch_ = INVALID_EPOCH;
+    my_thread_id_ = my_thread_id;
     stat_snapshot_cache_hits_ = 0;
     stat_snapshot_cache_misses_ = 0;
   }
@@ -82,7 +83,7 @@ struct ThreadControlBlock {
    * one thread can wait for at most one lock. So, we moved it to a flag
    * in control block.
    */
-  bool                mcs_waiting_;
+  std::atomic<bool>   mcs_waiting_;
 
   /**
    * The thread sleeps on this conditional when it has no task.
@@ -126,6 +127,9 @@ struct ThreadControlBlock {
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch               in_commit_epoch_;
+
+  /** Used only for sanity check. This thread's ID. */
+  ThreadId            my_thread_id_;
 
   uint64_t            stat_snapshot_cache_hits_;
   uint64_t            stat_snapshot_cache_misses_;
@@ -258,7 +262,6 @@ class ThreadPimpl final : public DefaultInitializable {
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
-  xct::McsBlock*      mcs_init_block(xct::McsBlockIndex block_index) ALWAYS_INLINE;
 
   /** not used so far */
   void                mcs_toolong_wait(

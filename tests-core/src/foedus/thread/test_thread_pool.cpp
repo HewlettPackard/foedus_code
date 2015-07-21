@@ -32,6 +32,7 @@
 #include "foedus/thread/impersonate_session.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
+#include "foedus/thread/thread_ref.hpp"
 
 namespace foedus {
 namespace thread {
@@ -106,6 +107,33 @@ TEST(ThreadPoolTest, SchedIdle) { run_sched(kScheduleIdle, kPriorityIdle); }
 TEST(ThreadPoolTest, SchedNormal) { run_sched(kScheduleRr, kPriorityDefault); }
 TEST(ThreadPoolTest, SchedLowest) { run_sched(kScheduleRr, kPriorityLowest); }
 TEST(ThreadPoolTest, SchedRealtime) { run_sched(kScheduleFifo, kPriorityHighest); }
+
+TEST(ThreadPoolTest, CheckCbAddresses) {
+  const ThreadGroupId kGroups = 2;
+  const ThreadLocalOrdinal kCoresPerGroup = 8;
+  EngineOptions options = get_tiny_options();
+  options.thread_.group_count_ = kGroups;
+  options.thread_.thread_count_per_group_ = kCoresPerGroup;
+  Engine engine(options);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    ThreadPool* pool = engine.get_thread_pool();
+    for (auto g = 0; g < kGroups; ++g) {
+      ThreadGroupRef* group_ref = pool->get_group_ref(g);
+      EXPECT_EQ(g, group_ref->get_group_id());
+      for (auto c = 0; c < kCoresPerGroup; ++c) {
+        ThreadId thread_id = compose_thread_id(g, c);
+        ThreadRef* ref = group_ref->get_thread(c);
+        EXPECT_EQ(thread_id, ref->get_thread_id());
+        EXPECT_EQ(ref, pool->get_thread_ref(thread_id));
+        EXPECT_EQ(ref->get_control_block(), group_ref->get_thread_ref(c).get_control_block());
+      }
+    }
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
 
 }  // namespace thread
 }  // namespace foedus
