@@ -46,9 +46,11 @@ DEFINE_TEST_CASE_PACKAGE(MasstreeScanInsertRaceTest, foedus.storage.masstree);
 const int kKeyPrefixLength = 4;  // "user" without \0
 const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
 const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 chars for numbers
-const int kCoreCount = 16;
-uint32_t local_key_counter[kCoreCount];
+const int kMinCoreCount = 16;
 const uint32_t max_scan_length = 10000;
+
+int core_count = kMinCoreCount;
+uint32_t *local_key_counter;
 
 class YcsbKey {
  private:
@@ -62,12 +64,12 @@ class YcsbKey {
     snprintf(data_, kKeyPrefixLength + 1, "%s", kKeyPrefix.data());
   }
 
-  YcsbKey next(uint32_t worker_id, uint32_t* local_key_counter) {
+  YcsbKey& next(uint32_t worker_id, uint32_t* local_key_counter) {
     auto low = ++(*local_key_counter);
     return build(worker_id, low);
   }
 
-  YcsbKey build(uint32_t high_bits, uint32_t low_bits) {
+  YcsbKey& build(uint32_t high_bits, uint32_t low_bits) {
     uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
     auto n = snprintf(
@@ -89,13 +91,13 @@ class YcsbKey {
   }
 };
 
-YcsbKey key_arena[kCoreCount];
+YcsbKey *key_arena;
 
-YcsbKey next_insert_key(int worker) {
+YcsbKey& next_insert_key(int worker) {
   return key_arena[worker].next(worker, &local_key_counter[worker]);
 }
 
-YcsbKey build_key(uint32_t worker, uint32_t low_bits) {
+YcsbKey& build_key(uint32_t worker, uint32_t low_bits) {
   return key_arena[worker].build(worker, low_bits);
 }
 
@@ -109,28 +111,29 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
   uint64_t inserted = 0;
   Epoch commit_epoch;
   while (remaining_inserts > 0) {
-    for (int i = 0; i < kCoreCount; i++) {
+    for (int i = 0; i < core_count; i++) {
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-      auto key = next_insert_key(i);
+      auto& key = next_insert_key(i);
       COERCE_ERROR_CODE(masstree.insert_record(context, key.ptr(), key.size(), data, 1000));
       COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
       inserted++;
     }
-    remaining_inserts -= kCoreCount;
+    remaining_inserts -= core_count;
   }
   return foedus::kRetOk;
 }
 
 ErrorStack insert_scan_task(const proc::ProcArguments& args) {
+  uint32_t worker_id = *reinterpret_cast<const int*>(args.input_buffer_);
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 
   debugging::StopWatch duration;
-  assorted::UniformRandom trnd(882746);
-  assorted::UniformRandom hrnd(123452388999);
-  assorted::UniformRandom lrnd(4584287);
-  assorted::UniformRandom crnd(47920);
+  assorted::UniformRandom trnd(882746 + worker_id);
+  assorted::UniformRandom hrnd(123452388999 + worker_id);
+  assorted::UniformRandom lrnd(4584287 + worker_id);
+  assorted::UniformRandom crnd(47920 + worker_id);
   // 4 seconds
   while (duration.peek_elapsed_ns() < 5000000 * 1000ULL) {
     // Randomly choose to insert or scan
@@ -141,7 +144,7 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
     if (trnd.uniform_within(1, 100) <= 5) {
       // insert
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-      auto high = hrnd.uniform_within(0, kCoreCount - 1);
+      auto high = hrnd.uniform_within(0, core_count - 1);
       YcsbKey key = next_insert_key(high);
       ret = masstree.insert_record(context, key.ptr(), key.size(), data, 1000);
       if (ret == kErrorCodeOk) {
@@ -151,7 +154,7 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
       }
     } else {
       // Open a cursor to scan
-      auto high = hrnd.uniform_within(0, kCoreCount - 1);
+      auto high = hrnd.uniform_within(0, core_count - 1);
       auto cnt = local_key_counter[high];
       if (cnt == 0) {
         // So the guy hasn't even inserted anything and the loader didn't insert
@@ -159,7 +162,7 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
         cnt = 1;
       }
       auto low = lrnd.uniform_within(0, cnt - 1);
-      YcsbKey key = build_key(high, low);
+      YcsbKey& key = build_key(high, low);
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       storage::masstree::MasstreeCursor cursor(masstree, context);
       COERCE_ERROR_CODE(cursor.open(key.ptr(), key.size(), nullptr,
@@ -179,38 +182,26 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
 }
 
 TEST(MasstreeScanInsertRaceTest, CreateAndInsertAndScan) {
-  fs::Path folder("/dev/shm/foedus_ycsb_test");
-  if (fs::exists(folder)) {
-    fs::remove_all(folder);
+  EngineOptions options = get_big_options();
+
+  // Use kMinCoreCount threads; if one node doesn't fit, try more
+  core_count = kMinCoreCount;
+  if (options.thread_.thread_count_per_group_ < kMinCoreCount) {
+    core_count = options.thread_.thread_count_per_group_;
+    int g = 0;
+    for (g = 0; g < options.thread_.group_count_ && core_count < kMinCoreCount; g++) {
+      core_count += options.thread_.thread_count_per_group_;
+    }
+    options.thread_.group_count_ = g;
+  } else {
+    options.thread_.thread_count_per_group_ = kMinCoreCount;
+    options.thread_.group_count_ = 1;
   }
-  if (!fs::create_directories(folder)) {
-    std::cerr << "Couldn't create " << folder << ". err=" << assorted::os_error();
-  }
 
-  EngineOptions options;
-
-  fs::Path savepoint_path(folder);
-  savepoint_path /= "savepoint.xml";
-  options.savepoint_.savepoint_path_.assign(savepoint_path.string());
-  ASSERT_ND(!fs::exists(savepoint_path));
-
-  options.snapshot_.folder_path_pattern_ = "/dev/shm/foedus_ycsb_test/snapshot/node_$NODE$";
-  options.log_.folder_path_pattern_ = "/dev/shm/foedus_ycsb_test/log/node_$NODE$/logger_$LOGGER$";
-  options.log_.loggers_per_node_ = 1;
-  options.log_.flush_at_shutdown_ = false;
-  options.snapshot_.snapshot_interval_milliseconds_ = 100000000U;
-
-  options.debugging_.debug_log_min_threshold_
-    = debugging::DebuggingOptions::kDebugLogInfo;
-    // = debugging::DebuggingOptions::kDebugLogWarning;
-  options.debugging_.verbose_modules_ = "";
-  options.debugging_.verbose_log_level_ = -1;
-
-  options.log_.log_buffer_kb_ = 512 << 10;
-  options.log_.log_file_size_mb_ = 1 << 15;
-  options.memory_.page_pool_size_mb_per_node_ = 4 << 10;
-
-  memset(local_key_counter, '\0', sizeof(uint32_t) * kCoreCount);
+  ASSERT_ND(core_count >= kMinCoreCount);
+  local_key_counter = reinterpret_cast<uint32_t *>(malloc(sizeof(uint32_t) * core_count));
+  memset(local_key_counter, '\0', sizeof(uint32_t) * core_count);
+  key_arena = new YcsbKey[core_count];
 
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_scan_task", insert_scan_task);
@@ -226,20 +217,23 @@ TEST(MasstreeScanInsertRaceTest, CreateAndInsertAndScan) {
     auto* thread_pool = engine.get_thread_pool();
     COERCE_ERROR(thread_pool->impersonate_synchronous("insert_task_long_coerce"));
     std::vector< thread::ImpersonateSession > sessions;
-    for (uint32_t i = 0; i < kCoreCount; i++) {
-      thread::ImpersonateSession s;
-      bool ret = thread_pool->impersonate_on_numa_core(
-        i,
-        "insert_scan_task",
-        nullptr,
-        0,
-        &s);
-      EXPECT_TRUE(ret);
-      ASSERT_ND(ret);
-      sessions.emplace_back(std::move(s));
+    uint32_t worker_id = 0;
+    for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
+      for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
+        thread::ImpersonateSession s;
+        bool ret = thread_pool->impersonate_on_numa_node(
+          node,
+          "insert_scan_task",
+          &worker_id,
+          sizeof(worker_id),
+          &s);
+        EXPECT_TRUE(ret);
+        ASSERT_ND(ret);
+        sessions.emplace_back(std::move(s));
+        worker_id++;
+      }
     }
-    for (uint32_t i = 0; i < kCoreCount; i++) {
-      thread::ImpersonateSession& s = sessions[i];
+    for (auto& s : sessions) {
       ErrorStack result = s.get_result();
       s.release();
     }
