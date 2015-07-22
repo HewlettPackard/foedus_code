@@ -19,6 +19,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -50,7 +51,7 @@ const int kMinCoreCount = 16;
 const uint32_t max_scan_length = 10000;
 
 int core_count = kMinCoreCount;
-uint32_t *local_key_counter;
+std::unique_ptr<uint32_t[]> local_key_counter;
 
 class YcsbKey {
  private:
@@ -91,7 +92,7 @@ class YcsbKey {
   }
 };
 
-YcsbKey *key_arena;
+std::unique_ptr<YcsbKey[]> key_arena;
 
 YcsbKey& next_insert_key(int worker) {
   return key_arena[worker].next(worker, &local_key_counter[worker]);
@@ -134,7 +135,7 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
   assorted::UniformRandom hrnd(123452388999 + worker_id);
   assorted::UniformRandom lrnd(4584287 + worker_id);
   assorted::UniformRandom crnd(47920 + worker_id);
-  // 4 seconds
+  // 5 seconds
   while (duration.peek_elapsed_ns() < 5000000 * 1000ULL) {
     // Randomly choose to insert or scan
     char data[1000];
@@ -165,17 +166,20 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
       YcsbKey& key = build_key(high, low);
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       storage::masstree::MasstreeCursor cursor(masstree, context);
-      COERCE_ERROR_CODE(cursor.open(key.ptr(), key.size(), nullptr,
-        foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false));
-
-      int32_t nrecs = crnd.uniform_within(1, max_scan_length);
-      while (nrecs-- > 0 && cursor.is_valid_record()) {
-        ASSERT_ND(cursor.get_payload_length() == 1000);
-        const char *pr = reinterpret_cast<const char *>(cursor.get_payload());
-        memcpy(data, pr, 1000);
-        cursor.next();
+      ret = cursor.open(key.ptr(), key.size(), nullptr,
+        foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false);
+      if (ret != kErrorCodeOk) {
+        COERCE_ERROR_CODE(xct_manager->abort_xct(context));
+      } else {
+        int32_t nrecs = crnd.uniform_within(1, max_scan_length);
+        while (nrecs-- > 0 && cursor.is_valid_record()) {
+          ASSERT_ND(cursor.get_payload_length() == 1000);
+          const char *pr = reinterpret_cast<const char *>(cursor.get_payload());
+          memcpy(data, pr, 1000);
+          cursor.next();
+        }
+        ret = xct_manager->precommit_xct(context, &commit_epoch);
       }
-      ret = xct_manager->precommit_xct(context, &commit_epoch);
     }
   }
   return foedus::kRetOk;
@@ -199,9 +203,11 @@ TEST(MasstreeScanInsertRaceTest, CreateAndInsertAndScan) {
   }
 
   ASSERT_ND(core_count >= kMinCoreCount);
-  local_key_counter = reinterpret_cast<uint32_t *>(malloc(sizeof(uint32_t) * core_count));
-  memset(local_key_counter, '\0', sizeof(uint32_t) * core_count);
-  key_arena = new YcsbKey[core_count];
+  key_arena = std::unique_ptr<YcsbKey[]>(new YcsbKey[core_count]);
+  local_key_counter = std::unique_ptr<uint32_t[]>(new uint32_t[core_count]);
+  for (int i = 0; i < core_count; i++) {
+    local_key_counter[i] = 0;
+  }
 
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_scan_task", insert_scan_task);
