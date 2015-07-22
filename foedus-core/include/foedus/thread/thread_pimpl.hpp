@@ -258,10 +258,21 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
+  /**
+   * Helper method for mcs_acquire_lock to return the special guest ID observed and
+   * set group_tail to the tail of this queue
+   * @param[in,out] mcs_lock the lock to return the special guest ID to
+   * @return the tail of my group
+   */
+  uint32_t            mcs_acquire_lock_handle_guest(xct::McsLock* mcs_lock);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+
+  static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
 
   /** not used so far */
   void                mcs_toolong_wait(
