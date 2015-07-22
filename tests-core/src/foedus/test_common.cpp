@@ -102,8 +102,8 @@ namespace foedus {
     options.debugging_.verbose_log_level_ = 1;
     options.debugging_.verbose_modules_ = "*";
 
-    options.log_.log_buffer_kb_ = 512 << 10;
-    options.memory_.page_pool_size_mb_per_node_ = 512;
+    options.log_.log_buffer_kb_ = 64 << 10;
+    options.memory_.page_pool_size_mb_per_node_ = 64;
     options.memory_.private_page_pool_initial_grab_ = 32;
     options.memory_.rigorous_memory_boundary_check_ = true;
     options.cache_.snapshot_cache_size_mb_per_node_ = 128;
