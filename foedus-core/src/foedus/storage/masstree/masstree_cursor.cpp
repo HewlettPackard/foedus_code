@@ -841,7 +841,7 @@ inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
     slice = assorted::read_bigendian<KeySlice>(&slice);
   }
 
-  ASSERT_ND(layer == 0 || !layer_root->is_border());  // layer0-root is always intermediate
+  ASSERT_ND(layer != 0 || !layer_root->is_border());  // layer0-root is always intermediate
   if (!layer_root->is_border()) {
     CHECK_ERROR_CODE(locate_descend(slice));
   }
