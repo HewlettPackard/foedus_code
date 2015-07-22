@@ -43,6 +43,12 @@ namespace foedus {
    */
   EngineOptions   get_tiny_options();
 
+  /**
+   * Similar to get_tiny_options, with larger pool size etc.
+   * Group and core counts are left out for the test case to adjust.
+   */
+  EngineOptions   get_big_options();
+
   /** Delete all files under the folder starting with the given prefix. */
   void            remove_files_start_with(const fs::Path &folder, const fs::Path &prefix);
 

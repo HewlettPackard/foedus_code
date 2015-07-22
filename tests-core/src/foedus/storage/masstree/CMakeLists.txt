@@ -21,6 +21,8 @@ add_foedus_test_individual(test_masstree_cursor "Empty;OnePage;OneLayer;TwoLayer
 
 add_foedus_test_individual(test_masstree_grow_race "Contended")
 
+add_foedus_test_individual(test_masstree_scan_insert_race "CreateAndInsertAndScan")
+
 add_foedus_test_individual(test_masstree_peek "OneLayer;TwoLayers")
 
 add_foedus_test_individual(test_masstree_random "InsertManyNormalized;InsertManyNormalizedMt;InsertMany")
