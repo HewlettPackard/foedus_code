@@ -119,31 +119,26 @@ struct YcsbRecord {
  */
 class YcsbClientTask;
 struct YcsbClientChannel {
-  void initialize() {
+  void initialize(uint16_t nr_workers) {
     start_rendezvous_.initialize();
-    exit_nodes_.store(0);
+    exit_nodes_.store(nr_workers);
     stop_flag_.store(false);
-    nr_workers_ = 0;
-    workers_mutex_.initialize();
   }
   void uninitialize() {
     start_rendezvous_.uninitialize();
-    workers_mutex_.uninitialize();
   }
-  uint32_t peek_local_key_counter(uint32_t worker_id);
+  uint32_t peek_local_key_counter(Engine* engine, uint32_t worker_id);
 
   soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
-  uint32_t nr_workers_;
-  soc::SharedMutex workers_mutex_;
-  std::vector<YcsbClientTask> workers;
 };
 
 int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
 ErrorStack ycsb_client_task(const proc::ProcArguments& args);
 YcsbClientChannel* get_channel(Engine* engine);
+uint32_t* get_local_key_counter(Engine* engine, uint32_t worker_id);
 int64_t max_scan_length();
 
 struct YcsbWorkload {
@@ -170,11 +165,16 @@ struct YcsbWorkload {
   uint8_t scan_percent_;
 };
 
+// Stores the starting key for a worker (integer part). This is a POD.
+struct StartKey {
+  uint32_t high;
+  uint32_t low;
+};
+
 class YcsbLoadTask {
  public:
   YcsbLoadTask() : rnd_(48357) {}
-  ErrorStack run(thread::Thread* context, const uint32_t nr_workers,
-    std::pair<uint32_t, uint32_t>* start_key_pair);
+  ErrorStack run(thread::Thread* context, StartKey* start_key);
  private:
   assorted::UniformRandom rnd_;
 };
@@ -186,7 +186,7 @@ class YcsbClientTask {
     YcsbWorkload workload_;
     bool read_all_fields_;
     bool write_all_fields_;
-    uint32_t local_key_counter_;
+    uint32_t* local_key_counter_;
     Inputs() {}
   };
 
@@ -217,12 +217,11 @@ class YcsbClientTask {
   ErrorStack run(thread::Thread* context);
 
   bool is_stop_requested() const {
-    assorted::memory_fence_acquire();
     return channel_->stop_flag_.load();
   }
 
-  uint32_t local_key_counter() {return local_key_counter_; }  // Not accurate!
-  uint32_t get_worker_id() const { return worker_id_; }
+  uint32_t* local_key_counter() {return local_key_counter_; }  // Not accurate!
+  uint32_t worker_id() const { return worker_id_; }
 
  private:
   thread::Thread* context_;
@@ -231,7 +230,7 @@ class YcsbClientTask {
   bool read_all_fields_;
   bool write_all_fields_;
   Outputs* outputs_;
-  uint32_t local_key_counter_;
+  uint32_t* local_key_counter_;  // Some cacheline aligned integer in shared memory
   YcsbKey key_arena_;   // Don't use this from other threads!
 
   Engine* engine_;
@@ -251,7 +250,7 @@ class YcsbClientTask {
   assorted::UniformRandom rnd_xct_select_;
 
   YcsbKey& next_insert_key() {
-    return key_arena_.next(worker_id_, &local_key_counter_);
+    return key_arena_.next(worker_id_, local_key_counter_);
   }
 
   YcsbKey& build_key(uint32_t high_bits, uint32_t low_bits) {
