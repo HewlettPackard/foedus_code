@@ -91,7 +91,7 @@ typedef uint32_t McsBlockIndex;
  * When MCS lock contains this value, this means the lock is held by a non-regular guest
  * that doesn't have a context.
  */
-const uint32_t kMcsGuestId = 0xFFFFU;
+const uint32_t kMcsGuestId = -1;
 
 /**
  * Represents an MCS node, a pair of node-owner (thread) and its block index.
