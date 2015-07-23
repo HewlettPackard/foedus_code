@@ -42,6 +42,23 @@ namespace masstree {
  * @brief Represents a cursor object for Masstree storage.
  * @ingroup MASSTREE
  * @details
+ * @par Cursor Example
+ * Below is a typical usecase (from TPC-C) of this cursor class.
+ * @code{.cpp}
+ * ... (begin xct, etc)
+ * MasstreeCursor cursor(orderlines, context);
+ * CHECK_ERROR_CODE(cursor.open_normalized(low, high, true, true));
+ * while (cursor.is_valid_record()) {
+ *  const char* key_be = cursor.get_key();
+ *  const OrderlineData* payload = reinterpret_cast<const OrderlineData*>(cursor.get_payload());
+ *  *ol_amount_total += payload->amount_;
+ *  ++(*ol_count);
+ *  CHECK_ERROR_CODE(cursor.overwrite_record(delivery_date, offset, delivery_date_len));
+ *  CHECK_ERROR_CODE(cursor.next());
+ * }
+ * ... (commit xct, etc)
+ * @endcode
+ *
  * @par Dynamic Memory
  * This cursor objects uses a few dymanically allocated memory for keys, route information,
  * etc. However, we of course can't tolerate new/delete during transaction.
@@ -54,6 +71,12 @@ namespace masstree {
  */
 class MasstreeCursor CXX11_FINAL {
  public:
+  /**
+   * @brief Represents one page in the current search path from layer0-root.
+   * @details
+   * Either it's interior or border, this object stores some kind of a marker
+   * to note up to where we read the page so far.
+   */
   struct Route {
     enum MovedPageSearchStatus {
       kNotMovedPage = 0,
@@ -68,19 +91,18 @@ class MasstreeCursor CXX11_FINAL {
     SlotIndex index_;
     /** only for interior. */
     SlotIndex index_mini_;
-    /** same as stable_.get_key_count() */
+    /**
+     * same as stable_.get_key_count()
+     * @note Even in a border page, \b key_count_ \b might \b be \b zero.
+     * Such a case might happen right after no-record-split, split for a super-long key/value etc.
+     * We tolerate such a page in routes_, and just skip over it in next() etc.
+     */
     SlotIndex key_count_;
     /** only for interior. */
     SlotIndex key_count_mini_;
 
     /** whether page_ is a snapshot page */
-    bool    snapshot_;
-    /**
-     * This is set to true when the initial locate() didn't find a matching record,
-     * hitting the page boundary. in that case, locate() stops there and open() invokes
-     * next().
-     */
-    bool    locate_miss_in_page_;
+    bool      snapshot_;
 
     /** only when stable_ indicates that this page is a moved page */
     MovedPageSearchStatus moved_page_search_status_;
@@ -188,6 +210,16 @@ class MasstreeCursor CXX11_FINAL {
     return cur_payload_length_;
   }
 
+  /**
+   * @brief Moves the cursor to next record.
+   * @details
+   * When the cursor already reached the end, it does nothing.
+   * @par Implementation note
+   * This method changes a complete state of the cursor to a next complete status.
+   * In other words, this must NOT be called from other internal methods when
+   * this object is in interim state (such as should_skip_cur_route_==true).
+   * When this method returns, it is guaranteed that should_skip_cur_route_==false for this reason.
+   */
   ErrorCode next();
 
 
@@ -229,6 +261,20 @@ class MasstreeCursor CXX11_FINAL {
   /** number of higher layer pages. the current border page is not included. so, might be 0. */
   uint16_t    route_count_;
 
+  /**
+   * This is set to true when the cur_route() should be skipped over to find a next valid
+   * record. Whenever this is true, is_valid_record() must be false.
+   * This becomes true in a few cases.
+   * \li the initial locate() didn't find a matching record because it unluckily hit the page
+   * boundary.
+   * \li locate() or proceed_deep() ran into an empty border page.
+   *
+   * Receiving this flag, locate() and next() are responsible to invoke next() to resolve the
+   * state. next() then sees this flag and moves on to next page/record.
+   * When the control is returned to the user code, this flag must be always false.
+   */
+  bool        should_skip_cur_route_;
+
   bool        cur_key_next_layer_;
   KeyLength   cur_key_in_layer_remainder_;
   KeySlice    cur_key_in_layer_slice_;
@@ -253,6 +299,10 @@ class MasstreeCursor CXX11_FINAL {
   /** allocated in transaction's local work memory. */
   Route*      routes_;
 
+  /**
+   * This method is the only place we \e increment route_count_ to push an entry to routes_.
+   * It takes a stable version of the page and
+   */
   ErrorCode push_route(MasstreePage* page);
   void      fetch_cur_record(MasstreeBorderPage* page, SlotIndex record);
   void      check_end_key();
@@ -317,6 +367,7 @@ class MasstreeCursor CXX11_FINAL {
 
   void assert_modify() const ALWAYS_INLINE {
 #ifndef NDEBUG
+    ASSERT_ND(!should_skip_cur_route_);
     ASSERT_ND(for_writes_);
     ASSERT_ND(is_valid_record());
     ASSERT_ND(!cur_route()->snapshot_);
