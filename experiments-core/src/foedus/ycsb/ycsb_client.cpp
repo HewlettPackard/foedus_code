@@ -69,7 +69,7 @@ ErrorStack ycsb_client_task(const proc::ProcArguments& args) {
 
   auto result = task.run(context);
   if (result.is_error()) {
-    LOG(ERROR) << "YCSB Client-" << task.get_worker_id() << " exit with an error:" << result;
+    LOG(ERROR) << "YCSB Client-" << task.worker_id() << " exit with an error:" << result;
   }
   ++get_channel(context->get_engine())->exit_nodes_;
   return result;
@@ -86,14 +86,14 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   user_table_ = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
 #endif
   channel_ = get_channel(engine_);
-
-  // Add this myself to the tasks list in the channel so later I can see other's local_key_counter
-  {
-    soc::SharedMutexScope scope(&channel_->workers_mutex_);
-    channel_->workers.emplace_back(std::move(*this));
-  }
+  // TODO(tzwang): so far we only support homogeneous systems: each processor has exactly the same
+  // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
+  // figure out how many cores we have (basically by adding individual core counts up).
+  uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
 
   // Wait for the driver's order
+  channel_->exit_nodes_--;
+  ASSERT_ND(channel_->exit_nodes_ <= total_thread_count);
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
@@ -112,8 +112,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         ret = do_insert(next_insert_key());
       } else {
         // Choose a high-bits field first. Then take a look at that worker's local counter
-        auto high = rnd_record_select_.uniform_within(0, channel_->nr_workers_ - 1);
-        auto cnt = channel_->peek_local_key_counter(high);
+        auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
+        auto cnt = channel_->peek_local_key_counter(engine_, high);
         if (cnt == 0) {
           // So the guy hasn't even inserted anything and the loader didn't insert
           // in that key space either (because kInitialUserTableSize % nr_workers > 0)
