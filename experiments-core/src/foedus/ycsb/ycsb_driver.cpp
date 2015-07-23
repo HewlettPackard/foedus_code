@@ -113,7 +113,7 @@ YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   data_ = kKeyPrefix;
   const int kIntegerLength = kKeyMaxLength - kKeyPrefixLength;
   char keychar[kIntegerLength + 1];
-  data_.append(keychar, snprintf(keychar, kIntegerLength, "%lu", keynum));
+  data_.append(keychar, snprintf(keychar, kIntegerLength + 1, "%lu", keynum));
   return *this;
 }
 
