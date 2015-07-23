@@ -33,6 +33,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
@@ -110,7 +111,9 @@ YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
   data_ = kKeyPrefix;
-  data_.append(std::to_string(keynum));
+  const int kIntegerLength = kKeyMaxLength - kKeyPrefixLength;
+  char keychar[kIntegerLength];
+  data_.append(keychar, snprintf(keychar, kIntegerLength + 1, "%lu", keynum));
   return *this;
 }
 
@@ -124,8 +127,27 @@ YcsbClientChannel* get_channel(Engine* engine) {
   return channel;
 }
 
-uint32_t YcsbClientChannel::peek_local_key_counter(uint32_t worker_id) {
-  return workers[worker_id].local_key_counter();
+// We put each worker's local key counter in shared memory, each occupying a cacheline
+// of bytes. So now the layout in the shared memory space is like:
+//
+// Offset: Content
+// 0: the channel
+// + align_up(sizeof(YcsbClientChannel), CACHELINE_SIZE): 1st worker's local key counter
+// + CACHELINE_SIZE: 2nd worker's local key counter
+// + CACHELINE_SIZE: 3rd worker's local key counter
+// ... and so on...
+uint32_t YcsbClientChannel::peek_local_key_counter(Engine* engine, uint32_t worker_id) {
+  return *get_local_key_counter(engine, worker_id);
+}
+
+uint32_t* get_local_key_counter(Engine* engine, uint32_t worker_id) {
+  uintptr_t shm = reinterpret_cast<uintptr_t>(
+    engine->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
+  uintptr_t address =
+    assorted::align<uintptr_t, assorted::kCachelineSize>(shm + sizeof(YcsbClientChannel));
+  address +=
+    assorted::align<uintptr_t, assorted::kCachelineSize>(sizeof(uint32_t)) * worker_id;
+  return reinterpret_cast<uint32_t*>(address);
 }
 
 int driver_main(int argc, char **argv) {
@@ -210,24 +232,14 @@ int driver_main(int argc, char **argv) {
 }
 
 ErrorStack YcsbDriver::run() {
+  const EngineOptions& options = engine_->get_options();
   // Setup the channel so I can synchronize with workers and record nr_workers
   YcsbClientChannel* channel = get_channel(engine_);
-  channel->initialize();
-
-  // Figure out we have to run how many worker threads first.
-  // The loader needs it to generate keys.
-  const EngineOptions& options = engine_->get_options();
-  for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
-    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
-      // XXX: this should be drawn from numa map actually?
-      channel->nr_workers_++;
-    }
-  }
+  channel->initialize(options.thread_.get_total_thread_count());
 
   auto* thread_pool = engine_->get_thread_pool();
   thread::ImpersonateSession load_session;
-  bool ret = thread_pool->impersonate("ycsb_load_task", &channel->nr_workers_,
-                                      sizeof(uint32_t), &load_session);
+  bool ret = thread_pool->impersonate("ycsb_load_task", NULL, 0, &load_session);
   if (!ret) {
     LOG(FATAL) << "Couldn't impersonate";
   }
@@ -255,10 +267,11 @@ ErrorStack YcsbDriver::run() {
       inputs.worker_id_ = worker_id++;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
+      inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
       if (worker_id < start_key_pair.first) {
-        inputs.local_key_counter_ = start_key_pair.second;
+        *inputs.local_key_counter_ = start_key_pair.second;
       } else {
-        inputs.local_key_counter_ = start_key_pair.second - 1;
+        *inputs.local_key_counter_ = start_key_pair.second - 1;
       }
 
       if (FLAGS_workload == "A") {
@@ -280,12 +293,11 @@ ErrorStack YcsbDriver::run() {
       outputs.push_back(
         reinterpret_cast<const YcsbClientTask::Outputs*>(session.get_raw_output_buffer()));
       sessions.emplace_back(std::move(session));
-      LOG(INFO) << "Thread: " << node << " " << ordinal << " " << inputs.worker_id_;
     }
   }
 
   // Make sure everyone has finished initialization
-  while (channel->workers.size() != channel->nr_workers_) {}
+  while (channel->exit_nodes_ != 0) {}
 
   // Tell everybody to start
   channel->start_rendezvous_.signal();
@@ -293,7 +305,6 @@ ErrorStack YcsbDriver::run() {
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   uint32_t total_thread_count = options.thread_.get_total_thread_count();
-  ASSERT_ND(total_thread_count == channel->nr_workers_);
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
     // wake up for each second to show intermediate results.
     uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;

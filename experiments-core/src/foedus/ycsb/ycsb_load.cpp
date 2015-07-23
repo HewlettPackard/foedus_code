@@ -57,19 +57,13 @@ namespace ycsb {
 
 ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
-  if (args.output_buffer_size_ < sizeof(std::pair<uint32_t, uint32_t>)) {
-    return ERROR_STACK(kErrorCodeUserDefined);
-  }
-  *args.output_used_ = sizeof(std::pair<uint32_t, uint32_t>);
-  const uint32_t *nr_workers = reinterpret_cast<const uint32_t*>(args.input_buffer_);
-  std::pair<uint32_t, uint32_t> *start_key_pair =
-    reinterpret_cast<std::pair<uint32_t, uint32_t>* >(args.output_buffer_);
+  *args.output_used_ = sizeof(StartKey);
+  StartKey *start_key = reinterpret_cast<StartKey*>(args.output_buffer_);
   YcsbLoadTask task;
-  return task.run(context, *nr_workers, start_key_pair);
+  return task.run(context, start_key);
 }
 
-ErrorStack YcsbLoadTask::run(thread::Thread* context,
-  const uint32_t nr_workers, std::pair<uint32_t, uint32_t> *start_key_pair) {
+ErrorStack YcsbLoadTask::run(thread::Thread* context, StartKey* start_key) {
   Engine* engine = context->get_engine();
 
   // Create an empty table
@@ -108,6 +102,7 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
 
   debugging::StopWatch watch;
   Epoch commit_epoch;
+  auto nr_workers = engine->get_options().thread_.get_total_thread_count();
   while (remaining_inserts) {
     COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     for (high = 0; high < nr_workers; high++) {
@@ -128,8 +123,8 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
   // workers' local_key_counter will be low for those with id < high, and
   // low-1 for those with id >= high. Both high and low values are passed out
   // through start_key_pair.
-  start_key_pair->first = high;
-  start_key_pair->second = low;
+  start_key->high = high;
+  start_key->low = low;
   ASSERT_ND(remaining_inserts == 0);
   LOG(INFO) << "[YCSB] Finished loading "
     << kInitialUserTableSize
