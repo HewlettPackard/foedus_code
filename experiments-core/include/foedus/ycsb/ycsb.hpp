@@ -62,20 +62,19 @@ const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
 const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 chars for numbers
 class YcsbKey {
  private:
-  char data_[kKeyMaxLength];
-  uint32_t size_;
+  assorted::FixedString<kKeyMaxLength> data_;
 
  public:
-  YcsbKey();
-  YcsbKey next(uint32_t worker_id, uint32_t* local_counter);
-  YcsbKey build(uint32_t high_bits, uint32_t low_bits);
+  YcsbKey() {}
+  YcsbKey& next(uint32_t worker_id, uint32_t* local_counter);
+  YcsbKey& build(uint32_t high_bits, uint32_t low_bits);
 
-  const char *ptr() {
-    return data_;
+  const char *ptr() const {
+    return data_.data();
   }
 
-  uint32_t size() {
-    return size_;
+  uint32_t size() const {
+    return data_.length();
   }
 };
 
@@ -225,11 +224,11 @@ class YcsbClientTask {
   assorted::UniformRandom rnd_scan_length_select_;
   assorted::UniformRandom rnd_xct_select_;
 
-  YcsbKey next_insert_key() {
+  YcsbKey& next_insert_key() {
     return key_arena_.next(worker_id_, &local_key_counter_);
   }
 
-  YcsbKey build_key(uint32_t high_bits, uint32_t low_bits) {
+  YcsbKey& build_key(uint32_t high_bits, uint32_t low_bits) {
     return key_arena_.build(high_bits, low_bits);
   }
 
@@ -242,12 +241,12 @@ class YcsbClientTask {
   uint32_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
   uint32_t increment_largereadset_aborts() { return ++outputs_->largereadset_aborts_; }
 
-  ErrorStack do_xct(YcsbWorkload workload_desc);
-  ErrorCode do_read(YcsbKey key);
-  ErrorCode do_update(YcsbKey key);
-  ErrorCode do_insert(YcsbKey key);
+  ErrorStack do_xct(const YcsbWorkload workload_desc);
+  ErrorCode do_read(const YcsbKey& key);
+  ErrorCode do_update(const YcsbKey& key);
+  ErrorCode do_insert(const YcsbKey& key);
 #ifndef YCSB_HASH_STORAGE
-  ErrorCode do_scan(YcsbKey start_key, uint64_t nrecs);
+  ErrorCode do_scan(const YcsbKey& start_key, uint64_t nrecs);
 #endif
 };
 

@@ -183,7 +183,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   return kRetOk;
 }
 
-ErrorCode YcsbClientTask::do_read(YcsbKey key) {
+ErrorCode YcsbClientTask::do_read(const YcsbKey& key) {
   YcsbRecord r;
   if (read_all_fields_) {
 #ifdef YCSB_HASH_STORAGE
@@ -203,7 +203,7 @@ ErrorCode YcsbClientTask::do_read(YcsbKey key) {
   return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
 
-ErrorCode YcsbClientTask::do_update(YcsbKey key) {
+ErrorCode YcsbClientTask::do_update(const YcsbKey& key) {
   if (write_all_fields_) {
     YcsbRecord r('b');
     CHECK_ERROR_CODE(
@@ -221,7 +221,7 @@ ErrorCode YcsbClientTask::do_update(YcsbKey key) {
   return xct_manager_->precommit_xct(context_, &commit_epoch);
 }
 
-ErrorCode YcsbClientTask::do_insert(YcsbKey key) {
+ErrorCode YcsbClientTask::do_insert(const YcsbKey& key) {
   YcsbRecord r('a');
   CHECK_ERROR_CODE(user_table_.insert_record(context_, key.ptr(), key.size(), &r, sizeof(r)));
   Epoch commit_epoch;
@@ -229,7 +229,7 @@ ErrorCode YcsbClientTask::do_insert(YcsbKey key) {
 }
 
 #ifndef YCSB_HASH_STORAGE
-ErrorCode YcsbClientTask::do_scan(YcsbKey start_key, uint64_t nrecs) {
+ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
   storage::masstree::MasstreeCursor cursor(user_table_, context_);
   // vs. open_normalized()?
   CHECK_ERROR_CODE(cursor.open(start_key.ptr(), start_key.size(), nullptr,

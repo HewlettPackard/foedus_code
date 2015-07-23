@@ -99,28 +99,18 @@ void YcsbRecord::initialize_field(char *field) {
   memset(field, 'a', kFieldLength);
 }
 
-YcsbKey::YcsbKey() {
-  size_ = 0;
-  memset(data_, '\0', kKeyMaxLength);
-  snprintf(data_, kKeyPrefixLength + 1, "%s", kKeyPrefix.data());
-}
-
-YcsbKey YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
+YcsbKey& YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
   auto low = ++(*local_key_counter);
   return build(worker_id, low);
 }
 
-YcsbKey YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
+YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
   if (!FLAGS_ordered_inserts) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
-  auto n = snprintf(data_ + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength + 1, "%lu", keynum);
-  ASSERT_ND(n > 0);
-  n += kKeyPrefixLength;
-  ASSERT_ND(n <= kKeyMaxLength);
-  memset(data_ + n, '\0', kKeyMaxLength - n);
-  size_ = n;
+  data_ = kKeyPrefix;
+  data_.append(std::to_string(keynum));
   return *this;
 }
 
