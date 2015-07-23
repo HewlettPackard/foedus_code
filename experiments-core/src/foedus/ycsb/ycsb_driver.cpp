@@ -100,8 +100,8 @@ void YcsbRecord::initialize_field(char *field) {
   memset(field, 'a', kFieldLength);
 }
 
-YcsbKey& YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
-  auto low = ++(*local_key_counter);
+YcsbKey& YcsbKey::next(uint32_t worker_id, PerWorkerCounter* local_key_counter) {
+  auto low = local_key_counter->key_counter_++;
   return build(worker_id, low);
 }
 
@@ -112,8 +112,8 @@ YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   }
   data_ = kKeyPrefix;
   const int kIntegerLength = kKeyMaxLength - kKeyPrefixLength;
-  char keychar[kIntegerLength];
-  data_.append(keychar, snprintf(keychar, kIntegerLength + 1, "%lu", keynum));
+  char keychar[kIntegerLength + 1];
+  data_.append(keychar, snprintf(keychar, kIntegerLength, "%lu", keynum));
   return *this;
 }
 
@@ -137,17 +137,16 @@ YcsbClientChannel* get_channel(Engine* engine) {
 // + CACHELINE_SIZE: 3rd worker's local key counter
 // ... and so on...
 uint32_t YcsbClientChannel::peek_local_key_counter(Engine* engine, uint32_t worker_id) {
-  return *get_local_key_counter(engine, worker_id);
+  return get_local_key_counter(engine, worker_id)->key_counter_;
 }
 
-uint32_t* get_local_key_counter(Engine* engine, uint32_t worker_id) {
+PerWorkerCounter* get_local_key_counter(Engine* engine, uint32_t worker_id) {
   uintptr_t shm = reinterpret_cast<uintptr_t>(
     engine->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
   uintptr_t address =
     assorted::align<uintptr_t, assorted::kCachelineSize>(shm + sizeof(YcsbClientChannel));
-  address +=
-    assorted::align<uintptr_t, assorted::kCachelineSize>(sizeof(uint32_t)) * worker_id;
-  return reinterpret_cast<uint32_t*>(address);
+  address += sizeof(PerWorkerCounter) * worker_id;
+  return reinterpret_cast<PerWorkerCounter*>(address);
 }
 
 int driver_main(int argc, char **argv) {
@@ -251,9 +250,8 @@ ErrorStack YcsbDriver::run() {
     std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
     assorted::memory_fence_acquire();
   }
-  const std::pair<uint32_t, uint32_t> start_key_pair =
-    *reinterpret_cast<const std::pair<uint32_t, uint32_t>* >(load_session.get_raw_output_buffer());
-  ASSERT_ND(start_key_pair.second);
+  const StartKey *start_key =
+    reinterpret_cast<const StartKey*>(load_session.get_raw_output_buffer());
   load_session.release();  // Release the loader session, making the thread available again
 
   // Now try to start transaction worker threads
@@ -268,10 +266,10 @@ ErrorStack YcsbDriver::run() {
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
-      if (worker_id < start_key_pair.first) {
-        *inputs.local_key_counter_ = start_key_pair.second;
+      if (worker_id < start_key->high) {
+        inputs.local_key_counter_->key_counter_ = start_key->low;
       } else {
-        *inputs.local_key_counter_ = start_key_pair.second - 1;
+        inputs.local_key_counter_->key_counter_ = start_key->low - 1;
       }
 
       if (FLAGS_workload == "A") {
