@@ -76,17 +76,17 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context,
   Epoch ep;
   // TODO(tzwang): adjust fill factor by workload (A...E)
 #ifdef YCSB_HASH_STORAGE
-  storage::hash::HashMetadata meta("ycsb_user_table", 100);
+  storage::hash::HashMetadata meta("ycsb_user_table", 80);
   const float kHashPreferredRecordsPerBin = 5.0;
   // TODO(tzwang): tune the multiplier or make it 1 if there's no inserts
   meta.set_capacity(kInitialUserTableSize * 1.2, kHashPreferredRecordsPerBin);
 #else
-  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
+  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 80);
   meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
   meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
 #endif
 
-  // "keep volatile pages for now"
+  // Keep volatile pages
   meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
   CHECK_ERROR(engine->get_storage_manager()->create_storage(&meta, &ep));
   LOG(INFO) << "[YCSB] Created user table";

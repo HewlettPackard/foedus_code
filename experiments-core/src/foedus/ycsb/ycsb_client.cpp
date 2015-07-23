@@ -75,8 +75,6 @@ ErrorStack ycsb_client_task(const proc::ProcArguments& args) {
   return result;
 }
 
-const uint32_t kMaxUnexpectedErrors = 1;
-
 ErrorStack YcsbClientTask::run(thread::Thread* context) {
   context_ = context;
   ASSERT_ND(context_);
@@ -89,8 +87,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 #endif
   channel_ = get_channel(engine_);
 
-  // Add this task to the tasks list in the channel, so workers can see each
-  // other's local_key_counter
+  // Add this myself to the tasks list in the channel so later I can see other's local_key_counter
   {
     soc::SharedMutexScope scope(&channel_->workers_mutex_);
     channel_->workers.emplace_back(std::move(*this));
@@ -111,6 +108,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
       ErrorCode ret;
       if (xct_type <= workload_.insert_percent_) {
+        // TODO(tzwang): allow inserting to other workers' key space (on/off by a cmdarg)
         ret = do_insert(next_insert_key());
       } else {
         // Choose a high-bits field first. Then take a look at that worker's local counter
@@ -147,11 +145,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
       ASSERT_ND(!context->is_running_xct());
 
-      if (ret == kErrorCodeXctUserAbort) {
-        // Fine. This is as defined in the spec.
-        increment_user_requested_aborts();
-        break;
-      } else if (ret == kErrorCodeXctRaceAbort) {
+      if (ret == kErrorCodeXctRaceAbort) {
         increment_race_aborts();
         continue;
       } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
@@ -231,7 +225,6 @@ ErrorCode YcsbClientTask::do_insert(const YcsbKey& key) {
 #ifndef YCSB_HASH_STORAGE
 ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
   storage::masstree::MasstreeCursor cursor(user_table_, context_);
-  // vs. open_normalized()?
   CHECK_ERROR_CODE(cursor.open(start_key.ptr(), start_key.size(), nullptr,
     foedus::storage::masstree::MasstreeCursor::kKeyLengthExtremum, true, false, true, false));
   while (nrecs-- && cursor.is_valid_record()) {

@@ -39,8 +39,35 @@
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 
+/**
+ * @file ycsb.hpp
+ * @brief YCSB benchmark implementation.
+ * @details
+ * This is a YCSB implementation following the specs and Yahoo!'s Java implementation.
+ * We implement YCSB A -- E as described in the paper [Cooper10].
+ *
+ * Masstree is used as the default storage for all benchmarks; a hashtable variant is
+ * available for A -- D only (E has to use Masstree for scans).
+ *
+ * Two major differences from the Java reference implementation:
+ *
+ * 1. Key format
+ * Yahoo!: "user" + hash(integer counter)
+ * FOEDUS: "user" + hash(worker ID | integer counter)
+ * The counter in the lower bits is thread-local. For now inserters only insert to their own key
+ * space, separated by the worker ID. Later we might modify this to allow inserting to others'
+ * key space. Threads doing reads and updates randomly choose a worker ID as the key's high bits,
+ * then they randomly choose a worker ID and take a look at (no synchronization) its local key
+ * counter value (k), randomly choose an integer within [0, k] as the low bits.
+ *
+ * 2. RNGs
+ * So far we have only uniform RNGs. TODO(tzwang): add zipfian and others.
+ *
+ * [Cooper10] Benchmarking cloud serving systems with YCSB, SoCC '10.
+ */
 namespace foedus {
 namespace ycsb {
+const uint32_t kMaxUnexpectedErrors = 1;
 
 /* Number of bytes in each field */
 const uint32_t kFieldLength = 100;
@@ -167,7 +194,6 @@ class YcsbClientTask {
   struct Outputs {
     uint32_t id_;
     uint64_t processed_;
-    uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
@@ -232,8 +258,6 @@ class YcsbClientTask {
     return key_arena_.build(high_bits, low_bits);
   }
 
-  uint32_t get_user_requested_aborts() const { return outputs_->user_requested_aborts_; }
-  uint32_t increment_user_requested_aborts() { return ++outputs_->user_requested_aborts_; }
   uint32_t get_race_aborts() const { return outputs_->race_aborts_; }
   uint32_t increment_race_aborts() { return ++outputs_->race_aborts_; }
   uint32_t get_unexpected_aborts() const { return outputs_->unexpected_aborts_; }
@@ -255,7 +279,6 @@ class YcsbDriver {
   struct WorkerResult {
     uint32_t id_;
     uint64_t processed_;
-    uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;
@@ -269,7 +292,6 @@ class YcsbDriver {
       : duration_sec_(0),
         worker_count_(0),
         processed_(0),
-        user_requested_aborts_(0),
         race_aborts_(0),
         largereadset_aborts_(0),
         unexpected_aborts_(0),
@@ -278,7 +300,6 @@ class YcsbDriver {
     double   duration_sec_;
     uint32_t worker_count_;
     uint64_t processed_;
-    uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t unexpected_aborts_;

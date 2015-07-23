@@ -308,7 +308,6 @@ ErrorStack YcsbDriver::run() {
       result.race_aborts_ += output->race_aborts_;
       result.unexpected_aborts_ += output->unexpected_aborts_;
       result.largereadset_aborts_ += output->largereadset_aborts_;
-      result.user_requested_aborts_ += output->user_requested_aborts_;
       result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
       result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
     }
@@ -331,14 +330,12 @@ ErrorStack YcsbDriver::run() {
     result.workers_[i].race_aborts_ = output->race_aborts_;
     result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
     result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
-    result.workers_[i].user_requested_aborts_ = output->user_requested_aborts_;
     result.workers_[i].snapshot_cache_hits_ = output->snapshot_cache_hits_;
     result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
     result.processed_ += output->processed_;
     result.race_aborts_ += output->race_aborts_;
     result.unexpected_aborts_ += output->unexpected_aborts_;
     result.largereadset_aborts_ += output->largereadset_aborts_;
-    result.user_requested_aborts_ += output->user_requested_aborts_;
     result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
     result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
   }
@@ -364,7 +361,6 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
     << "<worker_count_>" << v.worker_count_ << "</worker_count_>"
     << "<processed_>" << v.processed_ << "</processed_>"
     << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
-    << "<user_requested_aborts_>" << v.user_requested_aborts_ << "</user_requested_aborts_>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
