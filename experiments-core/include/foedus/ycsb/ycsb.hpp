@@ -31,6 +31,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/endianness.hpp"
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
@@ -85,15 +86,21 @@ const uint32_t kMaxWorkers = 1024;
 
 const int kKeyPrefixLength = 4;  // "user" without \0
 const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
-
 const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 chars for numbers
+
+struct PerWorkerCounter {
+  uint32_t key_counter_;
+  /** padding to occupy its own cacheline. */
+  char padding_[assorted::kCachelineSize - sizeof(uint32_t)];
+};
+
 class YcsbKey {
  private:
   assorted::FixedString<kKeyMaxLength> data_;
 
  public:
   YcsbKey() {}
-  YcsbKey& next(uint32_t worker_id, uint32_t* local_counter);
+  YcsbKey& next(uint32_t worker_id, PerWorkerCounter* local_counter);
   YcsbKey& build(uint32_t high_bits, uint32_t low_bits);
 
   const char *ptr() const {
@@ -138,7 +145,7 @@ int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
 ErrorStack ycsb_client_task(const proc::ProcArguments& args);
 YcsbClientChannel* get_channel(Engine* engine);
-uint32_t* get_local_key_counter(Engine* engine, uint32_t worker_id);
+PerWorkerCounter* get_local_key_counter(Engine* engine, uint32_t worker_id);
 int64_t max_scan_length();
 
 struct YcsbWorkload {
@@ -186,7 +193,7 @@ class YcsbClientTask {
     YcsbWorkload workload_;
     bool read_all_fields_;
     bool write_all_fields_;
-    uint32_t* local_key_counter_;
+    PerWorkerCounter* local_key_counter_;
     Inputs() {}
   };
 
@@ -220,7 +227,7 @@ class YcsbClientTask {
     return channel_->stop_flag_.load();
   }
 
-  uint32_t* local_key_counter() {return local_key_counter_; }  // Not accurate!
+  PerWorkerCounter* local_key_counter() { return local_key_counter_; }  // Not accurate!
   uint32_t worker_id() const { return worker_id_; }
 
  private:
@@ -230,7 +237,7 @@ class YcsbClientTask {
   bool read_all_fields_;
   bool write_all_fields_;
   Outputs* outputs_;
-  uint32_t* local_key_counter_;  // Some cacheline aligned integer in shared memory
+  PerWorkerCounter* local_key_counter_;
   YcsbKey key_arena_;   // Don't use this from other threads!
 
   Engine* engine_;
