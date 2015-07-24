@@ -109,7 +109,11 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
         // TODO(tzwang): allow inserting to other workers' key space (on/off by a cmdarg)
-        ret = do_insert(next_insert_key());
+        ret = do_insert(build_key(worker_id_, local_key_counter_->key_counter_));
+        // Only increment the key counter if committed to avoid holes in the key space and
+        // make sure other thread can get a valid key after peeking my counter
+        if (ret == kErrorCodeOk)
+          local_key_counter_->key_counter_++;
       } else {
         // Choose a high-bits field first. Then take a look at that worker's local counter
         auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
@@ -228,7 +232,7 @@ ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
   while (nrecs-- && cursor.is_valid_record()) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;
-    memcpy(&r, pr, sizeof(r));  // need to do this? like do_tuple_read in Silo/ERMIA.
+    memcpy(&r, pr, sizeof(r));
     cursor.next();
   }
   Epoch commit_epoch;

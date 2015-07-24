@@ -104,11 +104,6 @@ void YcsbRecord::initialize_field(char *field) {
   memset(field, 'a', kFieldLength);
 }
 
-YcsbKey& YcsbKey::next(uint32_t worker_id, PerWorkerCounter* local_key_counter) {
-  auto low = local_key_counter->key_counter_++;
-  return build(worker_id, low);
-}
-
 YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
   if (!FLAGS_ordered_inserts) {
