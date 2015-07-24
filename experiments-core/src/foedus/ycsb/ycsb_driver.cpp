@@ -244,16 +244,37 @@ ErrorStack YcsbDriver::run() {
   LOG(INFO) << "Requested table size: " << FLAGS_initial_table_size
     << ", will load " << initial_table_size - remainder << " records";
 
+  YcsbWorkload workload;
+  if (FLAGS_workload == "A") {
+    workload = YcsbWorkloadA;
+  } else if (FLAGS_workload == "B") {
+    workload = YcsbWorkloadB;
+  } else if (FLAGS_workload == "C") {
+    workload = YcsbWorkloadC;
+  } else if (FLAGS_workload == "D") {
+    workload = YcsbWorkloadD;
+  } else if (FLAGS_workload == "E") {
+    workload = YcsbWorkloadE;
+  } else {
+    COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
+  }
+
   // Create an empty table
   Epoch ep;
-  // TODO(tzwang): adjust fill factor by workload (A...E)
 #ifdef YCSB_HASH_STORAGE
-  storage::hash::HashMetadata meta("ycsb_user_table", 80);
+  storage::hash::HashMetadata meta("ycsb_user_table");
   const float kHashPreferredRecordsPerBin = 5.0;
-  // TODO(tzwang): tune the multiplier or make it 1 if there's no inserts
-  meta.set_capacity(initial_table_size * 1.2, kHashPreferredRecordsPerBin);
+  if (workload.insert_percent() == 0) {
+    meta.set_capacity(initial_table_size, kHashPreferredRecordsPerBin);
+  } else {
+    // Don't support expanding record so far... *1.5 should be more than enough
+    meta.set_capacity(initial_table_size * 1.5, kHashPreferredRecordsPerBin);
+  }
 #else
-  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 80);
+  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
+  if (workload.insert_percent() > 0) {
+    meta.border_early_split_threshold_ = 80;
+  }
   meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
   meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
 #endif
@@ -303,18 +324,7 @@ ErrorStack YcsbDriver::run() {
       inputs.random_inserts_ = FLAGS_random_inserts;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
       inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
-
-      if (FLAGS_workload == "A") {
-        inputs.workload_ = YcsbWorkloadA;
-      } else if (FLAGS_workload == "B") {
-        inputs.workload_ = YcsbWorkloadB;
-      } else if (FLAGS_workload == "C") {
-        inputs.workload_ = YcsbWorkloadC;
-      } else if (FLAGS_workload == "D") {
-        inputs.workload_ = YcsbWorkloadD;
-      } else if (FLAGS_workload == "E") {
-        inputs.workload_ = YcsbWorkloadE;
-      }
+      inputs.workload_ = workload;
       bool ret = thread_pool->impersonate_on_numa_node(
         node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
       if (!ret) {
