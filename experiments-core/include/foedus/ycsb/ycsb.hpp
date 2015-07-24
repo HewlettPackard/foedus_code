@@ -158,6 +158,10 @@ struct YcsbWorkload {
       scan_percent_(scan_percent) {}
 
   YcsbWorkload() {}
+  uint8_t insert_percent() const { return insert_percent_; }
+  uint8_t read_percent() const { return read_percent_ - insert_percent_; }
+  uint8_t update_percent() const { return update_percent_ - read_percent_; }
+  uint8_t scan_percent() const { return scan_percent_ - update_percent_; }
 
   char desc_;
   // Cumulative percentage of i/r/u/s. From insert...scan the percentages
