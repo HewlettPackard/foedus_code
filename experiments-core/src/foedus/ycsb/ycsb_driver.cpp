@@ -79,6 +79,7 @@ DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
 DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
+DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -299,6 +300,7 @@ ErrorStack YcsbDriver::run() {
       inputs.worker_id_ = worker_id;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
+      inputs.random_inserts_ = FLAGS_random_inserts;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
       inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
 
@@ -347,6 +349,7 @@ ErrorStack YcsbDriver::run() {
       result.race_aborts_ += output->race_aborts_;
       result.unexpected_aborts_ += output->unexpected_aborts_;
       result.largereadset_aborts_ += output->largereadset_aborts_;
+      result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
       result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
       result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
     }
@@ -369,12 +372,14 @@ ErrorStack YcsbDriver::run() {
     result.workers_[i].race_aborts_ = output->race_aborts_;
     result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
     result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
+    result.workers_[i].insert_conflict_aborts_ = output->insert_conflict_aborts_;
     result.workers_[i].snapshot_cache_hits_ = output->snapshot_cache_hits_;
     result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
     result.processed_ += output->processed_;
     result.race_aborts_ += output->race_aborts_;
     result.unexpected_aborts_ += output->unexpected_aborts_;
     result.largereadset_aborts_ += output->largereadset_aborts_;
+    result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
     result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
     result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
   }
@@ -402,6 +407,7 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
     << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
+    << "<insert_conflict_aborts_>" << v.insert_conflict_aborts_ << "</insert_conflict_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
     << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
     << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"
