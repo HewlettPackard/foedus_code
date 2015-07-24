@@ -97,7 +97,6 @@ class YcsbKey {
 
  public:
   YcsbKey() {}
-  YcsbKey& next(uint32_t worker_id, PerWorkerCounter* local_counter);
   YcsbKey& build(uint32_t high_bits, uint32_t low_bits);
 
   const char *ptr() const {
@@ -159,6 +158,10 @@ struct YcsbWorkload {
       scan_percent_(scan_percent) {}
 
   YcsbWorkload() {}
+  uint8_t insert_percent() const { return insert_percent_; }
+  uint8_t read_percent() const { return read_percent_ - insert_percent_; }
+  uint8_t update_percent() const { return update_percent_ - read_percent_; }
+  uint8_t scan_percent() const { return scan_percent_ - update_percent_; }
 
   char desc_;
   // Cumulative percentage of i/r/u/s. From insert...scan the percentages
@@ -188,6 +191,7 @@ class YcsbClientTask {
     YcsbWorkload workload_;
     bool read_all_fields_;
     bool write_all_fields_;
+    bool random_inserts_;
     PerWorkerCounter* local_key_counter_;
     Inputs() {}
   };
@@ -198,6 +202,7 @@ class YcsbClientTask {
     uint64_t processed_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
+    uint64_t insert_conflict_aborts_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
@@ -209,6 +214,7 @@ class YcsbClientTask {
       workload_(inputs.workload_),
       read_all_fields_(inputs.read_all_fields_),
       write_all_fields_(inputs.write_all_fields_),
+      random_inserts_(inputs.random_inserts_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
       rnd_record_select_(4584287 + inputs.worker_id_),
@@ -231,6 +237,7 @@ class YcsbClientTask {
   YcsbWorkload workload_;
   bool read_all_fields_;
   bool write_all_fields_;
+  bool random_inserts_;
   Outputs* outputs_;
   PerWorkerCounter* local_key_counter_;
   YcsbKey key_arena_;   // Don't use this from other threads!
@@ -251,10 +258,6 @@ class YcsbClientTask {
   assorted::UniformRandom rnd_scan_length_select_;
   assorted::UniformRandom rnd_xct_select_;
 
-  YcsbKey& next_insert_key() {
-    return key_arena_.next(worker_id_, local_key_counter_);
-  }
-
   YcsbKey& build_key(uint32_t high_bits, uint32_t low_bits) {
     return key_arena_.build(high_bits, low_bits);
   }
@@ -265,6 +268,8 @@ class YcsbClientTask {
   uint32_t increment_unexpected_aborts() { return ++outputs_->unexpected_aborts_; }
   uint32_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
   uint32_t increment_largereadset_aborts() { return ++outputs_->largereadset_aborts_; }
+  uint32_t get_insert_conflict_aborts() const { return outputs_->insert_conflict_aborts_; }
+  uint32_t increment_insert_conflict_aborts() const { return ++outputs_->insert_conflict_aborts_; }
 
   ErrorStack do_xct(const YcsbWorkload workload_desc);
   ErrorCode do_read(const YcsbKey& key);
@@ -282,6 +287,7 @@ class YcsbDriver {
     uint64_t processed_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
+    uint64_t insert_conflict_aborts_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
@@ -295,6 +301,7 @@ class YcsbDriver {
         processed_(0),
         race_aborts_(0),
         largereadset_aborts_(0),
+        insert_conflict_aborts_(0),
         unexpected_aborts_(0),
         snapshot_cache_hits_(0),
         snapshot_cache_misses_(0) {}
@@ -303,6 +310,7 @@ class YcsbDriver {
     uint64_t processed_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
+    uint64_t insert_conflict_aborts_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
