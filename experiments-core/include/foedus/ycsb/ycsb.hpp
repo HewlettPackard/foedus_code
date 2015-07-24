@@ -79,9 +79,6 @@ const uint32_t kFields = 10;
 /* Record size */
 const uint64_t kRecordSize = kFieldLength * kFields;
 
-// TODO(tzwang): make it a cmd argument
-const uint64_t kInitialUserTableSize= 10000;
-
 const uint32_t kMaxWorkers = 1024;
 
 const int kKeyPrefixLength = 4;  // "user" without \0
@@ -172,16 +169,14 @@ struct YcsbWorkload {
   uint8_t scan_percent_;
 };
 
-// Stores the starting key for a worker (integer part). This is a POD.
-struct StartKey {
-  uint32_t high;
-  uint32_t low;
-};
-
 class YcsbLoadTask {
  public:
+  struct Inputs {
+    uint64_t load_node_;
+    uint64_t records_per_thread_;
+  };
   YcsbLoadTask() : rnd_(48357) {}
-  ErrorStack run(thread::Thread* context, StartKey* start_key);
+  ErrorStack run(thread::Thread* context, uint16_t node, uint64_t records_per_thread);
  private:
   assorted::UniformRandom rnd_;
 };
