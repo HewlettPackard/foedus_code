@@ -229,6 +229,7 @@ ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;
     memcpy(&r, pr, sizeof(r));  // need to do this? like do_tuple_read in Silo/ERMIA.
+    cursor.next();
   }
   Epoch commit_epoch;
   return xct_manager_->precommit_xct(context_, &commit_epoch);
