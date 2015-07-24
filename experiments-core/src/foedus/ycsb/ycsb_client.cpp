@@ -114,11 +114,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         // Choose a high-bits field first. Then take a look at that worker's local counter
         auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
         auto cnt = channel_->peek_local_key_counter(engine_, high);
-        if (cnt == 0) {
-          // So the guy hasn't even inserted anything and the loader didn't insert
-          // in that key space either (because kInitialUserTableSize % nr_workers > 0)
-          cnt = 1;
-        }
+        // The load should have inserted at least one record on behalf of this worker
+        ASSERT_ND(cnt > 0);
         auto low = rnd_record_select_.uniform_within(0, cnt - 1);
         if (xct_type <= workload_.read_percent_) {
           ret = do_read(build_key(high, low));
