@@ -54,36 +54,19 @@
 
 namespace foedus {
 namespace ycsb {
-
 ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
-  *args.output_used_ = sizeof(StartKey);
-  StartKey *start_key = reinterpret_cast<StartKey*>(args.output_buffer_);
+  if (args.input_len_ != sizeof(YcsbLoadTask::Inputs)) {
+    return ERROR_STACK(kErrorCodeUserDefined);
+  }
   YcsbLoadTask task;
-  return task.run(context, start_key);
+  const YcsbLoadTask::Inputs* inputs =
+    reinterpret_cast<const YcsbLoadTask::Inputs*>(args.input_buffer_);
+  return task.run(context, inputs->load_node_, inputs->records_per_thread_);
 }
 
-ErrorStack YcsbLoadTask::run(thread::Thread* context, StartKey* start_key) {
+ErrorStack YcsbLoadTask::run(thread::Thread* context, uint16_t node, uint64_t records_per_thread) {
   Engine* engine = context->get_engine();
-
-  // Create an empty table
-  Epoch ep;
-  // TODO(tzwang): adjust fill factor by workload (A...E)
-#ifdef YCSB_HASH_STORAGE
-  storage::hash::HashMetadata meta("ycsb_user_table", 80);
-  const float kHashPreferredRecordsPerBin = 5.0;
-  // TODO(tzwang): tune the multiplier or make it 1 if there's no inserts
-  meta.set_capacity(kInitialUserTableSize * 1.2, kHashPreferredRecordsPerBin);
-#else
-  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 80);
-  meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
-  meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
-#endif
-
-  // Keep volatile pages
-  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
-  CHECK_ERROR(engine->get_storage_manager()->create_storage(&meta, &ep));
-  LOG(INFO) << "[YCSB] Created user table";
 
 #ifdef YCSB_HASH_STORAGE
   auto user_table = engine->get_storage_manager()->get_hash("ycsb_user_table");
@@ -92,44 +75,33 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context, StartKey* start_key) {
 #endif
   auto* xct_manager = engine->get_xct_manager();
 
-  LOG(INFO) << "[YCSB] Will insert " << kInitialUserTableSize << " records to user table";
-
-  // Now populate the table, round-robin for each worker id (as the high bits).
-  auto remaining_inserts = kInitialUserTableSize;
-  uint32_t high = 0, low = 0;
-  YcsbKey key;
-  YcsbRecord r('a');
-
+  // Now populate the table, round-robin for each worker id (as the high bits) in my group.
   debugging::StopWatch watch;
-  Epoch commit_epoch;
-  auto nr_workers = engine->get_options().thread_.get_total_thread_count();
-  while (remaining_inserts) {
-    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-    for (high = 0; high < nr_workers; high++) {
-      key.build(high, low);
+  auto& options = engine->get_options();
+  uint64_t inserted = 0;
+  // Insert (equal number of) records on behalf of each worker
+  for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
+    auto remaining_inserts = records_per_thread;
+    uint32_t high = node * options.thread_.thread_count_per_group_ + ordinal, low = 0;
+    YcsbKey key;
+    YcsbRecord r('a');
+    Epoch commit_epoch;
+    while (true) {
+      COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+      key.build(high, low++);
       COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-      if (!--remaining_inserts)
+      COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+      inserted++;
+      if (--remaining_inserts == 0) {
         break;
+      }
     }
-    COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-    low++;
+    ASSERT_ND(remaining_inserts == 0);
+    COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   }
-  COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   watch.stop();
-
-  // Note we did a low++ in the while loop above, so workers with id < high
-  // actually had low bits=low-1, the rest had low-2. Because the worker will
-  // start with local_key_counter (instead of ++), the initial values for
-  // workers' local_key_counter will be low for those with id < high, and
-  // low-1 for those with id >= high. Both high and low values are passed out
-  // through start_key_pair.
-  start_key->high = high;
-  start_key->low = low;
-  ASSERT_ND(remaining_inserts == 0);
-  LOG(INFO) << "[YCSB] Finished loading "
-    << kInitialUserTableSize
-    << " records in user table in "
-    << watch.elapsed_sec() << "s";
+  ASSERT_ND(inserted == records_per_thread * options.thread_.thread_count_per_group_);
+  LOG(INFO) << "[YCSB] Loaded " << inserted << " records in " << watch.elapsed_sec() << "s";
   return kRetOk;
 }
 

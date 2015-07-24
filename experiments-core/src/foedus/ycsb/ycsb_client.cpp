@@ -106,7 +106,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     while (!is_stop_requested()) {
       rnd_xct_select_.set_current_seed(rnd_seed);
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
-      ErrorCode ret;
+      ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
         // TODO(tzwang): allow inserting to other workers' key space (on/off by a cmdarg)
         ret = do_insert(next_insert_key());
@@ -114,11 +114,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         // Choose a high-bits field first. Then take a look at that worker's local counter
         auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
         auto cnt = channel_->peek_local_key_counter(engine_, high);
-        if (cnt == 0) {
-          // So the guy hasn't even inserted anything and the loader didn't insert
-          // in that key space either (because kInitialUserTableSize % nr_workers > 0)
-          cnt = 1;
-        }
+        // The load should have inserted at least one record on behalf of this worker
+        ASSERT_ND(cnt > 0);
         auto low = rnd_record_select_.uniform_within(0, cnt - 1);
         if (xct_type <= workload_.read_percent_) {
           ret = do_read(build_key(high, low));
@@ -126,7 +123,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           ret = do_update(build_key(high, low));
         } else {
 #ifdef YCSB_HASH_STORAGE
-          COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
+          ret = kErrorCodeInvalidParameter;
+          COERCE_ERROR_CODE(ret);
 #else
           auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
           ret = do_scan(build_key(high, low), nrecs);
