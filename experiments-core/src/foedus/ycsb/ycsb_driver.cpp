@@ -44,6 +44,9 @@
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/hash/hash_hashinate.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -75,6 +78,7 @@ DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
+DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -231,28 +235,63 @@ int driver_main(int argc, char **argv) {
 }
 
 ErrorStack YcsbDriver::run() {
-  const EngineOptions& options = engine_->get_options();
   // Setup the channel so I can synchronize with workers and record nr_workers
   YcsbClientChannel* channel = get_channel(engine_);
-  channel->initialize(options.thread_.get_total_thread_count());
+  const EngineOptions& options = engine_->get_options();
+  uint32_t total_thread_count = options.thread_.get_total_thread_count();
+  channel->initialize(total_thread_count);
+  int64_t initial_table_size = FLAGS_initial_table_size;
+  auto remainder = initial_table_size % total_thread_count;
+  if (remainder) {
+    initial_table_size -= remainder;
+  }
+  LOG(INFO) << "Requested table size: " << FLAGS_initial_table_size
+    << ", will load " << initial_table_size - remainder << " records";
 
+  // Create an empty table
+  Epoch ep;
+  // TODO(tzwang): adjust fill factor by workload (A...E)
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashMetadata meta("ycsb_user_table", 80);
+  const float kHashPreferredRecordsPerBin = 5.0;
+  // TODO(tzwang): tune the multiplier or make it 1 if there's no inserts
+  meta.set_capacity(initial_table_size * 1.2, kHashPreferredRecordsPerBin);
+#else
+  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 80);
+  meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
+  meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
+#endif
+
+  // Keep volatile pages
+  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+  CHECK_ERROR(engine_->get_storage_manager()->create_storage(&meta, &ep));
+
+  auto initial_records_per_thread = initial_table_size / total_thread_count;
   auto* thread_pool = engine_->get_thread_pool();
-  thread::ImpersonateSession load_session;
-  bool ret = thread_pool->impersonate("ycsb_load_task", NULL, 0, &load_session);
-  if (!ret) {
-    LOG(FATAL) << "Couldn't impersonate";
+  // One loader per node
+  std::vector< thread::ImpersonateSession > load_sessions;
+  for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
+    YcsbLoadTask::Inputs inputs;
+    inputs.load_node_ = node;
+    inputs.records_per_thread_ = initial_records_per_thread;
+    thread::ImpersonateSession load_session;
+    bool ret = thread_pool->impersonate_on_numa_node(
+      node, "ycsb_load_task", &inputs, sizeof(inputs), &load_session);
+    if (!ret) {
+      LOG(FATAL) << "Couldn't impersonate";
+    }
+    load_sessions.emplace_back(std::move(load_session));
   }
-
-  // Wait for the load task to finish
-  // TODO(tzwang): parallelize this
+  // Wait for the load tasks to finish
   const uint64_t kIntervalMs = 10;
-  while (load_session.is_running()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
-    assorted::memory_fence_acquire();
+  for (uint32_t i = 0; i < load_sessions.size(); ++i) {
+    while (load_sessions[i].is_running()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
+      assorted::memory_fence_acquire();
+    }
+    LOG(INFO) << "result[" << i << "]=" << load_sessions[i].get_result();
+    load_sessions[i].release();
   }
-  const StartKey *start_key =
-    reinterpret_cast<const StartKey*>(load_session.get_raw_output_buffer());
-  load_session.release();  // Release the loader session, making the thread available again
 
   // Now try to start transaction worker threads
   uint32_t worker_id = 0;
@@ -262,15 +301,11 @@ ErrorStack YcsbDriver::run() {
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
       thread::ImpersonateSession session;
       YcsbClientTask::Inputs inputs;
-      inputs.worker_id_ = worker_id++;
+      inputs.worker_id_ = worker_id;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
-      if (worker_id < start_key->high) {
-        inputs.local_key_counter_->key_counter_ = start_key->low;
-      } else {
-        inputs.local_key_counter_->key_counter_ = start_key->low - 1;
-      }
+      inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
 
       if (FLAGS_workload == "A") {
         inputs.workload_ = YcsbWorkloadA;
@@ -291,6 +326,7 @@ ErrorStack YcsbDriver::run() {
       outputs.push_back(
         reinterpret_cast<const YcsbClientTask::Outputs*>(session.get_raw_output_buffer()));
       sessions.emplace_back(std::move(session));
+      worker_id++;
     }
   }
 
@@ -302,7 +338,6 @@ ErrorStack YcsbDriver::run() {
   assorted::memory_fence_release();
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
-  uint32_t total_thread_count = options.thread_.get_total_thread_count();
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
     // wake up for each second to show intermediate results.
     uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
