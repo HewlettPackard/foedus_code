@@ -106,7 +106,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     while (!is_stop_requested()) {
       rnd_xct_select_.set_current_seed(rnd_seed);
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
-      ErrorCode ret;
+      ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
         // TODO(tzwang): allow inserting to other workers' key space (on/off by a cmdarg)
         ret = do_insert(next_insert_key());
@@ -126,7 +126,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           ret = do_update(build_key(high, low));
         } else {
 #ifdef YCSB_HASH_STORAGE
-          COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
+          ret = kErrorCodeInvalidParameter;
+          COERCE_ERROR_CODE(ret);
 #else
           auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
           ret = do_scan(build_key(high, low), nrecs);
