@@ -79,6 +79,7 @@ DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
 DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
+DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -102,11 +103,6 @@ YcsbRecord::YcsbRecord(char value) {
 // TODO(tzwang): make this field content random
 void YcsbRecord::initialize_field(char *field) {
   memset(field, 'a', kFieldLength);
-}
-
-YcsbKey& YcsbKey::next(uint32_t worker_id, PerWorkerCounter* local_key_counter) {
-  auto low = local_key_counter->key_counter_++;
-  return build(worker_id, low);
 }
 
 YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
@@ -248,16 +244,37 @@ ErrorStack YcsbDriver::run() {
   LOG(INFO) << "Requested table size: " << FLAGS_initial_table_size
     << ", will load " << initial_table_size - remainder << " records";
 
+  YcsbWorkload workload;
+  if (FLAGS_workload == "A") {
+    workload = YcsbWorkloadA;
+  } else if (FLAGS_workload == "B") {
+    workload = YcsbWorkloadB;
+  } else if (FLAGS_workload == "C") {
+    workload = YcsbWorkloadC;
+  } else if (FLAGS_workload == "D") {
+    workload = YcsbWorkloadD;
+  } else if (FLAGS_workload == "E") {
+    workload = YcsbWorkloadE;
+  } else {
+    COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
+  }
+
   // Create an empty table
   Epoch ep;
-  // TODO(tzwang): adjust fill factor by workload (A...E)
 #ifdef YCSB_HASH_STORAGE
-  storage::hash::HashMetadata meta("ycsb_user_table", 80);
+  storage::hash::HashMetadata meta("ycsb_user_table");
   const float kHashPreferredRecordsPerBin = 5.0;
-  // TODO(tzwang): tune the multiplier or make it 1 if there's no inserts
-  meta.set_capacity(initial_table_size * 1.2, kHashPreferredRecordsPerBin);
+  if (workload.insert_percent() == 0) {
+    meta.set_capacity(initial_table_size, kHashPreferredRecordsPerBin);
+  } else {
+    // Don't support expanding record so far... *1.5 should be more than enough
+    meta.set_capacity(initial_table_size * 1.5, kHashPreferredRecordsPerBin);
+  }
 #else
-  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 80);
+  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
+  if (workload.insert_percent() > 0) {
+    meta.border_early_split_threshold_ = 80;
+  }
   meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
   meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
 #endif
@@ -304,20 +321,10 @@ ErrorStack YcsbDriver::run() {
       inputs.worker_id_ = worker_id;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
+      inputs.random_inserts_ = FLAGS_random_inserts;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
       inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
-
-      if (FLAGS_workload == "A") {
-        inputs.workload_ = YcsbWorkloadA;
-      } else if (FLAGS_workload == "B") {
-        inputs.workload_ = YcsbWorkloadB;
-      } else if (FLAGS_workload == "C") {
-        inputs.workload_ = YcsbWorkloadC;
-      } else if (FLAGS_workload == "D") {
-        inputs.workload_ = YcsbWorkloadD;
-      } else if (FLAGS_workload == "E") {
-        inputs.workload_ = YcsbWorkloadE;
-      }
+      inputs.workload_ = workload;
       bool ret = thread_pool->impersonate_on_numa_node(
         node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
       if (!ret) {
@@ -352,6 +359,7 @@ ErrorStack YcsbDriver::run() {
       result.race_aborts_ += output->race_aborts_;
       result.unexpected_aborts_ += output->unexpected_aborts_;
       result.largereadset_aborts_ += output->largereadset_aborts_;
+      result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
       result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
       result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
     }
@@ -374,12 +382,14 @@ ErrorStack YcsbDriver::run() {
     result.workers_[i].race_aborts_ = output->race_aborts_;
     result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
     result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
+    result.workers_[i].insert_conflict_aborts_ = output->insert_conflict_aborts_;
     result.workers_[i].snapshot_cache_hits_ = output->snapshot_cache_hits_;
     result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
     result.processed_ += output->processed_;
     result.race_aborts_ += output->race_aborts_;
     result.unexpected_aborts_ += output->unexpected_aborts_;
     result.largereadset_aborts_ += output->largereadset_aborts_;
+    result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
     result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
     result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
   }
@@ -407,6 +417,7 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
     << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
+    << "<insert_conflict_aborts_>" << v.insert_conflict_aborts_ << "</insert_conflict_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
     << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
     << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"
