@@ -97,7 +97,6 @@ class YcsbKey {
 
  public:
   YcsbKey() {}
-  YcsbKey& next(uint32_t worker_id, PerWorkerCounter* local_counter);
   YcsbKey& build(uint32_t high_bits, uint32_t low_bits);
 
   const char *ptr() const {
@@ -250,10 +249,6 @@ class YcsbClientTask {
   assorted::UniformRandom rnd_field_select_;
   assorted::UniformRandom rnd_scan_length_select_;
   assorted::UniformRandom rnd_xct_select_;
-
-  YcsbKey& next_insert_key() {
-    return key_arena_.next(worker_id_, local_key_counter_);
-  }
 
   YcsbKey& build_key(uint32_t high_bits, uint32_t low_bits) {
     return key_arena_.build(high_bits, low_bits);
