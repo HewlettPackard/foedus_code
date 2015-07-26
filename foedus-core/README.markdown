@@ -18,7 +18,7 @@ Hardware/Compiler/OS Requirements
 * We assume Linux/Unix so far. No MacOS, Windows, nor Solaris.
 * We strongly recommend linux kernel 3.16 or later. [^1]
 * We assume fsync(2) penetrates all the way through the device. [^2]
-* We require reasonably modern C++ compilers, namely gcc 4.8.2 or later.
+* We require reasonably modern C++ compilers, namely gcc 4.8.2 or later. [^3]
 * We depend on CMake and several other toolsets/libraries. But, we guarantee that
 all of them are commonly available from default package repositories.
 Otherwise, we include the dependency in our code.
@@ -30,6 +30,9 @@ linux developers.
 [^2]: If this is not the case, check your write-cache settings in the filesystem and device driver.
 Unfortunately, even if users configure it right, some storage device sacrifices durability for the
 sake of performance. So is some file system. For those environments, we cannot guarantee ACID.
+
+[^3]: [2015 Jul] We have added an _experimental_ support for clang.
+
 
 Verified Environments
 --------

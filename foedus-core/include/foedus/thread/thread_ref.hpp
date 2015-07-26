@@ -96,6 +96,7 @@ class ThreadGroupRef CXX11_FINAL {
   ThreadGroupRef();
   ThreadGroupRef(Engine* engine, ThreadGroupId group_id);
 
+  Engine*                 get_engine() const { return engine_; }
   ThreadGroupId           get_group_id() const { return group_id_; }
 
   /** Returns Thread object for the given ordinal in this group. */

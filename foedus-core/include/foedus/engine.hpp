@@ -42,7 +42,7 @@ namespace foedus {
 
 // forward declarations
 class EnginePimpl;
-class EngineOptions;
+struct EngineOptions;
 
 /**
  * @defgroup COMPONENTS FOEDUS Components

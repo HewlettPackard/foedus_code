@@ -2,10 +2,13 @@
 Applied 0.3.4 code. I wanted to use someone else's cmake script like this one:
   https://github.com/sergiud/glog
   https://github.com/google/glog/issues/4
-However, it differs in a few important stuffs, especially static-lib version.
+However, it differs in a few important stuffs, especially static-lib handling.
 Anyway it's not merged into the master yet, so I simply took diff b/w 0.3.3 and 0.3.4
 then applied to our version of 0.3.3. We have not tested this 0.3.4 thoroughly,
 so we will also keep 0.3.3 folder for a while.
+
+glog-0.3.4 compiles on clang, and that was the last piece in FOEDUS.
+Now we support clang!
 
 2014-05-07  Hideaki
 Applied the following patch on top of 0.3.3.
