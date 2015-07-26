@@ -33,6 +33,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
@@ -43,6 +44,9 @@
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/soc_manager.hpp"
 #include "foedus/storage/hash/hash_hashinate.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
+#include "foedus/storage/masstree/masstree_metadata.hpp"
+#include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/numa_thread_scope.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
@@ -74,6 +78,8 @@ DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
+DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
+DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -99,18 +105,15 @@ void YcsbRecord::initialize_field(char *field) {
   memset(field, 'a', kFieldLength);
 }
 
-YcsbKey& YcsbKey::next(uint32_t worker_id, uint32_t* local_key_counter) {
-  auto low = ++(*local_key_counter);
-  return build(worker_id, low);
-}
-
 YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
   if (!FLAGS_ordered_inserts) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
   data_ = kKeyPrefix;
-  data_.append(std::to_string(keynum));
+  const int kIntegerLength = kKeyMaxLength - kKeyPrefixLength;
+  char keychar[kIntegerLength + 1];
+  data_.append(keychar, snprintf(keychar, kIntegerLength + 1, "%lu", keynum));
   return *this;
 }
 
@@ -124,8 +127,26 @@ YcsbClientChannel* get_channel(Engine* engine) {
   return channel;
 }
 
-uint32_t YcsbClientChannel::peek_local_key_counter(uint32_t worker_id) {
-  return workers[worker_id].local_key_counter();
+// We put each worker's local key counter in shared memory, each occupying a cacheline
+// of bytes. So now the layout in the shared memory space is like:
+//
+// Offset: Content
+// 0: the channel
+// + align_up(sizeof(YcsbClientChannel), CACHELINE_SIZE): 1st worker's local key counter
+// + CACHELINE_SIZE: 2nd worker's local key counter
+// + CACHELINE_SIZE: 3rd worker's local key counter
+// ... and so on...
+uint32_t YcsbClientChannel::peek_local_key_counter(Engine* engine, uint32_t worker_id) {
+  return get_local_key_counter(engine, worker_id)->key_counter_;
+}
+
+PerWorkerCounter* get_local_key_counter(Engine* engine, uint32_t worker_id) {
+  uintptr_t shm = reinterpret_cast<uintptr_t>(
+    engine->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
+  uintptr_t address =
+    assorted::align<uintptr_t, assorted::kCachelineSize>(shm + sizeof(YcsbClientChannel));
+  address += sizeof(PerWorkerCounter) * worker_id;
+  return reinterpret_cast<PerWorkerCounter*>(address);
 }
 
 int driver_main(int argc, char **argv) {
@@ -212,37 +233,82 @@ int driver_main(int argc, char **argv) {
 ErrorStack YcsbDriver::run() {
   // Setup the channel so I can synchronize with workers and record nr_workers
   YcsbClientChannel* channel = get_channel(engine_);
-  channel->initialize();
-
-  // Figure out we have to run how many worker threads first.
-  // The loader needs it to generate keys.
   const EngineOptions& options = engine_->get_options();
-  for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
-    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
-      // XXX: this should be drawn from numa map actually?
-      channel->nr_workers_++;
-    }
+  uint32_t total_thread_count = options.thread_.get_total_thread_count();
+  channel->initialize(total_thread_count);
+  int64_t initial_table_size = FLAGS_initial_table_size;
+  auto remainder = initial_table_size % total_thread_count;
+  if (remainder) {
+    initial_table_size -= remainder;
+  }
+  LOG(INFO) << "Requested table size: " << FLAGS_initial_table_size
+    << ", will load " << initial_table_size - remainder << " records";
+
+  YcsbWorkload workload;
+  if (FLAGS_workload == "A") {
+    workload = YcsbWorkloadA;
+  } else if (FLAGS_workload == "B") {
+    workload = YcsbWorkloadB;
+  } else if (FLAGS_workload == "C") {
+    workload = YcsbWorkloadC;
+  } else if (FLAGS_workload == "D") {
+    workload = YcsbWorkloadD;
+  } else if (FLAGS_workload == "E") {
+    workload = YcsbWorkloadE;
+  } else {
+    COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
 
+  // Create an empty table
+  Epoch ep;
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashMetadata meta("ycsb_user_table");
+  const float kHashPreferredRecordsPerBin = 5.0;
+  if (workload.insert_percent() == 0) {
+    meta.set_capacity(initial_table_size, kHashPreferredRecordsPerBin);
+  } else {
+    // Don't support expanding record so far... *1.5 should be more than enough
+    meta.set_capacity(initial_table_size * 1.5, kHashPreferredRecordsPerBin);
+  }
+#else
+  storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
+  if (workload.insert_percent() > 0) {
+    meta.border_early_split_threshold_ = 80;
+  }
+  meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
+  meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
+#endif
+
+  // Keep volatile pages
+  meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+  CHECK_ERROR(engine_->get_storage_manager()->create_storage(&meta, &ep));
+
+  auto initial_records_per_thread = initial_table_size / total_thread_count;
   auto* thread_pool = engine_->get_thread_pool();
-  thread::ImpersonateSession load_session;
-  bool ret = thread_pool->impersonate("ycsb_load_task", &channel->nr_workers_,
-                                      sizeof(uint32_t), &load_session);
-  if (!ret) {
-    LOG(FATAL) << "Couldn't impersonate";
+  // One loader per node
+  std::vector< thread::ImpersonateSession > load_sessions;
+  for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
+    YcsbLoadTask::Inputs inputs;
+    inputs.load_node_ = node;
+    inputs.records_per_thread_ = initial_records_per_thread;
+    thread::ImpersonateSession load_session;
+    bool ret = thread_pool->impersonate_on_numa_node(
+      node, "ycsb_load_task", &inputs, sizeof(inputs), &load_session);
+    if (!ret) {
+      LOG(FATAL) << "Couldn't impersonate";
+    }
+    load_sessions.emplace_back(std::move(load_session));
   }
-
-  // Wait for the load task to finish
-  // TODO(tzwang): parallelize this
+  // Wait for the load tasks to finish
   const uint64_t kIntervalMs = 10;
-  while (load_session.is_running()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
-    assorted::memory_fence_acquire();
+  for (uint32_t i = 0; i < load_sessions.size(); ++i) {
+    while (load_sessions[i].is_running()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
+      assorted::memory_fence_acquire();
+    }
+    LOG(INFO) << "result[" << i << "]=" << load_sessions[i].get_result();
+    load_sessions[i].release();
   }
-  const std::pair<uint32_t, uint32_t> start_key_pair =
-    *reinterpret_cast<const std::pair<uint32_t, uint32_t>* >(load_session.get_raw_output_buffer());
-  ASSERT_ND(start_key_pair.second);
-  load_session.release();  // Release the loader session, making the thread available again
 
   // Now try to start transaction worker threads
   uint32_t worker_id = 0;
@@ -252,26 +318,13 @@ ErrorStack YcsbDriver::run() {
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
       thread::ImpersonateSession session;
       YcsbClientTask::Inputs inputs;
-      inputs.worker_id_ = worker_id++;
+      inputs.worker_id_ = worker_id;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
-      if (worker_id < start_key_pair.first) {
-        inputs.local_key_counter_ = start_key_pair.second;
-      } else {
-        inputs.local_key_counter_ = start_key_pair.second - 1;
-      }
-
-      if (FLAGS_workload == "A") {
-        inputs.workload_ = YcsbWorkloadA;
-      } else if (FLAGS_workload == "B") {
-        inputs.workload_ = YcsbWorkloadB;
-      } else if (FLAGS_workload == "C") {
-        inputs.workload_ = YcsbWorkloadC;
-      } else if (FLAGS_workload == "D") {
-        inputs.workload_ = YcsbWorkloadD;
-      } else if (FLAGS_workload == "E") {
-        inputs.workload_ = YcsbWorkloadE;
-      }
+      inputs.random_inserts_ = FLAGS_random_inserts;
+      inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
+      inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
+      inputs.workload_ = workload;
       bool ret = thread_pool->impersonate_on_numa_node(
         node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
       if (!ret) {
@@ -280,20 +333,18 @@ ErrorStack YcsbDriver::run() {
       outputs.push_back(
         reinterpret_cast<const YcsbClientTask::Outputs*>(session.get_raw_output_buffer()));
       sessions.emplace_back(std::move(session));
-      LOG(INFO) << "Thread: " << node << " " << ordinal << " " << inputs.worker_id_;
+      worker_id++;
     }
   }
 
   // Make sure everyone has finished initialization
-  while (channel->workers.size() != channel->nr_workers_) {}
+  while (channel->exit_nodes_ != 0) {}
 
   // Tell everybody to start
   channel->start_rendezvous_.signal();
   assorted::memory_fence_release();
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
-  uint32_t total_thread_count = options.thread_.get_total_thread_count();
-  ASSERT_ND(total_thread_count == channel->nr_workers_);
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
     // wake up for each second to show intermediate results.
     uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
@@ -308,6 +359,7 @@ ErrorStack YcsbDriver::run() {
       result.race_aborts_ += output->race_aborts_;
       result.unexpected_aborts_ += output->unexpected_aborts_;
       result.largereadset_aborts_ += output->largereadset_aborts_;
+      result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
       result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
       result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
     }
@@ -330,12 +382,14 @@ ErrorStack YcsbDriver::run() {
     result.workers_[i].race_aborts_ = output->race_aborts_;
     result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
     result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
+    result.workers_[i].insert_conflict_aborts_ = output->insert_conflict_aborts_;
     result.workers_[i].snapshot_cache_hits_ = output->snapshot_cache_hits_;
     result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
     result.processed_ += output->processed_;
     result.race_aborts_ += output->race_aborts_;
     result.unexpected_aborts_ += output->unexpected_aborts_;
     result.largereadset_aborts_ += output->largereadset_aborts_;
+    result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
     result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
     result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
   }
@@ -363,6 +417,7 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
     << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
+    << "<insert_conflict_aborts_>" << v.insert_conflict_aborts_ << "</insert_conflict_aborts_>"
     << "<unexpected_aborts_>" << v.unexpected_aborts_ << "</unexpected_aborts_>"
     << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
     << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"

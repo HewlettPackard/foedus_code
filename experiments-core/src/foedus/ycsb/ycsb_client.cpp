@@ -69,7 +69,7 @@ ErrorStack ycsb_client_task(const proc::ProcArguments& args) {
 
   auto result = task.run(context);
   if (result.is_error()) {
-    LOG(ERROR) << "YCSB Client-" << task.get_worker_id() << " exit with an error:" << result;
+    LOG(ERROR) << "YCSB Client-" << task.worker_id() << " exit with an error:" << result;
   }
   ++get_channel(context->get_engine())->exit_nodes_;
   return result;
@@ -86,14 +86,14 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   user_table_ = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
 #endif
   channel_ = get_channel(engine_);
-
-  // Add this myself to the tasks list in the channel so later I can see other's local_key_counter
-  {
-    soc::SharedMutexScope scope(&channel_->workers_mutex_);
-    channel_->workers.emplace_back(std::move(*this));
-  }
+  // TODO(tzwang): so far we only support homogeneous systems: each processor has exactly the same
+  // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
+  // figure out how many cores we have (basically by adding individual core counts up).
+  uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
 
   // Wait for the driver's order
+  channel_->exit_nodes_--;
+  ASSERT_ND(channel_->exit_nodes_ <= total_thread_count);
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
@@ -106,19 +106,31 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     while (!is_stop_requested()) {
       rnd_xct_select_.set_current_seed(rnd_seed);
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
-      ErrorCode ret;
+      ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
-        // TODO(tzwang): allow inserting to other workers' key space (on/off by a cmdarg)
-        ret = do_insert(next_insert_key());
+        YcsbKey key;
+        uint32_t high = worker_id_;
+        uint32_t* low = &local_key_counter_->key_counter_;
+        if (random_inserts_) {
+          high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
+          low = &(get_local_key_counter(engine_, high)->key_counter_);
+        }
+        ret = do_insert(build_key(worker_id_, *low));
+        // Only increment the key counter if committed to avoid holes in the key space and
+        // make sure other thread can get a valid key after peeking my counter
+        if (ret == kErrorCodeOk) {
+          if (random_inserts_) {
+            __sync_fetch_and_add(low, 1);
+          } else {
+            (*low)++;
+          }
+        }
       } else {
         // Choose a high-bits field first. Then take a look at that worker's local counter
-        auto high = rnd_record_select_.uniform_within(0, channel_->nr_workers_ - 1);
-        auto cnt = channel_->peek_local_key_counter(high);
-        if (cnt == 0) {
-          // So the guy hasn't even inserted anything and the loader didn't insert
-          // in that key space either (because kInitialUserTableSize % nr_workers > 0)
-          cnt = 1;
-        }
+        auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
+        auto cnt = channel_->peek_local_key_counter(engine_, high);
+        // The load should have inserted at least one record on behalf of this worker
+        ASSERT_ND(cnt > 0);
         auto low = rnd_record_select_.uniform_within(0, cnt - 1);
         if (xct_type <= workload_.read_percent_) {
           ret = do_read(build_key(high, low));
@@ -126,7 +138,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           ret = do_update(build_key(high, low));
         } else {
 #ifdef YCSB_HASH_STORAGE
-          COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
+          ret = kErrorCodeInvalidParameter;
+          COERCE_ERROR_CODE(ret);
 #else
           auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
           ret = do_scan(build_key(high, low), nrecs);
@@ -154,6 +167,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         ret == kErrorCodeXctWriteSetOverflow) {
         // this usually doesn't happen, but possible.
         increment_largereadset_aborts();
+        continue;
+      } else if (random_inserts_ && ret == kErrorCodeStrKeyAlreadyExists) {
+        increment_insert_conflict_aborts();
         continue;
       } else {
         increment_unexpected_aborts();
@@ -230,7 +246,8 @@ ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
   while (nrecs-- && cursor.is_valid_record()) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;
-    memcpy(&r, pr, sizeof(r));  // need to do this? like do_tuple_read in Silo/ERMIA.
+    memcpy(&r, pr, sizeof(r));
+    cursor.next();
   }
   Epoch commit_epoch;
   return xct_manager_->precommit_xct(context_, &commit_epoch);

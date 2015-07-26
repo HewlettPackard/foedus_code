@@ -31,6 +31,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
+#include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/endianness.hpp"
 #include "foedus/proc/proc_manager.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
@@ -78,22 +79,24 @@ const uint32_t kFields = 10;
 /* Record size */
 const uint64_t kRecordSize = kFieldLength * kFields;
 
-// TODO(tzwang): make it a cmd argument
-const uint64_t kInitialUserTableSize= 10000;
-
 const uint32_t kMaxWorkers = 1024;
 
 const int kKeyPrefixLength = 4;  // "user" without \0
 const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
-
 const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 chars for numbers
+
+struct PerWorkerCounter {
+  uint32_t key_counter_;
+  /** padding to occupy its own cacheline. */
+  char padding_[assorted::kCachelineSize - sizeof(uint32_t)];
+};
+
 class YcsbKey {
  private:
   assorted::FixedString<kKeyMaxLength> data_;
 
  public:
   YcsbKey() {}
-  YcsbKey& next(uint32_t worker_id, uint32_t* local_counter);
   YcsbKey& build(uint32_t high_bits, uint32_t low_bits);
 
   const char *ptr() const {
@@ -119,31 +122,26 @@ struct YcsbRecord {
  */
 class YcsbClientTask;
 struct YcsbClientChannel {
-  void initialize() {
+  void initialize(uint16_t nr_workers) {
     start_rendezvous_.initialize();
-    exit_nodes_.store(0);
+    exit_nodes_.store(nr_workers);
     stop_flag_.store(false);
-    nr_workers_ = 0;
-    workers_mutex_.initialize();
   }
   void uninitialize() {
     start_rendezvous_.uninitialize();
-    workers_mutex_.uninitialize();
   }
-  uint32_t peek_local_key_counter(uint32_t worker_id);
+  uint32_t peek_local_key_counter(Engine* engine, uint32_t worker_id);
 
   soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
-  uint32_t nr_workers_;
-  soc::SharedMutex workers_mutex_;
-  std::vector<YcsbClientTask> workers;
 };
 
 int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
 ErrorStack ycsb_client_task(const proc::ProcArguments& args);
 YcsbClientChannel* get_channel(Engine* engine);
+PerWorkerCounter* get_local_key_counter(Engine* engine, uint32_t worker_id);
 int64_t max_scan_length();
 
 struct YcsbWorkload {
@@ -160,6 +158,10 @@ struct YcsbWorkload {
       scan_percent_(scan_percent) {}
 
   YcsbWorkload() {}
+  uint8_t insert_percent() const { return insert_percent_; }
+  uint8_t read_percent() const { return read_percent_ - insert_percent_; }
+  uint8_t update_percent() const { return update_percent_ - read_percent_; }
+  uint8_t scan_percent() const { return scan_percent_ - update_percent_; }
 
   char desc_;
   // Cumulative percentage of i/r/u/s. From insert...scan the percentages
@@ -172,9 +174,12 @@ struct YcsbWorkload {
 
 class YcsbLoadTask {
  public:
+  struct Inputs {
+    uint64_t load_node_;
+    uint64_t records_per_thread_;
+  };
   YcsbLoadTask() : rnd_(48357) {}
-  ErrorStack run(thread::Thread* context, const uint32_t nr_workers,
-    std::pair<uint32_t, uint32_t>* start_key_pair);
+  ErrorStack run(thread::Thread* context, uint16_t node, uint64_t records_per_thread);
  private:
   assorted::UniformRandom rnd_;
 };
@@ -186,7 +191,8 @@ class YcsbClientTask {
     YcsbWorkload workload_;
     bool read_all_fields_;
     bool write_all_fields_;
-    uint32_t local_key_counter_;
+    bool random_inserts_;
+    PerWorkerCounter* local_key_counter_;
     Inputs() {}
   };
 
@@ -196,6 +202,7 @@ class YcsbClientTask {
     uint64_t processed_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
+    uint64_t insert_conflict_aborts_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
@@ -207,6 +214,7 @@ class YcsbClientTask {
       workload_(inputs.workload_),
       read_all_fields_(inputs.read_all_fields_),
       write_all_fields_(inputs.write_all_fields_),
+      random_inserts_(inputs.random_inserts_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
       rnd_record_select_(4584287 + inputs.worker_id_),
@@ -217,12 +225,11 @@ class YcsbClientTask {
   ErrorStack run(thread::Thread* context);
 
   bool is_stop_requested() const {
-    assorted::memory_fence_acquire();
     return channel_->stop_flag_.load();
   }
 
-  uint32_t local_key_counter() {return local_key_counter_; }  // Not accurate!
-  uint32_t get_worker_id() const { return worker_id_; }
+  PerWorkerCounter* local_key_counter() { return local_key_counter_; }  // Not accurate!
+  uint32_t worker_id() const { return worker_id_; }
 
  private:
   thread::Thread* context_;
@@ -230,8 +237,9 @@ class YcsbClientTask {
   YcsbWorkload workload_;
   bool read_all_fields_;
   bool write_all_fields_;
+  bool random_inserts_;
   Outputs* outputs_;
-  uint32_t local_key_counter_;
+  PerWorkerCounter* local_key_counter_;
   YcsbKey key_arena_;   // Don't use this from other threads!
 
   Engine* engine_;
@@ -250,10 +258,6 @@ class YcsbClientTask {
   assorted::UniformRandom rnd_scan_length_select_;
   assorted::UniformRandom rnd_xct_select_;
 
-  YcsbKey& next_insert_key() {
-    return key_arena_.next(worker_id_, &local_key_counter_);
-  }
-
   YcsbKey& build_key(uint32_t high_bits, uint32_t low_bits) {
     return key_arena_.build(high_bits, low_bits);
   }
@@ -264,6 +268,8 @@ class YcsbClientTask {
   uint32_t increment_unexpected_aborts() { return ++outputs_->unexpected_aborts_; }
   uint32_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
   uint32_t increment_largereadset_aborts() { return ++outputs_->largereadset_aborts_; }
+  uint32_t get_insert_conflict_aborts() const { return outputs_->insert_conflict_aborts_; }
+  uint32_t increment_insert_conflict_aborts() const { return ++outputs_->insert_conflict_aborts_; }
 
   ErrorStack do_xct(const YcsbWorkload workload_desc);
   ErrorCode do_read(const YcsbKey& key);
@@ -281,6 +287,7 @@ class YcsbDriver {
     uint64_t processed_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
+    uint64_t insert_conflict_aborts_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
@@ -294,6 +301,7 @@ class YcsbDriver {
         processed_(0),
         race_aborts_(0),
         largereadset_aborts_(0),
+        insert_conflict_aborts_(0),
         unexpected_aborts_(0),
         snapshot_cache_hits_(0),
         snapshot_cache_misses_(0) {}
@@ -302,6 +310,7 @@ class YcsbDriver {
     uint64_t processed_;
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
+    uint64_t insert_conflict_aborts_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
