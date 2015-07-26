@@ -374,6 +374,8 @@ struct Page CXX11_FINAL {
   PageHeader&  get_header()              { return header_; }
   const PageHeader&  get_header() const  { return header_; }
   PageType     get_page_type() const     { return header_.get_page_type(); }
+  char*        get_data() { return data_; }
+  const char*  get_data() const { return data_; }
 
  private:
   PageHeader  header_;

@@ -378,10 +378,7 @@ class RunTpcbTask {
 
  private:
   int                         client_id_;
-  bool                        contended_;
-
-  // to start all threads at the same time.
-  thread::Rendezvous*         start_rendezvous_;
+  bool                        contended_;  // TASK(Hideaki) high-contention case yet to implement..
 };
 
 

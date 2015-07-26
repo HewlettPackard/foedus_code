@@ -111,6 +111,10 @@ class ArrayPage final {
     return data_.interior_data[record];
   }
 
+  uint8_t                 unused_dummy_func_reserved1() const { return reserved1_; }
+  uint32_t                unused_dummy_func_reserved2() const { return reserved2_; }
+  uint64_t                unused_dummy_func_dummy() const { return dummy_; }
+
  private:
   /** common header */
   PageHeader          header_;        // +32 -> 32

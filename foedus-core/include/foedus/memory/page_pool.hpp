@@ -90,6 +90,8 @@ class PagePoolOffsetDynamicChunk {
 
   void                    move_to(PagePoolOffset* destination, uint32_t count);
 
+  uint32_t                unused_dummy_func_padding() const { return padding_; }
+
  private:
   uint32_t              size_;
   const uint32_t        padding_;
@@ -151,6 +153,8 @@ class PagePoolOffsetAndEpochChunk {
    * @return number of offsets whose safe_epoch_ < threshold
    */
   uint32_t                get_safe_offset_count(const Epoch& threshold) const;
+
+  uint32_t                unused_dummy_func_dummy() const { return dummy_; }
 
  private:
   uint32_t        size_;
