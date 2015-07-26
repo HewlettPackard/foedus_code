@@ -108,8 +108,23 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
       ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
-        // TODO(tzwang): allow inserting to other workers' key space (on/off by a cmdarg)
-        ret = do_insert(next_insert_key());
+        YcsbKey key;
+        uint32_t high = worker_id_;
+        uint32_t* low = &local_key_counter_->key_counter_;
+        if (random_inserts_) {
+          high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
+          low = &(get_local_key_counter(engine_, high)->key_counter_);
+        }
+        ret = do_insert(build_key(worker_id_, *low));
+        // Only increment the key counter if committed to avoid holes in the key space and
+        // make sure other thread can get a valid key after peeking my counter
+        if (ret == kErrorCodeOk) {
+          if (random_inserts_) {
+            __sync_fetch_and_add(low, 1);
+          } else {
+            (*low)++;
+          }
+        }
       } else {
         // Choose a high-bits field first. Then take a look at that worker's local counter
         auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
@@ -152,6 +167,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         ret == kErrorCodeXctWriteSetOverflow) {
         // this usually doesn't happen, but possible.
         increment_largereadset_aborts();
+        continue;
+      } else if (random_inserts_ && ret == kErrorCodeStrKeyAlreadyExists) {
+        increment_insert_conflict_aborts();
         continue;
       } else {
         increment_unexpected_aborts();
@@ -228,7 +246,8 @@ ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
   while (nrecs-- && cursor.is_valid_record()) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;
-    memcpy(&r, pr, sizeof(r));  // need to do this? like do_tuple_read in Silo/ERMIA.
+    memcpy(&r, pr, sizeof(r));
+    cursor.next();
   }
   Epoch commit_epoch;
   return xct_manager_->precommit_xct(context_, &commit_epoch);
