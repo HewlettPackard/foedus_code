@@ -56,6 +56,8 @@
 
 namespace foedus {
 namespace ycsb {
+DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
+DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_string(nvm_folder, "/dev/shm", "Full path of the device representing NVM.");
 DEFINE_int32(volatile_pool_size, 1, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 2048, "Size of snapshot memory pool per NUMA node in MB.");
@@ -310,6 +312,13 @@ ErrorStack YcsbDriver::run() {
     load_sessions[i].release();
   }
 
+  if (FLAGS_profile) {
+    COERCE_ERROR(engine_->get_debug()->start_profile("ycsb.prof"));
+  }
+  if (FLAGS_papi) {
+    engine_->get_debug()->start_papi_counters();
+  }
+
   // Now try to start transaction worker threads
   uint32_t worker_id = 0;
   std::vector< thread::ImpersonateSession > sessions;
@@ -367,6 +376,13 @@ ErrorStack YcsbDriver::run() {
     LOG(INFO) << result;
   }
   duration.stop();
+
+  if (FLAGS_profile) {
+    engine_->get_debug()->stop_profile();
+  }
+  if (FLAGS_papi) {
+    engine_->get_debug()->stop_papi_counters();
+  }
 
   Result result;
   duration.stop();
