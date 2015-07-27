@@ -42,7 +42,6 @@ namespace snapshot {
 DEFINE_TEST_CASE_PACKAGE(SnapshotSequentialTest, foedus.snapshot);
 
 const uint32_t kRecords = 1024;
-const uint32_t kPayload = sizeof(uint64_t);
 const uint32_t kThreads = 2;
 const storage::StorageName kName("test");
 

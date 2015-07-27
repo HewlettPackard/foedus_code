@@ -203,6 +203,8 @@ class SequentialPage final {
     return reinterpret_cast<const xct::LockableXctId*>(data_ + offset);
   }
 
+  uint32_t              unused_dummy_func_filler() const { return filler_; }
+
  private:
   /** Byte length of payload is represented in 2 bytes. */
   typedef uint16_t PayloadLength;
@@ -275,6 +277,8 @@ class SequentialRootPage final {
     pointer_count_ = 0;
     next_page_ = 0;
   }
+
+  const char*         unused_dummy_func_filler() const { return filler_; }
 
  private:
   PageHeader          header_;          // +32 -> 32

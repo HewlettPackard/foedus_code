@@ -104,9 +104,18 @@
 #define UNLIKELY(x)    __builtin_expect(!!(x), 0)
 #define NO_INLINE       __attribute__((noinline))
 #define ALWAYS_INLINE   __attribute__((always_inline))
-#define ASSUME_ALIGNED(x, y) __builtin_assume_aligned(x, y)
 #define MAY_ALIAS __attribute__((__may_alias__))
 #define RESTRICT_ALIAS __restrict
+
+#ifndef __clang__
+#define ASSUME_ALIGNED(x, y) __builtin_assume_aligned(x, y)
+#else  // __clang__
+// Umm, when will clang support it?
+// #define ASSUME_ALIGNED(x, y) __builtin_assume_aligned(x, y)
+// https://llvm.org/bugs/show_bug.cgi?id=16294
+#define ASSUME_ALIGNED(x, y) x
+#endif  // __clang__
+
 #else  // defined(__GNUC__) || defined(__clang__)
 // Others. MSVC?
 #define LIKELY(x)      (x)
