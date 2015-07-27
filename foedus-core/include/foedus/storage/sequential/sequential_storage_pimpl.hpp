@@ -19,6 +19,8 @@
 #define FOEDUS_STORAGE_SEQUENTIAL_SEQUENTIAL_STORAGE_PIMPL_HPP_
 #include <stdint.h>
 
+#include <atomic>
+
 #include "foedus/assert_nd.hpp"
 #include "foedus/attachable.hpp"
 #include "foedus/compiler.hpp"
@@ -50,6 +52,7 @@ struct SequentialStorageControlBlock final {
   ~SequentialStorageControlBlock() = delete;
 
   bool exists() const { return status_ == kExists || status_ == kMarkedForDeath; }
+  ErrorCode optimistic_read_truncate_epoch(thread::Thread* context, Epoch* out) const;
 
   soc::SharedMutex    status_mutex_;
   /** Status of the storage */
@@ -61,6 +64,17 @@ struct SequentialStorageControlBlock final {
 
   // Do NOT reorder members up to here. The layout must be compatible with StorageControlBlock
   // Type-specific shared members below.
+
+  /**
+   * Protects accesses to cur_truncate_epoch_.
+   * \li Append-operations don't need to check it.
+   * \li Scan-operations take this as a read-set.
+   * \li Truncate-operation locks it and update cur_truncate_epoch_.
+   */
+  xct::LockableXctId  cur_truncate_epoch_tid_;
+
+  /** @copydoc foedus::storage::sequential::SequentialMetadata::truncate_epoch_ */
+  std::atomic< Epoch::EpochInteger >  cur_truncate_epoch_;
 
   /**
    * Points to pages that store thread-private head pages to store thread-private volatile pages.
@@ -144,6 +158,8 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
   ErrorStack  load(const StorageControlBlock& snapshot_block);
   ErrorStack  initialize_head_tail_pages();
   ErrorStack  drop();
+  ErrorStack  truncate(Epoch new_truncate_epoch, Epoch* commit_epoch);
+  void        apply_truncate(const SequentialTruncateLogType& the_log);
 
   SequentialPage* get_head(
     const memory::LocalPageResolver& resolver,

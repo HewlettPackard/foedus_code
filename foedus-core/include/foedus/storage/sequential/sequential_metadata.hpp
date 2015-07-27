@@ -51,17 +51,30 @@ namespace sequential {
  * totally orthogonal to snapshot pages.
  */
 struct SequentialMetadata CXX11_FINAL : public Metadata {
-  SequentialMetadata() : Metadata(0, kSequentialStorage, "") {}
+  SequentialMetadata()
+    : Metadata(0, kSequentialStorage, ""), truncate_epoch_(Epoch::kEpochInvalid), padding_(0) {}
   SequentialMetadata(StorageId id, const StorageName& name)
-    : Metadata(id, kSequentialStorage, name) {
+    : Metadata(id, kSequentialStorage, name), truncate_epoch_(Epoch::kEpochInvalid), padding_(0) {
   }
   /** This one is for newly creating a storage. */
   explicit SequentialMetadata(const StorageName& name)
-    : Metadata(0, kSequentialStorage, name) {
+    : Metadata(0, kSequentialStorage, name), truncate_epoch_(Epoch::kEpochInvalid), padding_(0) {
   }
 
   std::string describe() const;
   friend std::ostream& operator<<(std::ostream& o, const SequentialMetadata& v);
+
+  uint32_t unused_dummy_func_padding() const { return padding_; }
+
+  /**
+   * The min epoch value (\e truncate-epoch) for all valid records in this storage.
+   * When a physical record or a page has an epoch value less than a truncate-epoch,
+   * they are logically non-existent. Truncate-epoch is always valid, starting from the system's
+   * lowest epoch.
+   */
+  Epoch::EpochInteger truncate_epoch_;
+
+  uint32_t  padding_;
 };
 
 struct SequentialMetadataSerializer CXX11_FINAL : public virtual MetadataSerializer {

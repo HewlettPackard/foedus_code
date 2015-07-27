@@ -121,6 +121,8 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
   bool                                consistent(log::LoggerId logger_count) const {
     assert_epoch_values();
     return (current_epoch_ >= durable_epoch_
+      && current_epoch_ >= earliest_epoch_
+      && durable_epoch_ >= earliest_epoch_
       && meta_log_oldest_offset_ <= meta_log_durable_offset_
       && oldest_log_files_.size() == logger_count
       && oldest_log_files_offset_begin_.size() == logger_count
@@ -130,6 +132,7 @@ struct Savepoint CXX11_FINAL : public virtual externalize::Externalizable {
 
   Epoch  get_durable_epoch() const { return Epoch(durable_epoch_); }
   Epoch  get_current_epoch() const { return Epoch(current_epoch_); }
+  Epoch  get_earliest_epoch() const { return Epoch(earliest_epoch_); }
   /** Check invariants on current_epoch_/durable_epoch_ */
   void        assert_epoch_values() const;
 };
@@ -170,6 +173,7 @@ struct FixedSavepoint CXX11_FINAL {
 
   Epoch::EpochInteger             current_epoch_;
   Epoch::EpochInteger             durable_epoch_;
+  Epoch::EpochInteger             earliest_epoch_;
   snapshot::SnapshotId            latest_snapshot_id_;
   Epoch::EpochInteger             latest_snapshot_epoch_;
 
