@@ -160,14 +160,19 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
       if (ret != kErrorCodeOk) {
         COERCE_ERROR_CODE(xct_manager->abort_xct(context));
       } else {
+        uint64_t len = 0;
         int32_t nrecs = crnd.uniform_within(1, max_scan_length);
         while (nrecs-- > 0 && cursor.is_valid_record()) {
-          ASSERT_ND(cursor.get_payload_length() == 1000);
+          len += cursor.get_payload_length();
           const char *pr = reinterpret_cast<const char *>(cursor.get_payload());
           memcpy(data, pr, 1000);
           cursor.next();
         }
         ret = xct_manager->precommit_xct(context, &commit_epoch);
+        if (ret != kErrorCodeOk) {
+          WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+        }
+        ASSERT_ND(len % 1000 == 0);
       }
     }
   }
