@@ -56,6 +56,10 @@
 
 namespace foedus {
 namespace ycsb {
+DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
+    " than threads in the same process. This is required to scale up to 100+ cores.");
+DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
+    " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_string(nvm_folder, "/dev/shm", "Full path of the device representing NVM.");
@@ -213,6 +217,14 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_thread_per_node != 0) {
     std::cout << "thread_per_node=" << FLAGS_thread_per_node << std::endl;
     options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
+  }
+
+  if (FLAGS_fork_workers) {
+    std::cout << "Will fork workers in child processes" << std::endl;
+    options.soc_.soc_type_ = kChildForked;
+  } else if (FLAGS_exec_duplicates) {
+    std::cout << "Will duplicate binaries and exec workers in child processes" << std::endl;
+    options.soc_.soc_type_ = kChildLocalSpawned;
   }
 
   // Get an engine, register procedures to run
