@@ -434,6 +434,24 @@ ErrorStack YcsbDriver::run() {
     sessions[i].release();
   }
   channel->uninitialize();
+
+  // wait just for a bit to avoid mixing stdout
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  for (uint32_t i = 0; i < result.worker_count_; ++i) {
+    LOG(INFO) << result.workers_[i];
+  }
+  LOG(INFO) << "final result:" << result;
+  if (FLAGS_papi) {
+    LOG(INFO) << "PAPI results:";
+    for (uint16_t i = 0; i < result.papi_results_.size(); ++i) {
+      LOG(INFO) << result.papi_results_[i];
+    }
+  }
+  if (FLAGS_profile) {
+    std::cout << "Check out the profile result: pprof --pdf [binary] tpcc.prof > prof.pdf; "
+      "okular prof.pdf" << std::endl;
+  }
+
   return kRetOk;
 }
 
@@ -450,6 +468,19 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
     << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
     << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"
     << "</total_result>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const YcsbDriver::WorkerResult& v) {
+  o << "  <worker_><id>" << v.id_ << "</id>"
+    << "<txn>" << v.processed_ << "</txn>"
+    << "<raceab>" << v.race_aborts_ << "</raceab>"
+    << "<rsetab>" << v.largereadset_aborts_ << "</rsetab>"
+    << "<insab>"  << v.insert_conflict_aborts_ << "</insab>"
+    << "<unexab>" << v.unexpected_aborts_ << "</unexab>"
+    << "<sphit>" << v.snapshot_cache_hits_ << "</sphit>"
+    << "<spmis>" << v.snapshot_cache_misses_ << "</spmis>"
+    << "</worker>";
   return o;
 }
 
