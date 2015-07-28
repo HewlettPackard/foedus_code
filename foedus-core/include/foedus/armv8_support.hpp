@@ -28,12 +28,14 @@
  * It's an emerging environment where some information that was correct quickly become obsolete.
  * So, also leave the date you wrote each section.
  *
- * @par Target compiler is GCC
- * We assume gcc. This is very unfortunate because clang seems doing a very good job supporting
- * AArch64. However, the issue is that gcc and clang are not agree-ing on many subtle things on
- * what programs (FOEDUS) have to do on the new environment (eg -mcx16/libatomic would be totally
- * different in clang).
- * It's intractable to support both of them, and if we pick just one, it's of course gcc.
+ * @par Target compiler is GCC/clang
+ * We assume gcc/clang. No ICC. We initially assumed gcc only, but
+ * we plesantly found that clang has a quite good gcc-compatibility.
+ * So, we got FOEDUS work on clang without much hassle.
+ * We aggressively use gcc's builtin methods to abstract x86-aarch64 differences
+ * as far as they are supported in clang, and most of them are!
+ *
+ * Sorry, ICC, you seem to be a red-headed stepchild.
  *
  * @par __aarch64__ and __AARCH64EB__/__AARCH64EL__ macro
  * This macro is defined if gcc is running on AArch64 (latter two for big/little endian, but

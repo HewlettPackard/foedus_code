@@ -100,7 +100,7 @@ union McsNodeUnion {
 
   bool is_valid() const ALWAYS_INLINE { return components.block_ != 0; }
   bool is_valid_atomic() const ALWAYS_INLINE {
-    McsBlockIndex block = assorted::raw_atomic_load_seq_cst<McsBlockIndex>(&components.block_);
+    McsBlockIndex block = assorted::atomic_load_seq_cst<McsBlockIndex>(&components.block_);
     return block != 0;
   }
   void clear() ALWAYS_INLINE { word = 0; }
@@ -118,13 +118,13 @@ union McsNodeUnion {
     new_value.components.block_ = block;
     // The following is inlined as far as the compile-unit (caller) is compiled with C++11.
     // We observed 5%~ performance difference in TPCC with/without the inlining.
-    assorted::raw_atomic_store_seq_cst<uint64_t>(&this->word, new_value.word);
+    assorted::atomic_store_seq_cst<uint64_t>(&this->word, new_value.word);
   }
   void set_release(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
     McsNodeUnion new_value;
     new_value.components.thread_id_ = thread_id;
     new_value.components.block_ = block;
-    assorted::raw_atomic_store_release<uint64_t>(&this->word, new_value.word);
+    assorted::atomic_store_release<uint64_t>(&this->word, new_value.word);
   }
 };
 
@@ -215,12 +215,12 @@ struct McsLock {
   void  reset_atomic() ALWAYS_INLINE { reset_atomic(0, 0); }
   void  reset_atomic(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
     uint32_t data = to_int(tail_waiter, tail_waiter_block);
-    assorted::raw_atomic_store_seq_cst<uint32_t>(&data_, data);
+    assorted::atomic_store_seq_cst<uint32_t>(&data_, data);
   }
   void  reset_release() ALWAYS_INLINE { reset_release(0, 0); }
   void  reset_release(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
     uint32_t data = to_int(tail_waiter, tail_waiter_block);
-    assorted::raw_atomic_store_release<uint32_t>(&data_, data);
+    assorted::atomic_store_release<uint32_t>(&data_, data);
   }
 
   static uint32_t to_int(
