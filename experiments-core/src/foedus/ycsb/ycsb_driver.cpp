@@ -62,6 +62,7 @@ DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) work
     " processes on replicated binaries. This is required to scale up to 16 sockets.");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
+DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
 DEFINE_string(nvm_folder, "/dev/shm", "Full path of the device representing NVM.");
 DEFINE_int32(volatile_pool_size, 1, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 2048, "Size of snapshot memory pool per NUMA node in MB.");
@@ -86,16 +87,25 @@ DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transa
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
 DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
 DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
+DEFINE_bool(use_string_keys, true, "Whether the keys should start from 'user'.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
 DEFINE_bool(ordered_inserts, false, "Whether to make the keys ordered, i.e., don't hash(keynum).");
+
+// Generate all keys first, then sort them before inserting to the table (loading only).
+// This is not in the spec; it makes masstree perform better.
+DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
 
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0);     // Workload B - 95% read, 5% update
 YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0);     // Workload C - 100% read
 YcsbWorkload YcsbWorkloadD('D', 5,  100U, 0,    0);     // Workload D - 95% read, 5% insert
 YcsbWorkload YcsbWorkloadE('E', 5U, 0,    0,    100U);  // Workload E - 5% insert, 95% scan
+
+// Extra workloads (not in spec)
+YcsbWorkload YcsbWorkloadF('F', 0,  0,    5U,   100U);  // Workload F - 5% update, 95% scan
+YcsbWorkload YcsbWorkloadG('G', 0,  0,    0,    100U);  // Workload G - 100% scan
 
 int64_t max_scan_length() {
   return FLAGS_max_scan_length;
@@ -116,10 +126,14 @@ YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   if (!FLAGS_ordered_inserts) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
-  data_ = kKeyPrefix;
-  const int kIntegerLength = kKeyMaxLength - kKeyPrefixLength;
-  char keychar[kIntegerLength + 1];
-  data_.append(keychar, snprintf(keychar, kIntegerLength + 1, "%lu", keynum));
+  int integer_length = kKeyMaxLength;
+  if (FLAGS_use_string_keys) {
+    data_ = kKeyPrefix;
+    integer_length -= kKeyPrefixLength;
+  }
+  char keychar[kKeyMaxLength + 1];
+  auto len = snprintf(keychar, integer_length + 1, "%lu", keynum);
+  data_.append(keychar, len);
   return *this;
 }
 
@@ -219,6 +233,13 @@ int driver_main(int argc, char **argv) {
     options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
   }
 
+  if (FLAGS_high_priority) {
+    std::cout << "Will set highest priority to worker threads" << std::endl;
+    options.thread_.overwrite_thread_schedule_ = true;
+    options.thread_.thread_policy_ = thread::kScheduleFifo;
+    options.thread_.thread_priority_ = thread::kPriorityHighest;
+  }
+
   if (FLAGS_fork_workers) {
     std::cout << "Will fork workers in child processes" << std::endl;
     options.soc_.soc_type_ = kChildForked;
@@ -269,13 +290,25 @@ ErrorStack YcsbDriver::run() {
     workload = YcsbWorkloadD;
   } else if (FLAGS_workload == "E") {
     workload = YcsbWorkloadE;
+  } else if (FLAGS_workload == "F") {
+    workload = YcsbWorkloadF;
+  } else if (FLAGS_workload == "G") {
+    workload = YcsbWorkloadG;
   } else {
     COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
 
+  LOG(INFO)
+    << "Workload -"
+    << " insert: " << workload.insert_percent() << "%"
+    << " read: " << workload.read_percent() << "%"
+    << " update: " << workload.update_percent() << "%"
+    << " scan: " << workload.scan_percent() << "%";
+
   // Create an empty table
   Epoch ep;
 #ifdef YCSB_HASH_STORAGE
+  LOG(INFO) << "Use hash table storage";
   storage::hash::HashMetadata meta("ycsb_user_table");
   const float kHashPreferredRecordsPerBin = 5.0;
   if (workload.insert_percent() == 0) {
@@ -285,6 +318,7 @@ ErrorStack YcsbDriver::run() {
     meta.set_capacity(initial_table_size * 1.5, kHashPreferredRecordsPerBin);
   }
 #else
+  LOG(INFO) << "Use masstree storage";
   storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
   if (workload.insert_percent() > 0) {
     meta.border_early_split_threshold_ = 80;
@@ -305,6 +339,7 @@ ErrorStack YcsbDriver::run() {
     YcsbLoadTask::Inputs inputs;
     inputs.load_node_ = node;
     inputs.records_per_thread_ = initial_records_per_thread;
+    inputs.sort_load_keys_ = FLAGS_sort_load_keys;
     thread::ImpersonateSession load_session;
     bool ret = thread_pool->impersonate_on_numa_node(
       node, "ycsb_load_task", &inputs, sizeof(inputs), &load_session);
