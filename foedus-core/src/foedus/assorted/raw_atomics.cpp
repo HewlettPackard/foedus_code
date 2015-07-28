@@ -19,25 +19,13 @@
 
 #include <stdint.h>
 
-#include <atomic>
-
-#include "foedus/assorted/assorted_func.hpp"
-
 namespace foedus {
 namespace assorted {
 
-template <typename T>
-bool    raw_atomic_compare_exchange_strong_cpp(T* target, T* expected, T desired) {
-  return raw_atomic_compare_exchange_strong_inl<T>(target, expected, desired);
-}
-
-// template explicit instantiations for all integer types.
-#define EXPLICIT_INSTANTIATION_STRONG(x) \
-  template bool raw_atomic_compare_exchange_strong_cpp(x *target, x *expected, x desired)
-INSTANTIATE_ALL_INTEGER_PLUS_BOOL_TYPES(EXPLICIT_INSTANTIATION_STRONG);
-
 bool raw_atomic_compare_exchange_strong_uint128(
-  uint64_t *ptr, const uint64_t *old_value, const uint64_t *new_value) {
+  uint64_t *ptr,
+  const uint64_t *old_value,
+  const uint64_t *new_value) {
   bool ret;
 #if defined(__GNUC__) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16)
   // gcc-x86 (-mcx16), then simply use __sync_bool_compare_and_swap.
@@ -75,47 +63,6 @@ bool raw_atomic_compare_exchange_strong_uint128(
 #endif
   return ret;
 }
-
-template <typename T>
-T raw_atomic_exchange_cpp(T* target, T desired) {
-  return raw_atomic_exchange_inl<T>(target, desired);
-}
-
-template <typename T>
-T raw_atomic_fetch_add_cpp(T* target, T addendum) {
-  return raw_atomic_fetch_add_inl<T>(target, addendum);
-}
-
-template <typename T>
-T raw_atomic_load_seq_cst_cpp(const T* target) {
-  return raw_atomic_load_seq_cst_inl<T>(target);
-}
-
-template <typename T>
-void raw_atomic_store_seq_cst_cpp(T* target, T value) {
-  raw_atomic_store_seq_cst_inl<T>(target, value);
-}
-
-template <typename T>
-void raw_atomic_store_release_cpp(T* target, T value) {
-  raw_atomic_store_release_inl<T>(target, value);
-}
-
-#define EXP_SWAP(x) template x raw_atomic_exchange_cpp(x *target, x desired)
-INSTANTIATE_ALL_INTEGER_TYPES(EXP_SWAP);
-
-#define EXP_FETCH_ADD(x) template x raw_atomic_fetch_add_cpp(x *target, x addendum)
-INSTANTIATE_ALL_INTEGER_TYPES(EXP_FETCH_ADD);
-
-#define EXP_LOAD_SEQ_CST(x) template x raw_atomic_load_seq_cst_cpp(const x *target)
-INSTANTIATE_ALL_INTEGER_TYPES(EXP_LOAD_SEQ_CST);
-
-#define EXP_STORE_SEQ_CST(x) template void raw_atomic_store_seq_cst_cpp(x *target, x value)
-INSTANTIATE_ALL_INTEGER_TYPES(EXP_STORE_SEQ_CST);
-
-#define EXP_STORE_RELEASE(x) template void raw_atomic_store_release_cpp(x *target, x value)
-INSTANTIATE_ALL_INTEGER_TYPES(EXP_STORE_RELEASE);
-
 
 }  // namespace assorted
 }  // namespace foedus
