@@ -58,8 +58,8 @@ ErrorCode TpccClientTask::do_stock_level(Wid wid) {
   storage::array::ArrayOffset* sids = tmp_sids_;
   uint16_t read = 0;
   while (cursor.is_valid_record()) {
-    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= low);
-    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < high);
+    ASSERT_ND(cursor.get_normalized_key() >= low);
+    ASSERT_ND(cursor.get_normalized_key() < high);
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
     ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
 
