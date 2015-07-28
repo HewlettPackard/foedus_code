@@ -28,6 +28,7 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/storage/storage_log_types.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
+#include "foedus/storage/sequential/sequential_storage.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -45,6 +46,23 @@ void SequentialCreateLogType::assert_valid() {
 }
 std::ostream& operator<<(std::ostream& o, const SequentialCreateLogType& v) {
   o << "<SequentialCreateLog>" << v.metadata_ << "</SequentialCreateLog>";
+  return o;
+}
+
+void SequentialTruncateLogType::apply_storage(Engine* engine, StorageId storage_id) {
+  SequentialStorage seq(engine, storage_id);
+  seq.apply_truncate(*this);
+}
+
+void SequentialTruncateLogType::assert_valid() {
+  ASSERT_ND(header_.log_length_ == sizeof(SequentialTruncateLogType));
+  ASSERT_ND(header_.get_type() == log::get_log_code<SequentialTruncateLogType>());
+}
+std::ostream& operator<<(std::ostream& o, const SequentialTruncateLogType& v) {
+  o << "<SequentialTruncateLog>"
+    << "<storage_id_>" << v.header_.storage_id_ << "</storage_id_>"
+    << "<new_truncate_epoch_>" << v.new_truncate_epoch_ << "</new_truncate_epoch_>"
+    << "</SequentialTruncateLog>";
   return o;
 }
 

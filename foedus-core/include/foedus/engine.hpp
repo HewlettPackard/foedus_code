@@ -22,6 +22,7 @@
 
 #include "foedus/cxx11.hpp"
 #include "foedus/engine_type.hpp"
+#include "foedus/epoch.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/initializable.hpp"
 #include "foedus/module_type.hpp"
@@ -210,6 +211,41 @@ class Engine CXX11_FINAL : public virtual Initializable {
   soc::Upid   get_master_upid() const;
   /** Returns Engine ID of the master engine. */
   Eid         get_master_eid() const;
+  /**
+   * @brief Returns the \e Earliest-Epoch, the minimum epoch that is valid within this engine.
+   * @details
+   * Such an epoch is initially 1, then very occasionally (eg per month) bumped up
+   * to some number after the entire system makes sure that there are no existing epoch
+   * values before the epoch (eg after system-wide compaction).
+   * We use this value whenever we want some value that is "old-enough" but also safe
+   * regarding wrap-around of Epoch values (see Epoch for how wrap-around works).
+   *
+   * Equivalent to get_savepoint_manager()->get_earliest_epoch().
+   * Implemented in engine_pimpl.cpp as this needs to know about SavepointManager.
+   */
+  Epoch       get_earliest_epoch() const;
+
+  /**
+   * @brief Returns the current global epoch, the epoch a newly started transaction will be in.
+   * Equivalent to get_xct_manager()->get_current_global_epoch().
+   * Implemented in engine_pimpl.cpp as this needs to know about XctManager.
+   */
+  Epoch       get_current_global_epoch() const;
+
+  /**
+   * @brief Returns the current grace-period epoch (global epoch - 1), the epoch
+   * \e some transaction might be still in (though rare).
+   * Equivalent to get_xct_manager()->get_current_grace_epoch().
+   * Implemented in engine_pimpl.cpp as this needs to know about XctManager.
+   */
+  Epoch       get_current_grace_epoch() const;
+
+  /**
+   * @brief Returns the durable epoch of the entire engine.
+   * Equivalent to get_log_manager()->get_durable_global_epoch().
+   * Implemented in engine_pimpl.cpp as this needs to know about LogManager.
+   */
+  Epoch       get_durable_global_epoch() const;
 
   /**
    * Returns an updatable reference to options.

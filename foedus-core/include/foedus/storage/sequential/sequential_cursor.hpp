@@ -264,7 +264,7 @@ class SequentialCursor {
    * Inclusive beginning of epochs to read.
    * @invariant !from_epoch_.is_valid()
    */
-  const Epoch                   from_epoch_;
+  Epoch                         from_epoch_;
   /**
    * Exclusive end of epochs to read.
    * @invariant !to_epoch_.is_valid()
@@ -279,6 +279,12 @@ class SequentialCursor {
    * volatile pages that are not dropped yet.
    */
   const Epoch                   from_epoch_volatile_;
+
+  /**
+   * Set in init_states() and become immutable after that.
+   * @see foedus::storage::sequential::SequentialMetadata::truncate_epoch_
+   */
+  Epoch                         truncate_epoch_;
 
   const int32_t                 node_filter_;
   const uint16_t                node_count_;

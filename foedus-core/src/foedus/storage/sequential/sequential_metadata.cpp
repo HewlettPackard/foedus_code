@@ -38,11 +38,13 @@ std::ostream& operator<<(std::ostream& o, const SequentialMetadata& v) {
 
 ErrorStack SequentialMetadataSerializer::load(tinyxml2::XMLElement* element) {
   CHECK_ERROR(load_base(element));
+  CHECK_ERROR(get_element(element, "truncate_epoch_", &data_casted_->truncate_epoch_))
   return kRetOk;
 }
 
 ErrorStack SequentialMetadataSerializer::save(tinyxml2::XMLElement* element) const {
   CHECK_ERROR(save_base(element));
+  CHECK_ERROR(add_element(element, "truncate_epoch_", "", data_casted_->truncate_epoch_));
   return kRetOk;
 }
 

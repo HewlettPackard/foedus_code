@@ -175,6 +175,7 @@ void SavepointManagerPimpl::savepoint_main() {
       new_savepoint.current_epoch_ = engine_->get_xct_manager()->get_current_global_epoch().value();
       Epoch new_durable_epoch = get_requested_durable_epoch();
       new_savepoint.durable_epoch_ = new_durable_epoch.value();
+      new_savepoint.earliest_epoch_ = engine_->get_earliest_epoch().value();
       engine_->get_log_manager()->copy_logger_states(&new_savepoint);
 
       if (control_block_->new_snapshot_id_ != snapshot::kNullSnapshotId) {

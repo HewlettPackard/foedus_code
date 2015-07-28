@@ -26,6 +26,7 @@
 #include "foedus/storage/sequential/sequential_log_types.hpp"
 #include "foedus/storage/sequential/sequential_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct.hpp"
 
 namespace foedus {
 namespace storage {
@@ -66,6 +67,21 @@ ErrorStack SequentialStorage::load(const StorageControlBlock& snapshot_block) {
 ErrorStack SequentialStorage::drop() {
   return SequentialStoragePimpl(this).drop();
 }
+Epoch SequentialStorage::get_truncate_epoch() const {
+  return Epoch(control_block_->cur_truncate_epoch_.load());
+}
+ErrorCode SequentialStorage::optimistic_read_truncate_epoch(
+  thread::Thread* context,
+  Epoch* out) const {
+  return control_block_->optimistic_read_truncate_epoch(context, out);
+}
+ErrorStack SequentialStorage::truncate(Epoch new_truncate_epoch, Epoch* commit_epoch) {
+  return SequentialStoragePimpl(this).truncate(new_truncate_epoch, commit_epoch);
+}
+void SequentialStorage::apply_truncate(const SequentialTruncateLogType& the_log) {
+  SequentialStoragePimpl(this).apply_truncate(the_log);
+}
+
 
 std::ostream& operator<<(std::ostream& o, const SequentialStorage& v) {
   uint64_t page_count = 0;
@@ -79,6 +95,7 @@ std::ostream& operator<<(std::ostream& o, const SequentialStorage& v) {
   o << "<SequentialStorage>"
     << "<id>" << v.get_id() << "</id>"
     << "<name>" << v.get_name() << "</name>"
+    << "<truncate_epoch>" << v.get_truncate_epoch() << "</truncate_epoch>"
     << "<page_count>" << page_count << "</page_count>"
     << "<record_count>" << record_count << "</record_count>"
     << "</SequentialStorage>";
