@@ -14,3 +14,8 @@ target_link_libraries(ycsb_masstree ${EXPERIMENT_LIB} gflags-static)
 add_executable(ycsb_hash ${ycsb_cpps})
 set_target_properties(ycsb_hash PROPERTIES COMPILE_FLAGS "-DYCSB_HASH_STORAGE")
 target_link_libraries(ycsb_hash ${EXPERIMENT_LIB} gflags-static)
+
+# Copy the scripts to build folders. this is just for convenience
+configure_file(run_dl580.sh run_dl580.sh COPYONLY)
+configure_file(run_common.sh run_common.sh COPYONLY)
+configure_file(config_ycsb.sh config_ycsb.sh COPYONLY)
