@@ -18,16 +18,19 @@
 #ifndef FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
 #define FOEDUS_ASSORTED_ATOMIC_FENCES_HPP_
 
+#include <stdint.h>
+
 /**
  * @file foedus/assorted/atomic_fences.hpp
  * @ingroup ASSORTED
- * @brief Atomic fence methods that work for both C++11 and non-C++11 code.
+ * @brief Atomic fence methods and load/store with fences that work for both C++11/non-C++11 code.
  * @details
  * Especially on TSO architecture like x86, most memory fence is trivial thus supposedly very fast.
  * Invoking a non-inlined function for memory fence is thus not ideal.
  * The followings \e define memory fences for public headers that need them for inline methods.
- * We use gcc's builtin (__atomic_thread_fence) to avoid C++11 code. Kind of stupid, but
- * this also works on AArch64. We can add ifdef for clang later.
+ * We use gcc/clang's builtin (__atomic_thread_fence) to avoid C++11 code.
+ * The code was initially written for gcc, but turns out that clang also supports all of them
+ * for gcc compatibility. Hallelujah, clang.
  */
 namespace foedus {
 namespace assorted {
@@ -88,6 +91,59 @@ inline void memory_fence_consume() {
  */
 inline void memory_fence_seq_cst() {
   ::__atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+/**
+ * @brief Atomic load with a seq_cst barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @return result of load
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T atomic_load_seq_cst(const T* target) {
+  return ::__atomic_load_n(target, __ATOMIC_SEQ_CST);
+}
+
+/**
+ * @brief Atomic load with an acquire barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @return result of load
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T atomic_load_acquire(const T* target) {
+  return ::__atomic_load_n(target, __ATOMIC_ACQUIRE);
+}
+
+/**
+ * @brief Atomic load with a consume barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @return result of load
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T atomic_load_consume(const T* target) {
+  return ::__atomic_load_n(target, __ATOMIC_CONSUME);
+}
+
+/**
+ * @brief Atomic store with a seq_cst barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline void atomic_store_seq_cst(T* target, T value) {
+  ::__atomic_store_n(target, value, __ATOMIC_SEQ_CST);
+}
+
+/**
+ * @brief Atomic store with a release barrier for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline void atomic_store_release(T* target, T value) {
+  ::__atomic_store_n(target, value, __ATOMIC_RELEASE);
 }
 
 }  // namespace assorted

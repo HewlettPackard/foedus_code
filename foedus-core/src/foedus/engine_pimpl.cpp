@@ -30,7 +30,10 @@
 #include <thread>
 
 #include "foedus/error_stack_batch.hpp"
+#include "foedus/log/log_manager.hpp"
+#include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 
@@ -271,6 +274,19 @@ void EnginePimpl::on_module_uninitialized(ModuleType module) {
   } else {
     repo->get_node_memory_anchors(soc_id_)->child_status_memory_->change_uninit_atomic(module);
   }
+}
+
+Epoch Engine::get_earliest_epoch() const {
+  return pimpl_->savepoint_manager_.get_earliest_epoch();
+}
+Epoch Engine::get_current_global_epoch() const {
+  return pimpl_->xct_manager_.get_current_global_epoch();
+}
+Epoch Engine::get_current_grace_epoch() const {
+  return pimpl_->xct_manager_.get_current_grace_epoch();
+}
+Epoch Engine::get_durable_global_epoch() const {
+  return pimpl_->log_manager_.get_durable_global_epoch();
 }
 
 }  // namespace foedus
