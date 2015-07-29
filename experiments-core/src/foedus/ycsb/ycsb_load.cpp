@@ -54,6 +54,35 @@
 
 namespace foedus {
 namespace ycsb {
+#ifndef YCSB_HASH_STORAGE
+ErrorStack ycsb_load_verify_task(const proc::ProcArguments& args) {
+  LOG(INFO) << "[YCSB] Verifying loaded data";
+  thread::Thread* context = args.context_;
+  Engine* engine = context->get_engine();
+  auto user_table = engine->get_storage_manager()->get_masstree("ycsb_user_table");
+  auto* xct_manager = engine->get_xct_manager();
+  COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+  storage::masstree::MasstreeCursor cursor(user_table, context);
+  COERCE_ERROR_CODE(cursor.open());
+  while (cursor.is_valid_record()) {
+    auto len = cursor.get_key_length();
+    if (len == 0 || len > kKeyMaxLength) {
+      COERCE_ERROR_CODE(kErrorCodeStrMasstreeFailedVerification);
+    }
+    len = cursor.get_payload_length();
+    if (len != kFields * kFieldLength) {
+      COERCE_ERROR_CODE(kErrorCodeStrMasstreeFailedVerification);
+    }
+    cursor.next();
+  }
+  Epoch commit_epoch;
+  COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+  LOG(INFO) << "[YCSB] Data verified";
+  return kRetOk;
+}
+#endif
+
 ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   if (args.input_len_ != sizeof(YcsbLoadTask::Inputs)) {

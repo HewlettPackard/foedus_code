@@ -143,6 +143,9 @@ struct YcsbClientChannel {
 
 int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
+#ifndef YCSB_HASH_STORAGE
+ErrorStack ycsb_load_verify_task(const proc::ProcArguments& args);
+#endif
 ErrorStack ycsb_client_task(const proc::ProcArguments& args);
 YcsbClientChannel* get_channel(Engine* engine);
 PerWorkerCounter* get_local_key_counter(Engine* engine, uint32_t worker_id);
