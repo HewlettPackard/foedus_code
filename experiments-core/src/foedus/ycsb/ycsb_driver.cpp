@@ -88,6 +88,7 @@ DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update tr
 DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
 DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
 DEFINE_bool(use_string_keys, true, "Whether the keys should start from 'user'.");
+DEFINE_bool(verify_loaded_data, true, "Whether to verify key length and value after loading.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -254,6 +255,10 @@ int driver_main(int argc, char **argv) {
   proc::ProcAndName work_proc("ycsb_client_task", ycsb_client_task);
   engine.get_proc_manager()->pre_register(load_proc);
   engine.get_proc_manager()->pre_register(work_proc);
+#ifndef YCSB_HASH_STORAGE
+  proc::ProcAndName load_verify_proc("ycsb_load_verify_task", ycsb_load_verify_task);
+  engine.get_proc_manager()->pre_register(load_verify_proc);
+#endif
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
@@ -358,6 +363,22 @@ ErrorStack YcsbDriver::run() {
     LOG(INFO) << "result[" << i << "]=" << load_sessions[i].get_result();
     load_sessions[i].release();
   }
+
+#ifndef YCSB_HASH_STORAGE
+  if (FLAGS_verify_loaded_data) {
+    // Verify the loaded data
+    thread::ImpersonateSession verify_session;
+    auto ret = thread_pool->impersonate("ycsb_load_verify_task", nullptr, 0, &verify_session);
+    if (!ret) {
+      LOG(FATAL) << "Couldn't impersonate";
+    }
+    while (verify_session.is_running()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
+      assorted::memory_fence_acquire();
+    }
+    verify_session.release();
+  }
+#endif
 
   if (FLAGS_profile) {
     COERCE_ERROR(engine_->get_debug()->start_profile("ycsb.prof"));
