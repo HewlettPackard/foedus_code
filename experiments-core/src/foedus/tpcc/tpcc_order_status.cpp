@@ -59,8 +59,8 @@ ErrorCode TpccClientTask::do_order_status(Wid wid) {
   CHECK_ERROR_CODE(cursor.open_normalized(low, high));
   uint32_t cnt = 0;
   while (cursor.is_valid_record()) {
-    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= low);
-    ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < high);
+    ASSERT_ND(cursor.get_normalized_key() >= low);
+    ASSERT_ND(cursor.get_normalized_key() < high);
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
     ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
 
@@ -90,7 +90,7 @@ ErrorCode TpccClientTask::get_last_orderid_by_customer(Wid wid, Did did, Cid cid
   storage::masstree::MasstreeCursor cursor(storages_.orders_secondary_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(high, low, false, false, false, true));
   if (cursor.is_valid_record()) {
-    Wdcoid key = assorted::read_bigendian<Wdcoid>(cursor.get_key());
+    Wdcoid key = cursor.get_normalized_key();
     ASSERT_ND(key >= low);
     ASSERT_ND(key < high);
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdcoid));

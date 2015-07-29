@@ -54,6 +54,35 @@
 
 namespace foedus {
 namespace ycsb {
+#ifndef YCSB_HASH_STORAGE
+ErrorStack ycsb_load_verify_task(const proc::ProcArguments& args) {
+  LOG(INFO) << "[YCSB] Verifying loaded data";
+  thread::Thread* context = args.context_;
+  Engine* engine = context->get_engine();
+  auto user_table = engine->get_storage_manager()->get_masstree("ycsb_user_table");
+  auto* xct_manager = engine->get_xct_manager();
+  COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+  storage::masstree::MasstreeCursor cursor(user_table, context);
+  COERCE_ERROR_CODE(cursor.open());
+  while (cursor.is_valid_record()) {
+    auto len = cursor.get_key_length();
+    if (len == 0 || len > kKeyMaxLength) {
+      COERCE_ERROR_CODE(kErrorCodeStrMasstreeFailedVerification);
+    }
+    len = cursor.get_payload_length();
+    if (len != kFields * kFieldLength) {
+      COERCE_ERROR_CODE(kErrorCodeStrMasstreeFailedVerification);
+    }
+    cursor.next();
+  }
+  Epoch commit_epoch;
+  COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
+  LOG(INFO) << "[YCSB] Data verified";
+  return kRetOk;
+}
+#endif
+
 ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   if (args.input_len_ != sizeof(YcsbLoadTask::Inputs)) {
@@ -62,12 +91,16 @@ ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   YcsbLoadTask task;
   const YcsbLoadTask::Inputs* inputs =
     reinterpret_cast<const YcsbLoadTask::Inputs*>(args.input_buffer_);
-  return task.run(context, inputs->load_node_, inputs->records_per_thread_);
+  return task.run(
+    context, inputs->load_node_, inputs->records_per_thread_, inputs->sort_load_keys_);
 }
 
-ErrorStack YcsbLoadTask::run(thread::Thread* context, uint16_t node, uint64_t records_per_thread) {
+ErrorStack YcsbLoadTask::run(
+  thread::Thread* context,
+  uint16_t node,
+  uint64_t records_per_thread,
+  bool sort_load_keys) {
   Engine* engine = context->get_engine();
-
 #ifdef YCSB_HASH_STORAGE
   auto user_table = engine->get_storage_manager()->get_hash("ycsb_user_table");
 #else
@@ -79,26 +112,43 @@ ErrorStack YcsbLoadTask::run(thread::Thread* context, uint16_t node, uint64_t re
   debugging::StopWatch watch;
   auto& options = engine->get_options();
   uint64_t inserted = 0;
+  std::vector<YcsbKey> keys;
+
   // Insert (equal number of) records on behalf of each worker
+  Epoch commit_epoch;
   for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
     auto remaining_inserts = records_per_thread;
     uint32_t high = node * options.thread_.thread_count_per_group_ + ordinal, low = 0;
     YcsbKey key;
-    YcsbRecord r('a');
-    Epoch commit_epoch;
     while (true) {
-      COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       key.build(high, low++);
-      COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-      COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+      if (sort_load_keys) {
+        keys.push_back(key);
+      } else {
+        YcsbRecord r('a');
+        COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+        COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
+        COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+      }
       inserted++;
       if (--remaining_inserts == 0) {
         break;
       }
     }
     ASSERT_ND(remaining_inserts == 0);
-    COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   }
+
+  if (sort_load_keys) {
+    ASSERT_ND(keys.size());
+    std::sort(keys.begin(), keys.end());
+    for (auto &key : keys) {
+      YcsbRecord r('a');
+      COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+      COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
+      COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+    }
+  }
+  COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   watch.stop();
   ASSERT_ND(inserted == records_per_thread * options.thread_.thread_count_per_group_);
   LOG(INFO) << "[YCSB] Loaded " << inserted << " records in " << watch.elapsed_sec() << "s";

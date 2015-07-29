@@ -56,6 +56,13 @@
 
 namespace foedus {
 namespace ycsb {
+DEFINE_bool(fork_workers, false, "Whether to fork(2) worker threads in child processes rather"
+    " than threads in the same process. This is required to scale up to 100+ cores.");
+DEFINE_bool(exec_duplicates, false, "[Experimental] Whether to fork/exec(2) worker threads in child"
+    " processes on replicated binaries. This is required to scale up to 16 sockets.");
+DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
+DEFINE_bool(papi, false, "Whether to profile with PAPI.");
+DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
 DEFINE_string(nvm_folder, "/dev/shm", "Full path of the device representing NVM.");
 DEFINE_int32(volatile_pool_size, 1, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(snapshot_pool_size, 2048, "Size of snapshot memory pool per NUMA node in MB.");
@@ -80,16 +87,26 @@ DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transa
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
 DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
 DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
+DEFINE_bool(use_string_keys, true, "Whether the keys should start from 'user'.");
+DEFINE_bool(verify_loaded_data, true, "Whether to verify key length and value after loading.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
 DEFINE_bool(ordered_inserts, false, "Whether to make the keys ordered, i.e., don't hash(keynum).");
+
+// Generate all keys first, then sort them before inserting to the table (loading only).
+// This is not in the spec; it makes masstree perform better.
+DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
 
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0);     // Workload B - 95% read, 5% update
 YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0);     // Workload C - 100% read
 YcsbWorkload YcsbWorkloadD('D', 5,  100U, 0,    0);     // Workload D - 95% read, 5% insert
 YcsbWorkload YcsbWorkloadE('E', 5U, 0,    0,    100U);  // Workload E - 5% insert, 95% scan
+
+// Extra workloads (not in spec)
+YcsbWorkload YcsbWorkloadF('F', 0,  0,    5U,   100U);  // Workload F - 5% update, 95% scan
+YcsbWorkload YcsbWorkloadG('G', 0,  0,    0,    100U);  // Workload G - 100% scan
 
 int64_t max_scan_length() {
   return FLAGS_max_scan_length;
@@ -110,10 +127,14 @@ YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   if (!FLAGS_ordered_inserts) {
     keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
   }
-  data_ = kKeyPrefix;
-  const int kIntegerLength = kKeyMaxLength - kKeyPrefixLength;
-  char keychar[kIntegerLength + 1];
-  data_.append(keychar, snprintf(keychar, kIntegerLength + 1, "%lu", keynum));
+  int integer_length = kKeyMaxLength;
+  if (FLAGS_use_string_keys) {
+    data_ = kKeyPrefix;
+    integer_length -= kKeyPrefixLength;
+  }
+  char keychar[kKeyMaxLength + 1];
+  auto len = snprintf(keychar, integer_length + 1, "%lu", keynum);
+  data_.append(keychar, len);
   return *this;
 }
 
@@ -213,12 +234,31 @@ int driver_main(int argc, char **argv) {
     options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
   }
 
+  if (FLAGS_high_priority) {
+    std::cout << "Will set highest priority to worker threads" << std::endl;
+    options.thread_.overwrite_thread_schedule_ = true;
+    options.thread_.thread_policy_ = thread::kScheduleFifo;
+    options.thread_.thread_priority_ = thread::kPriorityHighest;
+  }
+
+  if (FLAGS_fork_workers) {
+    std::cout << "Will fork workers in child processes" << std::endl;
+    options.soc_.soc_type_ = kChildForked;
+  } else if (FLAGS_exec_duplicates) {
+    std::cout << "Will duplicate binaries and exec workers in child processes" << std::endl;
+    options.soc_.soc_type_ = kChildLocalSpawned;
+  }
+
   // Get an engine, register procedures to run
   Engine engine(options);
   proc::ProcAndName load_proc("ycsb_load_task", ycsb_load_task);
   proc::ProcAndName work_proc("ycsb_client_task", ycsb_client_task);
   engine.get_proc_manager()->pre_register(load_proc);
   engine.get_proc_manager()->pre_register(work_proc);
+#ifndef YCSB_HASH_STORAGE
+  proc::ProcAndName load_verify_proc("ycsb_load_verify_task", ycsb_load_verify_task);
+  engine.get_proc_manager()->pre_register(load_verify_proc);
+#endif
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
@@ -255,13 +295,25 @@ ErrorStack YcsbDriver::run() {
     workload = YcsbWorkloadD;
   } else if (FLAGS_workload == "E") {
     workload = YcsbWorkloadE;
+  } else if (FLAGS_workload == "F") {
+    workload = YcsbWorkloadF;
+  } else if (FLAGS_workload == "G") {
+    workload = YcsbWorkloadG;
   } else {
     COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
 
+  LOG(INFO)
+    << "Workload -"
+    << " insert: " << workload.insert_percent() << "%"
+    << " read: " << workload.read_percent() << "%"
+    << " update: " << workload.update_percent() << "%"
+    << " scan: " << workload.scan_percent() << "%";
+
   // Create an empty table
   Epoch ep;
 #ifdef YCSB_HASH_STORAGE
+  LOG(INFO) << "Use hash table storage";
   storage::hash::HashMetadata meta("ycsb_user_table");
   const float kHashPreferredRecordsPerBin = 5.0;
   if (workload.insert_percent() == 0) {
@@ -271,6 +323,7 @@ ErrorStack YcsbDriver::run() {
     meta.set_capacity(initial_table_size * 1.5, kHashPreferredRecordsPerBin);
   }
 #else
+  LOG(INFO) << "Use masstree storage";
   storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
   if (workload.insert_percent() > 0) {
     meta.border_early_split_threshold_ = 80;
@@ -291,6 +344,7 @@ ErrorStack YcsbDriver::run() {
     YcsbLoadTask::Inputs inputs;
     inputs.load_node_ = node;
     inputs.records_per_thread_ = initial_records_per_thread;
+    inputs.sort_load_keys_ = FLAGS_sort_load_keys;
     thread::ImpersonateSession load_session;
     bool ret = thread_pool->impersonate_on_numa_node(
       node, "ycsb_load_task", &inputs, sizeof(inputs), &load_session);
@@ -308,6 +362,29 @@ ErrorStack YcsbDriver::run() {
     }
     LOG(INFO) << "result[" << i << "]=" << load_sessions[i].get_result();
     load_sessions[i].release();
+  }
+
+#ifndef YCSB_HASH_STORAGE
+  if (FLAGS_verify_loaded_data) {
+    // Verify the loaded data
+    thread::ImpersonateSession verify_session;
+    auto ret = thread_pool->impersonate("ycsb_load_verify_task", nullptr, 0, &verify_session);
+    if (!ret) {
+      LOG(FATAL) << "Couldn't impersonate";
+    }
+    while (verify_session.is_running()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
+      assorted::memory_fence_acquire();
+    }
+    verify_session.release();
+  }
+#endif
+
+  if (FLAGS_profile) {
+    COERCE_ERROR(engine_->get_debug()->start_profile("ycsb.prof"));
+  }
+  if (FLAGS_papi) {
+    engine_->get_debug()->start_papi_counters();
   }
 
   // Now try to start transaction worker threads
@@ -368,6 +445,13 @@ ErrorStack YcsbDriver::run() {
   }
   duration.stop();
 
+  if (FLAGS_profile) {
+    engine_->get_debug()->stop_profile();
+  }
+  if (FLAGS_papi) {
+    engine_->get_debug()->stop_papi_counters();
+  }
+
   Result result;
   duration.stop();
   result.duration_sec_ = duration.elapsed_sec();
@@ -406,6 +490,24 @@ ErrorStack YcsbDriver::run() {
     sessions[i].release();
   }
   channel->uninitialize();
+
+  // wait just for a bit to avoid mixing stdout
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  for (uint32_t i = 0; i < result.worker_count_; ++i) {
+    LOG(INFO) << result.workers_[i];
+  }
+  LOG(INFO) << "final result:" << result;
+  if (FLAGS_papi) {
+    LOG(INFO) << "PAPI results:";
+    for (uint16_t i = 0; i < result.papi_results_.size(); ++i) {
+      LOG(INFO) << result.papi_results_[i];
+    }
+  }
+  if (FLAGS_profile) {
+    std::cout << "Check out the profile result: pprof --pdf [binary] tpcc.prof > prof.pdf; "
+      "okular prof.pdf" << std::endl;
+  }
+
   return kRetOk;
 }
 
@@ -422,6 +524,19 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
     << "<snapshot_cache_hits_>" << v.snapshot_cache_hits_ << "</snapshot_cache_hits_>"
     << "<snapshot_cache_misses_>" << v.snapshot_cache_misses_ << "</snapshot_cache_misses_>"
     << "</total_result>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const YcsbDriver::WorkerResult& v) {
+  o << "  <worker_><id>" << v.id_ << "</id>"
+    << "<txn>" << v.processed_ << "</txn>"
+    << "<raceab>" << v.race_aborts_ << "</raceab>"
+    << "<rsetab>" << v.largereadset_aborts_ << "</rsetab>"
+    << "<insab>"  << v.insert_conflict_aborts_ << "</insab>"
+    << "<unexab>" << v.unexpected_aborts_ << "</unexab>"
+    << "<sphit>" << v.snapshot_cache_hits_ << "</sphit>"
+    << "<spmis>" << v.snapshot_cache_misses_ << "</spmis>"
+    << "</worker>";
   return o;
 }
 

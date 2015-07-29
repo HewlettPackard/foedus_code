@@ -103,7 +103,7 @@ ErrorCode TpccClientTask::pop_neworder(Wid wid, Did did, Oid* oid) {
   CHECK_ERROR_CODE(cursor.open_normalized(high, low, false, true, false, true));
   if (cursor.is_valid_record()) {
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdoid));
-    Wdoid id = assorted::read_bigendian<Wdoid>(cursor.get_key());
+    Wdoid id = cursor.get_normalized_key();
     *oid = extract_oid_from_wdoid(id);
     // delete the fetched record
     return cursor.delete_record();
@@ -132,9 +132,8 @@ ErrorCode TpccClientTask::update_orderline_delivery_dates(
   storage::masstree::MasstreeCursor cursor(storages_.orderlines_, context_);
   CHECK_ERROR_CODE(cursor.open_normalized(low, high, true, true));
   while (cursor.is_valid_record()) {
-    const char* key_be = cursor.get_key();
-    ASSERT_ND(assorted::read_bigendian<Wdol>(key_be) >= low);
-    ASSERT_ND(assorted::read_bigendian<Wdol>(key_be) < high);
+    ASSERT_ND(cursor.get_normalized_key() >= low);
+    ASSERT_ND(cursor.get_normalized_key() < high);
     ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
     ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
     const OrderlineData* payload = reinterpret_cast<const OrderlineData*>(cursor.get_payload());

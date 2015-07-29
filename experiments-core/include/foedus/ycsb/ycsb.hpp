@@ -106,10 +106,14 @@ class YcsbKey {
   uint32_t size() const {
     return data_.length();
   }
+
+  bool operator<(const YcsbKey& other) const CXX11_NOEXCEPT {
+    return data_ < other.data_;
+  }
 };
 
 struct YcsbRecord {
-  char data_[kFieldLength][kFields];
+  char data_[kFields * kFieldLength];
   explicit YcsbRecord(char value);
   YcsbRecord() {}
   static void initialize_field(char *field);
@@ -139,6 +143,9 @@ struct YcsbClientChannel {
 
 int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
+#ifndef YCSB_HASH_STORAGE
+ErrorStack ycsb_load_verify_task(const proc::ProcArguments& args);
+#endif
 ErrorStack ycsb_client_task(const proc::ProcArguments& args);
 YcsbClientChannel* get_channel(Engine* engine);
 PerWorkerCounter* get_local_key_counter(Engine* engine, uint32_t worker_id);
@@ -147,10 +154,10 @@ int64_t max_scan_length();
 struct YcsbWorkload {
   YcsbWorkload(
     char desc,
-    uint8_t insert_percent,
-    uint8_t read_percent,
-    uint8_t update_percent,
-    uint8_t scan_percent)
+    int16_t insert_percent,
+    int16_t read_percent,
+    int16_t update_percent,
+    int16_t scan_percent)
     : desc_(desc),
       insert_percent_(insert_percent),
       read_percent_(read_percent),
@@ -158,18 +165,24 @@ struct YcsbWorkload {
       scan_percent_(scan_percent) {}
 
   YcsbWorkload() {}
-  uint8_t insert_percent() const { return insert_percent_; }
-  uint8_t read_percent() const { return read_percent_ - insert_percent_; }
-  uint8_t update_percent() const { return update_percent_ - read_percent_; }
-  uint8_t scan_percent() const { return scan_percent_ - update_percent_; }
+  int16_t insert_percent() const { return insert_percent_; }
+  int16_t read_percent() const {
+    return read_percent_ == 0 ? 0 : read_percent_ - insert_percent_;
+  }
+  int16_t update_percent() const {
+    return update_percent_ == 0 ? 0 : update_percent_ - read_percent_;
+  }
+  int16_t scan_percent() const {
+    return scan_percent_ == 0 ? 0 : scan_percent_ - update_percent_;
+  }
 
   char desc_;
   // Cumulative percentage of i/r/u/s. From insert...scan the percentages
   // accumulates, e.g., i=5, r=12 => we'll have 12-5=7% of reads in total.
-  uint8_t insert_percent_;
-  uint8_t read_percent_;
-  uint8_t update_percent_;
-  uint8_t scan_percent_;
+  int16_t insert_percent_;
+  int16_t read_percent_;
+  int16_t update_percent_;
+  int16_t scan_percent_;
 };
 
 class YcsbLoadTask {
@@ -177,9 +190,14 @@ class YcsbLoadTask {
   struct Inputs {
     uint64_t load_node_;
     uint64_t records_per_thread_;
+    bool sort_load_keys_;
   };
   YcsbLoadTask() : rnd_(48357) {}
-  ErrorStack run(thread::Thread* context, uint16_t node, uint64_t records_per_thread);
+  ErrorStack run(
+    thread::Thread* context,
+    uint16_t node,
+    uint64_t records_per_thread,
+    bool sort_load_keys);
  private:
   assorted::UniformRandom rnd_;
 };
