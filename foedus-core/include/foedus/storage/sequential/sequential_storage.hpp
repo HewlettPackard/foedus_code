@@ -80,6 +80,41 @@ class SequentialStorage CXX11_FINAL : public Storage<SequentialStorageControlBlo
    */
   void       apply_append_record(thread::Thread* context, const SequentialAppendLogType* log_entry);
 
+  /**
+   * @brief Obtains the current value of truncate-epoch in an OCC-fashion.
+   * @see foedus::storage::sequential::SequentialMetadata::truncate_epoch_
+   * @details
+   * This method takes a read-set to protect this OCC-read. Thus it receives a thread context.
+   */
+  ErrorCode     optimistic_read_truncate_epoch(thread::Thread* context, Epoch* out) const;
+  /**
+   * This version doesn't protect the read in a xct. Handy, but use with care.
+   * You should use this method only in non-racy places (eg reporting/debugging etc).
+   * @see optimistic_read_truncate_epoch()
+   */
+  Epoch         get_truncate_epoch() const;
+
+  /**
+   * @brief Discards all records in this storage before the given epoch.
+   * @param[in] new_truncate_epoch all records whose epoch is exclusively smaller than
+   * this will be logically deleted.
+   * @param[out] commit_epoch The epoch when the truncate has happened.
+   * @pre new_truncate_epoch.is_valid()
+   * @pre new_truncate_epoch >= engine.get_earliest_epoch()
+   * @post new_truncate_epoch == get_truncate_epoch()
+   * @details
+   * This method implements the special \e truncate feature as a metadata operation on this storage.
+   * This method starts and ends its own meta-transaction. So it does NOT receive a Thread context.
+   * In other words, you cannot invoke this operation as part of another transaction.
+   *
+   * As far as a valid parameter is given, this method always succeeds because there is no race.
+   * If new_truncate_epoch <= get_truncate_epoch(), this method does nothing (not an error).
+   * @see optimistic_read_truncate_epoch()
+   * @see get_truncate_epoch()
+   */
+  ErrorStack  truncate(Epoch new_truncate_epoch, Epoch* commit_epoch);
+  void        apply_truncate(const SequentialTruncateLogType& the_log);
+
   friend std::ostream& operator<<(std::ostream& o, const SequentialStorage& v);
 };
 }  // namespace sequential

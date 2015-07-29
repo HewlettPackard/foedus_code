@@ -52,7 +52,7 @@ namespace sequential {
  * @brief Log type of CREATE SEQUENTIAL STORAGE operation.
  * @ingroup SEQUENTIAL LOGTYPE
  * @details
- * This log corresponds to StorageManager::create_sequential() opereation.
+ * This log corresponds to StorageManager::create_sequential() operation.
  * CREATE STORAGE has no in-epoch transaction order.
  * It is always processed in a separate epoch from operations for the storage.
  * Thus, we advance epoch right after creating a storage (before following operations).
@@ -66,6 +66,24 @@ struct SequentialCreateLogType : public log::StorageLogType {
   void apply_storage(Engine* engine, StorageId storage_id);
   void assert_valid();
   friend std::ostream& operator<<(std::ostream& o, const SequentialCreateLogType& v);
+};
+
+/**
+ * @brief Log type of TRUNCATE SEQUENTIAL STORAGE operation.
+ * @ingroup SEQUENTIAL LOGTYPE
+ * @details
+ * This log corresponds to SequentialStorage::truncate() operation.
+ * Like SequentialCreateLogType, this is a metadata operation.
+ *
+ * This log type is infrequently triggered, so no optimization. All methods defined in cpp.
+ */
+struct SequentialTruncateLogType : public log::StorageLogType {
+  LOG_TYPE_NO_CONSTRUCT(SequentialTruncateLogType)
+  Epoch new_truncate_epoch_;
+
+  void apply_storage(Engine* engine, StorageId storage_id);
+  void assert_valid();
+  friend std::ostream& operator<<(std::ostream& o, const SequentialTruncateLogType& v);
 };
 
 /**
