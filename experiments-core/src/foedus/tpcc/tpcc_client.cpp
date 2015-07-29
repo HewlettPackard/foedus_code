@@ -229,11 +229,19 @@ ErrorCode TpccClientTask::lookup_customer_by_name(Wid wid, Did did, const char* 
   uint8_t cid_count = 0;
   const uint16_t offset = sizeof(Wid) + sizeof(Did) + 32;
   while (cursor.is_valid_record()) {
-    const char* key_be = cursor.get_key();
-    ASSERT_ND(assorted::betoh<Wid>(*reinterpret_cast<const Wid*>(key_be)) == wid);
-    ASSERT_ND(assorted::betoh<Did>(*reinterpret_cast<const Did*>(key_be + sizeof(Wid))) == did);
+    ASSERT_ND(cursor.get_key_length() == CustomerSecondaryKey::kKeyLength);
+
+#ifndef NDEBUG
+    char key_be[CustomerSecondaryKey::kKeyLength];
+    cursor.copy_combined_key(key_be);
+    ASSERT_ND(assorted::read_bigendian<Wid>(key_be) == wid);
+    ASSERT_ND(assorted::read_bigendian<Did>(key_be + sizeof(Wid)) == did);
     ASSERT_ND(std::memcmp(key_be, low_be, sizeof(low_be)) == 0);
-    Cid cid = assorted::betoh<Cid>(*reinterpret_cast<const Cid*>(key_be + offset));
+#endif  // NDEBUG
+
+    char cid_be[sizeof(Cid)];
+    cursor.copy_combined_key_part(offset, sizeof(cid_be), cid_be);
+    Cid cid = assorted::read_bigendian<Cid>(cid_be);
     if (UNLIKELY(cid_count >= kMaxCidsPerLname)) {
       return kErrorCodeInvalidParameter;
     }
@@ -422,8 +430,8 @@ ErrorStack TpccClientTask::warmup_olap(thread::Thread* context) {
     uint32_t cnt = 0;
     debugging::StopWatch watch;
     while (cursor.is_valid_record()) {
-      ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) >= from);
-      ASSERT_ND(assorted::read_bigendian<Wdol>(cursor.get_key()) < to);
+      ASSERT_ND(cursor.get_normalized_key() >= from);
+      ASSERT_ND(cursor.get_normalized_key() < to);
       ASSERT_ND(cursor.get_key_length() == sizeof(Wdol));
       ASSERT_ND(cursor.get_payload_length() == sizeof(OrderlineData));
       ++cnt;

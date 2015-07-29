@@ -256,8 +256,8 @@ inline KeySlice normalize_be_bytes_fragment(const void* be_bytes, uint32_t lengt
  * @return normalized value that preserves the value-order
  * @ingroup MASSTREE
  */
-inline KeySlice slice_key(const void* be_bytes, uint16_t slice_length) {
-  if (slice_length >= 8) {
+inline KeySlice slice_key(const void* be_bytes, KeyLength slice_length) {
+  if (slice_length >= sizeof(KeySlice)) {
     return normalize_be_bytes_full(be_bytes);
   } else {
     return normalize_be_bytes_fragment(be_bytes, slice_length);

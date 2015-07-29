@@ -21,8 +21,10 @@
 #include <stdint.h>
 
 #include <cstring>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
+#include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/engine.hpp"
 #include "foedus/assorted/endianness.hpp"
@@ -103,6 +105,8 @@ class MasstreeCursor CXX11_FINAL {
 
     /** whether page_ is a snapshot page */
     bool      snapshot_;
+    /** Shorthand for page_->get_layer() */
+    Layer     layer_;
 
     /** only when stable_ indicates that this page is a moved page */
     MovedPageSearchStatus moved_page_search_status_;
@@ -193,14 +197,66 @@ class MasstreeCursor CXX11_FINAL {
   bool      is_valid_record() const ALWAYS_INLINE {
     return route_count_ > 0 && !reached_end_ && cur_route()->is_valid_record();
   }
-  const char* get_key() const ALWAYS_INLINE {
-    ASSERT_ND(is_valid_record());
-    return cur_key_;
-  }
+  /** Returns the length of the whole key we are currently pointing to */
   KeyLength   get_key_length() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
     return cur_key_length_;
   }
+  /**
+   * Returns the prefix slices upto the current page.
+   * When the current page is in layer-n, first n slices are set.
+   */
+  const KeySlice* get_cur_route_prefix_slices() const ALWAYS_INLINE {
+    return cur_route_prefix_slices_;
+  }
+  /** Big-endian version */
+  const char* get_cur_route_prefix_be() const ALWAYS_INLINE {
+    return cur_route_prefix_be_;
+  }
+  /** Returns only the slice of the key in the layer of the current page. Mostly internal use */
+  KeySlice    get_key_in_layer_slice() const ALWAYS_INLINE {
+    ASSERT_ND(is_valid_record());
+    return cur_key_in_layer_slice_;
+  }
+  /** Returns the suffix part of the key in the page. Mostly internal use */
+  const char* get_key_suffix() const ALWAYS_INLINE {
+    ASSERT_ND(is_valid_record());
+    return cur_key_suffix_;
+  }
+  /** This method assumes the key length is at most 8 bytes. Instead, it's fast and handy. */
+  KeySlice    get_normalized_key() const ALWAYS_INLINE {
+    ASSERT_ND(is_valid_record());
+    ASSERT_ND(cur_key_length_ <= sizeof(KeySlice));
+    return cur_key_in_layer_slice_;
+  };
+  /**
+   * @brief Copies the entire big-endian key of the current record to the given buffer.
+   * @param[out] buffer to receive the combined big-endian key. must be get_key_length() or longer.
+   * @details
+   * In other words, this combines get_cur_route_prefixes(),
+   * get_key_in_layer_slice() and get_key_suffix().
+   * This method is handy to get a whole key as one char array, but it must copy something,
+   * so remember that it's a bit costly.
+   *
+   * @par Why we can't just return const char*
+   * We initially provided such a method "get_key()". However, to provide such a method, we
+   * have to keep memcpy-ing for each key because there is no single contiguous key string!
+   * A key in masstree is stored in at least 3 components; prefix slices, current slice, suffix.
+   * If we could just point to somewhere in the data page, it's a no-cost operation.
+   * What we can do is only get_key_suffix() in that regard.
+   * We removed the get_key() method and instead added this explicit copy-method so that the
+   * user can choose when to re-construct the entire key.
+   */
+  void        copy_combined_key(char* buffer) const;
+  /** Another version to get a part of the key, from the offset for len bytes. */
+  void        copy_combined_key_part(KeyLength offset, KeyLength len, char* buffer) const;
+  /** For even handier use, it returns std::string. It's SLOOOW. So use it as such. */
+  std::string get_combined_key() const ALWAYS_INLINE {
+    char buf[kMaxKeyLength];
+    copy_combined_key(buf);
+    return std::string(buf, cur_key_length_);
+  }
+
   const char* get_payload() const ALWAYS_INLINE {
     ASSERT_ND(is_valid_record());
     return cur_payload_;
@@ -283,15 +339,31 @@ class MasstreeCursor CXX11_FINAL {
 
   /** full big-endian key to terminate search. allocated in transaction's local work memory */
   char*       end_key_;
+  /** full native-endian key to terminate search. allocated in transaction's local work memory */
+  KeySlice*   end_key_slices_;
 
-  /** full big-endian key of current record. allocated in transaction's local work memory */
-  char*       cur_key_;
+  /**
+   * native-endian slices of the B-trie path up to the current page.
+   * When the current page is in layer-n, first n-elements are set.
+   * allocated in transaction's local work memory.
+   */
+  KeySlice*   cur_route_prefix_slices_;
+  /** big-endian version. allocated in transaction's local work memory. */
+  char*       cur_route_prefix_be_;
+  /**
+   * big-endian suffix part of the current record's key. this points to somewhere in the current
+   * page. Unlike original masstree, the suffix part is immutable. So, it's safe to just
+   * point to it rather than copying.
+   */
+  const char* cur_key_suffix_;
 
   /** full payload of current record. Directly points to address in current page */
   const char* cur_payload_;
 
   /** full big-endian key of current search. allocated in transaction's local work memory */
   char*       search_key_;
+  /** full native-endian key of current search. allocated in transaction's local work memory */
+  KeySlice*   search_key_slices_;
 
   /** stable version of teh current border page as of copying cur_page_. */
   PageVersionStatus cur_page_stable_;
