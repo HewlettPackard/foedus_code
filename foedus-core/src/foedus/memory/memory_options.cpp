@@ -27,6 +27,7 @@ MemoryOptions::MemoryOptions() {
   interleave_numa_alloc_ = false;
   use_mmap_hugepages_ = false;
   rigorous_memory_boundary_check_ = false;
+  rigorous_page_boundary_check_ = false;
   page_pool_size_mb_per_node_ = kDefaultPagePoolSizeMbPerNode;
   private_page_pool_initial_grab_ = PagePoolOffsetChunk::kMaxSize / 2;
 }
@@ -36,6 +37,7 @@ ErrorStack MemoryOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, interleave_numa_alloc_);
   EXTERNALIZE_LOAD_ELEMENT(element, use_mmap_hugepages_);
   EXTERNALIZE_LOAD_ELEMENT(element, rigorous_memory_boundary_check_);
+  EXTERNALIZE_LOAD_ELEMENT(element, rigorous_page_boundary_check_);
   EXTERNALIZE_LOAD_ELEMENT(element, page_pool_size_mb_per_node_);
   EXTERNALIZE_LOAD_ELEMENT(element, private_page_pool_initial_grab_);
   return kRetOk;
@@ -63,6 +65,8 @@ ErrorStack MemoryOptions::save(tinyxml2::XMLElement* element) const {
     " See the readme fore more details.");
   EXTERNALIZE_SAVE_ELEMENT(element, rigorous_memory_boundary_check_,
     "Whether to use mprotect() for memory boundaries to detect bogus memory accesses.");
+  EXTERNALIZE_SAVE_ELEMENT(element, rigorous_page_boundary_check_,
+    "Whether to use mprotect() for page boundaries to detect bogus memory accesses.");
   EXTERNALIZE_SAVE_ELEMENT(element, page_pool_size_mb_per_node_,
           "Size of the page pool in MB per each NUMA node. Must be multiply of 2MB.");
   EXTERNALIZE_SAVE_ELEMENT(element, private_page_pool_initial_grab_,

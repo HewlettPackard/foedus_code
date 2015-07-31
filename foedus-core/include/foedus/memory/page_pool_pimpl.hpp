@@ -74,7 +74,12 @@ struct PagePoolControlBlock {
 class PagePoolPimpl final : public DefaultInitializable {
  public:
   PagePoolPimpl();
-  void attach(PagePoolControlBlock* control_block, void* memory, uint64_t memory_size, bool owns);
+  void attach(
+    PagePoolControlBlock* control_block,
+    void* memory,
+    uint64_t memory_size,
+    bool owns,
+    bool rigorous_page_boundary_check);
   ErrorStack  initialize_once() override;
   ErrorStack  uninitialize_once() override;
 
@@ -92,9 +97,29 @@ class PagePoolPimpl final : public DefaultInitializable {
   PagePool::Stat      get_stat() const;
   uint64_t&           free_pool_head() { return control_block_->free_pool_head_;}
   uint64_t            free_pool_head() const { return control_block_->free_pool_head_;}
+  uint64_t            get_free_pool_capacity() const { return free_pool_capacity_; }
   uint64_t  get_free_pool_count() const { return control_block_->free_pool_count_;}
   void      increase_free_pool_count(uint64_t op) { control_block_->free_pool_count_ += op; }
-  void      decrease_free_pool_count(uint64_t op) { control_block_->free_pool_count_ -= op; }
+  void      decrease_free_pool_count(uint64_t op) {
+    ASSERT_ND(control_block_->free_pool_count_ >= op);
+    control_block_->free_pool_count_ -= op;
+  }
+  /** Not thread safe. Use it after taking a lock. */
+  void                assert_free_pool() const {
+#ifndef NDEBUG
+    const uint64_t free_count = get_free_pool_count();
+    const uint64_t free_head = free_pool_head();
+    for (uint64_t i = 0; i < free_count; ++i) {
+      uint64_t index = free_head + i;
+      while (index >= free_pool_capacity_) {
+        index -= free_pool_capacity_;
+      }
+      PagePoolOffset* address = free_pool_ + index;
+      ASSERT_ND(*address >= pages_for_free_pool_);
+      ASSERT_ND(*address < pool_size_);
+    }
+#endif  // NDEBUG
+  }
 
   std::string         get_debug_pool_name() const {
     if (control_block_) {
@@ -125,6 +150,9 @@ class PagePoolPimpl final : public DefaultInitializable {
 
   /** Whether this engine owns this page pool. If not, initialize just attaches */
   bool                            owns_;
+
+  /** @copydoc foedus::memory::MemoryOptions::rigorous_page_boundary_check_ */
+  bool                            rigorous_page_boundary_check_;
 
   /**
    * An object to resolve an offset in \e this page pool (thus \e local) to an actual

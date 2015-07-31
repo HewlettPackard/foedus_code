@@ -74,10 +74,24 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
   /**
    * @brief Whether to use mprotect() for memory boundaries to detect bogus memory accesses.
    * @details
+   * When true, we put a dummy mprotect-ed pages between chunks of shared memories.
    * Using this might cause performance degradation, but it helps debugging.
    * Default is false.
    */
   bool        rigorous_memory_boundary_check_;
+
+  /**
+   * @brief Whether to use mprotect() for page boundaries to detect bogus memory accesses.
+   * @details
+   * Similar to rigorous_memory_boundary_check_, but this one is about page pools.
+   * When true, we \e waste a half of volatile/snapshot page pool, putting mprotect in odd-numbered
+   * page indexes. The threads receive only the even-numbered indexes, so if any read/write
+   * overruns a page, a signal is fired. This makes the execution quite slower and wastes
+   * half of memory, so use it just for debugging. This flag also disables hugepages
+   * used for snapshot page pool for mprotect to work, so makes it really SLOW.
+   * Default is false.
+   */
+  bool        rigorous_page_boundary_check_;
 
   /**
    * @brief Size of the page pool in MB per each NUMA node.
