@@ -122,7 +122,7 @@ std::string PagePool::get_debug_pool_name() const { return pimpl_->get_debug_poo
 void PagePool::set_debug_pool_name(const std::string& name) { pimpl_->set_debug_pool_name(name); }
 
 uint32_t PagePool::get_recommended_pages_per_grab() const {
-  return std::min<uint32_t>(1U << 12, pimpl_->pool_size_ / 8U);
+  return std::min<uint32_t>(1U << 12, pimpl_->free_pool_capacity_ / 8U);
 }
 
 

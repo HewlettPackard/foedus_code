@@ -527,6 +527,7 @@ void test_cursor(
     = kRecordsPerXct * kXctsPerCore / kRecordsPerPageConservative;
   options.memory_.page_pool_size_mb_per_node_
     = kCoresPerNode * assorted::int_div_ceil(pages_conservative * kPageSize, 1ULL << 20);
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   options.thread_.thread_count_per_group_ = kCoresPerNode;
   uint16_t node_count = 1;
   if (multi_node) {

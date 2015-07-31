@@ -264,6 +264,7 @@ void run_test() {
   uint32_t total_borders = (test_core_count * kRecords) / records_per_border;
   uint32_t border_kb = total_borders * 4U * kSplitMargin;
   vol_mb += border_kb / 1024ULL;
+  vol_mb *= 2;  // for rigorous_page_check
   std::cout << "vol_mb=" << vol_mb << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = vol_mb;
   options.cache_.snapshot_cache_size_mb_per_node_ = 2 * test_core_count;

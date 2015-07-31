@@ -124,13 +124,17 @@ ErrorStack NumaCoreMemory::initialize_once() {
   {
     uint32_t grab_count = std::min<uint32_t>(
       volatile_pool_->get_recommended_pages_per_grab(),
-      initial_pages);
+      std::min<uint32_t>(
+        initial_pages,
+        volatile_pool_->get_free_pool_capacity() / (2U * thread_per_group)));
     WRAP_ERROR_CODE(volatile_pool_->grab(grab_count, free_volatile_pool_chunk_));
   }
   {
     uint32_t grab_count = std::min<uint32_t>(
       snapshot_pool_->get_recommended_pages_per_grab(),
-      initial_pages);
+      std::min<uint32_t>(
+        initial_pages,
+        snapshot_pool_->get_free_pool_capacity() / (2U * thread_per_group)));
     WRAP_ERROR_CODE(snapshot_pool_->grab(grab_count, free_snapshot_pool_chunk_));
   }
   return kRetOk;

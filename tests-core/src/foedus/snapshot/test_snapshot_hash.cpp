@@ -178,7 +178,9 @@ void test_run(
     options.log_.loggers_per_node_ = multiple_loggers ? kThreads : 1;
   }
   options.memory_.page_pool_size_mb_per_node_ = 10;
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   options.cache_.snapshot_cache_size_mb_per_node_ = 10;
+  options.cache_.snapshot_cache_size_mb_per_node_ *= 2U;  // for rigorous_check
 
   {
     Engine engine(options);

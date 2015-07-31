@@ -661,10 +661,10 @@ void run_test(
   options.thread_.thread_count_per_group_ = parallel_load ? kLoadThreads : 1;
   options.log_.log_buffer_kb_ = 1 << 14;
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 1 << 5;
-  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 3;
+  options.memory_.page_pool_size_mb_per_node_ = 1 << 6;
+  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 4;
   if (load_orderlines) {
-    options.memory_.page_pool_size_mb_per_node_ = 1 << 6;
+    options.memory_.page_pool_size_mb_per_node_ = 1 << 7;
   }
   if (parallel_load) {
     options.memory_.page_pool_size_mb_per_node_ *= kLoadThreads;
