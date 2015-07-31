@@ -306,6 +306,19 @@ void EngineOptions::prescreen_sysctl(
       << " without configuring it, but some environment might fail without it"
       << std::endl;
   }
+
+  uint64_t map_count = read_int_from_proc_fs("/proc/sys/vm/max_map_count", details_out);
+  if (map_count <= 65530U) {
+    *details_out
+      << "[FOEDUS] /proc/sys/vm/max_map_count is only " << map_count
+      << " When rigorous_memory_boundary_check or rigorous_page_boundary_check features"
+      << " are specified, you must set a large number to it."
+      << ". We recommend to set : "
+      << " sudo sysctl -w vm.max_map_count=2147483647"
+      << " and adding an entry 'vm.max_map_count=2147483647' to /etc/sysctl.conf"
+      << " then sudo sysctl -p"
+      << std::endl;
+  }
 }
 
 void EngineOptions::calculate_required_memory(

@@ -90,6 +90,10 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * half of memory, so use it just for debugging. This flag also disables hugepages
    * used for snapshot page pool for mprotect to work, so makes it really SLOW.
    * Default is false.
+   * @attention To use this feature with large page pool sizes, you must increase max_map_count.
+   *   sudo sysctl -w vm.max_map_count=2147483647
+   * Otherwise you will get out-of-memory crashes. Linux's default value is only 65530.
+   * @see foedus::assorted::ProtectedBoundary
    */
   bool        rigorous_page_boundary_check_;
 

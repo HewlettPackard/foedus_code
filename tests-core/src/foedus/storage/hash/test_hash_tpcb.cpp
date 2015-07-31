@@ -502,6 +502,7 @@ void multi_thread_test(int thread_count_arg, bool contended_arg,
   use_increment = use_inc;
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 32;
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   options.log_.log_buffer_kb_ = 1 << 12;
   options.thread_.group_count_ = 1;
   options.thread_.thread_count_per_group_ = thread_count;
