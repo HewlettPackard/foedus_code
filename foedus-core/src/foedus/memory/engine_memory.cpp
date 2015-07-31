@@ -50,9 +50,10 @@ ErrorStack EngineMemory::initialize_once() {
     // Even if the kernel is built without NUMA (eg ARMv8), we keep running.
     // return ERROR_STACK(kErrorCodeMemoryNumaUnavailable);
   }
+
   ASSERT_ND(node_memories_.empty());
   const EngineOptions& options = engine_->get_options();
-  thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
+  const thread::ThreadGroupId numa_nodes = options.thread_.group_count_;
   GlobalVolatilePageResolver::Base bases[256];
   uint64_t pool_begin = 0, pool_end = 0;
   for (thread::ThreadGroupId node = 0; node < numa_nodes; ++node) {
@@ -74,6 +75,15 @@ ErrorStack EngineMemory::initialize_once() {
     local_memory_ = new NumaNodeMemory(engine_, node);
     CHECK_ERROR(local_memory_->initialize());
     LOG(INFO) << "Node memory-" << node << " was initialized!";
+  } else {
+    if (options.memory_.rigorous_memory_boundary_check_) {
+      LOG(WARNING) << "CAUTION: memory_.rigorous_memory_boundary_check_ is ON. We will"
+        << " put mprotect-ed pages between memory regions for debugging. It will be SLOW!";
+    }
+    if (options.memory_.rigorous_page_boundary_check_) {
+      LOG(WARNING) << "CAUTION: memory_.rigorous_page_boundary_check_ is ON. We will"
+        << " put mprotect-ed pages between every single page for debugging. It will be SLOOOW!";
+    }
   }
   return kRetOk;
 }

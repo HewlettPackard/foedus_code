@@ -67,21 +67,29 @@ ErrorStack NumaNodeMemory::initialize_once() {
     memory_repo->get_node_memory_anchors(numa_node_)->volatile_pool_status_,
     memory_repo->get_volatile_pool(numa_node_),
     volatile_size,
-    true);
+    true,
+    engine_->get_options().memory_.rigorous_page_boundary_check_);
   volatile_pool_.set_debug_pool_name(
     std::string("VolatilePool-")
     + std::to_string(static_cast<int>(numa_node_)));
 
   // snapshot pool is SOC-local
-  allocate_huge_numa_memory(
-    static_cast<uint64_t>(engine_->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20,
-    &snapshot_pool_memory_);
+  uint64_t snapshot_pool_bytes
+    = static_cast<uint64_t>(engine_->get_options().cache_.snapshot_cache_size_mb_per_node_) << 20;
+  if (engine_->get_options().memory_.rigorous_page_boundary_check_) {
+    // mprotect raises EINVAL if the underlying pages are hugepages.
+    LOG(INFO) << "rigorous_page_boundary_check_ is specified, so disabled hugepages.";
+    allocate_numa_memory(snapshot_pool_bytes, &snapshot_pool_memory_);
+  } else {
+    allocate_huge_numa_memory(snapshot_pool_bytes, &snapshot_pool_memory_);
+  }
   snapshot_pool_control_block_.alloc(1 << 12, 1 << 12, AlignedMemory::kNumaAllocOnnode, numa_node_);
   snapshot_pool_.attach(
     reinterpret_cast<PagePoolControlBlock*>(snapshot_pool_control_block_.get_block()),
     snapshot_pool_memory_.get_block(),
     snapshot_pool_memory_.get_size(),
-    true);
+    true,
+    engine_->get_options().memory_.rigorous_page_boundary_check_);
   snapshot_pool_.set_debug_pool_name(
     std::string("SnapshotPool-")
     + std::to_string(static_cast<int>(numa_node_)));
@@ -231,6 +239,7 @@ NumaNodeMemoryRef::NumaNodeMemoryRef(Engine* engine, thread::ThreadGroupId numa_
     memory_repo->get_node_memory_anchors(numa_node)->volatile_pool_status_,
     memory_repo->get_volatile_pool(numa_node),
     static_cast<uint64_t>(engine->get_options().memory_.page_pool_size_mb_per_node_) << 20,
+    false,
     false);
 }
 
