@@ -221,6 +221,8 @@ class YcsbClientTask {
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t insert_conflict_aborts_;
+    uint64_t total_scan_length_;
+    uint64_t total_scans_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
@@ -280,14 +282,18 @@ class YcsbClientTask {
     return key_arena_.build(high_bits, low_bits);
   }
 
-  uint32_t get_race_aborts() const { return outputs_->race_aborts_; }
-  uint32_t increment_race_aborts() { return ++outputs_->race_aborts_; }
-  uint32_t get_unexpected_aborts() const { return outputs_->unexpected_aborts_; }
-  uint32_t increment_unexpected_aborts() { return ++outputs_->unexpected_aborts_; }
-  uint32_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
-  uint32_t increment_largereadset_aborts() { return ++outputs_->largereadset_aborts_; }
-  uint32_t get_insert_conflict_aborts() const { return outputs_->insert_conflict_aborts_; }
-  uint32_t increment_insert_conflict_aborts() const { return ++outputs_->insert_conflict_aborts_; }
+  uint64_t get_race_aborts() const { return outputs_->race_aborts_; }
+  uint64_t increment_race_aborts() { return ++outputs_->race_aborts_; }
+  uint64_t get_unexpected_aborts() const { return outputs_->unexpected_aborts_; }
+  uint64_t increment_unexpected_aborts() { return ++outputs_->unexpected_aborts_; }
+  uint64_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
+  uint64_t increment_largereadset_aborts() { return ++outputs_->largereadset_aborts_; }
+  uint64_t get_insert_conflict_aborts() const { return outputs_->insert_conflict_aborts_; }
+  uint64_t increment_insert_conflict_aborts() const { return ++outputs_->insert_conflict_aborts_; }
+  uint64_t get_total_scan_length() const { return outputs_->total_scan_length_; }
+  uint64_t increment_total_scan_length() const { return ++outputs_->total_scan_length_; }
+  uint64_t get_total_scans_() const { return outputs_->total_scans_; }
+  uint64_t increment_total_scans() const { return ++outputs_->total_scans_; }
 
   ErrorStack do_xct(const YcsbWorkload workload_desc);
   ErrorCode do_read(const YcsbKey& key);
@@ -306,6 +312,8 @@ class YcsbDriver {
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t insert_conflict_aborts_;
+    uint64_t total_scan_length_;  // How many records did we scan in each do_scan()?
+    uint64_t total_scans_;        // How many times did we call do_scan()?
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
@@ -320,6 +328,8 @@ class YcsbDriver {
         race_aborts_(0),
         largereadset_aborts_(0),
         insert_conflict_aborts_(0),
+        total_scan_length_(0),
+        total_scans_(0),
         unexpected_aborts_(0),
         snapshot_cache_hits_(0),
         snapshot_cache_misses_(0) {}
@@ -329,6 +339,8 @@ class YcsbDriver {
     uint64_t race_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t insert_conflict_aborts_;
+    uint64_t total_scan_length_;
+    uint64_t total_scans_;
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;

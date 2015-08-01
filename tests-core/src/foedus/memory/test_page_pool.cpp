@@ -17,23 +17,37 @@
  */
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "foedus/test_common.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
 #include "foedus/memory/page_pool_pimpl.hpp"
+#include "foedus/memory/shared_memory.hpp"
+#include "foedus/storage/page.hpp"
 
 namespace foedus {
 namespace memory {
 DEFINE_TEST_CASE_PACKAGE(PagePoolTest, foedus.memory);
 
+const uint64_t kPageSize = sizeof(storage::Page);
+/**
+ * Note, we must NOT use hugepages in this testcase for mprotect().
+ * mprotect() must receive addresses aligned to pages. If it's hugepages,
+ * it will fail.
+ * BTW, however, for some reason it is okay when it is SysV shmget. What are you doing linux...
+ */
+const uint64_t kAlignment = kPageSize;
+
 void verify_full_pool(PagePool* pool) {
   const uint32_t free_pool_pages = pool->get_resolver().begin_;
-  const uint64_t pool_size = (pool->get_memory_size() / (1U << 12)) - free_pool_pages;
+  const uint64_t pool_size = pool->get_free_pool_capacity();
   uint16_t count[sizeof(PagePoolOffsetChunk) / sizeof(PagePoolOffset)];
   std::memset(count, 0, sizeof(count));
   PagePoolOffsetChunk chunk;
   EXPECT_EQ(kErrorCodeOk, pool->grab(PagePoolOffsetChunk::kMaxSize, &chunk));
   EXPECT_EQ(pool_size, chunk.size());
+  EXPECT_EQ(pool_size, pool->get_free_pool_capacity());
   PagePoolOffsetChunk chunk2;
   while (!chunk.empty()) {
     PagePoolOffset offset = chunk.pop_back();
@@ -46,25 +60,25 @@ void verify_full_pool(PagePool* pool) {
   pool->release(chunk2.size(), &chunk2);
 }
 
-TEST(PagePoolTest, Construct) {
+void test_construct(bool with_mprotect) {
   const uint64_t kPoolSize = 1ULL << 21;
   AlignedMemory block_memory;
-  block_memory.alloc(1U << 12, 1U << 12, AlignedMemory::kNumaAllocOnnode, 0);
+  block_memory.alloc(kPageSize, kAlignment, AlignedMemory::kNumaAllocOnnode, 0);
   EXPECT_TRUE(block_memory.get_block() != nullptr);
   PagePoolControlBlock* block = reinterpret_cast<PagePoolControlBlock*>(block_memory.get_block());
   AlignedMemory pool_memory;
-  pool_memory.alloc(kPoolSize, 1U << 21, AlignedMemory::kNumaAllocOnnode, 0);
+  pool_memory.alloc(kPoolSize, kAlignment, AlignedMemory::kNumaAllocOnnode, 0);
   EXPECT_TRUE(pool_memory.get_block() != nullptr);
 
   PagePool pool;
-  pool.attach(block, pool_memory.get_block(), kPoolSize, true);
+  pool.attach(block, pool_memory.get_block(), kPoolSize, true, with_mprotect);
   COERCE_ERROR(pool.initialize());
   EXPECT_EQ(kPoolSize, pool.get_memory_size());
 
   verify_full_pool(&pool);
 
   PagePool pool_ref;
-  pool_ref.attach(block, pool_memory.get_block(), kPoolSize, false);
+  pool_ref.attach(block, pool_memory.get_block(), kPoolSize, false, with_mprotect);
   COERCE_ERROR(pool_ref.initialize());
   EXPECT_EQ(kPoolSize, pool_ref.get_memory_size());
   COERCE_ERROR(pool_ref.uninitialize());
@@ -74,18 +88,17 @@ TEST(PagePoolTest, Construct) {
   COERCE_ERROR(pool.uninitialize());
 }
 
-
-TEST(PagePoolTest, GrabRelease) {
+void test_grab_release(bool with_mprotect) {
   // pool size less than one full PagePoolOffsetChunk (note: a few pages spent for free-pool pages)
-  const uint64_t kPoolSize = (1ULL << 12) * sizeof(PagePoolOffsetChunk) / sizeof(PagePoolOffset);
+  const uint64_t kPoolSize = kPageSize * sizeof(PagePoolOffsetChunk) / sizeof(PagePoolOffset);
   AlignedMemory block_memory;
-  block_memory.alloc(1U << 12, 1U << 12, AlignedMemory::kNumaAllocOnnode, 0);
+  block_memory.alloc(kPageSize, kAlignment, AlignedMemory::kNumaAllocOnnode, 0);
   PagePoolControlBlock* block = reinterpret_cast<PagePoolControlBlock*>(block_memory.get_block());
   AlignedMemory pool_memory;
-  pool_memory.alloc(kPoolSize, 1U << 21, AlignedMemory::kNumaAllocOnnode, 0);
+  pool_memory.alloc(kPoolSize, kAlignment, AlignedMemory::kNumaAllocOnnode, 0);
 
   PagePool pool;
-  pool.attach(block, pool_memory.get_block(), kPoolSize, true);
+  pool.attach(block, pool_memory.get_block(), kPoolSize, true, with_mprotect);
   COERCE_ERROR(pool.initialize());
   EXPECT_EQ(kPoolSize, pool.get_memory_size());
 
@@ -95,7 +108,7 @@ TEST(PagePoolTest, GrabRelease) {
   EXPECT_EQ(kErrorCodeOk, pool.grab(PagePoolOffsetChunk::kMaxSize, &chunk));
   const uint32_t free_pool_pages = pool.get_resolver().begin_;
   EXPECT_GT(free_pool_pages, 0);
-  EXPECT_EQ((kPoolSize /  (1ULL << 12)) - free_pool_pages, chunk.size());
+  EXPECT_EQ(pool.get_free_pool_capacity(), chunk.size());
   EXPECT_FALSE(chunk.full());
 
   PagePoolOffsetChunk chunk2;
@@ -119,36 +132,38 @@ TEST(PagePoolTest, GrabRelease) {
   COERCE_ERROR(pool.uninitialize());
 }
 
-TEST(PagePoolTest, GrabReleaseWithEpoch) {
-  const uint64_t kPoolSize = (1ULL << 12) * sizeof(PagePoolOffsetChunk) / sizeof(PagePoolOffset);
-  const uint64_t kPoolSizeInPages = (kPoolSize /  (1ULL << 12));
+void test_grab_release_with_epoch(bool with_mprotect) {
+  const uint64_t kPoolSize = kPageSize * sizeof(PagePoolOffsetChunk) / sizeof(PagePoolOffset);
   AlignedMemory block_memory;
-  block_memory.alloc(1U << 12, 1U << 12, AlignedMemory::kNumaAllocOnnode, 0);
+  block_memory.alloc(kPageSize, kAlignment, AlignedMemory::kNumaAllocOnnode, 0);
   PagePoolControlBlock* block = reinterpret_cast<PagePoolControlBlock*>(block_memory.get_block());
   AlignedMemory pool_memory;
-  pool_memory.alloc(kPoolSize, 1U << 21, AlignedMemory::kNumaAllocOnnode, 0);
+  pool_memory.alloc(kPoolSize, kAlignment, AlignedMemory::kNumaAllocOnnode, 0);
 
   PagePool pool;
-  pool.attach(block, pool_memory.get_block(), kPoolSize, true);
+  pool.attach(block, pool_memory.get_block(), kPoolSize, true, with_mprotect);
   COERCE_ERROR(pool.initialize());
   EXPECT_EQ(kPoolSize, pool.get_memory_size());
 
   PagePoolOffsetChunk chunk;
   EXPECT_EQ(kErrorCodeOk, pool.grab(PagePoolOffsetChunk::kMaxSize, &chunk));
-  const uint32_t free_pool_pages = pool.get_resolver().begin_;
 
+  // Page Pool ignores half of the pages when with_mprotect is specified.
+  const uint64_t kPoolSizeInPages = pool.get_free_pool_capacity();
+  EXPECT_EQ(kPoolSizeInPages, chunk.size());
   PagePoolOffsetAndEpochChunk epoch_chunk;
-  for (uint32_t i = free_pool_pages; i < kPoolSizeInPages; ++i) {
-    epoch_chunk.push_back(i, Epoch(i / 3U));
+  for (uint32_t i = 0; !chunk.empty(); ++i) {
+    PagePoolOffset offset = chunk.pop_back();
+    epoch_chunk.push_back(offset, Epoch((i / 3U) + 1U));
   }
-  EXPECT_EQ(kPoolSizeInPages - free_pool_pages, epoch_chunk.size());
+  EXPECT_EQ(kPoolSizeInPages, epoch_chunk.size());
 
-  uint32_t half_count = epoch_chunk.get_safe_offset_count(Epoch(kPoolSizeInPages / 6U));
-  EXPECT_EQ(kPoolSizeInPages / 6U, (half_count + free_pool_pages) / 3U);
-  EXPECT_EQ((kPoolSizeInPages / 6U) - 1U, (half_count + free_pool_pages - 1U) / 3U);
+  uint32_t half_count = epoch_chunk.get_safe_offset_count(Epoch((kPoolSizeInPages / 6U) + 1U));
+  EXPECT_EQ(kPoolSizeInPages / 6U, half_count / 3U);
+  EXPECT_EQ((kPoolSizeInPages / 6U) - 1U, (half_count - 1U) / 3U);
 
   pool.release(half_count, &epoch_chunk);
-  EXPECT_EQ(kPoolSizeInPages - free_pool_pages - half_count, epoch_chunk.size());
+  EXPECT_EQ(kPoolSizeInPages - half_count, epoch_chunk.size());
 
   pool.release(epoch_chunk.size(), &epoch_chunk);
 
@@ -156,6 +171,15 @@ TEST(PagePoolTest, GrabReleaseWithEpoch) {
 
   COERCE_ERROR(pool.uninitialize());
 }
+
+TEST(PagePoolTest, Construct)         { test_construct(false); }
+TEST(PagePoolTest, ConstructMprotect) { test_construct(true); }
+
+TEST(PagePoolTest, GrabRelease)         { test_grab_release(false); }
+TEST(PagePoolTest, GrabReleaseMprotect) { test_grab_release(true); }
+
+TEST(PagePoolTest, GrabReleaseWithEpoch)          { test_grab_release_with_epoch(false); }
+TEST(PagePoolTest, GrabReleaseWithEpochMprotect)  { test_grab_release_with_epoch(true); }
 
 }  // namespace memory
 }  // namespace foedus

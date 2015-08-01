@@ -71,12 +71,18 @@ void SharedMemoryRepo::allocate_one_node(
   uint16_t node,
   uint64_t node_memory_size,
   uint64_t volatile_pool_size,
+  bool rigorous_memory_boundary_check,
+  bool rigorous_page_boundary_check,
   ErrorStack* alloc_result,
   SharedMemoryRepo* repo) {
   // NEVER do COERCE_ERROR here. We must responsibly release shared memory even on errors.
   std::string node_memory_path
     = get_self_path(upid, eid) + std::string("_node_") + std::to_string(node);
-  *alloc_result = repo->node_memories_[node].alloc(node_memory_path, node_memory_size, node);
+  *alloc_result = repo->node_memories_[node].alloc(
+    node_memory_path,
+    node_memory_size,
+    node,
+    !rigorous_memory_boundary_check);  // when mprotect is enabled, we cannot use hugepages
   if (alloc_result->is_error()) {
     repo->node_memories_[node].release_block();
     return;
@@ -84,7 +90,11 @@ void SharedMemoryRepo::allocate_one_node(
 
   std::string volatile_pool_path
     = get_self_path(upid, eid) + std::string("_vpool_") + std::to_string(node);
-  *alloc_result = repo->volatile_pools_[node].alloc(volatile_pool_path, volatile_pool_size, node);
+  *alloc_result = repo->volatile_pools_[node].alloc(
+    volatile_pool_path,
+    volatile_pool_size,
+    node,
+    !rigorous_page_boundary_check);  // same above
   if (alloc_result->is_error()) {
     repo->node_memories_[node].release_block();
     repo->volatile_pools_[node].release_block();
@@ -107,7 +117,8 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(
   // construct unique meta files using PID.
   uint64_t global_memory_size = align_2mb(calculate_global_memory_size(xml_size, options));
   std::string global_memory_path = get_self_path(upid, eid) + std::string("_global");
-  CHECK_ERROR(global_memory_.alloc(global_memory_path, global_memory_size, 0));
+  const bool global_hugepages = !options.memory_.rigorous_memory_boundary_check_;
+  CHECK_ERROR(global_memory_.alloc(global_memory_path, global_memory_size, 0, global_hugepages));
 
   // from now on, be very careful to not exit without releasing this shared memory.
 
@@ -132,6 +143,8 @@ ErrorStack SharedMemoryRepo::allocate_shared_memories(
       node,
       node_memory_size,
       volatile_pool_size,
+      options.memory_.rigorous_memory_boundary_check_,
+      options.memory_.rigorous_page_boundary_check_,
       alloc_results + node,
       this));
   }
@@ -169,7 +182,8 @@ ErrorStack SharedMemoryRepo::attach_shared_memories(
 
   std::string base = get_master_path(master_upid, master_eid);
   std::string global_memory_path = base + std::string("_global");
-  global_memory_.attach(global_memory_path);
+  const bool global_hugepages = !options->memory_.rigorous_memory_boundary_check_;
+  global_memory_.attach(global_memory_path, global_hugepages);
   if (global_memory_.is_null()) {
     deallocate_shared_memories();
     return ERROR_STACK(kErrorCodeSocShmAttachFailed);
@@ -189,9 +203,9 @@ ErrorStack SharedMemoryRepo::attach_shared_memories(
   bool failed = false;
   for (uint16_t node = 0; node < soc_count_; ++node) {
     std::string node_memory_str = base + std::string("_node_") + std::to_string(node);
-    node_memories_[node].attach(node_memory_str);
+    node_memories_[node].attach(node_memory_str, !options->memory_.rigorous_memory_boundary_check_);
     std::string vpool_str = base + std::string("_vpool_") + std::to_string(node);
-    volatile_pools_[node].attach(vpool_str);
+    volatile_pools_[node].attach(vpool_str, !options->memory_.rigorous_page_boundary_check_);
     if (node_memories_[node].is_null() || volatile_pools_[node].is_null()) {
       failed = true;
     } else {

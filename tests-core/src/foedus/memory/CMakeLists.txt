@@ -1,6 +1,14 @@
 add_foedus_test_individual(test_aligned_memory "Instantiate;Instantiate2;Move;Slice")
 add_foedus_test_individual(test_engine_memory "SingleNode;TwoNodes")
-add_foedus_test_individual(test_page_pool "Construct;GrabRelease;GrabReleaseWithEpoch")
+
+set(test_mprotect_individuals
+  Construct
+  ConstructMprotect
+  GrabRelease
+  GrabReleaseMprotect
+  GrabReleaseWithEpoch
+  )
+add_foedus_test_individual(test_page_pool "${test_mprotect_individuals}")
 
 # because we do fork/exec and exit(), we can't run valgrind on this test.
 add_foedus_test_individual_without_valgrind(test_shared_memory "Alone;ShareFork;ShareSpawn")

@@ -90,7 +90,11 @@ citizen. Hence, we now recommend to disable THP.
 The default maximum of shared memory is ridiculously small.
 We recommend to set an infinitely large number as follows:
 
-    sudo sysctl -w kernel.shmmax=9223372036854775807;sudo sysctl -w kernel.shmall=1152921504606846720;sudo sysctl -w kernel.shmmni=409600; sudo sysctl -p
+    sudo sysctl -w kernel.shmmax=9223372036854775807
+    sudo sysctl -w kernel.shmall=1152921504606846720
+    sudo sysctl -w kernel.shmmni=409600
+    sudo sysctl -w vm.max_map_count=2147483647
+    sudo sysctl -p
 
 The above command is effective only until reboot. In order to make it permanent, add
 the following entries to /etc/sysctl.conf:
@@ -99,6 +103,7 @@ the following entries to /etc/sysctl.conf:
     kernel.shmmax = 9223372036854775807
     kernel.shmall = 1152921504606846720
     kernel.shmmni = 409600
+    vm.max_map_count = 2147483647
 
 If you have some reason to set a smaller number, carefully calculate required sizes and
 replace the above numbers.
@@ -197,6 +202,7 @@ If you are to enable C++11, on the other hand, add the following in your CMakeLi
 Get Started
 -----------
 Here is a minimal example program to create a key-value storage and query on it.
+**NOTE: Complete Environment Setup Beforehand!**
 
     #include <iostream>
 

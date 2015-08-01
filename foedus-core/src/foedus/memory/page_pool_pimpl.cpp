@@ -20,12 +20,14 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <string>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/uniform_random.hpp"
+#include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/memory_options.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/memory/page_pool.hpp"
@@ -36,13 +38,18 @@
 namespace foedus {
 namespace memory {
 PagePoolPimpl::PagePoolPimpl()
-  : control_block_(nullptr), memory_(nullptr), memory_size_(0), owns_(false) {}
+  : control_block_(nullptr),
+    memory_(nullptr),
+    memory_size_(0),
+    owns_(false),
+    rigorous_page_boundary_check_(false) {}
 
 void PagePoolPimpl::attach(
   PagePoolControlBlock* control_block,
   void* memory,
   uint64_t memory_size,
-  bool owns) {
+  bool owns,
+  bool rigorous_page_boundary_check) {
   control_block_ = control_block;
   if (owns) {
     control_block_->debug_pool_name_.clear();
@@ -50,6 +57,7 @@ void PagePoolPimpl::attach(
   memory_ = memory;
   memory_size_ = memory_size;
   owns_ = owns;
+  rigorous_page_boundary_check_ = rigorous_page_boundary_check;
   pool_base_ = reinterpret_cast<storage::Page*>(memory_);
   pool_size_ = memory_size_ / storage::kPageSize;
 
@@ -58,20 +66,53 @@ void PagePoolPimpl::attach(
 
   free_pool_ = reinterpret_cast<PagePoolOffset*>(memory_);
   free_pool_capacity_ = pool_size_ - pages_for_free_pool_;
+  if (rigorous_page_boundary_check) {
+    free_pool_capacity_ = free_pool_capacity_ / 2U;
+  }
   resolver_ = LocalPageResolver(pool_base_, pages_for_free_pool_, pool_size_);
 }
 
 ErrorStack PagePoolPimpl::initialize_once() {
   if (owns_) {
     LOG(INFO) << get_debug_pool_name()
-      << " - total_pages=" << pool_size_ << ", pages_for_free_pool_=" << pages_for_free_pool_;
+      << " - total_pages=" << pool_size_ << ", pages_for_free_pool_=" << pages_for_free_pool_
+      << ", boundary_check=" << rigorous_page_boundary_check_;
     control_block_->initialize();
     LOG(INFO) << get_debug_pool_name() << " - Constructing circular free pool...";
     // all pages after pages_for_free_pool_-th page is in the free pool at first
-    for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
-      free_pool_[i] = pages_for_free_pool_ + i;
+    if (!rigorous_page_boundary_check_) {
+      ASSERT_ND(free_pool_capacity_ == pool_size_ - pages_for_free_pool_);
+      for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+        free_pool_[i] = pages_for_free_pool_ + i;
+      }
+    } else {
+      // Use even-numbered pages only
+      ASSERT_ND(free_pool_capacity_ == (pool_size_ - pages_for_free_pool_) / 2U);
+      for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+        free_pool_[i] = pages_for_free_pool_ + i * 2U;
+      }
+
+      LOG(INFO) << get_debug_pool_name() << " - mprotect()-ing odd-numbered pages...";
+      debugging::StopWatch watch;
+      bool error_reported = false;
+      for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+        uint64_t index = pages_for_free_pool_ + i * 2U + 1U;
+        static_assert(sizeof(assorted::ProtectedBoundary) == sizeof(storage::Page), "Hoosh!");
+        assorted::ProtectedBoundary* boundary = reinterpret_cast<assorted::ProtectedBoundary*>(
+          pool_base_ + index);
+        boundary->reset(std::to_string(index));
+        ErrorCode mprotect_ret = boundary->acquire_protect();
+        if (mprotect_ret != kErrorCodeOk && !error_reported) {
+          LOG(ERROR) << get_debug_pool_name() << " - mprotect() failed: " << assorted::os_error();
+          error_reported = true;
+        }
+      }
+      watch.stop();
+      LOG(INFO) << get_debug_pool_name() << " - mprotect()-ed " << free_pool_capacity_
+        << " pages in " << watch.elapsed_ms() << "ms";
     }
 
+    /* to enable this, we need a version for rigorous_page_boundary_check_
     // [experimental] randomize the free pool pointers so that we can evenly utilize all
     // memory banks
     if (false) {  // disabled for now
@@ -97,10 +138,12 @@ ErrorStack PagePoolPimpl::initialize_once() {
       delete[] randomizers;
       LOG(INFO) << get_debug_pool_name() << " - Randomized free pool.";
     }
+    */
 
     control_block_->free_pool_head_ = 0;
     control_block_->free_pool_count_ = free_pool_capacity_;
     LOG(INFO) << get_debug_pool_name() << " - Constructed circular free pool.";
+    assert_free_pool();
   }
 
   return kRetOk;
@@ -108,6 +151,28 @@ ErrorStack PagePoolPimpl::initialize_once() {
 
 ErrorStack PagePoolPimpl::uninitialize_once() {
   if (owns_) {
+    assert_free_pool();
+    if (rigorous_page_boundary_check_) {
+      LOG(INFO) << get_debug_pool_name() << " - releasing mprotect() odd-numbered pages...";
+      debugging::StopWatch watch;
+      bool error_reported = false;
+      for (uint64_t i = 0; i < free_pool_capacity_; ++i) {
+        uint64_t index = pages_for_free_pool_ + i * 2U + 1U;
+        assorted::ProtectedBoundary* boundary = reinterpret_cast<assorted::ProtectedBoundary*>(
+          pool_base_ + index);
+        ErrorCode mprotect_ret = boundary->release_protect();
+        if (mprotect_ret != kErrorCodeOk && !error_reported) {
+          LOG(ERROR) << get_debug_pool_name() << " - mprotect() failed: " << assorted::os_error();
+          error_reported = true;
+        }
+        boundary->assert_boundary();
+        ASSERT_ND(boundary->get_boundary_name() == std::to_string(index));
+      }
+      watch.stop();
+      LOG(INFO) << get_debug_pool_name() << " - released mprotect() " << free_pool_capacity_
+        << " pages in " << watch.elapsed_ms() << "ms";
+    }
+
     uint64_t free_count = get_free_pool_count();
     if (free_count != free_pool_capacity_) {
       // This is not a memory leak as we anyway releases everything, but it's a smell of bug.
@@ -127,7 +192,10 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
   ASSERT_ND(chunk->size() + desired_grab_count <= chunk->capacity());
   VLOG(0) << get_debug_pool_name() << " - Grabbing " << desired_grab_count << " pages."
     << " free_pool_count_=" << get_free_pool_count()
-    << "->" << (get_free_pool_count() - desired_grab_count);
+    << "->"
+    << (get_free_pool_count() >= desired_grab_count
+      ? get_free_pool_count() - desired_grab_count
+      : 0);
   soc::SharedMutexScope guard(&control_block_->lock_);
   uint64_t free_count = get_free_pool_count();
   if (UNLIKELY(free_count == 0)) {
@@ -136,6 +204,7 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
   }
 
   // grab from the head
+  assert_free_pool();
   uint64_t grab_count = std::min<uint64_t>(desired_grab_count, free_count);
   PagePoolOffset* head = free_pool_ + free_pool_head();
   if (free_pool_head() + grab_count > free_pool_capacity_) {
@@ -149,10 +218,12 @@ ErrorCode PagePoolPimpl::grab(uint32_t desired_grab_count, PagePoolOffsetChunk* 
   }
 
   // no wrap around (or no more wrap around)
+  assert_free_pool();
   ASSERT_ND(free_pool_head() + grab_count <= free_pool_capacity_);
   chunk->push_back(head, head + grab_count);
   free_pool_head() += grab_count;
   decrease_free_pool_count(grab_count);
+  assert_free_pool();
   return kErrorCodeOk;
 }
 
@@ -207,6 +278,7 @@ void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
   }
 
   // append to the tail
+  assert_free_pool();
   uint64_t release_count = std::min<uint64_t>(desired_release_count, chunk->size());
   uint64_t tail = free_pool_head() + free_count;
   if (tail >= free_pool_capacity_) {
@@ -225,6 +297,7 @@ void PagePoolPimpl::release_impl(uint32_t desired_release_count, CHUNK* chunk) {
   ASSERT_ND(tail + release_count <= free_pool_capacity_);
   chunk->move_to(free_pool_ + tail, release_count);
   increase_free_pool_count(release_count);
+  assert_free_pool();
 }
 void PagePoolPimpl::release(uint32_t desired_release_count, PagePoolOffsetChunk* chunk) {
   release_impl<PagePoolOffsetChunk>(desired_release_count, chunk);
@@ -273,6 +346,8 @@ std::ostream& operator<<(std::ostream& o, const PagePoolPimpl& v) {
     << "<memory_>" << v.memory_ << "</memory_>"
     << "<memory_size>" << v.memory_size_ << "</memory_size>"
     << "<owns_>" << v.owns_ << "</owns_>"
+    << "<rigorous_page_boundary_check_>"
+      << v.rigorous_page_boundary_check_ << "</rigorous_page_boundary_check_>"
     << "<pages_for_free_pool_>" << v.pages_for_free_pool_ << "</pages_for_free_pool_>"
     << "<free_pool_capacity_>" << v.free_pool_capacity_ << "</free_pool_capacity_>"
     << "<free_pool_head_>" << v.free_pool_head() << "</free_pool_head_>"

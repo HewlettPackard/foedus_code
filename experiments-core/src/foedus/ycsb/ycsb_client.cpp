@@ -142,6 +142,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           COERCE_ERROR_CODE(ret);
 #else
           auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
+          increment_total_scans();
           ret = do_scan(build_key(high, low), nrecs);
 #endif
         }
@@ -247,6 +248,7 @@ ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
     const YcsbRecord *pr = reinterpret_cast<const YcsbRecord *>(cursor.get_payload());
     YcsbRecord r;
     memcpy(&r, pr, sizeof(r));
+    increment_total_scan_length();
     cursor.next();
   }
   Epoch commit_epoch;

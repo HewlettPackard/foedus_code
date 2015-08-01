@@ -50,7 +50,7 @@ std::string base_path() {
 TEST(SharedMutexTest, SharedMemoryAlone) {
   memory::SharedMemory memory;
   std::string meta_path = base_path() + std::string("_SharedMemoryAlone");
-  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0));
+  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0, true));
   memory.mark_for_release();
   EXPECT_NE(nullptr, memory.get_block());
   void* block = memory.get_block();
@@ -69,7 +69,7 @@ TEST(SharedMutexTest, SharedMemoryAlone) {
 TEST(SharedMutexTest, SharedMemoryFork) {
   memory::SharedMemory memory;
   std::string meta_path = base_path() + std::string("_SharedMemoryFork");
-  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0));
+  COERCE_ERROR(memory.alloc(meta_path, 1ULL << 21, 0, true));
   EXPECT_NE(nullptr, memory.get_block());
   char* block = reinterpret_cast<char*>(memory.get_block());
 
@@ -88,7 +88,7 @@ TEST(SharedMutexTest, SharedMemoryFork) {
   } else if (pid == 0) {
     // child
     memory::SharedMemory memory_child;
-    memory_child.attach(meta_path);
+    memory_child.attach(meta_path, true);
     char* child_block = reinterpret_cast<char*>(memory_child.get_block());
     SharedMutex *child_mtx = reinterpret_cast<SharedMutex*>(child_block);
     int *child_total = reinterpret_cast<int*>(child_block + sizeof(SharedMutex));
