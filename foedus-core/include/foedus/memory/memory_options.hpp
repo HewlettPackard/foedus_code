@@ -93,6 +93,9 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * @attention To use this feature with large page pool sizes, you must increase max_map_count.
    *   sudo sysctl -w vm.max_map_count=2147483647
    * Otherwise you will get out-of-memory crashes. Linux's default value is only 65530.
+   * @note When FOEDUS is running on a valgrind process, you shouldn't turn this on because
+   * valgrind uses a hard-coded limit VG_N_SEGMENTS rather than vm.max_map_count.
+   * However, if you are sure the number of mprotect-ed pages are less than 64k, you can.
    * @see foedus::assorted::ProtectedBoundary
    */
   bool        rigorous_page_boundary_check_;
