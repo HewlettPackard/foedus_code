@@ -18,6 +18,7 @@
 #include "foedus/engine_options.hpp"
 
 #include <tinyxml2.h>
+#include <valgrind.h>
 #include <sys/resource.h>
 
 #include <algorithm>
@@ -130,6 +131,14 @@ ErrorStack EngineOptions::prescreen(std::ostream* details_out) const {
   // we don't stop prescreening on individual errors so that
   // the user can see all issues at once.
   bool has_any_error = false;
+
+  if (RUNNING_ON_VALGRIND && memory_.rigorous_page_boundary_check_) {
+    out_buffer
+      << "[FOEDUS] WARNING. We strongly discourage rigorous_page_boundary_check_ on valgrind."
+      << " If you are sure what you are doing, consider increasing VG_N_SEGMENTS and recompile"
+      << " valgrind."
+      << std::endl;
+  }
 
   // Check available hugepages
   uint64_t available_hugepage_bytes = get_available_hugepage_memory(&out_buffer);
