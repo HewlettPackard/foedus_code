@@ -113,6 +113,7 @@ ErrorStack insert_many_normalized_task(const proc::ProcArguments& args) {
 TEST(MasstreeRandomTest, InsertManyNormalized) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   Engine engine(options);
   engine.get_proc_manager()->pre_register(
     "insert_many_normalized_task",
@@ -204,6 +205,7 @@ ErrorStack insert_many_normalized_verify_task(const proc::ProcArguments& args) {
 TEST(MasstreeRandomTest, InsertManyNormalizedMt) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   const uint32_t kThreads = 4;
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
@@ -326,6 +328,7 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
 TEST(MasstreeRandomTest, InsertMany) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 64;
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_many_task", insert_many_task);
   COERCE_ERROR(engine.initialize());

@@ -44,6 +44,14 @@ const uint64_t kProtectedBoundaryMagicWord = 0x42a6292680d7ce36ULL;
  * memory regions.
  * In addition, we also use mprotect() to prohibit accesses to these dummy blocks, which
  * would immediately fire up SIGSEGV for bogus access, making debugging easier.
+ *
+ * @par mprotect() limit: max_map_count
+ * mprotect() has one limitation: it could use up \e max_map_count.
+ * What you might observe is after around 64k mprotect() calls, it starts
+ * failing with ENOMEM. Moreover, all following memory allocations (eg mmap) also fail with
+ * ENOMEM once this starts happening.
+ * The issue goes away by increasing \e max_map_count :
+ * sudo sysctl -w vm.max_map_count=2147483647
  */
 struct ProtectedBoundary {
   enum Constants {

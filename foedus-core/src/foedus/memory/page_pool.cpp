@@ -102,8 +102,9 @@ void PagePool::attach(
   PagePoolControlBlock* control_block,
   void* memory,
   uint64_t memory_size,
-  bool owns) {
-  pimpl_->attach(control_block, memory, memory_size, owns);
+  bool owns,
+  bool rigorous_page_boundary_check) {
+  pimpl_->attach(control_block, memory, memory_size, owns, rigorous_page_boundary_check);
 }
 PagePool::~PagePool() {
   delete pimpl_;
@@ -116,11 +117,12 @@ ErrorStack  PagePool::uninitialize() { return pimpl_->uninitialize(); }
 uint64_t    PagePool::get_memory_size() const { return pimpl_->memory_size_; }
 PagePool::Stat PagePool::get_stat() const { return pimpl_->get_stat(); }
 storage::Page* PagePool::get_base() const { return pimpl_->pool_base_; }
+uint64_t    PagePool::get_free_pool_capacity() const { return pimpl_->get_free_pool_capacity(); }
 std::string PagePool::get_debug_pool_name() const { return pimpl_->get_debug_pool_name(); }
 void PagePool::set_debug_pool_name(const std::string& name) { pimpl_->set_debug_pool_name(name); }
 
 uint32_t PagePool::get_recommended_pages_per_grab() const {
-  return std::min<uint32_t>(1U << 12, pimpl_->pool_size_ / 8U);
+  return std::min<uint32_t>(1U << 12, pimpl_->free_pool_capacity_ / 8U);
 }
 
 
