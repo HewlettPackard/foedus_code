@@ -81,7 +81,7 @@ DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
 
 // YCSB-specific options
-DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E.");
+DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E/F.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
@@ -98,15 +98,16 @@ DEFINE_bool(ordered_inserts, false, "Whether to make the keys ordered, i.e., don
 // This is not in the spec; it makes masstree perform better.
 DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
 
-YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0);     // Workload A - 50% read, 50% update
-YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0);     // Workload B - 95% read, 5% update
-YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0);     // Workload C - 100% read
-YcsbWorkload YcsbWorkloadD('D', 5,  100U, 0,    0);     // Workload D - 95% read, 5% insert
-YcsbWorkload YcsbWorkloadE('E', 5U, 0,    0,    100U);  // Workload E - 5% insert, 95% scan
+YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0,    0);     // Workload A - 50% read, 50% update
+YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0,    0);     // Workload B - 95% read, 5% update
+YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0,    0);     // Workload C - 100% read
+YcsbWorkload YcsbWorkloadD('D', 5U, 100U, 0,    0,    0);     // Workload D - 95% read, 5% insert
+YcsbWorkload YcsbWorkloadE('E', 5U, 0,    0,    100U, 0);     // Workload E - 5% insert, 95% scan
+YcsbWorkload YcsbWorkloadF('F', 0,  0,    0,    0,    100U);  // Workload F - 100% RMW
 
 // Extra workloads (not in spec)
-YcsbWorkload YcsbWorkloadF('F', 0,  0,    5U,   100U);  // Workload F - 5% update, 95% scan
-YcsbWorkload YcsbWorkloadG('G', 0,  0,    0,    100U);  // Workload G - 100% scan
+YcsbWorkload YcsbWorkloadG('G', 0,  0,    5U,   100U, 0);     // Workload G - 5% update, 95% scan
+YcsbWorkload YcsbWorkloadH('H', 0,  0,    0,    100U, 0);     // Workload H - 100% scan
 
 int64_t max_scan_length() {
   return FLAGS_max_scan_length;
@@ -299,6 +300,8 @@ ErrorStack YcsbDriver::run() {
     workload = YcsbWorkloadF;
   } else if (FLAGS_workload == "G") {
     workload = YcsbWorkloadG;
+  } else if (FLAGS_workload == "H") {
+    workload = YcsbWorkloadH;
   } else {
     COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
@@ -308,7 +311,8 @@ ErrorStack YcsbDriver::run() {
     << " insert: " << workload.insert_percent() << "%"
     << " read: " << workload.read_percent() << "%"
     << " update: " << workload.update_percent() << "%"
-    << " scan: " << workload.scan_percent() << "%";
+    << " scan: " << workload.scan_percent() << "%"
+    << " rmw: " << workload.rmw_percent();
 
   // Create an empty table
   Epoch ep;
@@ -520,7 +524,7 @@ ErrorStack YcsbDriver::run() {
 std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
   double avg_scan_length = 0;
   if (v.total_scans_ > 0) {
-    avg_scan_length = v.total_scan_length_ / (double)v.total_scans_;
+    avg_scan_length = v.total_scan_length_ / static_cast<double>(v.total_scans_);
   }
   o << "<total_result>"
     << "<duration_sec_>" << v.duration_sec_ << "</duration_sec_>"
@@ -543,7 +547,7 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
 std::ostream& operator<<(std::ostream& o, const YcsbDriver::WorkerResult& v) {
   double avg_scan_length = 0;
   if (v.total_scans_ > 0) {
-    avg_scan_length = v.total_scan_length_ / (double)v.total_scans_;
+    avg_scan_length = v.total_scan_length_ / static_cast<double>(v.total_scans_);
   }
   o << "  <worker_><id>" << v.id_ << "</id>"
     << "<txn>" << v.processed_ << "</txn>"
