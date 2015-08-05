@@ -581,6 +581,23 @@ BorderSplitStrategy MasstreeBorderPage::split_foster_decide_strategy(
       }
     }
 
+    // Already sorted? (seems consecutive_inserts_ has some false positives)
+    if (!first_tide_broken) {
+      if (!disable_no_record_split && trigger > ret.largest_slice_) {
+        ret.no_record_split_ = true;
+        DVLOG(1) << "Obviously no record split. key_count=" << static_cast<int>(key_count);
+        ret.mid_slice_ = ret.largest_slice_ + 1;
+      } else {
+        if (disable_no_record_split && trigger > ret.largest_slice_) {
+          DVLOG(1) << "No-record split was possible, but disable_no_record_split specified."
+            << " simply splitting in half...";
+        }
+        DVLOG(1) << "Breaks a sequential page. key_count=" << static_cast<int>(key_count);
+        ret.mid_slice_ = get_slice(key_count / 2);
+      }
+      return ret;
+    }
+
     ASSERT_ND(first_tide_broken);
     if (!both_tides_broken) {
       DVLOG(0) << "Yay, figured out two-tides meeting in a page.";
