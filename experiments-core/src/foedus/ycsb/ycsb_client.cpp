@@ -136,7 +136,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           ret = do_read(build_key(high, low));
         } else if (xct_type <= workload_.update_percent_) {
           ret = do_update(build_key(high, low));
-        } else {
+        } else if (xct_type <= workload_.scan_percent_) {
 #ifdef YCSB_HASH_STORAGE
           ret = kErrorCodeInvalidParameter;
           COERCE_ERROR_CODE(ret);
@@ -145,6 +145,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           increment_total_scans();
           ret = do_scan(build_key(high, low), nrecs);
 #endif
+        } else {  // read-modify-write
+          ret = do_rmw(build_key(high, low));
         }
       }
 
@@ -225,6 +227,43 @@ ErrorCode YcsbClientTask::do_update(const YcsbKey& key) {
     uint32_t offset = field * kFieldLength;
     char f[kFieldLength];
     YcsbRecord::initialize_field(f);
+    CHECK_ERROR_CODE(
+      user_table_.overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
+  }
+  Epoch commit_epoch;
+  return xct_manager_->precommit_xct(context_, &commit_epoch);
+}
+
+ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
+  YcsbRecord r;
+
+  // Read
+  if (read_all_fields_) {
+#ifdef YCSB_HASH_STORAGE
+    uint16_t payload_len = sizeof(YcsbRecord);
+#else
+    foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
+#endif
+    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
+  } else {
+    // Randomly pick one field to read
+    uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
+    uint32_t offset = field * kFieldLength;
+    CHECK_ERROR_CODE(user_table_.get_record_part(context_,
+      key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
+  }
+
+  // Modify-Write
+  if (write_all_fields_) {
+    r = YcsbRecord('w');
+    CHECK_ERROR_CODE(
+      user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
+  } else {
+    // Randomly pick one filed to update
+    uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
+    uint32_t offset = field * kFieldLength;
+    char* f = r.get_field(field);
+    YcsbRecord::initialize_field(f);  // modify the field
     CHECK_ERROR_CODE(
       user_table_.overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
   }
