@@ -42,7 +42,7 @@ How to Contribute
 --------
 You can help us in different ways:
 
-1. Reporting [issues](https://github.com/hkimura/foedus_code/issues).
+1. Reporting [issues](https://github.com/hkimura/foedus_code/issues) [^1].
 2. Contributing code and sending a [Pull Request](https://github.com/hkimura/foedus_code/pulls).
 
 In order to contribute the code base of this project, you must agree to the Developer Certificate
@@ -72,6 +72,8 @@ To indicate acceptance of the DCO you need to add a `Signed-off-by` line to ever
 To automatically add that line use the `-s` switch when running `git commit`:
 
     $ git commit -s
+
+[^1] **Before reporting a bug, please make sure you have passed "ctest -R test_check_env"**.
 
 Folder Structure (For Everyone)
 --------
@@ -185,6 +187,10 @@ or
     ctest -j4
     # Pick a test parallelization level according to your machine power. Remember some tests
     # run many threads in them. 4 should be a good number.
+
+If you want to particularly check environment setup, run the following:
+
+    ctest -R test_check_env
 
 In order to skip valgrind versions of the tests (because it takes *long* time!),
 
