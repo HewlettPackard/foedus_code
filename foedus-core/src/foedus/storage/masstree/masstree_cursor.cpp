@@ -289,14 +289,20 @@ void MasstreeCursor::proceed_route_intermediate_rebase_separator() {
   }
 
   const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(route->index_);
-  route->key_count_mini_ = minipage.key_count_;
-  DVLOG(0) << "checking second level... count=" << route->key_count_mini_;
-  for (route->index_mini_ = 0; route->index_mini_ < route->key_count_mini_; ++route->index_mini_) {
-    ASSERT_ND(last >= minipage.separators_[route->index_mini_]);
-    if (last == minipage.separators_[route->index_mini_]) {
-      break;
+  do {
+    route->key_count_mini_ = minipage.key_count_;
+    DVLOG(0) << "checking second level... count=" << route->key_count_mini_;
+    for (route->index_mini_ = 0;
+         route->index_mini_ < route->key_count_mini_;
+         ++route->index_mini_) {
+      ASSERT_ND(last >= minipage.separators_[route->index_mini_]);
+      if (last == minipage.separators_[route->index_mini_]) {
+        break;
+      }
     }
-  }
+    ASSERT_ND(route->index_mini_ <= route->key_count_mini_);
+  } while (route->key_count_mini_ != minipage.key_count_ ||
+           route->index_mini_ == route->key_count_mini_);
   DVLOG(0) << "checked second level... index_mini=" << route->index_mini_;
   ASSERT_ND(route->index_mini_ < route->key_count_mini_);
   if (forward_cursor_) {
@@ -1109,10 +1115,13 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     if (UNLIKELY(route->stable_ != border->get_version().status_)) {
       PageVersionStatus new_stable = border->get_version().status_;
       if (new_stable.is_moved()) {
+        ASSERT_ND(!route->stable_.is_moved());
+        ASSERT_ND(route->moved_page_search_status_ == Route::kNotMovedPage);
         // this page has split. it IS fine thanks to Master-Tree invariant.
         // go deeper to one of foster child
+        // the previous follow_foster didn't know about this split (route not pushed)
         route->stable_ = new_stable;
-        route->moved_page_search_status_ = Route::kMovedPageSearchedOne;
+        route->moved_page_search_status_ = Route::kMovedPageSearchedNeither;
         continue;
       } else {
         // this means something has been inserted to this page.

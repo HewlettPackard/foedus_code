@@ -116,6 +116,7 @@ struct YcsbRecord {
   char data_[kFields * kFieldLength];
   explicit YcsbRecord(char value);
   YcsbRecord() {}
+  char* get_field(uint32_t f) { return data_ + f * kFieldLength; }
   static void initialize_field(char *field);
 };
 
@@ -157,12 +158,14 @@ struct YcsbWorkload {
     int16_t insert_percent,
     int16_t read_percent,
     int16_t update_percent,
-    int16_t scan_percent)
+    int16_t scan_percent,
+    int16_t rmw_percent)
     : desc_(desc),
       insert_percent_(insert_percent),
       read_percent_(read_percent),
       update_percent_(update_percent),
-      scan_percent_(scan_percent) {}
+      scan_percent_(scan_percent),
+      rmw_percent_(rmw_percent) {}
 
   YcsbWorkload() {}
   int16_t insert_percent() const { return insert_percent_; }
@@ -175,14 +178,18 @@ struct YcsbWorkload {
   int16_t scan_percent() const {
     return scan_percent_ == 0 ? 0 : scan_percent_ - update_percent_;
   }
+  int16_t rmw_percent() const {
+    return rmw_percent_ == 0 ? 0 : rmw_percent_ - scan_percent_;
+  }
 
   char desc_;
-  // Cumulative percentage of i/r/u/s. From insert...scan the percentages
+  // Cumulative percentage of i/r/u/s/rmw. From insert...rmw the percentages
   // accumulates, e.g., i=5, r=12 => we'll have 12-5=7% of reads in total.
   int16_t insert_percent_;
   int16_t read_percent_;
   int16_t update_percent_;
   int16_t scan_percent_;
+  int16_t rmw_percent_;
 };
 
 class YcsbLoadTask {
@@ -299,6 +306,7 @@ class YcsbClientTask {
   ErrorCode do_read(const YcsbKey& key);
   ErrorCode do_update(const YcsbKey& key);
   ErrorCode do_insert(const YcsbKey& key);
+  ErrorCode do_rmw(const YcsbKey& key);
 #ifndef YCSB_HASH_STORAGE
   ErrorCode do_scan(const YcsbKey& start_key, uint64_t nrecs);
 #endif
