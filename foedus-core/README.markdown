@@ -176,7 +176,7 @@ Unfortunately, this is one of the nastiest configuration in linux.
     cd build
     ctest -R test_check_env -j4
 
-If any of the tests fails, read the following.
+If any of the tests fails, there is still something you missed.
 The above testcases only check minimal reasonable values. Depending on your data size,
 you might need way larger values.
 
