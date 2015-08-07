@@ -172,6 +172,8 @@ Unfortunately, this is one of the nastiest configuration in linux.
 
 * How to quickly check whether your environment is correctly setup.
 
+**NOTE: ALWAYS PASS THIS STEP BEFORE MOVING ON**
+
     # Assume you are in foedus_code, and you have already compiled FOEDUS.
     cd build
     ctest -R test_check_env -j4
@@ -213,7 +215,7 @@ Get Started
 -----------
 Here is a minimal example program to create a key-value storage and query on it.
 **NOTE: Complete Environment Setup Beforehand!**
-Did you pass "ctest -R test_check_env"?
+**Did you pass "ctest -R test_check_env"?**
 
     #include <iostream>
 
