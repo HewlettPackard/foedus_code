@@ -21,8 +21,8 @@
 #include <iostream>
 
 #include "foedus/assert_nd.hpp"
-#include "foedus/test_common.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/test_common.hpp"
 
 namespace foedus {
 DEFINE_TEST_CASE_PACKAGE(CheckEnvTest, foedus);
