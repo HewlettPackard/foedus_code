@@ -268,8 +268,8 @@ Here is a minimal example program to create a key-value storage and query on it.
 
 API Documents
 -----------
-For more details, start from <a href="modules.html">Module List</a> and
-<a href="namespaces.html">Namespace List</a>.
+For more details, start from
+[API document](http://foedus-build.hpl.hp.com:8080/job/foedus-master-doxygen/doxygen/).
 
 Dependencies
 -----------
