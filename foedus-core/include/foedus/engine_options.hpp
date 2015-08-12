@@ -118,6 +118,20 @@ struct EngineOptions CXX11_FINAL : public virtual externalize::Externalizable {
     bool* has_any_error,
     std::ostream* details_out) const;
 
+  /**
+   * A utility method to read /proc/ value in linux.
+   * @param[in] path file path representing a config value, eg "/proc/sys/kernel/shmall"
+   * @param[out] details_out if there is any concern, we output some message to this stream.
+   * @returns an integer value stored in /proc/...
+   */
+  static uint64_t read_int_from_proc_fs(const char* path, std::ostream* details_out);
+  /**
+   * A utility method to check how much hugepage memory is currently available.
+   * @param[out] details_out if there is any concern, we output some message to this stream.
+   * @returns byte size of available memory backed by non-transparent hugepages.
+   */
+  static uint64_t get_available_hugepage_memory(std::ostream* details_out);
+
   // options for each module
   cache::CacheOptions         cache_;
   debugging::DebuggingOptions debugging_;
