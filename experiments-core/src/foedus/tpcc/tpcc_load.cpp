@@ -316,7 +316,9 @@ ErrorStack TpccFinishupTask::run(thread::Thread* context) {
               LOG(FATAL) << "Payload Length wrong: customers_secondary_: wid=" << wid << ", did="
                 << static_cast<int>(did) << ", c=" << c;
             }
-            const char* key = cursor.get_key();
+
+            char key[CustomerSecondaryKey::kKeyLength];
+            cursor.copy_combined_key(key);
             Wid wid2 = assorted::read_bigendian<Wid>(key);
             if (wid != wid2) {
               LOG(FATAL) << "Wid mismatch: customers_secondary_: wid=" << wid << ", did="

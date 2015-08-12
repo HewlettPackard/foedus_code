@@ -38,6 +38,7 @@ class   SequentialStorage;
 struct  SequentialStorageControlBlock;
 class   SequentialStorageFactory;
 class   SequentialStoragePimpl;
+struct  SequentialTruncateLogType;
 }  // namespace sequential
 }  // namespace storage
 }  // namespace foedus

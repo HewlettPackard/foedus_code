@@ -90,6 +90,8 @@ class PagePoolOffsetDynamicChunk {
 
   void                    move_to(PagePoolOffset* destination, uint32_t count);
 
+  uint32_t                unused_dummy_func_padding() const { return padding_; }
+
  private:
   uint32_t              size_;
   const uint32_t        padding_;
@@ -152,6 +154,8 @@ class PagePoolOffsetAndEpochChunk {
    */
   uint32_t                get_safe_offset_count(const Epoch& threshold) const;
 
+  uint32_t                unused_dummy_func_dummy() const { return dummy_; }
+
  private:
   uint32_t        size_;
   uint32_t        dummy_;
@@ -175,7 +179,12 @@ class PagePool CXX11_FINAL : public virtual Initializable {
 
   PagePool();
   ~PagePool();
-  void attach(PagePoolControlBlock* control_block, void* memory, uint64_t memory_size, bool owns);
+  void attach(
+    PagePoolControlBlock* control_block,
+    void* memory,
+    uint64_t memory_size,
+    bool owns,
+    bool rigorous_page_boundary_check);
 
   // Disable default constructors
   PagePool(const PagePool&) CXX11_FUNC_DELETE;
@@ -186,6 +195,8 @@ class PagePool CXX11_FINAL : public virtual Initializable {
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
   storage::Page*        get_base() const;
+  /** @return Number of all addressible data pages in this pool. */
+  uint64_t              get_free_pool_capacity() const;
   uint64_t              get_memory_size() const;
   /**
    * @returns recommended number of pages to grab at once.

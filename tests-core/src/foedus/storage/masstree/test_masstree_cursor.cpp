@@ -110,7 +110,7 @@ ErrorStack one_page_task(const proc::ProcArguments& args) {
   EXPECT_TRUE(cursor.is_valid_record());
   int count = 0;
   while (cursor.is_valid_record()) {
-    std::string key(cursor.get_key(), cursor.get_key_length());
+    std::string key = cursor.get_combined_key();
     std::string datum(cursor.get_payload(), cursor.get_payload_length());
     const auto& it = answers.find(key);
     EXPECT_NE(it, answers.end()) << count;

@@ -169,6 +169,7 @@ class NumaNodeMemoryRef CXX11_FINAL {
   NumaNodeMemoryRef() CXX11_FUNC_DELETE;
   NumaNodeMemoryRef(Engine* engine, foedus::thread::ThreadGroupId numa_node);
 
+  Engine*                         get_engine() { return engine_; }
   foedus::thread::ThreadGroupId   get_numa_node() const { return numa_node_; }
 
   PagePool*                       get_volatile_pool() { return &volatile_pool_; }

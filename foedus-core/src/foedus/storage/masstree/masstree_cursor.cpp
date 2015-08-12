@@ -54,10 +54,14 @@ MasstreeCursor::MasstreeCursor(MasstreeStorage storage, thread::Thread* context)
   end_inclusive_ = false;
   end_key_length_ = 0;
   end_key_ = nullptr;
+  end_key_slices_ = nullptr;
+
+  cur_route_prefix_slices_ = nullptr;
+  cur_route_prefix_be_ = nullptr;
 
   cur_key_length_ = 0;
-  cur_key_ = nullptr;
   cur_key_owner_id_address = nullptr;
+  cur_key_suffix_ = nullptr;
   cur_key_in_layer_slice_ = 0;
   cur_key_in_layer_remainder_ = 0;
   cur_key_next_layer_ = false;
@@ -67,6 +71,74 @@ MasstreeCursor::MasstreeCursor(MasstreeStorage storage, thread::Thread* context)
 
   search_key_length_ = 0;
   search_key_ = nullptr;
+  search_key_slices_ = nullptr;
+}
+
+void MasstreeCursor::copy_combined_key(char* buffer) const {
+  ASSERT_ND(is_valid_record());
+  const Route* route = cur_route();
+  const Layer layer = route->layer_;
+  ASSERT_ND(layer == route->page_->get_layer());
+  ASSERT_ND(cur_key_in_layer_remainder_ != kInitiallyNextLayer);
+  ASSERT_ND(cur_key_length_ == cur_key_in_layer_remainder_ + layer * sizeof(KeySlice));
+
+  std::memcpy(buffer, ASSUME_ALIGNED(cur_route_prefix_be_, 256), layer * sizeof(KeySlice));
+  assorted::write_bigendian<KeySlice>(cur_key_in_layer_slice_, buffer + layer * sizeof(KeySlice));
+  KeyLength suffix_length = calculate_suffix_length(cur_key_in_layer_remainder_);
+  if (suffix_length > 0) {
+    std::memcpy(
+      buffer + (layer + 1U) * sizeof(KeySlice),
+      ASSUME_ALIGNED(cur_key_suffix_, 8),
+      suffix_length);
+  }
+}
+void MasstreeCursor::copy_combined_key_part(KeyLength offset, KeyLength len, char* buffer) const {
+  ASSERT_ND(is_valid_record());
+  ASSERT_ND(offset + len <= cur_key_length_);
+  const Route* route = cur_route();
+  const Layer layer = route->layer_;
+  ASSERT_ND(layer == route->page_->get_layer());
+  ASSERT_ND(cur_key_in_layer_remainder_ != kInitiallyNextLayer);
+  ASSERT_ND(cur_key_length_ == cur_key_in_layer_remainder_ + layer * sizeof(KeySlice));
+
+  const KeyLength prefix_len = layer * sizeof(KeySlice);
+  KeyLength buffer_pos = 0;
+  KeyLength len_remaining = len;
+  if (offset < prefix_len) {
+    KeyLength prefix_copy_len = std::min<KeyLength>(prefix_len - offset, len_remaining);
+    std::memcpy(buffer, cur_route_prefix_be_ + offset, prefix_copy_len);
+    buffer_pos += prefix_copy_len;
+    len_remaining -= prefix_copy_len;
+  }
+
+  if (len_remaining > 0) {
+    if (offset < prefix_len + sizeof(KeySlice)) {
+      char cur_slice_be[sizeof(KeySlice)];
+      assorted::write_bigendian<KeySlice>(cur_key_in_layer_slice_, cur_slice_be);
+
+      KeyLength cur_slice_offset = offset - prefix_len;
+      KeyLength cur_slice_copy_len
+        = std::min<KeyLength>(sizeof(KeySlice) - cur_slice_offset, len_remaining);
+      std::memcpy(buffer + buffer_pos, cur_slice_be + cur_slice_offset, cur_slice_copy_len);
+      buffer_pos += cur_slice_copy_len;
+      len_remaining -= cur_slice_copy_len;
+    }
+
+    if (len_remaining > 0) {
+      KeyLength suffix_offset = offset - prefix_len - sizeof(KeySlice);
+      KeyLength suffix_length = calculate_suffix_length(cur_key_in_layer_remainder_);
+      KeyLength suffix_copy_len = std::min<KeyLength>(suffix_length - suffix_offset, len_remaining);
+      std::memcpy(
+        buffer + buffer_pos,
+        cur_key_suffix_ + suffix_offset,
+        suffix_copy_len);
+      buffer_pos += suffix_copy_len;
+      len_remaining -= suffix_copy_len;
+    }
+  }
+
+  ASSERT_ND(buffer_pos == len);
+  ASSERT_ND(len_remaining == 0);
 }
 
 template <typename T>
@@ -77,7 +149,7 @@ inline ErrorCode MasstreeCursor::allocate_if_not_exist(T** pointer) {
 
   ASSERT_ND(*pointer == nullptr);
   void* out;
-  CHECK_ERROR_CODE(context_->get_current_xct().acquire_local_work_memory(
+  CHECK_ERROR_CODE(current_xct_->acquire_local_work_memory(
     1U << 12,
     &out,
     1U << 12));
@@ -107,7 +179,7 @@ ErrorCode MasstreeCursor::next() {
   while (true) {
     CHECK_ERROR_CODE(proceed_route());
     if (UNLIKELY(should_skip_cur_route_)) {
-      LOG(INFO) << "Rage. Skipping empty page";
+      LOG(INFO) << "Rare. Skipping empty page";
       CHECK_ERROR_CODE(proceed_pop());
       continue;
     }
@@ -338,10 +410,12 @@ inline ErrorCode MasstreeCursor::proceed_next_layer() {
   Route* route = cur_route();
   ASSERT_ND(route->page_->is_border());
   MasstreeBorderPage* page = reinterpret_cast<MasstreeBorderPage*>(route->page_);
+  Layer layer = page->get_layer();
   KeySlice record_slice = page->get_slice(route->get_cur_original_index());
+  cur_route_prefix_slices_[layer] = record_slice;
   assorted::write_bigendian<KeySlice>(
     record_slice,
-    cur_key_ + (page->get_layer() * sizeof(KeySlice)));
+    cur_route_prefix_be_ + (layer * sizeof(KeySlice)));
   DualPagePointer* pointer = page->get_next_layer(route->get_cur_original_index());
   MasstreePage* next;
   CHECK_ERROR_CODE(
@@ -451,18 +525,16 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, SlotIndex record
   KeyLength remainder = page->get_remainder_length(record);
   cur_key_in_layer_remainder_ = remainder;
   cur_key_in_layer_slice_ = page->get_slice(record);
-  uint8_t layer = page->get_layer();
+  Layer layer = page->get_layer();
   cur_key_length_ = layer * sizeof(KeySlice) + remainder;
-  char* layer_key = cur_key_ + layer * sizeof(KeySlice);
-  assorted::write_bigendian<KeySlice>(cur_key_in_layer_slice_, layer_key);
-  ASSERT_ND(assorted::read_bigendian<KeySlice>(layer_key) == cur_key_in_layer_slice_);
   if (!is_cur_key_next_layer()) {
-    KeyLength suffix_len = page->get_suffix_length(record);
-    if (suffix_len > 0) {
-      std::memcpy(cur_key_ + (layer + 1) * sizeof(KeySlice), page->get_record(record), suffix_len);
-    }
+    cur_key_suffix_ = page->get_record(record);
     cur_payload_length_ = page->get_payload_length(record);
     cur_payload_ = page->get_record_payload(record);
+  } else {
+    cur_key_suffix_ = nullptr;
+    cur_payload_length_ = 0;
+    cur_payload_ = nullptr;
   }
 }
 
@@ -525,6 +597,7 @@ inline ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
     route.index_mini_ = kMaxRecords;  // must be set shortly after this method
     should_skip_cur_route_ = false;
     route.snapshot_ = page->header().snapshot_;
+    route.layer_ = page->get_layer();
     if (page->is_border() && !route.stable_.is_moved()) {
       route.setup_order();
       assorted::memory_fence_consume();
@@ -659,6 +732,18 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_s
       return kCurKeySmaller;
     }
   }
+
+#ifndef NDEBUG
+  // The fact that we are in this page means the page or its descendants can contain search key.
+  // Let's check.
+  for (Layer i = 0; i < layer && sizeof(KeySlice) * i < search_key_length_; ++i) {
+    if (is_forward_cursor()) {
+      ASSERT_ND(search_key_slices_[i] <= cur_route_prefix_slices_[i]);
+    } else {
+      ASSERT_ND(search_key_slices_[i] >= cur_route_prefix_slices_[i]);
+    }
+  }
+#endif  // NDEBUG
   return compare_cur_key(slice, layer, search_key_, search_key_length_);
 }
 
@@ -666,8 +751,65 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key_aginst_e
   if (is_end_key_supremum()) {
     return forward_cursor_ ? kCurKeySmaller : kCurKeyLarger;
   }
-  KeyLength min_length = std::min(cur_key_length_, end_key_length_);
-  int cmp = std::memcmp(cur_key_, end_key_, min_length);
+
+  ASSERT_ND(!is_cur_key_next_layer());
+  const Layer layer = cur_route()->layer_;
+
+  // TASK(Hideaki): We don't have to compare prefixes each time.
+  // We can remember whether the end_key is trivially satisfied in route.
+  // So far we compare each time... let's see what CPU profile says.
+  for (Layer i = 0; i < layer && sizeof(KeySlice) * i < end_key_length_; ++i) {
+    if (end_key_slices_[i] > cur_route_prefix_slices_[i]) {
+      return kCurKeySmaller;
+    } else if (end_key_slices_[i] < cur_route_prefix_slices_[i]) {
+      return kCurKeyLarger;
+    }
+  }
+  // Was the last slice a complete one?
+  // For example, end-key="123456", layer=1. end_key_slices_[0] was incomplete.
+  // We know cur_route_prefix_slices_[0] was "123456  " (space as \0). So it's actually different.
+  if (sizeof(KeySlice) * layer > end_key_length_) {
+    ASSERT_ND(cur_key_length_ > end_key_length_);
+    if (is_forward_cursor()) {
+      return kCurKeyLarger;
+    } else {
+      return kCurKeySmaller;
+    }
+  }
+
+  // okay, all prefix slices were exactly the same.
+  // We have to compare in-layer slice and suffix
+
+  // 1. in-layer slice.
+  KeySlice end_slice = end_key_slices_[layer];
+  if (cur_key_in_layer_slice_ < end_slice) {
+    return kCurKeySmaller;
+  } else if (cur_key_in_layer_slice_ > end_slice) {
+    return kCurKeyLarger;
+  }
+
+  KeyLength end_remainder = end_key_length_ - sizeof(KeySlice) * layer;
+  if (cur_key_in_layer_remainder_ <= sizeof(KeySlice) || end_remainder <= sizeof(KeySlice)) {
+    if (cur_key_in_layer_remainder_ == end_remainder) {
+      return kCurKeyEquals;
+    } else if (cur_key_in_layer_remainder_ >= end_remainder) {
+      return kCurKeyLarger;
+    } else {
+      return kCurKeySmaller;
+    }
+  }
+
+  // 2. suffix
+  ASSERT_ND(cur_key_in_layer_remainder_ > sizeof(KeySlice));
+  ASSERT_ND(end_remainder > sizeof(KeySlice));
+  KeyLength cur_suffix_len = cur_key_in_layer_remainder_ - sizeof(KeySlice);
+  KeyLength end_suffix_len = end_remainder - sizeof(KeySlice);
+  KeyLength min_suffix_len = std::min(cur_suffix_len, end_suffix_len);
+
+  int cmp = std::memcmp(
+    cur_key_suffix_,
+    end_key_ + (layer + 1U) * sizeof(KeySlice),
+    min_suffix_len);
   if (cmp < 0) {
     return kCurKeySmaller;
   } else if (cmp > 0) {
@@ -724,8 +866,8 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
       // we have to compare suffix. which suffix is longer?
       KeyLength min_length = std::min<KeyLength>(remainder, cur_key_in_layer_remainder_);
       int cmp = std::memcmp(
-        cur_key_ + layer * sizeof(KeySlice),
-        full_key + layer * sizeof(KeySlice),
+        cur_key_suffix_,
+        full_key + (layer + 1U) * sizeof(KeySlice),
         min_length - sizeof(KeySlice));
       if (cmp < 0) {
         return kCurKeySmaller;
@@ -750,6 +892,13 @@ inline MasstreeCursor::KeyCompareResult MasstreeCursor::compare_cur_key(
 //
 /////////////////////////////////////////////////////////////////////////////////////////
 
+void copy_input_key(const char* input_key, KeyLength length, char* buffer, KeySlice* slice_buffer) {
+  std::memcpy(ASSUME_ALIGNED(buffer, 256), input_key, length);
+  for (Layer i = 0; i * sizeof(KeySlice) < length; ++i) {
+    slice_buffer[i] = slice_key(input_key + i * sizeof(KeySlice), length - i * sizeof(KeySlice));
+  }
+}
+
 ErrorCode MasstreeCursor::open(
   const char* begin_key,
   KeyLength begin_key_length,
@@ -761,8 +910,11 @@ ErrorCode MasstreeCursor::open(
   bool end_inclusive) {
   CHECK_ERROR_CODE(allocate_if_not_exist(&routes_));
   CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_));
-  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_key_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&search_key_slices_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_route_prefix_slices_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&cur_route_prefix_be_));
   CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_));
+  CHECK_ERROR_CODE(allocate_if_not_exist(&end_key_slices_));
 
   if (!current_xct_->is_active()) {
     return kErrorCodeXctNoXct;
@@ -775,14 +927,14 @@ ErrorCode MasstreeCursor::open(
   end_key_length_ = end_key_length;
   route_count_ = 0;
   if (!is_end_key_supremum()) {
-    std::memcpy(end_key_, end_key, end_key_length);
+    copy_input_key(end_key, end_key_length, end_key_, end_key_slices_);
   }
 
   search_key_length_ = begin_key_length;
   search_type_ = forward_cursor ? (begin_inclusive ? kForwardInclusive : kForwardExclusive)
                   : (begin_inclusive ? kBackwardInclusive : kBackwardExclusive);
   if (!is_search_key_extremum()) {
-    std::memcpy(search_key_, begin_key, begin_key_length);
+    copy_input_key(begin_key, begin_key_length, search_key_, search_key_slices_);
   }
 
   MasstreeIntermediatePage* root;
@@ -823,7 +975,7 @@ inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
     slice = forward_cursor_ ? kInfimumSlice : kSupremumSlice;
     search_key_in_layer_extremum_ = true;
   } else if (search_key_length_ >= (layer + 1U) * sizeof(KeySlice)) {
-    slice = assorted::read_bigendian<KeySlice>(search_key_ + layer * sizeof(KeySlice));
+    slice = search_key_slices_[layer];
   } else {
     // if we don't have a full slice for this layer, cursor has to do a bit special thing.
     // remember that we might be doing backward search.
@@ -847,20 +999,24 @@ inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
   }
   ASSERT_ND(cur_route()->page_->is_border());
   CHECK_ERROR_CODE(locate_border(slice));
-  ASSERT_ND(!is_valid_record() ||
-    forward_cursor_ ||
-    assorted::read_bigendian<KeySlice>(cur_key_ + layer * sizeof(KeySlice)) <= slice);
-  ASSERT_ND(!is_valid_record() ||
-    !forward_cursor_ ||
-    assorted::read_bigendian<KeySlice>(cur_key_ + layer * sizeof(KeySlice)) >= slice);
-  ASSERT_ND(cur_route()->page_->get_layer() != layer ||
-    !is_valid_record() ||
-    !forward_cursor_ ||
-    cur_key_in_layer_slice_ >= slice);
-  ASSERT_ND(cur_route()->page_->get_layer() != layer ||
-    !is_valid_record() ||
-    forward_cursor_ ||
-    cur_key_in_layer_slice_ <= slice);
+
+#ifndef NDEBUG
+  if (is_valid_record()) {
+    KeySlice cur_key_slice_this_layer;
+    if (cur_route()->layer_ == layer) {
+      cur_key_slice_this_layer = cur_key_in_layer_slice_;
+    } else {
+      ASSERT_ND(cur_route()->layer_ > layer);
+      cur_key_slice_this_layer = cur_route_prefix_slices_[layer];
+    }
+    if (forward_cursor_) {
+      ASSERT_ND(cur_key_slice_this_layer >= slice);
+    } else {
+      ASSERT_ND(cur_key_slice_this_layer <= slice);
+    }
+  }
+#endif  // NDEBUG
+
   return kErrorCodeOk;
 }
 
@@ -986,16 +1142,18 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
 ErrorCode MasstreeCursor::locate_next_layer() {
   Route* route = cur_route();
   MasstreeBorderPage* border = reinterpret_cast<MasstreeBorderPage*>(route->page_);
+  Layer layer = border->get_layer();
   KeySlice record_slice = border->get_slice(route->get_cur_original_index());
+  cur_route_prefix_slices_[layer] = record_slice;
   assorted::write_bigendian<KeySlice>(
     record_slice,
-    cur_key_ + (border->get_layer() * sizeof(KeySlice)));
+    cur_route_prefix_be_ + (layer * sizeof(KeySlice)));
   DualPagePointer* pointer = border->get_next_layer(route->get_cur_original_index());
   MasstreePage* next;
   CHECK_ERROR_CODE(
     MasstreeStoragePimpl(&storage_).follow_page(context_, for_writes_, pointer, &next));
   CHECK_ERROR_CODE(push_route(next));
-  return locate_layer(border->get_layer() + 1U);
+  return locate_layer(layer + 1U);
 }
 
 ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
@@ -1112,12 +1270,14 @@ ErrorCode MasstreeCursor::overwrite_record(
   PayloadLength payload_offset,
   PayloadLength payload_count) {
   assert_modify();
+  char key[kMaxKeyLength];
+  copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_observed_owner_id_,
-    cur_key_,
+    key,
     cur_key_length_,
     payload,
     payload_offset,
@@ -1129,12 +1289,14 @@ ErrorCode MasstreeCursor::overwrite_record_primitive(
   PAYLOAD payload,
   PayloadLength payload_offset) {
   assert_modify();
+  char key[kMaxKeyLength];
+  copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_observed_owner_id_,
-    cur_key_,
+    key,
     cur_key_length_,
     &payload,
     payload_offset,
@@ -1143,24 +1305,28 @@ ErrorCode MasstreeCursor::overwrite_record_primitive(
 
 ErrorCode MasstreeCursor::delete_record() {
   assert_modify();
+  char key[kMaxKeyLength];
+  copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).delete_general(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_observed_owner_id_,
-    cur_key_,
+    key,
     cur_key_length_);
 }
 
 template <typename PAYLOAD>
 ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, PayloadLength payload_offset) {
   assert_modify();
+  char key[kMaxKeyLength];
+  copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).increment_general<PAYLOAD>(
     context_,
     reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
     get_cur_index(),
     cur_key_observed_owner_id_,
-    cur_key_,
+    key,
     cur_key_length_,
     value,
     payload_offset);
@@ -1170,6 +1336,7 @@ void MasstreeCursor::assert_route_impl() const {
   for (uint16_t i = 0; i + 1U < route_count_; ++i) {
     const Route* route = routes_ + i;
     ASSERT_ND(route->page_);
+    ASSERT_ND(route->layer_ == route->page_->get_layer());
     if (route->stable_.is_moved()) {
       // then we don't use any information in this path
     } else if (reinterpret_cast<Page*>(route->page_)->get_header().get_page_type()

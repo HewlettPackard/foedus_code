@@ -661,10 +661,10 @@ void run_test(
   options.thread_.thread_count_per_group_ = parallel_load ? kLoadThreads : 1;
   options.log_.log_buffer_kb_ = 1 << 14;
   options.log_.log_file_size_mb_ = 1 << 10;
-  options.memory_.page_pool_size_mb_per_node_ = 1 << 5;
-  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 3;
+  options.memory_.page_pool_size_mb_per_node_ = 1 << 6;
+  options.cache_.snapshot_cache_size_mb_per_node_ = 1 << 4;
   if (load_orderlines) {
-    options.memory_.page_pool_size_mb_per_node_ = 1 << 6;
+    options.memory_.page_pool_size_mb_per_node_ = 1 << 7;
   }
   if (parallel_load) {
     options.memory_.page_pool_size_mb_per_node_ *= kLoadThreads;
@@ -766,17 +766,16 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
     EXPECT_EQ(kErrorCodeOk, cursor.open());
     Epoch commit_epoch;
     uint32_t count = 0;
-    char prev_key[100];
+    std::string prev_key;
     uint32_t prev_key_length = 0;
     while (cursor.is_valid_record()) {
+      std::string next_key = cursor.get_combined_key();
       if (count > 0) {
-        EXPECT_LT(
-          std::string(prev_key, prev_key_length),
-          std::string(cursor.get_key(), cursor.get_key_length()));
+        EXPECT_LT(prev_key, next_key);
       }
       prev_key_length = cursor.get_key_length();
       ASSERT_ND(prev_key_length <= 100U);
-      std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+      prev_key = next_key;
       ++count;
       if ((count % kBatch) == 0U) {
         EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;
@@ -799,17 +798,16 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
       false));
     Epoch commit_epoch;
     uint32_t count = 0;
-    char prev_key[100];
+    std::string prev_key;
     uint32_t prev_key_length = 0;
     while (cursor.is_valid_record()) {
+      std::string next_key = cursor.get_combined_key();
       if (count > 0) {
-        EXPECT_GT(
-          std::string(prev_key, prev_key_length),
-          std::string(cursor.get_key(), cursor.get_key_length()));
+        EXPECT_GT(prev_key, next_key);
       }
       prev_key_length = cursor.get_key_length();
       ASSERT_ND(prev_key_length <= 100U);
-      std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+      prev_key = next_key;
       ++count;
       if ((count % kBatch) == 0U) {
         EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;
@@ -865,18 +863,18 @@ ErrorStack district_scan_task(const proc::ProcArguments& args) {
         EXPECT_EQ(kErrorCodeOk, cursor.open(low, 8, high, 8));
         Epoch commit_epoch;
         uint32_t count = 0;
-        char prev_key[100];
+        std::string prev_key;
         uint32_t prev_key_length = 0;
         while (cursor.is_valid_record()) {
-          std::string cur_key(cursor.get_key(), cursor.get_key_length());
+          std::string cur_key = cursor.get_combined_key();
           if (count > 0) {
-            EXPECT_LT(std::string(prev_key, prev_key_length), cur_key);
+            EXPECT_LT(prev_key, cur_key);
           }
           EXPECT_GE(cur_key, low_str);
           EXPECT_LT(cur_key, high_str);
           prev_key_length = cursor.get_key_length();
           ASSERT_ND(prev_key_length <= 100U);
-          std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+          prev_key = cursor.get_combined_key();
           ++count;
           if ((count % kBatch) == 0U) {
             EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;
@@ -903,18 +901,18 @@ ErrorStack district_scan_task(const proc::ProcArguments& args) {
           true));
         Epoch commit_epoch;
         uint32_t count = 0;
-        char prev_key[100];
+        std::string prev_key;
         uint32_t prev_key_length = 0;
         while (cursor.is_valid_record()) {
-          std::string cur_key(cursor.get_key(), cursor.get_key_length());
+          std::string cur_key = cursor.get_combined_key();
           if (count > 0) {
-            EXPECT_GT(std::string(prev_key, prev_key_length), cur_key);
+            EXPECT_GT(prev_key, cur_key);
           }
           EXPECT_GE(cur_key, low_str);
           EXPECT_LT(cur_key, high_str);
           prev_key_length = cursor.get_key_length();
           ASSERT_ND(prev_key_length <= 100U);
-          std::memcpy(prev_key, cursor.get_key(), cursor.get_key_length());
+          prev_key = cursor.get_combined_key();
           ++count;
           if ((count % kBatch) == 0U) {
             EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch)) << count;

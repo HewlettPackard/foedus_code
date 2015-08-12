@@ -121,20 +121,22 @@ class SharedMemory CXX11_FINAL {
    * It must be unique, for example '/tmp/foedus_shm_[master-PID]_vpool_[node-ID]'.
    * @param[in] size Byte size of the memory block. Actual allocation is at least of this size.
    * @param[in] numa_node Where the physical memory is allocated. Use for binding via libnuma.
+   * @param[in] use_hugepages Whether to use hugepages.
    * @attention When memory allocation fails for some reason (eg Out-Of-Memory), this method
    * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
    * So, the caller is responsible for checking it after construction.
    */
-  ErrorStack  alloc(const std::string& meta_path, uint64_t size, int numa_node);
+  ErrorStack  alloc(const std::string& meta_path, uint64_t size, int numa_node, bool use_hugepages);
   /**
    * @brief Attach an already-allocated shared memory so that this object points to the memory.
    * @param[in] meta_path Path of the temporary meta file that contains memory size and
    * shared memory ID.
+   * @param[in] use_hugepages Whether to use hugepages.
    * @attention If binding fails for some reason, this method
    * does NOT fail nor throws an exception. Instead, it sets the block_ NULL.
    * So, the caller is responsible for checking it after construction.
    */
-  void        attach(const std::string& meta_path);
+  void        attach(const std::string& meta_path, bool use_hugepages);
 
   /** Returns the path of the meta file. */
   const std::string& get_meta_path() const { return meta_path_; }

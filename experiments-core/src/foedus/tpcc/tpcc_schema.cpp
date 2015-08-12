@@ -27,7 +27,7 @@ namespace foedus {
 namespace tpcc {
 
 TpccStorages::TpccStorages() {
-  std::memset(this, 0, sizeof(TpccStorages));
+  std::memset(static_cast<void*>(this), 0, sizeof(TpccStorages));
 }
 void TpccStorages::assert_initialized() {
   ASSERT_ND(customers_static_.exists());

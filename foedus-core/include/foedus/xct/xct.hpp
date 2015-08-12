@@ -107,6 +107,7 @@ class Xct {
   IsolationLevel      get_isolation_level() const { return isolation_level_; }
   /** Returns the ID of this transaction, but note that it is not issued until commit time! */
   const XctId&        get_id() const { return id_; }
+  thread::ThreadId    get_thread_id() const { return thread_id_; }
   uint32_t            get_pointer_set_size() const { return pointer_set_size_; }
   uint32_t            get_page_version_set_size() const { return page_version_set_size_; }
   uint32_t            get_read_set_size() const { return read_set_size_; }

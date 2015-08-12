@@ -55,40 +55,36 @@ std::unique_ptr<uint32_t[]> local_key_counter;
 
 class YcsbKey {
  private:
-  char data_[kKeyMaxLength];
-  uint32_t size_;
+  assorted::FixedString<kKeyMaxLength> data_;
 
  public:
   YcsbKey() {
-    size_ = 0;
-    memset(data_, '\0', kKeyMaxLength);
-    snprintf(data_, kKeyPrefixLength + 1, "%s", kKeyPrefix.data());
+    data_.append(kKeyPrefix);
+  }
+
+  YcsbKey(uint32_t high, uint32_t low) {
+    build(high, low);
   }
 
   YcsbKey& next(uint32_t worker_id, uint32_t* local_key_counter) {
     auto low = ++(*local_key_counter);
-    return build(worker_id, low);
-  }
-
-  YcsbKey& build(uint32_t high_bits, uint32_t low_bits) {
-    uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
-    keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
-    auto n = snprintf(
-      data_ + kKeyPrefixLength, kKeyMaxLength - kKeyPrefixLength + 1, "%lu", keynum);
-    ASSERT_ND(n > 0);
-    n += kKeyPrefixLength;
-    ASSERT_ND(n <= kKeyMaxLength);
-    memset(data_ + n, '\0', kKeyMaxLength - n);
-    size_ = n;
+    build(worker_id, low);
     return *this;
   }
 
+  void build(uint32_t high_bits, uint32_t low_bits) {
+    uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
+    keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
+    data_ = kKeyPrefix;
+    data_.append(std::to_string(keynum));
+  }
+
   const char *ptr() {
-    return data_;
+    return data_.data();
   }
 
   uint32_t size() {
-    return size_;
+    return data_.length();
   }
 };
 
@@ -98,10 +94,6 @@ YcsbKey& next_insert_key(int worker) {
   return key_arena[worker].next(worker, &local_key_counter[worker]);
 }
 
-YcsbKey& build_key(uint32_t worker, uint32_t low_bits) {
-  return key_arena[worker].build(worker, low_bits);
-}
-
 ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
@@ -109,7 +101,6 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
   int64_t remaining_inserts = 10000;
   char data[1000];
   memset(data, 'a', 1000);
-  uint64_t inserted = 0;
   Epoch commit_epoch;
   while (remaining_inserts > 0) {
     for (int i = 0; i < core_count; i++) {
@@ -117,7 +108,6 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
       auto& key = next_insert_key(i);
       COERCE_ERROR_CODE(masstree.insert_record(context, key.ptr(), key.size(), data, 1000));
       COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-      inserted++;
     }
     remaining_inserts -= core_count;
   }
@@ -145,8 +135,7 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
     if (trnd.uniform_within(1, 100) <= 5) {
       // insert
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-      auto high = hrnd.uniform_within(0, core_count - 1);
-      YcsbKey key = next_insert_key(high);
+      YcsbKey& key = next_insert_key(worker_id);
       ret = masstree.insert_record(context, key.ptr(), key.size(), data, 1000);
       if (ret == kErrorCodeOk) {
         ret = xct_manager->precommit_xct(context, &commit_epoch);
@@ -163,7 +152,7 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
         cnt = 1;
       }
       auto low = lrnd.uniform_within(0, cnt - 1);
-      YcsbKey& key = build_key(high, low);
+      YcsbKey key(high, low);
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       storage::masstree::MasstreeCursor cursor(masstree, context);
       ret = cursor.open(key.ptr(), key.size(), nullptr,
@@ -171,14 +160,19 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
       if (ret != kErrorCodeOk) {
         COERCE_ERROR_CODE(xct_manager->abort_xct(context));
       } else {
+        uint64_t len = 0;
         int32_t nrecs = crnd.uniform_within(1, max_scan_length);
         while (nrecs-- > 0 && cursor.is_valid_record()) {
-          ASSERT_ND(cursor.get_payload_length() == 1000);
+          len += cursor.get_payload_length();
           const char *pr = reinterpret_cast<const char *>(cursor.get_payload());
           memcpy(data, pr, 1000);
           cursor.next();
         }
         ret = xct_manager->precommit_xct(context, &commit_epoch);
+        if (ret != kErrorCodeOk) {
+          WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+        }
+        ASSERT_ND(len % 1000 == 0);
       }
     }
   }

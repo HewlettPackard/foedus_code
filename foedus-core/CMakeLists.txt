@@ -137,9 +137,9 @@ include_directories(SYSTEM
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libbacktrace
   # tinyxml2
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tinyxml2-2.1.0
-  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.3/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glog-0.3.4/src
   # We also include the BINARY folder of glog as glog generates config.h
-  ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.3/src
+  ${CMAKE_CURRENT_BINARY_DIR}/third_party/glog-0.3.4/src
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/valgrind-3.9.0/include
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xxHash-r39 # xxhash
   )

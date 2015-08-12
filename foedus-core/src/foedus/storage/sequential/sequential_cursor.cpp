@@ -209,6 +209,17 @@ ErrorCode SequentialCursor::init_states() {
     states_.emplace_back(node_id);
   }
 
+  // Ignore records that are before the truncate epoch.
+  // This is trivially done by overwriting from_epoch with truncate epoch.
+  CHECK_ERROR_CODE(storage_.optimistic_read_truncate_epoch(context_, &truncate_epoch_));
+  ASSERT_ND(truncate_epoch_.is_valid());
+  DVLOG(0) << "truncate_epoch_=" << truncate_epoch_;
+  if (truncate_epoch_ > from_epoch_) {
+    LOG(INFO) << "Overwrote from_epoch (" << from_epoch_ << ") with"
+      << " truncate_epoch(" << truncate_epoch_ << ")";
+    from_epoch_ = truncate_epoch_;
+  }
+
   // initialize snapshot page status
   if (!finished_snapshots_) {
     ASSERT_ND(latest_snapshot_epoch_.is_valid());
@@ -647,6 +658,7 @@ std::ostream& operator<<(std::ostream& o, const SequentialCursor& v) {
   o << "  <snapshot_only_>" << v.snapshot_only_ << "</snapshot_only_>" << std::endl;
   o << "  <safe_epoch_only_>" << v.safe_epoch_only_ << "</safe_epoch_only_>" << std::endl;
   o << "  <buffer_>" << v.buffer_ << "</buffer_>" << std::endl;
+  o << "  <buffer_size>" << v.buffer_size_ << "</buffer_size>" << std::endl;
   o << "  <buffer_pages_>" << v.buffer_pages_ << "</buffer_pages_>" << std::endl;
   o << "  <current_node_>" << v.current_node_ << "</current_node_>" << std::endl;
   o << "  <finished_snapshots_>" << v.finished_snapshots_ << "</finished_snapshots_>" << std::endl;

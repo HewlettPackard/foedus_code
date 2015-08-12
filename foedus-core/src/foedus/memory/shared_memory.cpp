@@ -64,7 +64,11 @@ bool SharedMemory::is_owned() const {
   return owner_pid_ != 0 && owner_pid_ == ::getpid();
 }
 
-ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int numa_node) {
+ErrorStack SharedMemory::alloc(
+  const std::string& meta_path,
+  uint64_t size,
+  int numa_node,
+  bool use_hugepages) {
   release_block();
 
   if (size % (1ULL << 21) != 0) {
@@ -111,7 +115,9 @@ ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int 
 
   // if this is running under valgrind, we have to avoid using hugepages due to a bug in valgrind.
   // When we are running on valgrind, we don't care performance anyway. So shouldn't matter.
-  bool running_on_valgrind = RUNNING_ON_VALGRIND;
+  if (RUNNING_ON_VALGRIND) {
+    use_hugepages = false;
+  }
   // see https://bugs.kde.org/show_bug.cgi?id=338995
 
   // Use libnuma's numa_set_preferred to initialize the NUMA node of the memory.
@@ -122,7 +128,7 @@ ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int 
   shmid_ = ::shmget(
     shmkey_,
     size_,
-    IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR | (running_on_valgrind ? 0 : SHM_HUGETLB));
+    IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR | (use_hugepages ? SHM_HUGETLB : 0));
   if (shmid_ == -1) {
     std::string msg = std::string("shmget() failed! size=") + std::to_string(size_)
       + std::string(", os_error=") + assorted::os_error() + std::string(", meta_path=") + meta_path;
@@ -148,7 +154,7 @@ ErrorStack SharedMemory::alloc(const std::string& meta_path, uint64_t size, int 
   return kRetOk;
 }
 
-void SharedMemory::attach(const std::string& meta_path) {
+void SharedMemory::attach(const std::string& meta_path, bool use_hugepages) {
   release_block();
   if (!fs::exists(fs::Path(meta_path))) {
     std::cerr << "Shared memory meta file does not exist:" << meta_path << std::endl;
@@ -185,7 +191,10 @@ void SharedMemory::attach(const std::string& meta_path) {
   shmkey_ = the_key;
   owner_pid_ = 0;
 
-  shmid_ = ::shmget(shmkey_, size_, 0);
+  if (RUNNING_ON_VALGRIND) {
+    use_hugepages = false;
+  }
+  shmid_ = ::shmget(shmkey_, size_, use_hugepages ? SHM_HUGETLB : 0);
   if (shmid_ == -1) {
     std::cerr << "shmget() attach failed! size=" << size_ << ", error=" << assorted::os_error()
       << std::endl;

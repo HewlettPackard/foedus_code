@@ -202,6 +202,7 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
 TEST(MasstreeBasicTest, CreateAndInsertLongRetry) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 128;
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_task_long_retry", insert_task_long_retry);
   COERCE_ERROR(engine.initialize());
@@ -222,6 +223,7 @@ TEST(MasstreeBasicTest, CreateAndInsertLongRetry) {
 TEST(MasstreeBasicTest, CreateAndInsertLongCoerce) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 128;
+  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_task_long_coerce", insert_task_long_coerce);
   COERCE_ERROR(engine.initialize());

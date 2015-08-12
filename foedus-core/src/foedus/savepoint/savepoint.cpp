@@ -25,7 +25,10 @@ Savepoint::Savepoint() {
 void Savepoint::assert_epoch_values() const {
   ASSERT_ND(Epoch(current_epoch_).is_valid());
   ASSERT_ND(Epoch(durable_epoch_).is_valid());
+  ASSERT_ND(Epoch(earliest_epoch_).is_valid());
   ASSERT_ND(Epoch(current_epoch_) > Epoch(durable_epoch_));
+  ASSERT_ND(Epoch(current_epoch_) >= Epoch(earliest_epoch_));
+  ASSERT_ND(Epoch(durable_epoch_) >= Epoch(earliest_epoch_));
   ASSERT_ND(!Epoch(latest_snapshot_epoch_).is_valid() ||
     Epoch(latest_snapshot_epoch_) <= Epoch(durable_epoch_));
 }
@@ -33,6 +36,7 @@ void Savepoint::assert_epoch_values() const {
 ErrorStack Savepoint::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, current_epoch_);
   EXTERNALIZE_LOAD_ELEMENT(element, durable_epoch_);
+  EXTERNALIZE_LOAD_ELEMENT(element, earliest_epoch_);
   EXTERNALIZE_LOAD_ELEMENT(element, latest_snapshot_id_);
   EXTERNALIZE_LOAD_ELEMENT(element, latest_snapshot_epoch_);
   EXTERNALIZE_LOAD_ELEMENT(element, meta_log_oldest_offset_);
@@ -52,6 +56,8 @@ ErrorStack Savepoint::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, current_epoch_, "Current epoch of the entire engine.");
   EXTERNALIZE_SAVE_ELEMENT(element, durable_epoch_,
                "Latest epoch whose logs were all flushed to disk");
+  EXTERNALIZE_SAVE_ELEMENT(element, earliest_epoch_,
+               "The earliest epoch that can exist in this system");
   EXTERNALIZE_SAVE_ELEMENT(element, latest_snapshot_id_, "The most recent complete snapshot.");
   EXTERNALIZE_SAVE_ELEMENT(element, latest_snapshot_epoch_,
               "The most recently snapshot-ed epoch, all logs upto this epoch is safe to delete.");
@@ -93,6 +99,7 @@ void FixedSavepoint::update(
   loggers_per_node_count_ = loggers_per_node_count;
   current_epoch_ = src.current_epoch_;
   durable_epoch_ = src.durable_epoch_;
+  earliest_epoch_ = src.earliest_epoch_;
   latest_snapshot_id_ = src.latest_snapshot_id_;
   latest_snapshot_epoch_ = src.latest_snapshot_epoch_;
   meta_log_oldest_offset_ = src.meta_log_oldest_offset_;

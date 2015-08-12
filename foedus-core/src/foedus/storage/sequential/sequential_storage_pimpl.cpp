@@ -26,7 +26,9 @@
 #include "foedus/engine.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/debugging/stop_watch.hpp"
+#include "foedus/log/log_manager.hpp"
 #include "foedus/log/log_type.hpp"
+#include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/memory_id.hpp"
@@ -149,6 +151,13 @@ ErrorStack SequentialStoragePimpl::create(const SequentialMetadata& metadata) {
   }
 
   control_block_->meta_ = metadata;
+  const Epoch initial_truncate_epoch = engine_->get_earliest_epoch();
+  control_block_->meta_.truncate_epoch_ = initial_truncate_epoch.value();
+  control_block_->cur_truncate_epoch_.store(initial_truncate_epoch.value());
+  control_block_->cur_truncate_epoch_tid_.reset();
+  control_block_->cur_truncate_epoch_tid_.xct_id_.set_epoch(initial_truncate_epoch);
+  control_block_->cur_truncate_epoch_tid_.xct_id_.set_ordinal(1);
+
   CHECK_ERROR(initialize_head_tail_pages());
   control_block_->status_ = kExists;
   LOG(INFO) << "Newly created a sequential-storage " << get_name();
@@ -158,6 +167,17 @@ ErrorStack SequentialStoragePimpl::load(const StorageControlBlock& snapshot_bloc
   // for sequential storage, whether the snapshot root pointer is null or not doesn't matter.
   // essentially load==create, except that it just sets the snapshot root pointer.
   control_block_->meta_ = static_cast<const SequentialMetadata&>(snapshot_block.meta_);
+  Epoch initial_truncate_epoch(control_block_->meta_.truncate_epoch_);
+  if (!initial_truncate_epoch.is_valid()) {
+    initial_truncate_epoch = engine_->get_earliest_epoch();
+  }
+  ASSERT_ND(initial_truncate_epoch.is_valid());
+  control_block_->meta_.truncate_epoch_ = initial_truncate_epoch.value();
+  control_block_->cur_truncate_epoch_.store(initial_truncate_epoch.value());
+  control_block_->cur_truncate_epoch_tid_.reset();
+  control_block_->cur_truncate_epoch_tid_.xct_id_.set_epoch(initial_truncate_epoch);
+  control_block_->cur_truncate_epoch_tid_.xct_id_.set_ordinal(1);
+
   CHECK_ERROR(initialize_head_tail_pages());
   control_block_->root_page_pointer_.snapshot_pointer_
     = control_block_->meta_.root_snapshot_page_id_;
@@ -188,6 +208,116 @@ ErrorStack SequentialStoragePimpl::initialize_head_tail_pages() {
     std::memset(tail_page, 0, kPageSize);
   }
   return kRetOk;
+}
+
+ErrorCode SequentialStorageControlBlock::optimistic_read_truncate_epoch(
+  thread::Thread* context,
+  Epoch* out) const {
+  xct::Xct& cur_xct = context->get_current_xct();
+  if (!cur_xct.is_active()) {
+    return kErrorCodeXctNoXct;
+  }
+
+  auto* address = &cur_truncate_epoch_tid_;
+  xct::XctId observed = address->xct_id_;
+  while (UNLIKELY(observed.is_being_written())) {
+    assorted::memory_fence_acquire();
+    observed = address->xct_id_;
+  }
+
+  *out = Epoch(cur_truncate_epoch_.load());  // atomic!
+  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
+    meta_.id_,
+    observed,
+    const_cast< xct::LockableXctId* >(address)));  // why it doesn't receive const? I forgot..
+  return kErrorCodeOk;
+}
+
+ErrorStack SequentialStoragePimpl::truncate(Epoch new_truncate_epoch, Epoch* commit_epoch) {
+  LOG(INFO) << "Truncating " << get_name() << " upto Epoch " << new_truncate_epoch
+    << ". old value=" << control_block_->cur_truncate_epoch_;
+  if (!new_truncate_epoch.is_valid()) {
+    LOG(ERROR) << "truncate() was called with an invalid epoch";
+    return ERROR_STACK(kErrorCodeInvalidParameter);
+  } else if (new_truncate_epoch < engine_->get_earliest_epoch()) {
+    LOG(ERROR) << "too-old epoch for this system. " << new_truncate_epoch;
+    return ERROR_STACK(kErrorCodeInvalidParameter);
+  }
+
+  // will check this again after locking.
+  if (Epoch(control_block_->cur_truncate_epoch_) >= new_truncate_epoch) {
+    LOG(INFO) << "Already truncated up to " << Epoch(control_block_->cur_truncate_epoch_)
+      << ". Requested = " << new_truncate_epoch;
+    return kRetOk;
+  }
+
+  if (new_truncate_epoch > engine_->get_current_global_epoch()) {
+    LOG(WARNING) << "Ohh? we don't prohibit it, but are you sure? Truncating up to a future"
+      << " epoch-" << new_truncate_epoch << ". cur_global=" << engine_->get_current_global_epoch();
+  }
+
+
+  // We lock it first so that there are no concurrent truncate.
+  {
+    // TODO(Hideaki) Ownerless-lock here
+    // xct::McsOwnerlessLockScope scope(&control_block_->cur_truncate_epoch_tid_);
+
+    if (Epoch(control_block_->cur_truncate_epoch_) >= new_truncate_epoch) {
+      LOG(INFO) << "Already truncated up to " << Epoch(control_block_->cur_truncate_epoch_)
+        << ". Requested = " << new_truncate_epoch;
+      return kRetOk;
+    }
+
+    // First, let scanner know that something is happening.
+    // 1. Scanners that didn't observe this and commit before us: fine.
+    // 2. Scanners that didn't observe this and commit after us:
+    //      will see this flag and abort in precommit, fine.
+    // 3. Scanners that observe this:
+    //      spin until we are done, fine (see optimistic_read_truncate_epoch()).
+    // NOTE: Below, we must NOT have any error-return path. Otherwise being_written state is left.
+    control_block_->cur_truncate_epoch_tid_.xct_id_.set_being_written();
+    assorted::memory_fence_acq_rel();
+
+    // Log this operation as a metadata operation. We get a commit_epoch here.
+    {
+      char log_buffer[sizeof(SequentialTruncateLogType)];
+      std::memset(log_buffer, 0, sizeof(log_buffer));
+      SequentialTruncateLogType* the_log = reinterpret_cast<SequentialTruncateLogType*>(log_buffer);
+      the_log->header_.storage_id_ = get_id();
+      the_log->header_.log_type_code_ = log::get_log_code<SequentialTruncateLogType>();
+      the_log->header_.log_length_ = sizeof(SequentialTruncateLogType);
+      the_log->new_truncate_epoch_ = new_truncate_epoch;
+      engine_->get_log_manager()->get_meta_buffer()->commit(the_log, commit_epoch);
+    }
+
+    // Then, apply it. This also clears the being_written flag
+    {
+      xct::XctId xct_id;
+      xct_id.set(commit_epoch->value(), 1);  // no dependency, so minimal ordinal is always correct
+      control_block_->cur_truncate_epoch_.store(new_truncate_epoch.value());  // atomic!
+      control_block_->cur_truncate_epoch_tid_.xct_id_ = xct_id;
+      assorted::memory_fence_release();
+
+      // Also set to the metadata to make this permanent.
+      // The metadata will be written out in next snapshot.
+      // Until that, REDO-operation below will re-apply that after crash.
+      control_block_->meta_.truncate_epoch_ = new_truncate_epoch.value();
+      assorted::memory_fence_release();
+    }
+  }
+
+  LOG(INFO) << "Truncated";
+  return kRetOk;
+}
+
+void SequentialStoragePimpl::apply_truncate(const SequentialTruncateLogType& the_log) {
+  // this method is called only during restart, so no race.
+  ASSERT_ND(control_block_->exists());
+  control_block_->cur_truncate_epoch_tid_.xct_id_ = the_log.header_.xct_id_;
+  control_block_->cur_truncate_epoch_.store(the_log.new_truncate_epoch_.value());
+  control_block_->meta_.truncate_epoch_ = the_log.new_truncate_epoch_.value();
+  LOG(INFO) << "Applied redo-log of truncation on sequential storage- " << get_name()
+    << " epoch=" << control_block_->cur_truncate_epoch_;
 }
 
 void SequentialStoragePimpl::append_record(

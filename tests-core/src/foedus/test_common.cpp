@@ -21,6 +21,7 @@
 #include <signal.h>
 #include <tinyxml2.h>
 #include <unistd.h>
+#include <valgrind.h>
 
 #include <fstream>
 #include <functional>
@@ -102,18 +103,22 @@ namespace foedus {
     options.debugging_.verbose_log_level_ = 1;
     options.debugging_.verbose_modules_ = "*";
 
-    options.log_.log_buffer_kb_ = 512 << 10;
-    options.memory_.page_pool_size_mb_per_node_ = 512;
+    options.log_.log_buffer_kb_ = 4 << 10;
+    options.memory_.page_pool_size_mb_per_node_ = 128;
     options.memory_.private_page_pool_initial_grab_ = 32;
     options.memory_.rigorous_memory_boundary_check_ = true;
-    options.cache_.snapshot_cache_size_mb_per_node_ = 128;
+    options.memory_.rigorous_page_boundary_check_ = true;
+    if (RUNNING_ON_VALGRIND) {  // see rigorous_page_boundary_check_'s doc on why
+      options.memory_.rigorous_page_boundary_check_ = false;
+    }
+    options.cache_.snapshot_cache_size_mb_per_node_ = 2;
     options.cache_.private_snapshot_cache_initial_grab_ = 32;
     options.snapshot_.snapshot_interval_milliseconds_ = 1 << 26;  // never
-    options.snapshot_.log_mapper_io_buffer_mb_ = 128;
-    options.snapshot_.log_reducer_buffer_mb_ = 128;
-    options.snapshot_.log_reducer_dump_io_buffer_mb_ = 128;
-    options.snapshot_.snapshot_writer_page_pool_size_mb_ = 128;
-    options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 128;
+    options.snapshot_.log_mapper_io_buffer_mb_ = 2;
+    options.snapshot_.log_reducer_buffer_mb_ = 2;
+    options.snapshot_.log_reducer_dump_io_buffer_mb_ = 2;
+    options.snapshot_.snapshot_writer_page_pool_size_mb_ = 2;
+    options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 2;
     options.storage_.max_storages_ = 128;
     return options;
   }
@@ -127,9 +132,13 @@ namespace foedus {
     options.debugging_.verbose_modules_ = "*";
 
     options.log_.log_buffer_kb_ = 1 << 8;
-    options.memory_.page_pool_size_mb_per_node_ = 2;
+    options.memory_.page_pool_size_mb_per_node_ = 4;
     options.memory_.private_page_pool_initial_grab_ = 32;
     options.memory_.rigorous_memory_boundary_check_ = true;
+    options.memory_.rigorous_page_boundary_check_ = true;
+    if (RUNNING_ON_VALGRIND) {  // see rigorous_page_boundary_check_'s doc on why
+      options.memory_.rigorous_page_boundary_check_ = false;
+    }
     options.cache_.snapshot_cache_size_mb_per_node_ = 2;
     options.cache_.private_snapshot_cache_initial_grab_ = 32;
     options.thread_.group_count_ = 1;
