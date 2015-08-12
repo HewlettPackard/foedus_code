@@ -213,7 +213,7 @@ struct McsLock {
   void  reset() ALWAYS_INLINE { data_ = 0; }
 
   void  reset_guest_id_release() {
-    assorted::raw_atomic_store_release<uint32_t>(&data_, kMcsGuestId);
+    assorted::atomic_store_release<uint32_t>(&data_, kMcsGuestId);
   }
 
   /** used only for initial_lock() */
