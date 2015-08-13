@@ -916,11 +916,15 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
     // if it's obviously locked by a guest, we should wait until it's released.
     // so far this is busy-wait, we can do sth. to prevent priority inversion later.
     if (UNLIKELY(*address == xct::kMcsGuestId)) {
-      spin_until([address]{ return *address != xct::kMcsGuestId; });
+      spin_until([address]{
+        return assorted::atomic_load_acquire<uint32_t>(address) == xct::kMcsGuestId;
+      });
     }
 
     // atomic op should imply full barrier, but make sure announcing the initialized new block.
     pred_int = assorted::raw_atomic_exchange<uint32_t>(address, group_tail);
+    ASSERT_ND(pred_int != group_tail);
+    ASSERT_ND(pred_int != desired);
 
     switch (pred_int) {
       case 0:
