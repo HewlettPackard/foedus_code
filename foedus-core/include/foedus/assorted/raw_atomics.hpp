@@ -47,14 +47,22 @@ namespace assorted {
  */
 template <typename T>
 inline bool raw_atomic_compare_exchange_strong(T* target, T* expected, T desired) {
-  T expected_val = *expected;
-  T old_val = ::__sync_val_compare_and_swap(target, expected_val, desired);
-  if (old_val == expected_val) {
-    return true;
-  } else {
-    *expected = old_val;
-    return false;
-  }
+  // Use newer builtin instead of __sync_val_compare_and_swap
+  return ::__atomic_compare_exchange_n(
+    target,
+    expected,
+    desired,
+    false,
+    __ATOMIC_SEQ_CST,
+    __ATOMIC_SEQ_CST);
+  // T expected_val = *expected;
+  // T old_val = ::__sync_val_compare_and_swap(target, expected_val, desired);
+  // if (old_val == expected_val) {
+  //   return true;
+  // } else {
+  //   *expected = old_val;
+  //   return false;
+  // }
 }
 
 /**
@@ -119,7 +127,16 @@ inline bool raw_atomic_compare_exchange_weak_uint128(
  */
 template <typename T>
 inline T raw_atomic_exchange(T* target, T desired) {
-  return ::__sync_lock_test_and_set(target, desired);
+  return ::__atomic_exchange_n(target, desired, __ATOMIC_SEQ_CST);
+  // Note: We must NOT use __sync_lock_test_and_set, which is only acquire-barrier for some
+  // reason. We instead use GCC/Clang's __atomic_exchange() builtin.
+  // return ::__sync_lock_test_and_set(target, desired);
+  // see https://gcc.gnu.org/onlinedocs/gcc-4.4.3/gcc/Atomic-Builtins.html
+  // and https://bugzilla.mozilla.org/show_bug.cgi?id=873799
+
+  // BTW, __atomic_exchange_n/__ATOMIC_SEQ_CST demands a C++11-capable version of gcc/clang,
+  // but FOEDUS anyway relies on C++11. It just allows the linked program to be
+  // compiled without std=c++11. So, nothing lost.
 }
 
 /**
@@ -130,7 +147,10 @@ inline T raw_atomic_exchange(T* target, T desired) {
  */
 template <typename T>
 inline T raw_atomic_fetch_add(T* target, T addendum) {
-  return ::__sync_fetch_and_add(target, addendum);
+  return ::__atomic_fetch_add(target, addendum, __ATOMIC_SEQ_CST);
+  // Just to align with above, use __atomic_fetch_add rather than __sync_fetch_and_add.
+  // It's equivalent.
+  // return ::__sync_fetch_and_add(target, addendum);
 }
 
 }  // namespace assorted
