@@ -922,28 +922,34 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
     }
 
     // atomic op should imply full barrier, but make sure announcing the initialized new block.
+    ASSERT_ND(group_tail != xct::kMcsGuestId);
+    ASSERT_ND(group_tail != 0);
+    ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != group_tail);
     pred_int = assorted::raw_atomic_exchange<uint32_t>(address, group_tail);
     ASSERT_ND(pred_int != group_tail);
     ASSERT_ND(pred_int != desired);
 
-    switch (pred_int) {
-      case 0:
-        // this means it was not locked.
-        ASSERT_ND(mcs_lock->is_locked());
-        DVLOG(2) << "Okay, got a lock uncontended. me=" << id_;
-        control_block_->mcs_waiting_.store(false, std::memory_order_release);
-        // atomic swap should imply full barrier, so we only put a release barrier.
-        return block_index;
-      case xct::kMcsGuestId:
-        group_tail = mcs_acquire_lock_handle_guest(mcs_lock);
-        ASSERT_ND(group_tail != 0 && group_tail != xct::kMcsGuestId);
-        continue;
-      default:
-        break;
+    if (pred_int == 0) {
+      // this means it was not locked.
+      ASSERT_ND(mcs_lock->is_locked());
+      DVLOG(2) << "Okay, got a lock uncontended. me=" << id_;
+      control_block_->mcs_waiting_.store(false, std::memory_order_release);
+      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+      return block_index;
+    } else if (UNLIKELY(pred_int == xct::kMcsGuestId)) {
+      // ouch, I don't want to keep the guest ID! return it back.
+      // This also determines the group_tail of this queue
+      group_tail = assorted::raw_atomic_exchange<uint32_t>(address, xct::kMcsGuestId);
+      ASSERT_ND(group_tail != 0 && group_tail != xct::kMcsGuestId);
+      continue;
+    } else {
+      break;
     }
   }
 
   ASSERT_ND(pred_int != 0 && pred_int != xct::kMcsGuestId);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
   xct::McsLock old;
   old.data_ = pred_int;
   ASSERT_ND(mcs_lock->is_locked());
@@ -969,19 +975,15 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
 
   pred_block->set_successor_release(id_, block_index);
 
-  spin_until([this]{ return this->control_block_->mcs_waiting_.load(); });
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
+  spin_until([this]{ return this->control_block_->mcs_waiting_.load(std::memory_order_acquire); });
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
   ASSERT_ND(!control_block_->mcs_waiting_);
   ASSERT_ND(mcs_lock->is_locked());
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
   return block_index;
-}
-
-uint32_t ThreadPimpl::mcs_acquire_lock_handle_guest(xct::McsLock* mcs_lock) {
-  uint32_t* address = &(mcs_lock->data_);
-  uint32_t tail = assorted::raw_atomic_exchange<uint32_t>(address, xct::kMcsGuestId);
-  ASSERT_ND(tail != xct::kMcsGuestId);
-  ASSERT_ND(tail != 0);
-  return tail;
 }
 
 void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {
@@ -1036,20 +1038,25 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ASSERT_ND(mcs_lock->is_locked());
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
+  const uint32_t myself = xct::McsLock::to_int(id_, block_index);
+  uint32_t* address = &(mcs_lock->data_);
   xct::McsBlock* block = mcs_blocks_ + block_index;
   if (!block->has_successor()) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
-    uint32_t expected = xct::McsLock::to_int(id_, block_index);
-    uint32_t* address = &(mcs_lock->data_);
+    uint32_t expected = myself;
     assert_mcs_aligned(address);
     bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, &expected, 0);
     if (swapped) {
       // we have just unset the locked flag, but someone else might have just acquired it,
       // so we can't put assertion here.
       ASSERT_ND(id_ == 0 || mcs_lock->get_tail_waiter() != id_);
+      ASSERT_ND(expected == myself);
+      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
       DVLOG(2) << "Okay, release a lock uncontended. me=" << id_;
       return;
     }
+    ASSERT_ND(expected != 0);
+    ASSERT_ND(expected != xct::kMcsGuestId);
     DVLOG(0) << "Interesting contention on MCS release. I thought it's null, but someone has just "
       " jumped in. me=" << id_ << ", mcs_lock=" << *mcs_lock;
     // wait for someone else to set the successor
@@ -1061,6 +1068,8 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ThreadId successor_id = block->get_successor_thread_id();
   DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << successor_id;
   ASSERT_ND(successor_id != id_);
+  ASSERT_ND(successor_id != 0);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
 
   ThreadRef successor = pool_pimpl_->get_thread_ref(successor_id);
   ThreadControlBlock* successor_cb = successor.get_control_block();
@@ -1075,7 +1084,9 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   }
 #endif  // NDEBUG
 
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
   successor_cb->mcs_waiting_.store(false, std::memory_order_release);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
 }
 void ThreadPimpl::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!

@@ -206,6 +206,7 @@ struct McsLock {
   void          ownerless_acquire_lock();
   void          ownerless_release_lock();
 
+
   thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_ >> 16U; }
   McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return data_ & 0xFFFFU; }
 
