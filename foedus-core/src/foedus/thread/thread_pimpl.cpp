@@ -1068,7 +1068,6 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ThreadId successor_id = block->get_successor_thread_id();
   DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << successor_id;
   ASSERT_ND(successor_id != id_);
-  ASSERT_ND(successor_id != 0);
   ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
 
   ThreadRef successor = pool_pimpl_->get_thread_ref(successor_id);
