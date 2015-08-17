@@ -351,8 +351,6 @@ inline ErrorCode MasstreeStoragePimpl::find_border(
           CHECK_ERROR_CODE(page->adopt_from_child(
             context,
             slice,
-            minipage_index,
-            pointer_index,
             next));
           continue;  // we could keep going with a few cautions, but retrying is simpler.
         }
