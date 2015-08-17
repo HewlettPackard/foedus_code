@@ -642,7 +642,8 @@ inline ErrorCode MasstreeCursor::follow_foster(KeySlice slice) {
     }
 
     ASSERT_ND(route->stable_.is_moved());
-    ASSERT_ND(route->moved_page_search_status_ == Route::kMovedPageSearchedNeither);
+    ASSERT_ND(route->moved_page_search_status_ == Route::kMovedPageSearchedNeither
+      || route->moved_page_search_status_ == Route::kMovedPageSearchedOne);  // see locate_border
     KeySlice foster_fence = route->page_->get_foster_fence();
     MasstreePage* left = resolve_volatile(route->page_->get_foster_minor());
     MasstreePage* right = resolve_volatile(route->page_->get_foster_major());

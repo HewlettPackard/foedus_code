@@ -93,7 +93,7 @@ ErrorStack EngineOptions::save(tinyxml2::XMLElement* element) const {
 }
 
 /** Returns byte size of available memory backed by non-transparent hugepages. */
-uint64_t get_available_hugepage_memory(std::ostream* details_out) {
+uint64_t EngineOptions::get_available_hugepage_memory(std::ostream* details_out) {
   std::ifstream file("/proc/meminfo");
   if (!file.is_open()) {
     *details_out << "[FOEDUS] Failed to open /proc/meminfo. Cannot check available hugepages."
@@ -242,8 +242,7 @@ void EngineOptions::prescreen_ulimits(
   // but it's rarely an issue in typical setup.
 }
 
-/** @returns an integer value stored in /proc/... */
-uint64_t read_int_from_proc_fs(const char* path, std::ostream* details_out) {
+uint64_t EngineOptions::read_int_from_proc_fs(const char* path, std::ostream* details_out) {
   // _sysctl() is now strongly discouraged, so let's simlpy read as a file.
   std::ifstream file(path);
   if (!file.is_open()) {

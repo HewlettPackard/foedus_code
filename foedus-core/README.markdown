@@ -170,6 +170,18 @@ In the above example, "[Errno 1] Operation not permitted" strongly implies that
 there is a limits/permissions issue on hugepages and/or shared memory.
 Unfortunately, this is one of the nastiest configuration in linux.
 
+* How to quickly check whether your environment is correctly setup.
+
+**NOTE: ALWAYS PASS THIS STEP BEFORE MOVING ON**
+
+    # Assume you are in foedus_code, and you have already compiled FOEDUS.
+    cd build
+    ctest -R test_check_env -j4
+
+If any of the tests fails, there is still something you missed.
+The above testcases only check minimal reasonable values. Depending on your data size,
+you might need way larger values.
+
 Compilation
 --------
 (If you get a compilation error for missing libraries, refer to Dependencies section.)
@@ -203,6 +215,7 @@ Get Started
 -----------
 Here is a minimal example program to create a key-value storage and query on it.
 **NOTE: Complete Environment Setup Beforehand!**
+**Did you pass "ctest -R test_check_env"?**
 
     #include <iostream>
 
@@ -255,8 +268,8 @@ Here is a minimal example program to create a key-value storage and query on it.
 
 API Documents
 -----------
-For more details, start from <a href="modules.html">Module List</a> and
-<a href="namespaces.html">Namespace List</a>.
+For more details, start from
+[API document](http://foedus-build.hpl.hp.com:8080/job/foedus-master-doxygen/doxygen/).
 
 Dependencies
 -----------

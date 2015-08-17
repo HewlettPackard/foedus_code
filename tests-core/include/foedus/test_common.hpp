@@ -24,54 +24,58 @@
 #include "foedus/fs/fwd.hpp"
 
 namespace foedus {
-  /**
-   * Returns one randomly generated name in "%%%%_%%%%_%%%%_%%%%" format.
-   */
-  std::string     get_random_name();
+/**
+  * Returns one randomly generated name in "%%%%_%%%%_%%%%_%%%%" format.
+  */
+std::string     get_random_name();
 
-  /** Constructs a file path of the given file name using a randomly generated folder. */
-  std::string     get_random_tmp_file_path(const std::string& name);
+/** Constructs a file path of the given file name using a randomly generated folder. */
+std::string     get_random_tmp_file_path(const std::string& name);
 
-  /**
-   * Constructs an EngineOption so that all file paths are unique random.
-   * This makes it possible to run an arbitrary number of tests in parallel.
-   */
-  EngineOptions   get_randomized_paths(int logger_count, int snapshot_folder_count);
+/**
+  * Constructs an EngineOption so that all file paths are unique random.
+  * This makes it possible to run an arbitrary number of tests in parallel.
+  */
+EngineOptions   get_randomized_paths(int logger_count, int snapshot_folder_count);
 
-  /**
-   * Use this for most testcases to reduce test execution time.
-   */
-  EngineOptions   get_tiny_options();
+/**
+  * Use this for most testcases to reduce test execution time.
+  */
+EngineOptions   get_tiny_options();
 
-  /**
-   * Similar to get_tiny_options, with larger pool size etc.
-   * Group and core counts are left out for the test case to adjust.
-   */
-  EngineOptions   get_big_options();
+/**
+  * Similar to get_tiny_options, with larger pool size etc.
+  * Group and core counts are left out for the test case to adjust.
+  */
+EngineOptions   get_big_options();
 
-  /** Delete all files under the folder starting with the given prefix. */
-  void            remove_files_start_with(const fs::Path &folder, const fs::Path &prefix);
+/** @returns /proc/sys/vm/max_map_count > 65530U */
+bool            has_enough_max_map_count();
 
-  /**
-   * Deletes all files created by the engine. Best effort.
-   */
-  void            cleanup_test(const EngineOptions& options);
+/** Delete all files under the folder starting with the given prefix. */
+void            remove_files_start_with(const fs::Path &folder, const fs::Path &prefix);
 
-  /**
-   * Register signal handlers to capture signals during testcase execution.
-   */
-  void            register_signal_handlers(
-    const char* test_case_name,
-    const char* package_name,
-    int argc,
-    char** argv);
+/**
+  * Deletes all files created by the engine. Best effort.
+  */
+void            cleanup_test(const EngineOptions& options);
 
-  /**
-   * As the name suggests, we write out an gtest's result xml file with error state so that
-   * jenkins will get aware of some error if the process disappears without any trace,
-   * for example ctest killed it (via SIGSTOP, which can't be captured) for timeout.
-   */
-  void            pre_populate_error_result_xml();
+/**
+  * Register signal handlers to capture signals during testcase execution.
+  */
+void            register_signal_handlers(
+  const char* test_case_name,
+  const char* package_name,
+  int argc,
+  char** argv);
+
+/**
+  * As the name suggests, we write out an gtest's result xml file with error state so that
+  * jenkins will get aware of some error if the process disappears without any trace,
+  * for example ctest killed it (via SIGSTOP, which can't be captured) for timeout.
+  */
+void            pre_populate_error_result_xml();
+
 }  // namespace foedus
 
 #define TEST_QUOTE(str) #str
