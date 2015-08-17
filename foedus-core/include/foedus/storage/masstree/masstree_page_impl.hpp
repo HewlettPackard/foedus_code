@@ -388,8 +388,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
   ErrorCode adopt_from_child(
     thread::Thread* context,
     KeySlice searching_slice,
-    uint8_t minipage_index,
-    uint8_t pointer_index,
     MasstreePage* child);
 
 
