@@ -1152,8 +1152,6 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
 ErrorCode MasstreeIntermediatePage::adopt_from_child(
   thread::Thread* context,
   KeySlice searching_slice,
-  uint8_t minipage_index,
-  uint8_t pointer_index,
   MasstreePage* child) {
   ASSERT_ND(!is_retired());
   PageVersionLockScope scope(context, get_version_address());
@@ -1163,7 +1161,9 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   }
 
   uint8_t key_count = get_key_count();
+  auto minipage_index = find_minipage(searching_slice);
   MiniPage& minipage = get_minipage(minipage_index);
+  auto pointer_index = minipage.find_pointer(searching_slice);
   ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
   {
     if (minipage_index > key_count || pointer_index > minipage.key_count_) {
