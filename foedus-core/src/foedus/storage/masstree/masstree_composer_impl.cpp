@@ -2348,8 +2348,7 @@ ErrorStack MasstreeComposeContext::install_snapshot_pointers(uint64_t* installed
   {
     // first, install pointers. this step is quickly and safely done after taking a page lock.
     // recursion is done after releasing this lock because it might take long time.
-    assorted::memory_fence_acq_rel();
-    // TODO(Hideaki) PAGE LOCK HERE
+    xct::McsOwnerlessLockScope lock_scope(volatile_root->get_lock_address());
     uint16_t cur = 0;  // upto infos[cur] is the first that might fully contain the range
     for (MasstreeIntermediatePointerIterator it(volatile_root); it.is_valid(); it.next()) {
       KeySlice low = it.get_low_key();
@@ -2376,7 +2375,6 @@ ErrorStack MasstreeComposeContext::install_snapshot_pointers(uint64_t* installed
         recursion_targets.emplace_back(pointer.volatile_pointer_);
       }
     }
-    assorted::memory_fence_acq_rel();
   }
 
   // The recursion is not transactionally protected. That's fine; even if we skip over
@@ -2452,8 +2450,7 @@ ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse_intermediate
   {
     // look for exactly matching page boundaries. we install pointer only in exact match case
     // while we recurse on every volatile page.
-    assorted::memory_fence_acq_rel();
-    // TODO(Hideaki) PAGE LOCK HERE
+    xct::McsOwnerlessLockScope lock_scope(volatile_page->get_lock_address());
     for (MasstreeIntermediatePointerIterator it(volatile_page); it.is_valid(); it.next()) {
       KeySlice low = it.get_low_key();
       KeySlice high = it.get_high_key();
@@ -2472,7 +2469,6 @@ ErrorCode MasstreeComposeContext::install_snapshot_pointers_recurse_intermediate
         ++recursion_target_count;
       }
     }
-    assorted::memory_fence_acq_rel();
   }
 
   for (uint16_t i = 0; i < recursion_target_count; ++i) {
