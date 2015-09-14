@@ -839,6 +839,18 @@ void Thread::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_i
   pimpl_->mcs_release_lock(mcs_lock, block_index);
 }
 
+void Thread::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
+  ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
+}
+
+void Thread::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {
+  ThreadPimpl::mcs_ownerless_acquire_lock(mcs_lock);
+}
+
+void Thread::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
+  ThreadPimpl::mcs_ownerless_release_lock(mcs_lock);
+}
+
 inline void assert_mcs_aligned(const void* address) {
   ASSERT_ND(address);
   ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 4 == 0);
@@ -895,23 +907,51 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
   my_block->clear_successor_release();
   control_block_->mcs_waiting_.store(true, std::memory_order_release);
   uint32_t desired = xct::McsLock::to_int(id_, block_index);
+  uint32_t group_tail = desired;
   uint32_t* address = &(mcs_lock->data_);
   assert_mcs_aligned(address);
 
-  // atomic op should imply full barrier, but make sure announcing the initialized new block.
-  uint32_t old_int = assorted::raw_atomic_exchange<uint32_t>(address, desired);
+  uint32_t pred_int = 0;
+  while (true) {
+    // if it's obviously locked by a guest, we should wait until it's released.
+    // so far this is busy-wait, we can do sth. to prevent priority inversion later.
+    if (UNLIKELY(*address == xct::kMcsGuestId)) {
+      spin_until([address]{
+        return assorted::atomic_load_acquire<uint32_t>(address) == xct::kMcsGuestId;
+      });
+    }
 
-  xct::McsLock old;
-  old.data_ = old_int;
-  if (!old.is_locked()) {
-    // this means it was not locked.
-    ASSERT_ND(mcs_lock->is_locked());
-    DVLOG(2) << "Okay, got a lock uncontended. me=" << id_;
-    control_block_->mcs_waiting_.store(false, std::memory_order_release);
-    // atomic swap should imply full barrier, so we only put a release barrier.
-    return block_index;
+    // atomic op should imply full barrier, but make sure announcing the initialized new block.
+    ASSERT_ND(group_tail != xct::kMcsGuestId);
+    ASSERT_ND(group_tail != 0);
+    ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != group_tail);
+    pred_int = assorted::raw_atomic_exchange<uint32_t>(address, group_tail);
+    ASSERT_ND(pred_int != group_tail);
+    ASSERT_ND(pred_int != desired);
+
+    if (pred_int == 0) {
+      // this means it was not locked.
+      ASSERT_ND(mcs_lock->is_locked());
+      DVLOG(2) << "Okay, got a lock uncontended. me=" << id_;
+      control_block_->mcs_waiting_.store(false, std::memory_order_release);
+      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+      return block_index;
+    } else if (UNLIKELY(pred_int == xct::kMcsGuestId)) {
+      // ouch, I don't want to keep the guest ID! return it back.
+      // This also determines the group_tail of this queue
+      group_tail = assorted::raw_atomic_exchange<uint32_t>(address, xct::kMcsGuestId);
+      ASSERT_ND(group_tail != 0 && group_tail != xct::kMcsGuestId);
+      continue;
+    } else {
+      break;
+    }
   }
 
+  ASSERT_ND(pred_int != 0 && pred_int != xct::kMcsGuestId);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
+  xct::McsLock old;
+  old.data_ = pred_int;
   ASSERT_ND(mcs_lock->is_locked());
   ThreadId predecessor_id = old.get_tail_waiter();
   ASSERT_ND(predecessor_id != id_);
@@ -935,13 +975,35 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
 
   pred_block->set_successor_release(id_, block_index);
 
-  spin_until([this]{ return this->control_block_->mcs_waiting_.load(); });
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
+  spin_until([this]{ return this->control_block_->mcs_waiting_.load(std::memory_order_acquire); });
   DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
   ASSERT_ND(!control_block_->mcs_waiting_);
   ASSERT_ND(mcs_lock->is_locked());
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
   return block_index;
 }
 
+void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {
+  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
+  // Also, the performance of this method really matters, especially that of common path.
+  // Check objdump -d. Everything in common path should be inlined.
+  // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
+  assert_mcs_aligned(mcs_lock);
+  uint32_t* address = &(mcs_lock->data_);
+  assert_mcs_aligned(address);
+  spin_until([mcs_lock, address]{
+    uint32_t old_int = xct::McsLock::to_int(0, 0);
+    return !assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      address,
+      &old_int,
+      xct::kMcsGuestId);
+  });
+  DVLOG(1) << "Okay, now I hold the lock. me=guest";
+  ASSERT_ND(mcs_lock->is_locked());
+}
 xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* mcs_lock) {
   // Basically _all_ writes in this function must come with release barrier.
   // This method itself doesn't need barriers, but then we need to later take a seq_cst barrier
@@ -960,6 +1022,12 @@ xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* mcs_lock) {
   return block_index;
 }
 
+void ThreadPimpl::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
+  assert_mcs_aligned(mcs_lock);
+  ASSERT_ND(!mcs_lock->is_locked());
+  mcs_lock->reset_guest_id_release();
+}
+
 void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
@@ -970,20 +1038,25 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ASSERT_ND(mcs_lock->is_locked());
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
+  const uint32_t myself = xct::McsLock::to_int(id_, block_index);
+  uint32_t* address = &(mcs_lock->data_);
   xct::McsBlock* block = mcs_blocks_ + block_index;
   if (!block->has_successor()) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
-    uint32_t expected = xct::McsLock::to_int(id_, block_index);
-    uint32_t* address = &(mcs_lock->data_);
+    uint32_t expected = myself;
     assert_mcs_aligned(address);
     bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, &expected, 0);
     if (swapped) {
       // we have just unset the locked flag, but someone else might have just acquired it,
       // so we can't put assertion here.
       ASSERT_ND(id_ == 0 || mcs_lock->get_tail_waiter() != id_);
+      ASSERT_ND(expected == myself);
+      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
       DVLOG(2) << "Okay, release a lock uncontended. me=" << id_;
       return;
     }
+    ASSERT_ND(expected != 0);
+    ASSERT_ND(expected != xct::kMcsGuestId);
     DVLOG(0) << "Interesting contention on MCS release. I thought it's null, but someone has just "
       " jumped in. me=" << id_ << ", mcs_lock=" << *mcs_lock;
     // wait for someone else to set the successor
@@ -995,6 +1068,7 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   ThreadId successor_id = block->get_successor_thread_id();
   DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << successor_id;
   ASSERT_ND(successor_id != id_);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
 
   ThreadRef successor = pool_pimpl_->get_thread_ref(successor_id);
   ThreadControlBlock* successor_cb = successor.get_control_block();
@@ -1009,9 +1083,25 @@ void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex bl
   }
 #endif  // NDEBUG
 
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
   successor_cb->mcs_waiting_.store(false, std::memory_order_release);
+  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
 }
-
+void ThreadPimpl::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
+  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
+  // Also, the performance of this method really matters, especially that of common path.
+  // Check objdump -d. Everything in common path should be inlined.
+  // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
+  assert_mcs_aligned(mcs_lock);
+  uint32_t* address = &(mcs_lock->data_);
+  assert_mcs_aligned(address);
+  ASSERT_ND(mcs_lock->is_locked());
+  spin_until([address]{
+    uint32_t old_int = xct::kMcsGuestId;
+    return !assorted::raw_atomic_compare_exchange_weak<uint32_t>(address, &old_int, 0);
+  });
+  DVLOG(1) << "Okay, guest released the lock.";
+}
 static_assert(
   sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
   "ThreadControlBlock is too large.");

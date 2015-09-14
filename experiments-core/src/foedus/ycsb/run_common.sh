@@ -2,14 +2,15 @@ echo "FOEDUS YCSB experiments script for $machine_shortname ($machine_name)"
 echo "thread_per_node=$thread_per_node, numa_nodes=$numa_nodes, snapshot_pool_size=$snapshot_pool_size, reducer_buffer_size=$reducer_buffer_size."
 echo "loggers_per_node=$loggers_per_node, volatile_pool_size=$volatile_pool_size, log_buffer_mb=$log_buffer_mb, duration_micro=$duration_micro."
 echo "workload=$workload, max_scan_length=$max_scan_length, read_all_fields=$read_all_fields, write_all_fields=$write_all_fields."
-echo "initial_table_size=$initial_table_size, random_inserts=$random_inserts, ordered_inserts=$ordered_inserts, sort_load_keys=$sort_load_keys."
+echo "initial_table_size=$initial_table_size, random_inserts=$random_inserts, ordered_inserts=$ordered_inserts, sort_load_keys=$sort_load_keys,"
+echo "fork_workers=$fork_workers, null_log_device=$null_log_device, high_priority=$high_priority."
 
 result_dir="result_ycsb_$workload_`date +%s`"
 
 mkdir -p $result_dir
 export CPUPROFILE_FREQUENCY=1 # https://code.google.com/p/gperftools/issues/detail?id=133
 
-options="-thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -loggers_per_node=$loggers_per_node -volatile_pool_size=$volatile_pool_size -log_buffer_mb=$log_buffer_mb -duration_micro=$duration_micro -workload=$workload -max_scan_length=$max_scan_length -read_all_fields=$read_all_fields -write_all_fields=$write_all_fields -initial_table_size=$initial_table_size -random_inserts=$random_inserts -ordered_inserts=$ordered_inserts -sort_load_keys=$sort_load_keys"
+options="-thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -loggers_per_node=$loggers_per_node -volatile_pool_size=$volatile_pool_size -log_buffer_mb=$log_buffer_mb -duration_micro=$duration_micro -workload=$workload -max_scan_length=$max_scan_length -read_all_fields=$read_all_fields -write_all_fields=$write_all_fields -initial_table_size=$initial_table_size -random_inserts=$random_inserts -ordered_inserts=$ordered_inserts -sort_load_keys=$sort_load_keys -fork_workers=$fork_workers"
 
 echo $options > $result_dir/options.txt
 
