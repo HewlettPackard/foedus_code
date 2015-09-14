@@ -291,6 +291,14 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsBlockIndex head_block,
     uint16_t batch_size);
 
+  /**
+   * Ownerless versions of mcs_acquire/release_lock().
+   * These are static methods, no context needed.
+   */
+  static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
+
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch*        get_in_commit_epoch_address();
 

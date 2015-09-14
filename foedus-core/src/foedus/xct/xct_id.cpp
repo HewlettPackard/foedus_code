@@ -39,9 +39,15 @@ void McsLock::release_lock(thread::Thread* context, McsBlockIndex block) {
 }
 
 void McsLock::ownerless_acquire_lock() {
+  thread::Thread::mcs_ownerless_acquire_lock(this);
 }
 
 void McsLock::ownerless_release_lock() {
+  thread::Thread::mcs_ownerless_release_lock(this);
+}
+
+void McsLock::ownerless_initial_lock() {
+  thread::Thread::mcs_ownerless_initial_lock(this);
 }
 
 McsLockScope::McsLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
@@ -140,6 +146,44 @@ void McsLockScope::release() {
     if (block_) {
       context_->mcs_release_lock(lock_, block_);
       block_ = 0;
+    }
+  }
+}
+
+McsOwnerlessLockScope::McsOwnerlessLockScope() : lock_(nullptr), locked_by_me_(false) {}
+McsOwnerlessLockScope::McsOwnerlessLockScope(
+  McsLock* lock,
+  bool acquire_now,
+  bool non_racy_acquire)
+  : lock_(lock), locked_by_me_(false) {
+  if (acquire_now) {
+    acquire(non_racy_acquire);
+  }
+}
+McsOwnerlessLockScope::~McsOwnerlessLockScope() {
+  release();
+  lock_ = nullptr;
+  locked_by_me_ = false;
+}
+
+void McsOwnerlessLockScope::acquire(bool non_racy_acquire) {
+  if (is_valid()) {
+    if (!is_locked_by_me()) {
+      if (non_racy_acquire) {
+        lock_->ownerless_initial_lock();
+      } else {
+        lock_->ownerless_acquire_lock();
+      }
+      locked_by_me_ = true;
+    }
+  }
+}
+
+void McsOwnerlessLockScope::release() {
+  if (is_valid()) {
+    if (is_locked_by_me()) {
+      lock_->ownerless_release_lock();
+      locked_by_me_ = false;
     }
   }
 }
