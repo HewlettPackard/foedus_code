@@ -87,6 +87,11 @@ enum IsolationLevel {
 
 /** Index in thread-local MCS block. 0 means not locked. */
 typedef uint32_t McsBlockIndex;
+/**
+ * When MCS lock contains this value, this means the lock is held by a non-regular guest
+ * that doesn't have a context.
+ */
+const uint32_t kMcsGuestId = -1;
 
 /**
  * Represents an MCS node, a pair of node-owner (thread) and its block index.
@@ -197,6 +202,7 @@ struct McsLock {
 
   /// The followings are implemented in thread_pimpl.cpp along with the above methods,
   /// but these don't use any of Thread's context information.
+  void          ownerless_initial_lock();
   void          ownerless_acquire_lock();
   void          ownerless_release_lock();
 
@@ -206,6 +212,10 @@ struct McsLock {
 
   /** used only while page initialization */
   void  reset() ALWAYS_INLINE { data_ = 0; }
+
+  void  reset_guest_id_release() {
+    assorted::atomic_store_release<uint32_t>(&data_, kMcsGuestId);
+  }
 
   /** used only for initial_lock() */
   void  reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
@@ -574,6 +584,28 @@ struct McsLockScope {
   McsLock*        lock_;
   /** Non-0 when locked. 0 when already released or not yet acquired. */
   McsBlockIndex   block_;
+};
+
+class McsOwnerlessLockScope {
+ public:
+  McsOwnerlessLockScope();
+  McsOwnerlessLockScope(
+    McsLock* lock,
+    bool acquire_now = true,
+    bool non_racy_acquire = false);
+  ~McsOwnerlessLockScope();
+
+  bool is_valid() const { return lock_; }
+  bool is_locked_by_me() const { return locked_by_me_; }
+
+  /** Acquires the lock. Does nothing if already acquired or !is_valid(). */
+  void acquire(bool non_racy_acquire);
+  /** Release the lock if acquired. Does nothing if not or !is_valid(). */
+  void release();
+
+ private:
+  McsLock*        lock_;
+  bool            locked_by_me_;
 };
 
 /** Result of track_moved_record(). When failed to track, both null. */
