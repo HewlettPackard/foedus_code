@@ -235,6 +235,11 @@ int driver_main(int argc, char **argv) {
     options.thread_.thread_count_per_group_ = FLAGS_thread_per_node;
   }
 
+  if (FLAGS_null_log_device) {
+    std::cout << "/dev/null log device" << std::endl;
+    options.log_.emulation_.null_device_ = true;
+  }
+
   if (FLAGS_high_priority) {
     std::cout << "Will set highest priority to worker threads" << std::endl;
     options.thread_.overwrite_thread_schedule_ = true;
