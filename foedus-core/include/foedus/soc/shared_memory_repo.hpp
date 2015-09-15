@@ -391,6 +391,9 @@ struct NodeMemoryAnchors {
    */
   ThreadMemoryAnchors*  thread_anchors_;
 
+  /** By far the largest memory for volatile page pool on this node */
+  void*               volatile_page_pool_;
+
   /** sanity check boundaries to detect bogus memory accesses that overrun a memory region */
   assorted::ProtectedBoundary*              protected_boundaries_[kMaxBoundaries];
   /** To be a POD, we avoid vector and instead uses a fix-sized array */
@@ -457,8 +460,7 @@ class SharedMemoryRepo CXX11_FINAL {
     soc_count_(0),
     my_soc_id_(0),
     node_memories_(CXX11_NULLPTR),
-    node_memory_anchors_(CXX11_NULLPTR),
-    volatile_pools_(CXX11_NULLPTR) {}
+    node_memory_anchors_(CXX11_NULLPTR) {}
   ~SharedMemoryRepo() { deallocate_shared_memories(); }
 
   // Disable copy constructor
@@ -521,7 +523,7 @@ class SharedMemoryRepo CXX11_FINAL {
     return &node_memory_anchors_[node].thread_anchors_[thread_ordinal];
   }
 
-  void*       get_volatile_pool(SocId node) { return volatile_pools_[node].get_block(); }
+  void* get_volatile_pool(SocId node) { return node_memory_anchors_[node].volatile_page_pool_; }
 
   static uint64_t calculate_global_memory_size(uint64_t xml_size, const EngineOptions& options);
   static uint64_t calculate_node_memory_size(const EngineOptions& options);
@@ -540,22 +542,23 @@ class SharedMemoryRepo CXX11_FINAL {
 
   /**
    * Per-node memories that have to be accessible to other SOCs. Index is SOC-id.
+   * These memories are tied to the socket via libnuma.
+   * This memory consists of two pieces.
+   * The first piece is a relatively smaller
+   * memory that contains the following metadata:
    *  \li Channel memory between root and individual SOCs.
    *  \li All inputs/output of impersonated sessions are stored in this memory.
    *  \li Memory for MCS-locking.
    *  \li etc
-   * Each memory is tied to an SOC.
+   *
+   * The second piece is a large memory just for the volatile page pool in this node.
+   *
+   * We previously allocated these two pieces as different memory, but we wanted to
+   * reduce the number of shared memory blocks from 2s+1 to s+1 where s is the number
+   * of SOCs.
    */
   memory::SharedMemory* node_memories_;
   NodeMemoryAnchors*    node_memory_anchors_;
-
-  /**
-   * Memory for volatile page pool in each SOC. Index is SOC-id.
-   * This is by far the biggest shared memory.
-   * These are tied to each SOC, but still shared.
-   */
-  memory::SharedMemory* volatile_pools_;
-  // this is just one contiguous memory. no anchors needed.
 
   void init_empty(const EngineOptions& options);
 
@@ -606,7 +609,6 @@ class SharedMemoryRepo CXX11_FINAL {
     Eid eid,
     uint16_t node,
     uint64_t node_memory_size,
-    uint64_t volatile_pool_size,
     bool rigorous_memory_boundary_check,
     bool rigorous_page_boundary_check,
     ErrorStack* alloc_result,
