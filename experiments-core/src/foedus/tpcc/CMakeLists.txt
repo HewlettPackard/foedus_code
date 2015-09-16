@@ -23,6 +23,7 @@ target_link_libraries(tpcc_olap ${EXPERIMENT_LIB} gflags-static)
 
 # Copy the scripts to build folders. this is just for convenience
 configure_file(run_z820.sh run_z820.sh COPYONLY)
+configure_file(run_mid.sh run_mid.sh COPYONLY)
 configure_file(run_dl580.sh run_dl580.sh COPYONLY)
 configure_file(run_dragonhawk.sh run_dragonhawk.sh COPYONLY)
 configure_file(run_common.sh run_common.sh COPYONLY)
@@ -30,16 +31,19 @@ configure_file(run_common.sh run_common.sh COPYONLY)
 # For main-memory experiments, but with logs on NVM
 configure_file(run_withlog_z820.sh run_withlog_z820.sh COPYONLY)
 configure_file(run_withlog_dl580.sh run_withlog_dl580.sh COPYONLY)
+configure_file(run_withlog_mid.sh run_withlog_mid.sh COPYONLY)
 configure_file(run_withlog_dragonhawk.sh run_withlog_dragonhawk.sh COPYONLY)
 configure_file(run_withlog.sh run_withlog.sh COPYONLY)
 
 # For OLAP experiments
 configure_file(run_olap_z820.sh run_olap_z820.sh COPYONLY)
+configure_file(run_olap_mid.sh run_olap_mid.sh COPYONLY)
 configure_file(run_olap_dragonhawk.sh run_olap_dragonhawk.sh COPYONLY)
 configure_file(run_olap.sh run_olap.sh COPYONLY)
 
 # For NVM experiments
 configure_file(run_nvm_z820.sh run_nvm_z820.sh COPYONLY)
+configure_file(run_nvm_mid.sh run_nvm_mid.sh COPYONLY)
 configure_file(run_nvm_dl580.sh run_nvm_dl580.sh COPYONLY)
 configure_file(run_nvm_dragonhawk.sh run_nvm_dragonhawk.sh COPYONLY)
 configure_file(run_nvm.sh run_nvm.sh COPYONLY)
