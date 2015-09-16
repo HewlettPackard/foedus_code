@@ -33,6 +33,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
+#include "foedus/assorted/zipfian_random.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
@@ -90,6 +91,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
   // figure out how many cores we have (basically by adding individual core counts up).
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
+  assorted::ZipfianRandom zrnd_key_high(total_thread_count, zipfian_theta_, total_thread_count);
+  // One zrnd per thread-partition
+  std::vector<assorted::ZipfianRandom> vec_zrnd_key_low;
+  for (uint32_t c = 0; c < total_thread_count; c++) {
+    auto cnt = get_local_key_counter(engine_, c)->key_counter_;
+    vec_zrnd_key_low.emplace_back(cnt - 1, zipfian_theta_, c);
+  }
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -126,16 +134,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           }
         }
       } else {
-        // Choose a high-bits field first. Then take a look at that worker's local counter
-        auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
-        auto cnt = channel_->peek_local_key_counter(engine_, high);
-        // The load should have inserted at least one record on behalf of this worker
-        ASSERT_ND(cnt > 0);
-        auto low = rnd_record_select_.uniform_within(0, cnt - 1);
         if (xct_type <= workload_.read_percent_) {
-          ret = do_read(build_key(high, low));
+          ret = do_read(build_rus_key(total_thread_count));
         } else if (xct_type <= workload_.update_percent_) {
-          ret = do_update(build_key(high, low));
+          ret = do_update(build_rus_key(total_thread_count));
         } else if (xct_type <= workload_.scan_percent_) {
 #ifdef YCSB_HASH_STORAGE
           ret = kErrorCodeInvalidParameter;
@@ -143,10 +145,12 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 #else
           auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
           increment_total_scans();
-          ret = do_scan(build_key(high, low), nrecs);
+          ret = do_scan(build_rus_key(total_thread_count), nrecs);
 #endif
         } else {  // read-modify-write
-          ret = do_rmw(build_key(high, low));
+          auto hi = zrnd_key_high.next();
+          auto lo = vec_zrnd_key_low[hi].next();
+          ret = do_rmw(build_key(hi, lo));
         }
       }
 

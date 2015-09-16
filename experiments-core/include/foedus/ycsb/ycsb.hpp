@@ -214,6 +214,7 @@ class YcsbClientTask {
   struct Inputs {
     uint32_t worker_id_;
     YcsbWorkload workload_;
+    double zipfian_theta_;
     bool read_all_fields_;
     bool write_all_fields_;
     bool random_inserts_;
@@ -244,6 +245,7 @@ class YcsbClientTask {
       random_inserts_(inputs.random_inserts_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
+      zipfian_theta_(inputs.zipfian_theta_),
       rnd_record_select_(4584287 + inputs.worker_id_),
       rnd_field_select_(37 + inputs.worker_id_),
       rnd_scan_length_select_(47920 + inputs.worker_id_),
@@ -267,6 +269,7 @@ class YcsbClientTask {
   bool random_inserts_;
   Outputs* outputs_;
   PerWorkerCounter* local_key_counter_;
+  double zipfian_theta_;
   YcsbKey key_arena_;   // Don't use this from other threads!
 
   Engine* engine_;
@@ -279,14 +282,30 @@ class YcsbClientTask {
   YcsbClientChannel *channel_;
 
   // A random source for each type of operation
-  // TODO(tzwang): add zipfian etc.
+  // FIXME(tzwang): right now we only support Zipfian record selection
+  // for RMW transactions. For other workloads with inserts, database size
+  // increases over time, making it hard to get a random number following
+  // zipfian fast. RMW workload (aka YCSB-F here) doesn't grow the database
+  // so we can use zipfian for it.
   assorted::UniformRandom rnd_record_select_;
   assorted::UniformRandom rnd_field_select_;
   assorted::UniformRandom rnd_scan_length_select_;
   assorted::UniformRandom rnd_xct_select_;
 
+  // A generic key-build routine
   YcsbKey& build_key(uint32_t high_bits, uint32_t low_bits) {
     return key_arena_.build(high_bits, low_bits);
+  }
+
+  // Compose a key for read/update/scan
+  YcsbKey& build_rus_key(uint32_t total_thread_count) {
+    // Choose a high-bits field first. Then take a look at that worker's local counter
+    auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
+    auto cnt = channel_->peek_local_key_counter(engine_, high);
+    // The load should have inserted at least one record on behalf of this worker
+    ASSERT_ND(cnt > 0);
+    auto low = rnd_record_select_.uniform_within(0, cnt - 1);
+    return key_arena_.build(high, low);
   }
 
   uint64_t get_race_aborts() const { return outputs_->race_aborts_; }
