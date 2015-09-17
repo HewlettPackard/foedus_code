@@ -20,8 +20,10 @@
 
 #include <stdint.h>
 
-#include "uniform_random.hpp"
+#include <cmath>
+
 #include "foedus/assert_nd.hpp"
+#include "foedus/assorted/uniform_random.hpp"
 #include "foedus/memory/fwd.hpp"
 
 namespace foedus {
@@ -29,7 +31,7 @@ namespace assorted {
 /**
  * @brief A simple zipfian generator based off of YCSB's Java implementation.
  * The major user is YCSB. 0 < theta < 1, lower means more skewed.
- * Generates a random number between 0 and max_exclusive_ -1.
+ * Generates a random number between 0 and max_.
  * @ingroup ASSORTED
  */
 class ZipfianRandom {
@@ -43,11 +45,11 @@ class ZipfianRandom {
   }
 
   void init(uint64_t items, double theta, uint64_t urnd_seed) {
-    max_exclusive_ = items - 1;
+    max_ = items - 1;
     theta_ = theta;
-    zetan_ = zeta(max_exclusive_);
+    zetan_ = zeta(max_);
     alpha_ = 1.0 / (1.0 - theta_);
-    eta_ = (1 - std::pow(2.0 / max_exclusive_, 1 - theta_)) / (1 - zeta(2) / zetan_);
+    eta_ = (1 - std::pow(2.0 / max_, 1 - theta_)) / (1 - zeta(2) / zetan_);
     urnd_.set_current_seed(urnd_seed);
   }
 
@@ -59,7 +61,7 @@ class ZipfianRandom {
   explicit ZipfianRandom() {}
 
   uint64_t next() {
-    double u = urnd_.uniform_within(0, 100) / 100.0;
+    double u = urnd_.uniform_within(0, 99) / 100.0;
     double uz = u * zetan_;
     if (uz < 1.0) {
       return 0;
@@ -69,13 +71,13 @@ class ZipfianRandom {
       return 1;
     }
 
-    uint64_t ret = (uint64_t)(max_exclusive_ * std::pow(eta_ * u - eta_ + 1, alpha_));
+    uint64_t ret = (uint64_t)(max_ * std::pow(eta_ * u - eta_ + 1, alpha_));
     return ret;
   }
 
  private:
   assorted::UniformRandom urnd_;
-  uint64_t max_exclusive_;
+  uint64_t max_;
   uint64_t base_;
   double theta_;
   double zetan_;
