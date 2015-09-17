@@ -96,7 +96,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   std::vector<assorted::ZipfianRandom> vec_zrnd_key_low;
   for (uint32_t c = 0; c < total_thread_count; c++) {
     auto cnt = get_local_key_counter(engine_, c)->key_counter_;
-    vec_zrnd_key_low.emplace_back(cnt - 1, zipfian_theta_, c);
+    vec_zrnd_key_low.emplace_back(cnt, zipfian_theta_, c);
   }
 
   // Wait for the driver's order
