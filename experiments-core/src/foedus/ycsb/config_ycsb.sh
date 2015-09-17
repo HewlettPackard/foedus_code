@@ -1,8 +1,8 @@
 workload=A
 max_scan_length=1000
-read_all_fields=1
-write_all_fields=1
-initial_table_size=10000
+read_all_fields=0
+write_all_fields=0
+initial_table_size=1000000
 random_inserts=0
 ordered_inserts=0
 sort_load_keys=0
