@@ -329,7 +329,9 @@ ErrorStack YcsbDriver::run() {
     << " read: " << workload.read_percent() << "%"
     << " update: " << workload.update_percent() << "%"
     << " scan: " << workload.scan_percent() << "%"
-    << " rmw: " << workload.rmw_percent();
+    << " rmw: " << workload.rmw_percent() << "%"
+    << " rmw additional reads: " << workload.rmw_additional_reads_
+    << " operations per transaction: " << workload.reps_per_tx_;
 
   // Create an empty table
   Epoch ep;
