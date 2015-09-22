@@ -34,6 +34,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack.hpp"
 #include "foedus/assorted/cacheline.hpp"
+#include "foedus/assorted/zipfian_random.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/fs/filesystem.hpp"
@@ -89,6 +90,8 @@ DEFINE_int64(initial_table_size, 10000, "The number of records to insert at load
 DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
 DEFINE_bool(use_string_keys, true, "Whether the keys should start from 'user'.");
 DEFINE_bool(verify_loaded_data, true, "Whether to verify key length and value after loading.");
+DEFINE_double(zipfian_theta, 0.99, "The theta value in Zipfian distribution, 0 < theta < 1."
+  "Smaller = more sckewed.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -405,6 +408,7 @@ ErrorStack YcsbDriver::run() {
       thread::ImpersonateSession session;
       YcsbClientTask::Inputs inputs;
       inputs.worker_id_ = worker_id;
+      inputs.zipfian_theta_ = FLAGS_zipfian_theta;
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
       inputs.random_inserts_ = FLAGS_random_inserts;
