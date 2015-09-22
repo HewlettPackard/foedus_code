@@ -30,7 +30,7 @@ namespace foedus {
 namespace assorted {
 /**
  * @brief A simple zipfian generator based off of YCSB's Java implementation.
- * The major user is YCSB. 0 < theta < 1, lower means more skewed.
+ * The major user is YCSB. 0 <= theta < 1, higher means more skewed.
  * Generates a random number between 0 and max_.
  * @ingroup ASSORTED
  */
@@ -47,9 +47,9 @@ class ZipfianRandom {
   void init(uint64_t items, double theta, uint64_t urnd_seed) {
     max_ = items - 1;
     theta_ = theta;
-    zetan_ = zeta(max_);
+    zetan_ = zeta(items);
     alpha_ = 1.0 / (1.0 - theta_);
-    eta_ = (1 - std::pow(2.0 / max_, 1 - theta_)) / (1 - zeta(2) / zetan_);
+    eta_ = (1 - std::pow(2.0 / items, 1 - theta_)) / (1 - zeta(2) / zetan_);
     urnd_.set_current_seed(urnd_seed);
   }
 
@@ -71,7 +71,7 @@ class ZipfianRandom {
       return 1;
     }
 
-    uint64_t ret = (uint64_t)(max_ * std::pow(eta_ * u - eta_ + 1, alpha_));
+    uint64_t ret = (uint64_t)((max_ + 1) * std::pow(eta_ * u - eta_ + 1, alpha_));
     return ret;
   }
 
