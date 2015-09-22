@@ -61,3 +61,5 @@ add_foedus_test_individual(test_const_div "${test_const_div_individual}")
 add_foedus_test_individual(test_fixed_string "Construct;Append;AppendTruncateAssign;AssignTruncate;Copy;Compare")
 
 add_foedus_test_individual(test_mprotect "SmallPage;HugePage")
+
+add_foedus_test_individual(test_zipfian_random "OneMillion")
