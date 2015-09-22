@@ -91,7 +91,7 @@ DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use ra
 DEFINE_bool(use_string_keys, true, "Whether the keys should start from 'user'.");
 DEFINE_bool(verify_loaded_data, true, "Whether to verify key length and value after loading.");
 DEFINE_double(zipfian_theta, 0.99, "The theta value in Zipfian distribution, 0 < theta < 1."
-  "Smaller = more sckewed.");
+  "Larger = more sckewed.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
