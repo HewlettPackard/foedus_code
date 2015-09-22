@@ -12,8 +12,10 @@ fork_workers=true
 null_log_device=false
 high_priority=false # To set this to true, you must add "yourname - rtprio 99" to limits.conf
 
-for theta in 0 0.99 do
-  for addread in 0 8 do
+for theta in 0 0.99
+do
+  for addread in 0 8
+  do
     . config_ycsb_f.sh $theta $addread `expr 10 - $addread`
     . run_common.sh
   done
