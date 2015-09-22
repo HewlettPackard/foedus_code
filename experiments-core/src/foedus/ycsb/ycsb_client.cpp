@@ -116,44 +116,63 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
       ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
-        YcsbKey key;
-        uint32_t high = worker_id_;
-        uint32_t* low = &local_key_counter_->key_counter_;
-        if (random_inserts_) {
-          high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
-          low = &(get_local_key_counter(engine_, high)->key_counter_);
-        }
-        ret = do_insert(build_key(worker_id_, *low));
-        // Only increment the key counter if committed to avoid holes in the key space and
-        // make sure other thread can get a valid key after peeking my counter
-        if (ret == kErrorCodeOk) {
+        for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
+          YcsbKey key;
+          uint32_t high = worker_id_;
+          uint32_t* low = &local_key_counter_->key_counter_;
           if (random_inserts_) {
-            __sync_fetch_and_add(low, 1);
-          } else {
-            (*low)++;
+            high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
+            low = &(get_local_key_counter(engine_, high)->key_counter_);
+          }
+          ret = do_insert(build_key(worker_id_, *low));
+          // Only increment the key counter if committed to avoid holes in the key space and
+          // make sure other thread can get a valid key after peeking my counter
+          if (ret == kErrorCodeOk) {
+            if (random_inserts_) {
+              __sync_fetch_and_add(low, 1);
+            } else {
+              (*low)++;
+            }
           }
         }
       } else {
         if (xct_type <= workload_.read_percent_) {
-          ret = do_read(build_rus_key(total_thread_count));
+          for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
+            ret = do_read(build_rus_key(total_thread_count));
+          }
         } else if (xct_type <= workload_.update_percent_) {
-          ret = do_update(build_rus_key(total_thread_count));
+          for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
+            ret = do_update(build_rus_key(total_thread_count));
+          }
         } else if (xct_type <= workload_.scan_percent_) {
 #ifdef YCSB_HASH_STORAGE
           ret = kErrorCodeInvalidParameter;
           COERCE_ERROR_CODE(ret);
 #else
-          auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
-          increment_total_scans();
-          ret = do_scan(build_rus_key(total_thread_count), nrecs);
+          for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
+            auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
+            increment_total_scans();
+            ret = do_scan(build_rus_key(total_thread_count), nrecs);
+          }
 #endif
         } else {  // read-modify-write
-          auto hi = zrnd_key_high.next();
-          auto lo = vec_zrnd_key_low[hi].next();
-          ret = do_rmw(build_key(hi, lo));
+          for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
+            auto hi = zrnd_key_high.next();
+            auto lo = vec_zrnd_key_low[hi].next();
+            ret = do_rmw(build_key(hi, lo));
+          }
+          for (int32_t ar = 0; ar < workload_.rmw_additional_reads_; ar++) {
+            // Follow skewed accessed in RMW
+            auto hi = zrnd_key_high.next();
+            auto lo = vec_zrnd_key_low[hi].next();
+            ret = do_read(build_key(hi, lo));
+          }
         }
       }
 
+      // Done with data access, try to commit
+      Epoch commit_epoch;
+      ret = xct_manager_->precommit_xct(context_, &commit_epoch);
       if (ret == kErrorCodeOk) {
         ASSERT_ND(!context->is_running_xct());
         break;
@@ -216,8 +235,7 @@ ErrorCode YcsbClientTask::do_read(const YcsbKey& key) {
     CHECK_ERROR_CODE(user_table_.get_record_part(context_,
       key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
   }
-  Epoch commit_epoch;
-  return xct_manager_->precommit_xct(context_, &commit_epoch);
+  return kErrorCodeOk;
 }
 
 ErrorCode YcsbClientTask::do_update(const YcsbKey& key) {
@@ -234,8 +252,7 @@ ErrorCode YcsbClientTask::do_update(const YcsbKey& key) {
     CHECK_ERROR_CODE(
       user_table_.overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
   }
-  Epoch commit_epoch;
-  return xct_manager_->precommit_xct(context_, &commit_epoch);
+  return kErrorCodeOk;
 }
 
 ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
@@ -271,15 +288,13 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
     CHECK_ERROR_CODE(
       user_table_.overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
   }
-  Epoch commit_epoch;
-  return xct_manager_->precommit_xct(context_, &commit_epoch);
+  return kErrorCodeOk;
 }
 
 ErrorCode YcsbClientTask::do_insert(const YcsbKey& key) {
   YcsbRecord r('a');
   CHECK_ERROR_CODE(user_table_.insert_record(context_, key.ptr(), key.size(), &r, sizeof(r)));
-  Epoch commit_epoch;
-  return xct_manager_->precommit_xct(context_, &commit_epoch);
+  return kErrorCodeOk;
 }
 
 #ifndef YCSB_HASH_STORAGE
@@ -294,8 +309,7 @@ ErrorCode YcsbClientTask::do_scan(const YcsbKey& start_key, uint64_t nrecs) {
     increment_total_scan_length();
     cursor.next();
   }
-  Epoch commit_epoch;
-  return xct_manager_->precommit_xct(context_, &commit_epoch);
+  return kErrorCodeOk;
 }
 #endif
 
