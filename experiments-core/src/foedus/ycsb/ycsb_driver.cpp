@@ -91,7 +91,11 @@ DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use ra
 DEFINE_bool(use_string_keys, true, "Whether the keys should start from 'user'.");
 DEFINE_bool(verify_loaded_data, true, "Whether to verify key length and value after loading.");
 DEFINE_double(zipfian_theta, 0.99, "The theta value in Zipfian distribution, 0 < theta < 1."
-  "Smaller = more sckewed.");
+  " Larger = more sckewed.");
+DEFINE_int32(rmw_additional_reads, 10, "The number of reads in an RMW transaction.");
+DEFINE_int32(reps_per_tx, 1, "The number of operations to repeat in each transaction."
+  " For instance, setting this to 10 and running workload F means 'do 10 RMWs in each tx'."
+  " Records are choosen by the corresponding RNG used by the transaction.");
 
 // If this is enabled, the original YCSB implementation gives a fully ordered key across all
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
@@ -106,6 +110,8 @@ YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0,    0);     // Workload B - 95
 YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0,    0);     // Workload C - 100% read
 YcsbWorkload YcsbWorkloadD('D', 5U, 100U, 0,    0,    0);     // Workload D - 95% read, 5% insert
 YcsbWorkload YcsbWorkloadE('E', 5U, 0,    0,    100U, 0);     // Workload E - 5% insert, 95% scan
+
+// Combine reps_per_tx and rmw_additional_reads to have "10R+10RMW" style transactions.
 YcsbWorkload YcsbWorkloadF('F', 0,  0,    0,    0,    100U);  // Workload F - 100% RMW
 
 // Extra workloads (not in spec)
@@ -306,6 +312,7 @@ ErrorStack YcsbDriver::run() {
     workload = YcsbWorkloadE;
   } else if (FLAGS_workload == "F") {
     workload = YcsbWorkloadF;
+    workload.rmw_additional_reads_ = FLAGS_rmw_additional_reads;
   } else if (FLAGS_workload == "G") {
     workload = YcsbWorkloadG;
   } else if (FLAGS_workload == "H") {
@@ -314,13 +321,17 @@ ErrorStack YcsbDriver::run() {
     COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
 
+  workload.reps_per_tx_ = FLAGS_reps_per_tx;
+
   LOG(INFO)
     << "Workload -"
     << " insert: " << workload.insert_percent() << "%"
     << " read: " << workload.read_percent() << "%"
     << " update: " << workload.update_percent() << "%"
     << " scan: " << workload.scan_percent() << "%"
-    << " rmw: " << workload.rmw_percent();
+    << " rmw: " << workload.rmw_percent() << "%"
+    << " rmw additional reads: " << workload.rmw_additional_reads_
+    << " operations per transaction: " << workload.reps_per_tx_;
 
   // Create an empty table
   Epoch ep;
