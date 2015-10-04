@@ -116,6 +116,7 @@ WriteXctAccess create_write_access(int i) {
   access.payload_address_ = reinterpret_cast<char*>(to_ptr(i * 542312));
   access.storage_id_ = i * 52223ULL;
   access.owner_id_address_ = reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 14325));
+  access.write_set_ordinal_ = 0;  // we should have a testcase to test this order
   access.log_entry_ = reinterpret_cast<log::RecordLogType*>(to_ptr(i * 5423423));
   return access;
 }
