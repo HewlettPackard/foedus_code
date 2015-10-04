@@ -329,6 +329,15 @@ ErrorStack LogMapper::handle_process_buffer(const fs::DirectIoFile &file, IoBufS
     status->cur_inbuf_ += header->log_length_;
   }
 
+  // This fixes Bug #100. When a full mapper buffer exactly ends with a complete log,
+  // we must keep reading. Didn't
+  if (status->cur_inbuf_ == status->end_inbuf_aligned_
+      && status->end_infile_ > status->to_infile(status->cur_inbuf_)) {
+    LOG(INFO) << "Hooray, a full mapper buffer exactly ends with a complete log record. rare!";
+    status->next_infile_ = status->to_infile(status->cur_inbuf_);
+    status->more_in_the_file_ = true;
+  }
+
   // bucktized all logs. now let's send them out to reducers
   flush_all_buckets();
   return kRetOk;
