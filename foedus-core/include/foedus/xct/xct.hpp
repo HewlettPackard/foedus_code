@@ -434,6 +434,7 @@ inline ErrorCode Xct::add_to_write_set(
 
   write_set_[write_set_size_].storage_id_ = storage_id;
   write_set_[write_set_size_].mcs_block_ = 0;
+  write_set_[write_set_size_].write_set_ordinal_ = write_set_size_;
   write_set_[write_set_size_].owner_id_address_ = owner_id_address;
   write_set_[write_set_size_].payload_address_ = payload_address;
   write_set_[write_set_size_].log_entry_ = log_entry;

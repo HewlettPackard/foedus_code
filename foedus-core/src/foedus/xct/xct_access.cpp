@@ -57,6 +57,7 @@ std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
   o << "<WriteAccess><storage>" << v.storage_id_ << "</storage>"
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
     << "<mcs_block_>" << v.mcs_block_ << "</mcs_block_>"
+    << "<write_set_ordinal_>" << v.write_set_ordinal_ << "</write_set_ordinal_>"
     << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id><log>";
   log::invoke_ostream(v.log_entry_, &o);
   o << "</log>";

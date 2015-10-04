@@ -21,6 +21,7 @@
 
 #include <iosfwd>
 
+#include "foedus/compiler.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
@@ -107,10 +108,7 @@ struct ReadXctAccess {
   WriteXctAccess*     related_write_;
 
   /** sort the read set in a unique order. We use address of records as done in [TU2013]. */
-  static bool compare(const ReadXctAccess &left, const ReadXctAccess& right) {
-    return reinterpret_cast<uintptr_t>(left.owner_id_address_)
-      < reinterpret_cast<uintptr_t>(right.owner_id_address_);
-  }
+  static bool compare(const ReadXctAccess &left, const ReadXctAccess& right) ALWAYS_INLINE;
 };
 
 
@@ -133,6 +131,17 @@ struct WriteXctAccess {
    */
   McsBlockIndex         mcs_block_;
 
+  /**
+   * Indicates the ordinal among WriteXctAccess of this transaction.
+   * For example, first log record has 0, second 1,..
+   * Next transaction of this thread resets it to 0 at begin_xct.
+   * This is an auxiliary field we can potentially re-calculate from owner_id_address_,
+   * but it's tedious (it's not address order when it wraps around in log buffer).
+   * So, we maintain it here for sanity checks.
+   * Also used for stable sorting (in case owner_id_address_ is same) of write-sets.
+   */
+  uint32_t              write_set_ordinal_;
+
   /** Pointer to the accessed record. */
   LockableXctId*        owner_id_address_;
 
@@ -146,10 +155,7 @@ struct WriteXctAccess {
   ReadXctAccess*        related_read_;
 
   /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
-  static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) {
-    return reinterpret_cast<uintptr_t>(left.owner_id_address_)
-      < reinterpret_cast<uintptr_t>(right.owner_id_address_);
-  }
+  static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) ALWAYS_INLINE;
 };
 
 
@@ -176,6 +182,23 @@ struct LockFreeWriteXctAccess {
 
   // no need for compare method or storing version/record/etc. it's lock-free!
 };
+
+inline bool ReadXctAccess::compare(const ReadXctAccess &left, const ReadXctAccess& right) {
+  return reinterpret_cast<uintptr_t>(left.owner_id_address_)
+    < reinterpret_cast<uintptr_t>(right.owner_id_address_);
+}
+
+inline bool WriteXctAccess::compare(
+  const WriteXctAccess &left,
+  const WriteXctAccess& right) {
+  uintptr_t left_address = reinterpret_cast<uintptr_t>(left.owner_id_address_);
+  uintptr_t right_address = reinterpret_cast<uintptr_t>(right.owner_id_address_);
+  if (left_address != right_address) {
+    return left_address < right_address;
+  } else {
+    return left.write_set_ordinal_ < right.write_set_ordinal_;
+  }
+}
 
 }  // namespace xct
 }  // namespace foedus
