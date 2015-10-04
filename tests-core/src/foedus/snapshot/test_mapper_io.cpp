@@ -80,7 +80,8 @@ ErrorStack load_task(const proc::ProcArguments& args) {
     const uint32_t kLogsPerBatch = 50;
     WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     while (true) {
-      *reinterpret_cast<uint64_t*>(payload) = i;
+      uint64_t num = i;
+      std::memcpy(payload, &num, sizeof(num));
       WRAP_ERROR_CODE(array.overwrite_record(context, 0, payload));
       ++i;
       if (i % kLogsPerBatch == 0 || i >= log_count) {
@@ -112,13 +113,16 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
 
   char payload_correct[1U << 12];
   std::memset(payload_correct, 0, payload_size);
-  *reinterpret_cast<uint64_t*>(payload_correct) = static_cast<uint64_t>(log_count - 1);
+
+  uint64_t correct_num = log_count - 1;
+  std::memcpy(payload_correct, &correct_num, sizeof(correct_num));
 
   char payload[1U << 12];
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   WRAP_ERROR_CODE(array.get_record(context, 0, payload));
-  uint64_t payload_head = *reinterpret_cast<const uint64_t*>(payload);
-  EXPECT_EQ(log_count, payload_head + 1U);
+  uint64_t num = -1;
+  std::memcpy(&num, payload, sizeof(num));
+  EXPECT_EQ(log_count, num + 1U);
   EXPECT_EQ(std::string(payload_correct, payload_size), std::string(payload, payload_size));
 
   Epoch commit_epoch;
