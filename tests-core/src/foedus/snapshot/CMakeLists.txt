@@ -108,3 +108,5 @@ set(test_merge_sort_individuals
   MultiInputsDuplicatesMasstreeVarlen
   )
 add_foedus_test_individual(test_merge_sort "${test_merge_sort_individuals}")
+
+add_foedus_test_individual(test_mapper_io "OneIteration;TwoIterations")
