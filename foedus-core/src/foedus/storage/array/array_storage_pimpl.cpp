@@ -982,9 +982,8 @@ ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, Arra
       CHECK_AND_ASSERT(!record->owner_id_.is_deleted());
       CHECK_AND_ASSERT(!record->owner_id_.is_keylocked());
       CHECK_AND_ASSERT(!record->owner_id_.is_moved());
-      CHECK_AND_ASSERT(record->owner_id_.lock_.get_version() == 0);
-      CHECK_AND_ASSERT(record->owner_id_.lock_.get_key_lock()->get_tail_waiter() == 0);
-      CHECK_AND_ASSERT(record->owner_id_.lock_.get_key_lock()->get_tail_waiter_block() == 0);
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_tail_waiter() == 0);
+      CHECK_AND_ASSERT(record->owner_id_.lock_.get_tail_waiter_block() == 0);
     }
   } else {
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {

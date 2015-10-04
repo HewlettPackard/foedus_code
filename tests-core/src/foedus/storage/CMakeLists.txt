@@ -4,4 +4,3 @@ add_subdirectory(masstree)
 add_subdirectory(sequential)
 
 add_subdirectory(hash)
-
