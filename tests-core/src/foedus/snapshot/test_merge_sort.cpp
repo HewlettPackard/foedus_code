@@ -729,137 +729,137 @@ void test_multi_inputs_masstree_varlen(TestKeyDistribution distribution) {
   impl.merge_inputs(storage::kMasstreeStorage, masstree_varlen_verify);
 }
 
-TEST(MergeSortTestTest, SingleInputDistinctKeyArray) {
+TEST(MergeSortTest, SingleInputDistinctKeyArray) {
   test_single_inputs_array(kDistinctKey);
 }
-TEST(MergeSortTestTest, SingleInputDistinctEpochArray) {
+TEST(MergeSortTest, SingleInputDistinctEpochArray) {
   test_single_inputs_array(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, SingleInputDistinctOrdinalArray) {
+TEST(MergeSortTest, SingleInputDistinctOrdinalArray) {
   test_single_inputs_array(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, SingleInputDuplicatesArray) {
+TEST(MergeSortTest, SingleInputDuplicatesArray) {
   test_single_inputs_array(kDuplicates);
 }
 
-TEST(MergeSortTestTest, MultiInputsDistinctKeyArray) {
+TEST(MergeSortTest, MultiInputsDistinctKeyArray) {
   test_multi_inputs_array(kDistinctKey);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctEpochArray) {
+TEST(MergeSortTest, MultiInputsDistinctEpochArray) {
   test_multi_inputs_array(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctOrdinalArray) {
+TEST(MergeSortTest, MultiInputsDistinctOrdinalArray) {
   test_multi_inputs_array(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, MultiInputsDuplicatesArray) {
+TEST(MergeSortTest, MultiInputsDuplicatesArray) {
   test_multi_inputs_array(kDuplicates);
 }
 
-TEST(MergeSortTestTest, SingleInputDistinctKeyHashFixlen) {
+TEST(MergeSortTest, SingleInputDistinctKeyHashFixlen) {
   test_single_input_hash_fixlen(kDistinctKey);
 }
-TEST(MergeSortTestTest, SingleInputDistinctEpochHashFixlen) {
+TEST(MergeSortTest, SingleInputDistinctEpochHashFixlen) {
   test_single_input_hash_fixlen(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, SingleInputDistinctOrdinalHashFixlen) {
+TEST(MergeSortTest, SingleInputDistinctOrdinalHashFixlen) {
   test_single_input_hash_fixlen(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, SingleInputDuplicatesHashFixlen) {
+TEST(MergeSortTest, SingleInputDuplicatesHashFixlen) {
   test_single_input_hash_fixlen(kDuplicates);
 }
 
-TEST(MergeSortTestTest, MultiInputsDistinctKeyHashFixlen) {
+TEST(MergeSortTest, MultiInputsDistinctKeyHashFixlen) {
   test_multi_inputs_hash_fixlen(kDistinctKey);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctEpochHashFixlen) {
+TEST(MergeSortTest, MultiInputsDistinctEpochHashFixlen) {
   test_multi_inputs_hash_fixlen(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctOrdinalHashFixlen) {
+TEST(MergeSortTest, MultiInputsDistinctOrdinalHashFixlen) {
   test_multi_inputs_hash_fixlen(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, MultiInputsDuplicatesHashFixlen) {
+TEST(MergeSortTest, MultiInputsDuplicatesHashFixlen) {
   test_multi_inputs_hash_fixlen(kDuplicates);
 }
 
-TEST(MergeSortTestTest, SingleInputDistinctKeyHashVarlen) {
+TEST(MergeSortTest, SingleInputDistinctKeyHashVarlen) {
   test_single_input_hash_varlen(kDistinctKey);
 }
-TEST(MergeSortTestTest, SingleInputDistinctEpochHashVarlen) {
+TEST(MergeSortTest, SingleInputDistinctEpochHashVarlen) {
   test_single_input_hash_varlen(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, SingleInputDistinctOrdinalHashVarlen) {
+TEST(MergeSortTest, SingleInputDistinctOrdinalHashVarlen) {
   test_single_input_hash_varlen(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, SingleInputDuplicatesHashVarlen) {
+TEST(MergeSortTest, SingleInputDuplicatesHashVarlen) {
   test_single_input_hash_varlen(kDuplicates);
 }
 
-TEST(MergeSortTestTest, MultiInputsDistinctKeyHashVarlen) {
+TEST(MergeSortTest, MultiInputsDistinctKeyHashVarlen) {
   test_multi_inputs_hash_varlen(kDistinctKey);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctEpochHashVarlen) {
+TEST(MergeSortTest, MultiInputsDistinctEpochHashVarlen) {
   test_multi_inputs_hash_varlen(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctOrdinalHashVarlen) {
+TEST(MergeSortTest, MultiInputsDistinctOrdinalHashVarlen) {
   test_multi_inputs_hash_varlen(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, MultiInputsDuplicatesHashVarlen) {
+TEST(MergeSortTest, MultiInputsDuplicatesHashVarlen) {
   test_multi_inputs_hash_varlen(kDuplicates);
 }
 
-TEST(MergeSortTestTest, SingleInputDistinctKeyMasstreeNormalized) {
+TEST(MergeSortTest, SingleInputDistinctKeyMasstreeNormalized) {
   test_single_input_masstree_normalized(kDistinctKey);
 }
-TEST(MergeSortTestTest, SingleInputDistinctEpochMasstreeNormalized) {
+TEST(MergeSortTest, SingleInputDistinctEpochMasstreeNormalized) {
   test_single_input_masstree_normalized(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, SingleInputDistinctOrdinalMasstreeNormalized) {
+TEST(MergeSortTest, SingleInputDistinctOrdinalMasstreeNormalized) {
   test_single_input_masstree_normalized(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, SingleInputDuplicatesMasstreeNormalized) {
+TEST(MergeSortTest, SingleInputDuplicatesMasstreeNormalized) {
   test_single_input_masstree_normalized(kDuplicates);
 }
 
-TEST(MergeSortTestTest, MultiInputsDistinctKeyMasstreeNormalized) {
+TEST(MergeSortTest, MultiInputsDistinctKeyMasstreeNormalized) {
   test_multi_inputs_masstree_normalized(kDistinctKey);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctEpochMasstreeNormalized) {
+TEST(MergeSortTest, MultiInputsDistinctEpochMasstreeNormalized) {
   test_multi_inputs_masstree_normalized(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctOrdinalMasstreeNormalized) {
+TEST(MergeSortTest, MultiInputsDistinctOrdinalMasstreeNormalized) {
   test_multi_inputs_masstree_normalized(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, MultiInputsDuplicatesMasstreeNormalized) {
+TEST(MergeSortTest, MultiInputsDuplicatesMasstreeNormalized) {
   test_multi_inputs_masstree_normalized(kDuplicates);
 }
 
-TEST(MergeSortTestTest, SingleInputDistinctKeyMasstreeVarlen) {
+TEST(MergeSortTest, SingleInputDistinctKeyMasstreeVarlen) {
   test_single_input_masstree_varlen(kDistinctKey);
 }
-TEST(MergeSortTestTest, SingleInputDistinctEpochMasstreeVarlen) {
+TEST(MergeSortTest, SingleInputDistinctEpochMasstreeVarlen) {
   test_single_input_masstree_varlen(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, SingleInputDistinctOrdinalMasstreeVarlen) {
+TEST(MergeSortTest, SingleInputDistinctOrdinalMasstreeVarlen) {
   test_single_input_masstree_varlen(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, SingleInputDuplicatesMasstreeVarlen) {
+TEST(MergeSortTest, SingleInputDuplicatesMasstreeVarlen) {
   test_single_input_masstree_varlen(kDuplicates);
 }
 
-TEST(MergeSortTestTest, MultiInputsDistinctKeyMasstreeVarlen) {
+TEST(MergeSortTest, MultiInputsDistinctKeyMasstreeVarlen) {
   test_multi_inputs_masstree_varlen(kDistinctKey);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctEpochMasstreeVarlen) {
+TEST(MergeSortTest, MultiInputsDistinctEpochMasstreeVarlen) {
   test_multi_inputs_masstree_varlen(kDistinctEpoch);
 }
-TEST(MergeSortTestTest, MultiInputsDistinctOrdinalMasstreeVarlen) {
+TEST(MergeSortTest, MultiInputsDistinctOrdinalMasstreeVarlen) {
   test_multi_inputs_masstree_varlen(kDistinctOrdinal);
 }
-TEST(MergeSortTestTest, MultiInputsDuplicatesMasstreeVarlen) {
+TEST(MergeSortTest, MultiInputsDuplicatesMasstreeVarlen) {
   test_multi_inputs_masstree_varlen(kDuplicates);
 }
 
 }  // namespace snapshot
 }  // namespace foedus
 
-TEST_MAIN_CAPTURE_SIGNALS(MergeSortTestTest, foedus.snapshot);
+TEST_MAIN_CAPTURE_SIGNALS(MergeSortTest, foedus.snapshot);
