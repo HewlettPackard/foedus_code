@@ -467,6 +467,13 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   uint32_t        write_set_size = current_xct.get_write_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
+#ifndef NDEBUG
+  // Initially, write-sets must be ordered by the insertion order.
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    ASSERT_ND(write_set[i].write_set_ordinal_ == i);
+  }
+#endif  // NDEBUG
+
   // we have to access the owner_id's pointed address. let's prefetch them in parallel
   for (uint32_t i = 0; i < write_set_size; ++i) {
     assorted::prefetch_cacheline(write_set[i].owner_id_address_);
@@ -505,11 +512,17 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     ASSERT_ND(current_xct.assert_related_read_write());
 
 #ifndef NDEBUG
-    // check that write sets are now sorted
+    // check that write sets are now sorted.
+    // when address is the same, they must be ordered by the order they are created.
+    // eg: repeated overwrites to one record should be applied in the order the user issued.
     for (uint32_t i = 1; i < write_set_size; ++i) {
-      ASSERT_ND(
-        write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_ ||
-        WriteXctAccess::compare(write_set[i - 1], write_set[i]));
+      ASSERT_ND(write_set[i - 1].write_set_ordinal_ != write_set[i].write_set_ordinal_);
+      if (write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_) {
+        ASSERT_ND(write_set[i - 1].write_set_ordinal_ < write_set[i].write_set_ordinal_);
+      } else {
+        ASSERT_ND(reinterpret_cast<uintptr_t>(write_set[i - 1].owner_id_address_)
+          < reinterpret_cast<uintptr_t>(write_set[i].owner_id_address_));
+      }
     }
 #endif  // NDEBUG
 
@@ -679,11 +692,23 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
       // write set is sorted. so we can do binary search.
       WriteXctAccess dummy;
       dummy.owner_id_address_ = access.owner_id_address_;
-      bool found = std::binary_search(
+      dummy.write_set_ordinal_ = 0;  // will catch the smallest possible of the address
+      const WriteXctAccess* lower_it = std::lower_bound(
         write_set,
         write_set + write_set_size,
         dummy,
         WriteXctAccess::compare);
+      bool found;
+      if (lower_it == write_set + write_set_size) {
+        found = false;
+        ASSERT_ND(reinterpret_cast<uintptr_t>(write_set[write_set_size - 1].owner_id_address_)
+            < reinterpret_cast<uintptr_t>(access.owner_id_address_));
+      } else {
+        ASSERT_ND(reinterpret_cast<uintptr_t>(lower_it->owner_id_address_)
+            >= reinterpret_cast<uintptr_t>(access.owner_id_address_));
+        found = (lower_it->owner_id_address_ == access.owner_id_address_);
+      }
+
       if (!found) {
         DLOG(WARNING) << *context << " no, not me. will abort";
         return false;
