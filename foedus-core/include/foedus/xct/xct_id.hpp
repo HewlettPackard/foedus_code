@@ -177,9 +177,10 @@ struct McsBlock {
  * The MCS-lock nodes are pre-allocated for each thread and placed in shared memory.
  */
 struct McsLock {
-  McsLock() { data_ = 0; }
+  McsLock() { data_ = 0; unused_ = 0; }
   McsLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
     reset(tail_waiter, tail_waiter_block);
+    unused_ = 0;
   }
 
   McsLock(const McsLock& other) CXX11_FUNC_DELETE;
@@ -242,64 +243,9 @@ struct McsLock {
 
   friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
 
+  // these two will become one 64-bit integer.
   uint32_t data_;
-};
-
-/**
- * @brief MCS lock for key lock combined with other status; flags and range locks.
- * @ingroup XCT
- * @details
- * @par Range Lock
- * Unlike SILO [TU13], we use range-lock bit for protecting a gap rather than a node set, which
- * is unnecessarily conservative. It basically works same as key lock. One thing to remember is that
- * each B-tree page has an inclusive low-fence key and an exclusive high-fence key.
- * Range lock can protect a region from low-fence to the first key and a region from last key to
- * high-fence key.
- */
-class CombinedLock {
- public:
-  enum Constants {
-    kMaskVersion  = 0xFFFF,
-    // 17th-24th bits reserved for range lock implementation
-    kRangelockBit = 1 << 17,
-  };
-
-  CombinedLock() : key_lock_(), other_locks_(0) {}
-
-  bool is_keylocked() const ALWAYS_INLINE { return key_lock_.is_locked(); }
-  bool is_rangelocked() const ALWAYS_INLINE { return (other_locks_ & kRangelockBit) != 0; }
-
-  McsLock* get_key_lock() ALWAYS_INLINE { return &key_lock_; }
-  const McsLock* get_key_lock() const ALWAYS_INLINE { return &key_lock_; }
-
-  /** Not used yet... */
-  /*
-   * Highest 1 byte represents a loosely maintained NUMA-node of the last locker.
-   * This is only used as statistics in partitioning. Not atomically updated.
-   */
-  // uint8_t get_node_stat() const { return (other_locks_ & 0xFF000000U) >> 24;}
-  // void set_node_stat(uint8_t node) {
-  //  other_locks_ = (other_locks_ & (0x00FFFFFFU)) | (static_cast<uint32_t>(node) << 24);
-  // }
-
-  uint16_t get_version() const { return other_locks_ & kMaskVersion; }
-  void increment_version() {
-    ASSERT_ND(is_keylocked());
-    uint16_t version = get_version() + 1;
-    other_locks_ = (other_locks_ & (~kMaskVersion)) | version;
-  }
-
-  /** used only while page initialization */
-  void    reset() ALWAYS_INLINE {
-    key_lock_.reset();
-    other_locks_ = 0;
-  }
-
-  friend std::ostream& operator<<(std::ostream& o, const CombinedLock& v);
-
- private:
-  McsLock   key_lock_;
-  uint32_t  other_locks_;
+  uint32_t unused_;
 };
 
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
@@ -521,12 +467,12 @@ struct XctId {
  */
 struct LockableXctId {
   /** the first 64bit: Locking part of TID */
-  CombinedLock  lock_;
+  McsLock       lock_;
   /** the second 64bit: Persistent status part of TID. */
   XctId         xct_id_;
 
-  McsLock* get_key_lock() ALWAYS_INLINE { return lock_.get_key_lock(); }
-  bool is_keylocked() const ALWAYS_INLINE { return lock_.is_keylocked(); }
+  McsLock* get_key_lock() ALWAYS_INLINE { return &lock_; }
+  bool is_keylocked() const ALWAYS_INLINE { return lock_.is_locked(); }
   bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
   bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
   bool is_next_layer() const ALWAYS_INLINE { return xct_id_.is_next_layer(); }
@@ -622,8 +568,7 @@ struct TrackMovedRecordResult {
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
-STATIC_SIZE_CHECK(sizeof(CombinedLock), 8)
-STATIC_SIZE_CHECK(sizeof(McsLock), 4)
+STATIC_SIZE_CHECK(sizeof(McsLock), 8)
 STATIC_SIZE_CHECK(sizeof(LockableXctId), 16)
 
 }  // namespace xct

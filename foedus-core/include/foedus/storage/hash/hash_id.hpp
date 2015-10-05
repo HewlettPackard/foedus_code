@@ -37,7 +37,7 @@ namespace hash {
  * @brief Byte size of header in an intermediate page of hash storage.
  * @ingroup HASH
  */
-const uint16_t kHashIntermediatePageHeaderSize  = 48;
+const uint16_t kHashIntermediatePageHeaderSize  = 64;
 
 /**
  * @brief Number of pointers in an intermediate page of hash storage.

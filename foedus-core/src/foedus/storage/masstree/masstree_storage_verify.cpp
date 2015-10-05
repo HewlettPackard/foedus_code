@@ -226,8 +226,7 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   CHECK_AND_ASSERT(!page->is_moved());
   CHECK_AND_ASSERT(page->get_key_count() <= kBorderPageMaxSlots);
   for (SlotIndex i = 0; i < page->get_key_count(); ++i) {
-    CHECK_AND_ASSERT(!page->get_owner_id(i)->lock_.is_keylocked());
-    CHECK_AND_ASSERT(!page->get_owner_id(i)->lock_.is_rangelocked());
+    CHECK_AND_ASSERT(!page->get_owner_id(i)->lock_.is_locked());
     CHECK_AND_ASSERT(!page->get_owner_id(i)->xct_id_.is_being_written());
     CHECK_AND_ASSERT(page->get_owner_id(i)->xct_id_.get_epoch().is_valid());
     CHECK_AND_ASSERT(page->verify_slot_lengthes(i));

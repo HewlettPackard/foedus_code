@@ -581,7 +581,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   DVLOG(1) << *context << " locked write set";
 #ifndef NDEBUG
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(write_set[i].owner_id_address_->lock_.is_keylocked());
+    ASSERT_ND(write_set[i].owner_id_address_->lock_.is_locked());
   }
 #endif  // NDEBUG
   return true;

@@ -141,7 +141,7 @@ const KeySlice kSupremumSlice = 0xFFFFFFFFFFFFFFFFULL;
  * intermediate and border pages placed at the beginning.
  * @ingroup MASSTREE
  */
-const uint32_t kCommonPageHeaderSize = 72U;
+const uint32_t kCommonPageHeaderSize = 80U;
 
 /**
  * Misc header attributes specific to MasstreeBorderPage placed after the common header.
@@ -174,7 +174,11 @@ const uint32_t kBorderPageDataPartSize
     - kBorderPageMaxSlots * sizeof(KeySlice);
 
 /** Offset of data_ member in MasstreeBorderPage */
-const DataOffset kBorderPageDataPartOffset = 880;
+const DataOffset kBorderPageDataPartOffset
+  = kCommonPageHeaderSize
+  + 8U  // next_offset_, consecutive_inserts_, dummy_
+  + kBorderPageMaxSlots * sizeof(KeySlice);  // slices_
+
 /**
  * @brief Order-preserving normalization for primitive key types.
  * @param[in] value the value to normalize

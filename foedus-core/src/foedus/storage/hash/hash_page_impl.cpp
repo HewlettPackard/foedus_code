@@ -74,11 +74,11 @@ void HashDataPage::initialize_volatile_page(
   HashBin bin,
   uint8_t bin_bits,
   uint8_t bin_shifts) {
+  ASSERT_ND(bin_bits + bin_shifts == 64U);
   std::memset(this, 0, kPageSize);
   header_.init_volatile(page_id, storage_id, kHashDataPageType);
   bin_ = bin;
-  bin_bits_ = bin_bits;
-  bin_shifts_ = bin_shifts;
+  protected_set_bin_shifts(bin_shifts);
   ASSERT_ND(parent);
   if (parent->get_header().get_page_type() == kHashIntermediatePageType) {
     const HashIntermediatePage* parent_casted
@@ -88,8 +88,7 @@ void HashDataPage::initialize_volatile_page(
   } else {
     const HashDataPage* parent_casted = reinterpret_cast<const HashDataPage*>(parent);
     ASSERT_ND(parent_casted->get_bin() == bin);
-    ASSERT_ND(parent_casted->bin_bits_ == bin_bits);
-    ASSERT_ND(parent_casted->bin_shifts_ == bin_shifts);
+    ASSERT_ND(parent_casted->get_bin_shifts() == bin_shifts);
   }
 }
 
@@ -99,11 +98,11 @@ void HashDataPage::initialize_snapshot_page(
   HashBin bin,
   uint8_t bin_bits,
   uint8_t bin_shifts) {
+  ASSERT_ND(bin_bits + bin_shifts == 64U);
   std::memset(this, 0, kPageSize);
   header_.init_snapshot(page_id, storage_id, kHashDataPageType);
   bin_ = bin;
-  bin_bits_ = bin_bits;
-  bin_shifts_ = bin_shifts;
+  protected_set_bin_shifts(bin_shifts);
 }
 
 DataPageSlotIndex HashDataPage::search_key(
