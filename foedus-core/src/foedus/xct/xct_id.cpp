@@ -194,13 +194,6 @@ std::ostream& operator<<(std::ostream& o, const McsLock& v) {
     << "</tail_block></McsLock>";
   return o;
 }
-std::ostream& operator<<(std::ostream& o, const CombinedLock& v) {
-  o << "<CombinedLock>" << *v.get_key_lock()
-    << "<other_lock>"
-      << (v.is_rangelocked() ? "R" : " ")
-    << "</other_lock></CombinedLock>";
-  return o;
-}
 
 std::ostream& operator<<(std::ostream& o, const XctId& v) {
   o << "<XctId epoch=\"" << v.get_epoch()

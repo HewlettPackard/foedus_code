@@ -113,29 +113,26 @@ class ArrayPage final {
 
   uint8_t                 unused_dummy_func_reserved1() const { return reserved1_; }
   uint32_t                unused_dummy_func_reserved2() const { return reserved2_; }
-  uint64_t                unused_dummy_func_dummy() const { return dummy_; }
 
  private:
   /** common header */
-  PageHeader          header_;        // +32 -> 32
+  PageHeader          header_;        // +40 -> 40
 
   /** Byte size of one record in this array storage without internal overheads. */
-  uint16_t            payload_size_;  // +2 -> 34
+  uint16_t            payload_size_;  // +2 -> 42
 
   /** Height of this node, counting up from 0 (leaf). */
-  uint8_t             level_;         // +1 -> 35
+  uint8_t             level_;         // +1 -> 43
 
-  uint8_t             reserved1_;     // +1 -> 36
-  uint32_t            reserved2_;     // +4 -> 40
+  uint8_t             reserved1_;     // +1 -> 44
+  uint32_t            reserved2_;     // +4 -> 48
 
   /**
    * The offset range this node is in charge of. Mainly for sanity checking.
    * If this page is right-most (eg root page), the end is the array's size,
    * which might be smaller than the range it can physically contain.
    */
-  ArrayRange          array_range_;   // +16 -> 56
-
-  uint64_t            dummy_;         // +8 -> 64
+  ArrayRange          array_range_;   // +16 -> 64
 
   // All variables up to here are immutable after the array storage is created.
 

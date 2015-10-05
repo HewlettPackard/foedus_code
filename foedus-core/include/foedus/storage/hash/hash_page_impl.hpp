@@ -106,9 +106,13 @@ class HashIntermediatePage final {
   /** defined in hash_page_debug.cpp. */
   friend std::ostream& operator<<(std::ostream& o, const HashIntermediatePage& v);
 
+  uint64_t get_dummy_padding_unused() const { return padding_; }
+
  private:
   /** common header */
-  PageHeader          header_;        // +32 -> 32
+  PageHeader          header_;        // +40 -> 40
+
+  uint64_t            padding_;       // +8 -> 48
 
   /**
    * these are used only for sanity checks in debug builds. they are always implicit.
@@ -116,7 +120,7 @@ class HashIntermediatePage final {
    * hash bin value is for the storage.
    * @invariant bin_range_.length() == kHashMaxBins[get_level() + 1U]
    */
-  HashBinRange        bin_range_;     // +16 -> 48
+  HashBinRange        bin_range_;     // +16 -> 64
 
   /**
    * Pointers to child nodes.
@@ -378,9 +382,16 @@ class HashDataPage final {
   }
 
   HashBin     get_bin() const { return bin_; }
-  uint8_t     get_bin_bits() const { return bin_bits_; }
-  uint8_t     get_bin_shifts() const { return bin_shifts_; }
   inline void assert_bin(HashBin bin) const ALWAYS_INLINE { ASSERT_ND(bin_ == bin); }
+
+  /**
+   * this method should be called only in page creation.
+   * bin_shifts is immutable after that.
+   * we currently reuse header_.masstree_layer_ (not applicable to hash storage)
+   * for bin_shifts to squeeze space.
+   */
+  void protected_set_bin_shifts(uint8_t bin_shifts) { header_.masstree_layer_ = bin_shifts; }
+  inline uint8_t get_bin_shifts() const { return header_.masstree_layer_; }
 
   void        assert_entries() const ALWAYS_INLINE {
 #ifndef NDEBUG
@@ -393,7 +404,12 @@ class HashDataPage final {
   friend std::ostream& operator<<(std::ostream& o, const HashDataPage& v);
 
  private:
-  PageHeader      header_;        // +32 -> 32
+  PageHeader      header_;        // +40 -> 40
+
+  /**
+   * Used only for sanity check, so we actually don't need it. Kind of a padding.
+   */
+  HashBin         bin_;           // +8 -> 48
 
   /**
    * When this hash bin receives many records or very long key or values,
@@ -402,17 +418,7 @@ class HashDataPage final {
    * Snapshot hash pages of course point to only snapshot hash pages.
    * Volatile hash pages, to simplify, also point to only volatile hash pages.
    */
-  DualPagePointer next_page_;     // +16 -> 48
-
-  /**
-   * Used only for sanity check, so we actually don't need it. Kind of a padding.
-   */
-  HashBin         bin_;           // +8 -> 56
-  /** same above. always same as storage's bin_bits */
-  uint8_t         bin_bits_;      // +1 -> 57
-  /** same above. always same as storage's bin_shifts */
-  uint8_t         bin_shifts_;    // +1 -> 58
-  uint8_t         paddings_[6];   // +6 -> 64
+  DualPagePointer next_page_;     // +16 -> 64
 
   /**
    * Registers the keys this page contains. 64 bytes might sound too generous, but

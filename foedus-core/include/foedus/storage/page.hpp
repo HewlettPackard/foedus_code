@@ -112,7 +112,7 @@ struct PageVersionStatus CXX11_FINAL {
  * @ingroup STORAGE
  * @details
  * Each page has this in the header.
- * Unlike [YANDONG12], this is just a CombinedLock.
+ * Unlike [YANDONG12], this is just an McsLock.
  * We maintain key count and permutation differently from [YANDONG12].
  *
  * "is_deleted" flag is called "is_retired" to clarify what deletion means for a page.
@@ -186,10 +186,11 @@ struct PageVersion CXX11_FINAL {
 
   friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
 
-  xct::McsLock      lock_;
-  PageVersionStatus status_;
+  xct::McsLock      lock_;    // +8 -> 8
+  PageVersionStatus status_;  // +4 -> 12
+  uint32_t          unused_;  // +4 -> 16. this space might be used for interesting range "lock".
 };
-STATIC_SIZE_CHECK(sizeof(PageVersion), 8)
+STATIC_SIZE_CHECK(sizeof(PageVersion), 16)
 
 struct PageVersionLockScope {
   PageVersionLockScope(thread::Thread* context, PageVersion* version, bool non_racy_lock = false);
@@ -272,6 +273,7 @@ struct PageHeader CXX11_FINAL {
   /**
    * used only in masstree.
    * Layer-0 stores the first 8 byte slice, Layer-1 next 8 byte...
+   * @note This field is now used as "bin_shifts" in hash storage. should rename..
    */
   uint8_t       masstree_layer_;  // +1 -> 21
 
@@ -303,7 +305,7 @@ struct PageHeader CXX11_FINAL {
   /**
    * Used in several storage types as concurrency control mechanism for the page.
    */
-  PageVersion   page_version_;   // +8  -> 32
+  PageVersion   page_version_;   // +16  -> 40
 
   // No instantiation.
   PageHeader() CXX11_FUNC_DELETE;

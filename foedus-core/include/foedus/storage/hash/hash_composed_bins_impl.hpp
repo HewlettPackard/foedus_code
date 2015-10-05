@@ -87,7 +87,7 @@ struct ComposedBin final {
   SnapshotPagePointer page_id_;
 };
 
-const uint16_t kHashComposedBinsPageMaxBins = (kPageSize - 64) / sizeof(ComposedBin);
+const uint16_t kHashComposedBinsPageMaxBins = (kPageSize - 80) / sizeof(ComposedBin);
 
 /**
  * @brief A page to pack many ComposedBin as an output of composer.
@@ -99,11 +99,12 @@ const uint16_t kHashComposedBinsPageMaxBins = (kPageSize - 64) / sizeof(Composed
  * All bins stored here are sorted by bin.
  */
 struct HashComposedBinsPage final {
-  PageHeader          header_;      // +32 -> 32
-  HashBinRange        bin_range_;   // +16 -> 48
-  SnapshotPagePointer next_page_;   // +8  -> 56
-  uint32_t            bin_count_;   // +4  -> 60
-  uint32_t            dummy_;       // +4  -> 64
+  PageHeader          header_;      // +40 -> 40
+  HashBinRange        bin_range_;   // +16 -> 56
+  SnapshotPagePointer next_page_;   // +8  -> 64
+  uint32_t            bin_count_;   // +4  -> 68
+  uint32_t            dummy_;       // +4  -> 72
+  uint64_t            padding_;     // +8  -> 80
   ComposedBin         bins_[kHashComposedBinsPageMaxBins];    // -> 4096
 };
 
