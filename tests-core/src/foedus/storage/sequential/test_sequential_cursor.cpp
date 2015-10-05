@@ -407,8 +407,7 @@ ErrorStack scan_task_impl(
       if (single_epoch.is_valid()) {
         EXPECT_EQ(single_epoch, record_epoch);
       }
-      EXPECT_FALSE(it.get_cur_record_owner_id()->lock_.is_keylocked());
-      EXPECT_FALSE(it.get_cur_record_owner_id()->lock_.is_rangelocked());
+      EXPECT_FALSE(it.get_cur_record_owner_id()->lock_.is_locked());
       const char* payload = it.get_cur_record_raw();
       uint64_t data = *reinterpret_cast<const uint64_t*>(payload);
       ASSERT_ND(data < observed.size());

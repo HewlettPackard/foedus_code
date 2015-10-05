@@ -167,14 +167,14 @@ class MasstreePage {
   friend std::ostream& operator<<(std::ostream& o, const MasstreePage& v);
 
  protected:
-  PageHeader          header_;      // +32 -> 32
+  PageHeader          header_;      // +40 -> 40
 
   /** Inclusive low fence of this page. Mainly used for sanity checking */
-  KeySlice            low_fence_;   // +8 -> 40
+  KeySlice            low_fence_;   // +8 -> 48
   /** Inclusive high fence of this page. Mainly used for sanity checking */
-  KeySlice            high_fence_;  // +8 -> 48
+  KeySlice            high_fence_;  // +8 -> 56
   /** Inclusive low_fence of foster child. undefined if foster child is not set*/
-  KeySlice            foster_fence_;  // +8 -> 56
+  KeySlice            foster_fence_;  // +8 -> 64
 
   /**
    * Points to foster children, or tentative child pages.
@@ -184,7 +184,7 @@ class MasstreePage {
    * [0]: Left-half of this page, or minor foster child.
    * [1]: Right-half of this page, or major foster child.
    */
-  VolatilePagePointer foster_twin_[2];  // +16 -> 72
+  VolatilePagePointer foster_twin_[2];  // +16 -> 80
 
   void                initialize_volatile_common(
     StorageId           storage_id,
@@ -428,7 +428,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
   friend std::ostream& operator<<(std::ostream& o, const MasstreeIntermediatePage& v);
 
  private:
-  // 72
+  // 80
 
   /**
    * Separators to navigate search to mini pages in this page.
@@ -436,9 +436,9 @@ class MasstreeIntermediatePage final : public MasstreePage {
    * Iff Slice < separators_[0] or key_count==0, mini_pages_[0].
    * Iff Slice >= separators_[key_count-1] or key_count==0, mini_pages_[key_count].
    */
-  KeySlice            separators_[kMaxIntermediateSeparators];  // +72 -> 144
+  KeySlice            separators_[kMaxIntermediateSeparators];  // +72 -> 152
 
-  char                reserved_[112];    // -> 256
+  char                reserved_[104];    // -> 256
 
   MiniPage            mini_pages_[10];  // +384 * 10 -> 4096
 
@@ -1032,23 +1032,23 @@ class MasstreeBorderPage final : public MasstreePage {
   friend std::ostream& operator<<(std::ostream& o, const MasstreeBorderPage& v);
 
  private:
-  // 72
+  // 80
   /**
    * How many bytes this page has consumed from the beginning of data_.
    * In other words, the offset of a next new record.
    * @invariant next_offset_ % 8 == 0
    * @invariant next_offset_ + get_key_count() * sizeof(Slot) <= kBorderPageDataSize
    */
-  DataOffset  next_offset_;                 // +2 -> 74
+  DataOffset  next_offset_;                 // +2 -> 82
   /**
    * Whether this page is receiving only sequential inserts.
    * If this is true, cursor can skip its sorting phase.
    * If this is a snapshot page, this is always true.
    */
-  bool        consecutive_inserts_;         // +1 -> 75
+  bool        consecutive_inserts_;         // +1 -> 83
 
-  /** To make the following part a multiply of 16-bytes. */
-  char        dummy_[5];                    // +5 -> 80
+  /** To make the following part a multiply of 8-bytes. */
+  char        dummy_[5];                    // +5 -> 88
 
   /**
    * Key slice of this page. Unlike other information in the slots and records,

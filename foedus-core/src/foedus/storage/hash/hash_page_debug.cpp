@@ -87,7 +87,7 @@ std::ostream& operator<<(std::ostream& o, const HashDataPage& v) {
 
 
 void HashDataPage::assert_entries_impl() const {
-  ASSERT_ND(bin_bits_ + bin_shifts_ == 64U);
+  const uint8_t bin_shifts = get_bin_shifts();
   uint8_t records = get_record_count();
 
   if (header_.snapshot_) {
@@ -106,7 +106,7 @@ void HashDataPage::assert_entries_impl() const {
     }
     HashValue hash = hashinate(record_from_offset(slot->offset_), slot->key_length_);
     ASSERT_ND(slot->hash_ == hash);
-    HashBin bin = hash >> bin_shifts_;
+    HashBin bin = hash >> bin_shifts;
     ASSERT_ND(bin_ == bin);
 
     correct_filter.add(DataPageBloomFilter::extract_fingerprint(slot->hash_));

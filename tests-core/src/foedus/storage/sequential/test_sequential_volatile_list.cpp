@@ -120,8 +120,7 @@ ErrorStack verify_result(const proc::ProcArguments& args) {
       for (uint16_t rec = 0; rec < record_count; ++rec) {
         const xct::LockableXctId* owner_id = reinterpret_cast<const xct::LockableXctId*>(
           record_pointers[rec]);
-        ASSERT_ND(!owner_id->lock_.is_keylocked());
-        ASSERT_ND(owner_id->lock_.get_version() == 0);
+        ASSERT_ND(!owner_id->lock_.is_locked());
         uint16_t payload_length = payload_lengthes[rec];
         EXPECT_GT(payload_length, 0);
         EXPECT_LE(payload_length, kMaxPayload);

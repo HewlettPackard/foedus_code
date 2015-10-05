@@ -209,17 +209,17 @@ class SequentialPage final {
   /** Byte length of payload is represented in 2 bytes. */
   typedef uint16_t PayloadLength;
 
-  PageHeader            header_;            // +32 -> 32
+  PageHeader            header_;            // +40 -> 40
 
-  uint16_t              record_count_;      // +2 -> 34
-  uint16_t              used_data_bytes_;   // +2 -> 36
-  uint32_t              filler_;            // +4 -> 40
+  uint16_t              record_count_;      // +2 -> 42
+  uint16_t              used_data_bytes_;   // +2 -> 44
+  uint32_t              filler_;            // +4 -> 48
 
   /**
    * Pointer to next page.
    * Once it is set, the pointer and the pointed page will never be changed.
    */
-  DualPagePointer       next_page_;         // +16 -> 56
+  DualPagePointer       next_page_;         // +16 -> 64
 
   /**
    * Dynamic data part in this page, which consist of 1) record part growing forward,
@@ -281,16 +281,16 @@ class SequentialRootPage final {
   const char*         unused_dummy_func_filler() const { return filler_; }
 
  private:
-  PageHeader          header_;          // +32 -> 32
+  PageHeader          header_;          // +40 -> 40
 
   /**
    * How many pointers to head pages exist in this page.
    * 64bit is too much, but we don't need any other info in this page. Kind of a filler, too.
    */
-  uint64_t            pointer_count_;   // +8 -> 40
+  uint64_t            pointer_count_;   // +8 -> 48
 
   /** Pointer to next root page. */
-  SnapshotPagePointer next_page_;       // +8 -> 48
+  SnapshotPagePointer next_page_;       // +8 -> 56
 
   /** Pointers to heads of data pages. */
   HeadPagePointer     head_page_pointers_[kRootPageMaxHeadPointers];
