@@ -1047,7 +1047,7 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   bool        consecutive_inserts_;         // +1 -> 83
 
-  /** To make the following part a multiply of 16-bytes. */
+  /** To make the following part a multiply of 8-bytes. */
   char        dummy_[5];                    // +5 -> 88
 
   /**
