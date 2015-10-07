@@ -82,12 +82,11 @@ Some of them are **NOT** supposed to be directly linked from client programs (_y
 
 * [foedus-core](foedus-core) : Key-value store library.
 * [foedus-util](foedus-util) : A series of utility programs to help use libfoedus.
-* foedus-rdb (not_exist_yet) : Relational database engine on top of foedus-core.
-* tests-[core/util/rdb] : Unit testcase projects.
-* experiments-[core/util/rdb] : Performance experiments projects.
+* tests-[core/util] : Unit testcase projects.
+* experiments-[core/util] : Performance experiments projects.
 * [third_party](third_party) : Third party source code used in our programs.
 
-You are supposed to link only to **foedus-core** and *foedus-rdb*.
+You are supposed to link only to **foedus-core**.
 Other projects are for internal use or to provide executables, rather than libraries.
 You can still contain all projects (or this folder's CMakeLists.txt) in your source code,
 but note that some restrictions on compiler options apply if you do so.
