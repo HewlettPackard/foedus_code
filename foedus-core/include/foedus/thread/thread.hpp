@@ -292,6 +292,19 @@ class Thread CXX11_FINAL : public virtual Initializable {
     uint16_t batch_size);
 
   /**
+   * MCS reader-writer lock methods.
+   */
+  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
+  void               mcs_release_reader_lock(
+    xct::McsRwLock* mcs_rw_lock,
+    xct::McsBlockIndex block_index);
+
+  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
+  void               mcs_release_writer_lock(
+    xct::McsRwLock* mcs_rw_lock,
+    xct::McsBlockIndex block_index);
+
+  /**
    * Ownerless versions of mcs_acquire/release_lock().
    * These are static methods, no context needed.
    */

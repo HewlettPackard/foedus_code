@@ -165,6 +165,112 @@ struct McsBlock {
   }
 };
 
+struct McsRwBlock {
+  static const uint8_t kStateClassMask       = 3U << 1U;  // [LSB + 1, LSB + 2]
+  static const uint8_t kStateClassReaderFlag = 1U;        // LSB binary = 01
+  static const uint8_t kStateClassWriterFlag = 2U;        // LSB binary = 10
+
+  static const uint8_t kStateBlockedFlag     = 1U << 7U;  // MSB binary = 1
+  static const uint8_t kStateBlockedMask     = 1U << 7U;
+
+  static const uint8_t kSuccessorClassReader = 1U;
+  static const uint8_t kSuccessorClassWriter = 2U;
+  static const uint8_t kSuccessorClassNone   = 3U;        // LSB binary 11
+
+  union Self {
+    uint16_t data_;                       // +2 => 2
+    struct Components {
+      uint8_t successor_class_;
+      // state_ covers:
+      // Bit 0-1: my **own** class (am I a reader or writer?)
+      // Bit 7: blocked (am I waiting for the lock or acquired?)
+      uint8_t state_;
+    } components_;
+  } self_;
+  // TODO(tzwang): make these two fields 8 bytes by themselves. Now we need
+  // to worry about sub-word writes (ie have to use atomic ops even when
+  // changing only these two fields because they are in the same byte as data_).
+  thread::ThreadId successor_thread_id_;  // +2 => 4
+  McsBlockIndex successor_block_index_;   // +4 => 8
+
+  inline void init_reader() {
+    self_.components_.state_ = kStateClassReaderFlag | kStateBlockedFlag;
+    init_common();
+  }
+  inline void init_writer() {
+    self_.components_.state_ = kStateClassWriterFlag | kStateBlockedFlag;
+    init_common();
+  }
+  inline void init_common() ALWAYS_INLINE {
+    self_.components_.successor_class_ = kSuccessorClassNone;
+    successor_block_index_ = 0;
+    assorted::memory_fence_release();
+  }
+
+  inline bool is_reader() ALWAYS_INLINE {
+    return self_.components_.state_ & kStateClassReaderFlag;
+  }
+
+  inline void unblock() ALWAYS_INLINE {
+    ASSERT_ND(
+      assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedFlag);
+    assorted::raw_atomic_fetch_and_bitwise_and<uint8_t>(
+      &self_.components_.state_,
+      static_cast<uint8_t>(~kStateBlockedMask));
+    ASSERT_ND(
+      !(assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask));
+  }
+  inline bool is_blocked() ALWAYS_INLINE {
+    return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask;
+  }
+
+  inline void set_successor_class_writer() {
+    // In case the caller is a reader appending after a writer or waiting reader,
+    // the requester should have already set the successor class to "reader" through by CASing
+    // self_.data_ from [no-successor, blocked] to [reader successor, blocked].
+    ASSERT_ND(self_.components_.successor_class_ == kSuccessorClassNone);
+    assorted::atomic_store_release<uint8_t>(
+      &self_.components_.successor_class_,
+      kSuccessorClassWriter);
+  }
+  inline void set_successor_next_only(thread::ThreadId thread_id, McsBlockIndex block_index) {
+    McsRwBlock tmp;
+    tmp.self_.data_ = 0;
+    tmp.successor_thread_id_ = thread_id;
+    tmp.successor_block_index_ = block_index;
+    ASSERT_ND(successor_thread_id_ == 0);
+    ASSERT_ND(successor_block_index_ == 0);
+    uint64_t *address = reinterpret_cast<uint64_t*>(this);
+    uint64_t mask = *reinterpret_cast<uint64_t*>(&tmp);
+    assorted::raw_atomic_fetch_and_bitwise_or<uint64_t>(address, mask);
+  }
+  inline bool has_successor() {
+    return assorted::atomic_load_acquire<uint8_t>(
+      &self_.components_.successor_class_) != kSuccessorClassNone;
+  }
+  inline bool successor_is_ready() {
+    // Check block index only - thread ID could be 0
+    return assorted::atomic_load_acquire<McsBlockIndex>(&successor_block_index_) != 0;
+  }
+  inline bool has_reader_successor() {
+    auto s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
+    return s == kSuccessorClassReader;
+  }
+  inline bool has_writer_successor() {
+    auto s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
+    return s == kSuccessorClassWriter;
+  }
+
+  uint16_t make_blocked_with_reader_successor_state() {
+    // Only using the class bit, which doesn't change, so no need to use atomic ops.
+    uint8_t state = self_.components_.state_ | kStateBlockedFlag;
+    return (uint16_t)state << 8 | kSuccessorClassReader;
+  }
+  uint16_t make_blocked_with_no_successor_state() {
+    uint8_t state = self_.components_.state_ | kStateBlockedFlag;
+    return (uint16_t)state << 8 | kSuccessorClassNone;
+  }
+};
 
 /**
  * @brief An MCS lock data structure.
@@ -246,6 +352,69 @@ struct McsLock {
   // these two will become one 64-bit integer.
   uint32_t data_;
   uint32_t unused_;
+};
+
+/**
+ * @brief An MCS reader-writer lock data structure.
+ * @ingroup XCT
+ * @details
+ * This implements a fair reader-writer lock by the original authors of MCS lock [PPoPP 1991].
+ * The version implemented here includes a bug fix due to Keir Fraser (University of Cambridge).
+ * See https://www.cs.rochester.edu/research/synchronization/pseudocode/rw.html#s_f for
+ * the original pseudocode with the fix.
+ *
+ * The major use case so far is row-level locking for 2PL.
+ *
+ * The assumption is that a thread at any instant can be **waiting** for only one MCS lock,
+ * so knowing the thread ID suffices to locate the block index as well.
+ *
+ * TODO(tzwang): add the ownerless variant.
+ */
+struct McsRwLock {
+  static const thread::ThreadId kNextWriterNone = 0xFFFFU;
+
+  McsRwLock() { reset(); }
+
+  McsRwLock(const McsRwLock& other) CXX11_FUNC_DELETE;
+  McsRwLock& operator=(const McsRwLock& other) CXX11_FUNC_DELETE;
+
+  McsBlockIndex reader_acquire(thread::Thread* context);
+  McsBlockIndex reader_release(thread::Thread* context, McsBlockIndex block);
+
+  McsBlockIndex writer_acquire(thread::Thread* context);
+  McsBlockIndex writer_release(thread::Thread* context, McsBlockIndex block);
+
+  void  reset() ALWAYS_INLINE {
+    tail_ = readers_count_ = 0;
+    next_writer_ = kNextWriterNone;
+  }
+  void increment_readers_count() ALWAYS_INLINE {
+    assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, 1);
+  }
+  uint16_t decrement_readers_count() ALWAYS_INLINE {
+    return assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, -1);
+  }
+  bool is_locked() const { return (tail_ & 0xFFFFU) != 0; }
+
+  static uint32_t to_tail_int(
+    thread::ThreadId tail_waiter,
+    McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    ASSERT_ND(tail_waiter_block <= 0xFFFFU);
+    return static_cast<uint32_t>(tail_waiter) << 16 | (tail_waiter_block & 0xFFFFU);
+  }
+
+  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_ & 0xFFFFU; }
+  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_ >> 16U; }
+  bool has_next_writer() const ALWAYS_INLINE {return next_writer_ != kNextWriterNone; }
+
+  uint32_t tail_;                 // +4 => 4
+  /* FIXME(tzwang): ThreadId starts from 0, so we use 0xFFFF as the "invalid"
+   * marker, unless we make the lock even larger than 8 bytes. This essentially
+   * limits the largest allowed number of cores we support to 256 sockets x 256
+   * cores per socket - 1.
+   */
+  thread::ThreadId next_writer_;  // +2 => 6
+  uint16_t readers_count_;        // +2 => 8
 };
 
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
@@ -488,6 +657,32 @@ struct LockableXctId {
 };
 
 /**
+ * @brief The MCS reader-writer lock variant of LockableXctId.
+ */
+struct RwLockableXctId {
+  /** the first 64bit: Locking part of TID */
+  McsRwLock       lock_;
+
+  /** the second 64bit: Persistent status part of TID. */
+  XctId         xct_id_;
+
+  McsRwLock* get_key_lock() ALWAYS_INLINE { return &lock_; }
+  bool is_keylocked() const ALWAYS_INLINE { return lock_.is_locked(); }
+  bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
+  bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
+  bool is_next_layer() const ALWAYS_INLINE { return xct_id_.is_next_layer(); }
+  bool needs_track_moved() const ALWAYS_INLINE { return xct_id_.needs_track_moved(); }
+  bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
+
+  /** used only while page initialization */
+  void    reset() ALWAYS_INLINE {
+    lock_.reset();
+    xct_id_.data_ = 0;
+  }
+  friend std::ostream& operator<<(std::ostream& o, const LockableXctId& v);
+};
+
+/**
  * @brief Auto-release object for MCS locking.
  * @ingroup XCT
  */
@@ -530,6 +725,52 @@ struct McsLockScope {
   McsLock*        lock_;
   /** Non-0 when locked. 0 when already released or not yet acquired. */
   McsBlockIndex   block_;
+};
+
+struct McsRwLockScope {
+  explicit McsRwLockScope(bool as_reader);
+  McsRwLockScope(
+    thread::Thread* context,
+    RwLockableXctId* lock,
+    bool as_reader,
+    bool acquire_now = true);
+  McsRwLockScope(
+    thread::Thread* context,
+    McsRwLock* lock,
+    bool as_reader,
+    bool acquire_now = true);
+  ~McsRwLockScope();
+
+  /// scope object is movable, but not copiable.
+  McsRwLockScope(const McsRwLockScope& other) CXX11_FUNC_DELETE;
+#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
+  McsRwLockScope(McsRwLockScope&& other);
+  McsRwLockScope& operator=(McsRwLockScope&& other);
+#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
+
+  void initialize(
+    thread::Thread* context,
+    McsRwLock* lock,
+    bool as_reader,
+    bool acquire_now);
+
+  bool is_valid() const { return lock_; }
+  bool is_locked() const { return block_ != 0; }
+
+  /** Acquires the lock. Does nothing if already acquired or !is_valid(). */
+  void acquire();
+  /** Release the lock if acquired. Does nothing if not or !is_valid(). */
+  void release();
+
+  /** Just for PageVersionLockScope(McsRwLockScope*) */
+  void move_to(storage::PageVersionLockScope* new_owner);
+
+ private:
+  thread::Thread* context_;
+  McsRwLock*      lock_;
+  /** Non-0 when locked. 0 when already released or not yet acquired. */
+  McsBlockIndex   block_;
+  bool            as_reader_;
 };
 
 class McsOwnerlessLockScope {
