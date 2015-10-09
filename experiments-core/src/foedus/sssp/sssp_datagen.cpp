@@ -44,7 +44,7 @@ DEFINE_double(miles_fluke, 0.5, "Max fluctuation of edge length, relative to euc
 DEFINE_double(edge_prob, 0.8, "Probably for each edge to be instantiated");
 DEFINE_int32(p_x, 2, "Number of partitions in x direction. Increase this to enlarge data");
 DEFINE_int32(p_y, 2, "Number of partitions in y direction. Increase this to enlarge data");
-DEFINE_bool(out_binary, true, "Whether to output partitioned binary files. Text files.");
+DEFINE_bool(out_binary, false, "Whether to output partitioned binary files. Text files.");
 
 /**
  * @brief Data generator for the road-like graph microbench.
@@ -198,7 +198,7 @@ void DataGen::generate_nodes() {
     ASSERT_ND(partition->pid_ == p);
     ASSERT_ND(partition->px_ == px);
     ASSERT_ND(partition->py_ == py);
-    for (uint32_t b = 0; b < kPartitionSize; ++b) {
+    for (uint32_t b = 0; b < kBlocksPerPartition; ++b) {
       const Block* block = partition->blocks_ + b;
       for (uint32_t n = 0; n < kNodesPerBlock; ++n) {
         const Node* node = block->nodes_ + n;
@@ -507,10 +507,10 @@ void flush_text_file(fs::DirectIoFile* file, char* text_buffer, uint32_t* text_b
   *text_buffer_pos = move_bytes;
 }
 
-void write_text_file(fs::DirectIoFile* file, const Partition* partition, char* text_buffer) {
+uint32_t write_text_file(fs::DirectIoFile* file, const Partition* partition, char* text_buffer) {
   uint32_t text_buffer_pos = 0;
   const uint32_t pos_threshold = kTextScratchSize * 8U / 10U;
-  for (uint32_t b = 0; b < kPartitionSize; ++b) {
+  for (uint32_t b = 0; b < kBlocksPerPartition; ++b) {
     const Block* block = partition->blocks_ + b;
     for (uint32_t n = 0; n < kNodesPerBlock; ++n) {
       const Node* node = block->nodes_ + n;
@@ -541,6 +541,7 @@ void write_text_file(fs::DirectIoFile* file, const Partition* partition, char* t
   uint32_t flush_pos = text_buffer_pos + fill_bytes;
   ASSERT_ND((flush_pos % (1U << 12)) == 0);
   COERCE_ERROR_CODE(file->write_raw(flush_pos, text_buffer));
+  return fill_bytes;
 }
 
 void DataGen::writeout_socket_thread(
@@ -573,16 +574,24 @@ void DataGen::writeout_socket_thread(
       LOG(FATAL) << "Core-" << socket_id << "_" << core << " failed to create " << path;
     }
 
+    uint32_t text_fill_bytes = 0;
     if (FLAGS_out_binary) {
       // If we are writing out a binary file, we just dump out the whole struct. that's it.
       file.write_raw(kPartitionAlignedByteSize, partition);
     } else {
       // Text conversion.. ugggrrr
-      write_text_file(&file, partition, text_buffer);
+      text_fill_bytes = write_text_file(&file, partition, text_buffer);
     }
 
     file.sync();
     file.close();
+
+    // Just for convenience, let's remove extra LFs at the end. Just
+    if (text_fill_bytes > 0) {
+      uint64_t size = fs::file_size(path);
+      ASSERT_ND(size % (1U << 12) == 0);
+      ::truncate(path.c_str(), size - text_fill_bytes);
+    }
   }
 }
 
