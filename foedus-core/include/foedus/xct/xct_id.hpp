@@ -166,7 +166,7 @@ struct McsBlock {
 };
 
 struct McsRwBlock {
-  static const uint8_t kStateClassMask       = 3U << 1U;  // [LSB + 1, LSB + 2]
+  static const uint8_t kStateClassMask       = 3U;        // [LSB + 1, LSB + 2]
   static const uint8_t kStateClassReaderFlag = 1U;        // LSB binary = 01
   static const uint8_t kStateClassWriterFlag = 2U;        // LSB binary = 10
 
@@ -208,7 +208,7 @@ struct McsRwBlock {
   }
 
   inline bool is_reader() ALWAYS_INLINE {
-    return self_.components_.state_ & kStateClassReaderFlag;
+    return (self_.components_.state_ & kStateClassMask) == kStateClassReaderFlag;
   }
 
   inline void unblock() ALWAYS_INLINE {
