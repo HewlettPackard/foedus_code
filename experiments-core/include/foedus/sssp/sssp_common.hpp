@@ -35,8 +35,8 @@ const uint64_t kBlockSize = 1U << 10;
 const uint64_t kNodesPerBlock = 1U << 5;
 
 /** how many blocks per block in both x and y directions. */
-// const uint32_t kPartitionSize = 1U << 10;
-const uint64_t kPartitionSize = 1U << 1;  // for trivial test data
+const uint32_t kPartitionSize = 1U << 10;
+// const uint64_t kPartitionSize = 1U << 1;  // for trivial test data
 
 /** how many blocks per block in total. */
 const uint64_t kBlocksPerPartition = kPartitionSize * kPartitionSize;
