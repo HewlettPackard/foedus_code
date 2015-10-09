@@ -4,3 +4,5 @@ add_subdirectory(snapshot)
 add_subdirectory(storage)
 add_subdirectory(tpcc)
 add_subdirectory(ycsb)
+
+add_subdirectory(sssp)

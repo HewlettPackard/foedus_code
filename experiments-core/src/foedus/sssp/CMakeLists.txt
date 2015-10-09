@@ -1,0 +1,2 @@
+add_executable(sssp_datagen ${CMAKE_CURRENT_SOURCE_DIR}/sssp_datagen.cpp)
+target_link_libraries(sssp_datagen ${EXPERIMENT_LIB} gflags-static)

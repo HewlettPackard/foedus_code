@@ -107,6 +107,10 @@ class UniformRandom {
     seed_ = seed_ * 0xD04C3175 + 0x53DA9022;
     return (seed_ >> 32) ^ (seed_ & 0xFFFFFFFF);
   }
+  double next_double() {
+    uint32_t i32b = next_uint32();
+    return static_cast<double>(i32b) / static_cast<double>(1ULL << 32);
+  }
 
  private:
   uint64_t seed_;
