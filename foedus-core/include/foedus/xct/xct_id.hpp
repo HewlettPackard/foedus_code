@@ -203,6 +203,7 @@ struct McsRwBlock {
   }
   inline void init_common() ALWAYS_INLINE {
     self_.components_.successor_class_ = kSuccessorClassNone;
+    successor_thread_id_ = 0;
     successor_block_index_ = 0;
     assorted::memory_fence_release();
   }
@@ -415,6 +416,8 @@ struct McsRwLock {
    */
   thread::ThreadId next_writer_;  // +2 => 6
   uint16_t readers_count_;        // +2 => 8
+
+  friend std::ostream& operator<<(std::ostream& o, const McsRwLock& v);
 };
 
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
@@ -679,7 +682,7 @@ struct RwLockableXctId {
     lock_.reset();
     xct_id_.data_ = 0;
   }
-  friend std::ostream& operator<<(std::ostream& o, const LockableXctId& v);
+  friend std::ostream& operator<<(std::ostream& o, const RwLockableXctId& v);
 };
 
 /**

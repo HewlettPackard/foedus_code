@@ -324,5 +324,16 @@ std::ostream& operator<<(std::ostream& o, const LockableXctId& v) {
   return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const McsRwLock& v) {
+  o << "<McsRwLock><locked>" << v.is_locked() << "</locked><tail_waiter>"
+    << v.get_tail_waiter() << "</tail_waiter><tail_block>" << v.get_tail_waiter_block()
+    << "</tail_block></McsRwLock>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const RwLockableXctId& v) {
+  o << "<RwLockableXctId>" << v.xct_id_ << v.lock_ << "</RwLockableXctId>";
+  return o;
+}
 }  // namespace xct
 }  // namespace foedus
