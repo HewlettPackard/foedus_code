@@ -160,7 +160,7 @@ class SequentialPage final {
     ASSERT_ND(record < kMaxSlots);
     ASSERT_ND(used_data_bytes_ + assorted::align8(payload_length) + kRecordOverhead <= kDataSize);
     set_payload_length(record, payload_length);
-    xct::LockableXctId* owner_id_addr = owner_id_from_offset(used_data_bytes_);
+    xct::RwLockableXctId* owner_id_addr = owner_id_from_offset(used_data_bytes_);
     owner_id_addr->xct_id_ = owner_id;
     owner_id_addr->lock_.reset();  // not used...
     std::memcpy(data_ + used_data_bytes_ + kRecordOverhead, payload, payload_length);
@@ -192,15 +192,15 @@ class SequentialPage final {
    */
   Epoch               get_first_record_epoch() const {
     ASSERT_ND(get_record_count() > 0);
-    const xct::LockableXctId* first_owner_id = owner_id_from_offset(0);
+    const xct::RwLockableXctId* first_owner_id = owner_id_from_offset(0);
     return first_owner_id->xct_id_.get_epoch();
   }
 
-  xct::LockableXctId* owner_id_from_offset(uint16_t offset) {
-    return reinterpret_cast<xct::LockableXctId*>(data_ + offset);
+  xct::RwLockableXctId* owner_id_from_offset(uint16_t offset) {
+    return reinterpret_cast<xct::RwLockableXctId*>(data_ + offset);
   }
-  const xct::LockableXctId* owner_id_from_offset(uint16_t offset) const {
-    return reinterpret_cast<const xct::LockableXctId*>(data_ + offset);
+  const xct::RwLockableXctId* owner_id_from_offset(uint16_t offset) const {
+    return reinterpret_cast<const xct::RwLockableXctId*>(data_ + offset);
   }
 
   uint32_t              unused_dummy_func_filler() const { return filler_; }

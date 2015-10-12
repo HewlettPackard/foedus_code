@@ -108,7 +108,14 @@ class YcsbKey {
   }
 
   bool operator<(const YcsbKey& other) const CXX11_NOEXCEPT {
-    return data_ < other.data_;
+    return compare(*this, other);
+  }
+  bool operator==(const YcsbKey& other) const CXX11_NOEXCEPT {
+    return data_ == other.data_;
+  }
+
+  static bool compare(const YcsbKey &k1, const YcsbKey &k2) ALWAYS_INLINE {
+    return k1.data_ < k2.data_;
   }
 };
 

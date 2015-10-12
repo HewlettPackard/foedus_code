@@ -345,12 +345,22 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   ASSERT_ND(current_xct.assert_related_read_write());
 
   bool success;
+#ifdef USE_2PL
+  const WriteXctAccess*   write_set = current_xct.get_write_set();
+  const uint32_t          write_set_size = current_xct.get_write_set_size();
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    ASSERT_ND(!write_set[i].owner_id_address_->needs_track_moved());
+  }
+  success = precommit_xct_readwrite(context, commit_epoch);
+  // Still might abort due to phantom etc. See precommit_xct_readwrite().
+#else
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
     success = precommit_xct_readonly(context, commit_epoch);
   } else {
     success = precommit_xct_readwrite(context, commit_epoch);
   }
+#endif
 
   ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
@@ -414,8 +424,15 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
       context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
     }
   } else {
-    precommit_xct_unlock(context);  // just unlock in this case
+#ifndef USE_2PL
+    precommit_xct_unlock_writes(context);  // just unlock in this case
+#endif
   }
+
+#ifdef USE_2PL
+  precommit_xct_unlock_reads(context);
+  precommit_xct_unlock_writes(context);  // just unlock in this case
+#endif  // USE_2PL
 
   return verified;
 }
@@ -498,6 +515,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     }
 
     ASSERT_ND(current_xct.assert_related_read_write());
+#ifndef USE_2PL   // No need to sort for 2PL
     std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
     // after the sorting, the related-link from read-set to write-set is now broken.
     // we fix it by following the back-link from write-set to read-set.
@@ -525,6 +543,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       }
     }
 #endif  // NDEBUG
+#endif  // USE_2PL
 
     // One differences from original SILO protocol.
     // As there might be multiple write sets on one record, we check equality of next
@@ -534,9 +553,13 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     bool needs_retry = false;
     for (uint32_t i = 0; i < write_set_size; ++i) {
       WriteXctAccess* entry = write_set + i;
+#ifdef USE_2PL
+      ASSERT_ND(entry->mcs_block_ > 0);
+#else
       ASSERT_ND(entry->mcs_block_ == 0);
       DVLOG(2) << *context << " Locking " << st->get_name(entry->storage_id_)
         << ":" << entry->owner_id_address_;
+#endif  // USE_2PL
       if (i < write_set_size - 1 &&
         entry->owner_id_address_ == write_set[i + 1].owner_id_address_) {
         DVLOG(0) << *context << " Multiple write sets on record "
@@ -544,7 +567,8 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           << ":" << entry->owner_id_address_
           << ". Will lock/unlock at the last one";
       } else {
-        entry->mcs_block_ = context->mcs_acquire_lock(
+#ifndef USE_2PL
+        entry->mcs_block_ = context->mcs_acquire_writer_lock(
           entry->owner_id_address_->get_key_lock());
         if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
           VLOG(0) << *context << " Interesting. moved-bit conflict in "
@@ -552,26 +576,30 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
             << ":" << entry->owner_id_address_
             << ". This occasionally happens.";
           // release all locks acquired so far, retry
-          precommit_xct_unlock(context);
+          precommit_xct_unlock_writes(context);
           needs_retry = true;
           break;
         }
+#endif  // USE_2PL
         ASSERT_ND(!entry->owner_id_address_->is_moved());
         ASSERT_ND(!entry->owner_id_address_->is_next_layer());
         ASSERT_ND(entry->owner_id_address_->is_keylocked());
         max_xct_id->store_max(entry->owner_id_address_->xct_id_);
       }
 
+#ifndef USE_2PL
       // If we have to abort, we should abort early to not waste time.
       // Thus, we check related read sets right here.
+      // FIXME(tzwang): no need to do this for 2PL?
       if (entry->related_read_) {
         ASSERT_ND(entry->related_read_->owner_id_address_ == entry->owner_id_address_);
         if (entry->owner_id_address_->xct_id_ != entry->related_read_->observed_owner_id_) {
           DLOG(WARNING) << *context << " related read set changed. abort early";
-          precommit_xct_unlock(context);
+          precommit_xct_unlock_writes(context);
           return false;
         }
       }
+#endif
     }
 
     if (!needs_retry) {
@@ -644,11 +672,8 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 
 bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
-  const WriteXctAccess*   write_set = current_xct.get_write_set();
-  const uint32_t          write_set_size = current_xct.get_write_set_size();
   ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
-  storage::StorageManager* st = engine_->get_storage_manager();
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // let's prefetch owner_id in parallel
     if (i % kReadsetPrefetchBatch == 0) {
@@ -658,10 +683,16 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
         }
       }
     }
-
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
     ReadXctAccess& access = read_set[i];
+#ifdef USE_2PL
+    ASSERT_ND(!access.owner_id_address_->needs_track_moved());
+    max_xct_id->store_max(access.observed_owner_id_);
+#else
+    storage::StorageManager* st = engine_->get_storage_manager();
+    const WriteXctAccess*   write_set = current_xct.get_write_set();
+    const uint32_t          write_set_size = current_xct.get_write_set_size();
     if (access.related_write_) {
       // we already checked this in lock()
       DVLOG(3) << *context << " skipped read-sets that are already checked";
@@ -716,6 +747,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
         DVLOG(2) << *context << " okay, myself. go on.";
       }
     }
+#endif  // USE_2PL
   }
 
   // Check Page Pointer/Version
@@ -841,9 +873,11 @@ void XctManagerPimpl::precommit_xct_apply(
           write.log_entry_->header_.get_type() != log::kLogCodeMasstreeDelete);
         write.owner_id_address_->xct_id_ = new_xct_id;
       }
+#ifndef USE_2PL   // 2PL does this in the caller
       // also unlocks
-      context->mcs_release_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
+      context->mcs_release_writer_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
       write.mcs_block_ = 0;
+#endif
     }
   }
   // lock-free write-set doesn't have to worry about lock or ordering.
@@ -857,7 +891,7 @@ void XctManagerPimpl::precommit_xct_apply(
   DVLOG(1) << *context << " applied and unlocked write set";
 }
 
-void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
+void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
   WriteXctAccess* write_set = context->get_current_xct().get_write_set();
   uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
   DVLOG(1) << *context << " unlocking without applying.. write_set_size=" << write_set_size;
@@ -870,13 +904,33 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context) {
         << engine_->get_storage_manager()->get_name(write.storage_id_) << ":"
         << write.owner_id_address_;
       ASSERT_ND(write.owner_id_address_->is_keylocked());
-      context->mcs_release_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
+      context->mcs_release_writer_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
       write.mcs_block_ = 0;
     }
   }
   assorted::memory_fence_release();
-  DLOG(INFO) << *context << " unlocked write set without applying";
+  DLOG(INFO) << *context << " unlocked write set";
 }
+
+#ifdef USE_2PL
+void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
+  ReadXctAccess* read_set = context->get_current_xct().get_read_set();
+  uint32_t       read_set_size = context->get_current_xct().get_read_set_size();
+  DVLOG(1) << *context << " unlocking without applying.. read_set_size=" << read_set_size;
+  assorted::memory_fence_release();
+  for (uint32_t i = 0; i < read_set_size; ++i) {
+    ReadXctAccess& read = read_set[i];
+    ASSERT_ND(read.owner_id_address_->is_keylocked());
+    DVLOG(2) << *context << " Unlocking "
+      << engine_->get_storage_manager()->get_name(read.storage_id_) << ":"
+      << read.owner_id_address_;
+    context->mcs_release_reader_lock(read.owner_id_address_->get_key_lock(), read.mcs_block_);
+    read.mcs_block_ = 0;
+  }
+  assorted::memory_fence_release();
+  DLOG(INFO) << *context << " unlocked read set";
+}
+#endif
 
 ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
@@ -884,6 +938,10 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
     return kErrorCodeXctNoXct;
   }
   DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
+  precommit_xct_unlock_writes(context);
+#ifdef USE_2PL
+  precommit_xct_unlock_reads(context);
+#endif
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
   return kErrorCodeOk;

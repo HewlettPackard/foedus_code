@@ -380,6 +380,7 @@ inline ErrorCode ArrayStoragePimpl::get_record(
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    context,
     &context->get_current_xct(),
     get_id(),
     &record->owner_id_,
@@ -402,6 +403,7 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    context,
     &context->get_current_xct(),
     get_id(),
     &record->owner_id_,
@@ -426,7 +428,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
     current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &record->owner_id_));
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(context, get_id(), observed, &record->owner_id_));
   }
   *payload = record->payload_;
   return kErrorCodeOk;
@@ -441,7 +443,11 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
   if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed((*record)->owner_id_.xct_id_);
     assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &((*record)->owner_id_)));
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(
+      context,
+      get_id(),
+      observed,
+      &((*record)->owner_id_)));
   }
   return kErrorCodeOk;
 }
@@ -476,6 +482,7 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(get_id(), offset, payload, payload_offset, payload_count);
   return context->get_current_xct().add_to_write_set(
+    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
@@ -494,6 +501,7 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(get_id(), offset, payload, payload_offset);
   return context->get_current_xct().add_to_write_set(
+    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
@@ -516,7 +524,9 @@ ErrorCode ArrayStoragePimpl::increment_record(
   // Only Array's increment can be the rare "write-set only" log.
   // other increments have to check deletion bit at least.
   // To make use of it, we do have array increment log with primitive type as parameter.
+  // FIXME(tzwang): no need to lock for this?
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
+    context,
     &context->get_current_xct(),
     get_id(),
     &record->owner_id_,
@@ -532,6 +542,7 @@ ErrorCode ArrayStoragePimpl::increment_record(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(get_id(), offset, *value, payload_offset);
   return context->get_current_xct().add_to_write_set(
+    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
@@ -553,6 +564,7 @@ ErrorCode ArrayStoragePimpl::increment_record_oneshot(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate<T>(get_id(), offset, value, payload_offset);
   return context->get_current_xct().add_to_write_set(
+    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
@@ -723,6 +735,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
+          context,
           get_id(),
           observed,
           &record_batch[i]->owner_id_));
@@ -765,6 +778,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
       if (!snapshot_record_batch[i]) {
         xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
         CHECK_ERROR_CODE(current_xct.add_to_read_set(
+          context,
           get_id(),
           observed,
           &record_batch[i]->owner_id_));
@@ -794,6 +808,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
     for (uint8_t i = 0; i < batch_size; ++i) {
       xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
       CHECK_ERROR_CODE(current_xct.add_to_read_set(
+        context,
         get_id(),
         observed,
         &record_batch[i]->owner_id_));

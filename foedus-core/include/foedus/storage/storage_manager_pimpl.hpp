@@ -92,7 +92,7 @@ class StorageManagerPimpl final : public DefaultInitializable {
 
   xct::TrackMovedRecordResult track_moved_record(
     StorageId storage_id,
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess *write);
   ErrorStack  clone_all_storage_metadata(snapshot::SnapshotMetadata *metadata);
 

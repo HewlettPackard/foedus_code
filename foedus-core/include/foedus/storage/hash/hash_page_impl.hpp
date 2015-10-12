@@ -156,7 +156,7 @@ class HashDataPage final {
     /**
      * TID of the record.
      */
-    xct::LockableXctId tid_;            // +16 -> 16
+    xct::RwLockableXctId tid_;            // +16 -> 16
 
     /**
      * Byte offset in data_ where this record starts.

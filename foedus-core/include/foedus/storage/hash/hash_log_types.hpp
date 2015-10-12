@@ -139,7 +139,7 @@ struct HashCommonLogType : public log::RecordLogType {
 
   /** used only for sanity check. checks if the record's and log's keys are equal */
 #ifndef NDEBUG
-  void assert_record_and_log_keys(xct::LockableXctId* owner_id, const char* data) const {
+  void assert_record_and_log_keys(xct::RwLockableXctId* owner_id, const char* data) const {
     const char* log_key = get_key();
     ASSERT_ND(hash_ == hashinate(log_key, key_length_));
     uint16_t log_key_length_aligned = get_key_length_aligned();
@@ -156,7 +156,7 @@ struct HashCommonLogType : public log::RecordLogType {
     ASSERT_ND(std::memcmp(log_key, data, log_key_length_aligned) == 0);
   }
 #else  // NDEBUG
-  void assert_record_and_log_keys(xct::LockableXctId* /*owner_id*/, const char* /*data*/) const {}
+  void assert_record_and_log_keys(xct::RwLockableXctId* /*owner_id*/, const char* /*data*/) const {}
 #endif  // NDEBUG
 
   void assert_type() const ALWAYS_INLINE {
@@ -224,7 +224,7 @@ struct HashInsertLogType : public HashCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(owner_id->xct_id_.is_deleted());  // the physical record should be in 'deleted' status
     ASSERT_ND(!owner_id->xct_id_.is_next_layer());
@@ -284,7 +284,7 @@ struct HashDeleteLogType : public HashCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
     ASSERT_ND(!owner_id->xct_id_.is_next_layer());
@@ -330,7 +330,7 @@ struct HashUpdateLogType : public HashCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
     ASSERT_ND(!owner_id->xct_id_.is_next_layer());
@@ -402,7 +402,7 @@ struct HashOverwriteLogType : public HashCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) ALWAYS_INLINE {
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
     ASSERT_ND(!owner_id->xct_id_.is_next_layer());

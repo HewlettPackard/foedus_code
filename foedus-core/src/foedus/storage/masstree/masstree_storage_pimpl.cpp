@@ -47,7 +47,7 @@ namespace masstree {
 
 // Defines MasstreeStorage methods so that we can inline implementation calls
 xct::TrackMovedRecordResult MasstreeStorage::track_moved_record(
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   return MasstreeStoragePimpl(this).track_moved_record(old_address, write_set);
 }
@@ -115,7 +115,7 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
 ErrorCode MasstreeStoragePimpl::grow_root(
   thread::Thread* context,
   DualPagePointer* root_pointer,
-  xct::LockableXctId* root_pointer_owner,
+  xct::RwLockableXctId* root_pointer_owner,
   MasstreeIntermediatePage** new_root) {
   *new_root = nullptr;
   if (root_pointer_owner->is_keylocked()) {
@@ -125,7 +125,7 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     return kErrorCodeOk;
   }
 
-  xct::McsLockScope owner_scope(context, root_pointer_owner);
+  xct::McsRwLockScope owner_scope(context, root_pointer_owner, false);
   if (root_pointer_owner->is_moved()) {
     LOG(INFO) << "interesting. someone else has split the page that had a pointer"
       " to a root page of the layer to be grown";
@@ -470,10 +470,10 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   pointer.snapshot_pointer_ = 0;
   pointer.volatile_pointer_ = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
 
-  xct::LockableXctId* parent_lock = parent->get_owner_id(parent_index);
+  xct::RwLockableXctId* parent_lock = parent->get_owner_id(parent_index);
 
   // as an independent system transaction, here we do an optimistic version check.
-  xct::McsLockScope parent_scope(context, parent_lock);
+  xct::McsRwLockScope parent_scope(context, parent_lock, false);
   if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
     // someone else has also made this to a next layer or the page itself is moved!
     // our effort was a waste, but anyway the goal was achieved.
@@ -542,7 +542,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   ASSERT_ND(record_index < kBorderPageMaxSlots);
   ASSERT_ND(parent->does_point_to_layer(record_index));
   DualPagePointer* pointer = parent->get_next_layer(record_index);
-  xct::LockableXctId* owner = parent->get_owner_id(record_index);
+  xct::RwLockableXctId* owner = parent->get_owner_id(record_index);
   ASSERT_ND(owner->xct_id_.is_next_layer() || owner->xct_id_.is_moved());
   ASSERT_ND(!pointer->is_both_null());
   MasstreePage* next_root;
@@ -645,7 +645,7 @@ ErrorCode MasstreeStoragePimpl::expand_record(
 
     // 2-b. Lock the record and announce the new location in one-shot.
     {
-      xct::McsLockScope record_lock(context, &slot->tid_);
+      xct::McsRwLockScope record_lock(context, &slot->tid_, false);
       // The above lock implies a barrier here
       ASSERT_ND(!slot->tid_.is_moved());
       slot->write_lengthes_oneshot(new_lengthes);
@@ -1174,6 +1174,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   }
   CHECK_ERROR_CODE(check_next_layer_bit(observed));
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
+    context,
     get_id(),
     observed,
     border->get_owner_id(index)));
@@ -1206,6 +1207,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   }
   CHECK_ERROR_CODE(check_next_layer_bit(observed));
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
+    context,
     get_id(),
     observed,
     border->get_owner_id(index)));
@@ -1247,6 +1249,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
+    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1274,6 +1277,7 @@ ErrorCode MasstreeStoragePimpl::delete_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
+    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1343,6 +1347,7 @@ ErrorCode MasstreeStoragePimpl::upsert_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
+    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1382,6 +1387,7 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
+    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1425,6 +1431,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
+    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1433,7 +1440,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
 }
 
 inline xct::TrackMovedRecordResult MasstreeStoragePimpl::track_moved_record(
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   ASSERT_ND(old_address);
   // We use moved bit only for volatile border pages

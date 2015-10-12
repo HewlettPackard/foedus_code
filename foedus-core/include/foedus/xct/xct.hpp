@@ -40,6 +40,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/thread/fwd.hpp"
+#include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_access.hpp"
@@ -180,6 +181,14 @@ class Xct {
     const storage::PageVersion* version_address,
     storage::PageVersionStatus observed);
 
+#ifdef USE_2PL
+  /**
+   * @brief Check whether a tuple is already locked, so far the only user is 2PL's
+   * add_to_read/write_set.
+   */
+  bool                is_locked_by_me(RwLockableXctId* owner_id_address);
+#endif
+
   /**
    * @brief Add the given record to the read set of this transaction.
    * @details
@@ -187,21 +196,24 @@ class Xct {
    * commit protocol.
    */
   ErrorCode           add_to_read_set(
+    thread::Thread* context,
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    LockableXctId* owner_id_address) ALWAYS_INLINE;
+    RwLockableXctId* owner_id_address) ALWAYS_INLINE;
   /** This version always adds to read set regardless of isolation level. */
   ErrorCode           add_to_read_set_force(
+    thread::Thread* context,
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    LockableXctId* owner_id_address) ALWAYS_INLINE;
+    RwLockableXctId* owner_id_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
+    thread::Thread* context,
     storage::StorageId storage_id,
-    LockableXctId* owner_id_address,
+    RwLockableXctId* owner_id_address,
     char* payload_address,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
@@ -209,6 +221,7 @@ class Xct {
    * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
+    thread::Thread* context,
     storage::StorageId storage_id,
     storage::Record* record,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
@@ -217,9 +230,10 @@ class Xct {
    * @brief Add a pair of read and write set of this transaction.
    */
   ErrorCode           add_to_read_and_write_set(
+    thread::Thread* context,
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    LockableXctId* owner_id_address,
+    RwLockableXctId* owner_id_address,
     char* payload_address,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
@@ -384,23 +398,50 @@ inline ErrorCode Xct::add_to_page_version_set(
 }
 
 inline ErrorCode Xct::add_to_read_set(
+  thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
-  LockableXctId* owner_id_address) {
+  RwLockableXctId* owner_id_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(observed_owner_id.is_valid());
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
   }
-  return add_to_read_set_force(storage_id, observed_owner_id, owner_id_address);
+  return add_to_read_set_force(context, storage_id, observed_owner_id, owner_id_address);
 }
+#ifdef USE_2PL
+inline bool Xct::is_locked_by_me(RwLockableXctId* owner_id_address) {
+  if (!owner_id_address->is_keylocked()) {
+    return false;
+  }
+  for (uint32_t i = 0; i < write_set_size_; i++) {
+    auto &write = write_set_[0];
+    if (write.owner_id_address_ == owner_id_address) {
+      return true;
+    }
+  }
+  for (uint32_t i = 0; i < read_set_size_; i++) {
+    auto &read = read_set_[0];
+    if (read.owner_id_address_ == owner_id_address) {
+      return true;
+    }
+  }
+  return false;
+}
+#endif
 inline ErrorCode Xct::add_to_read_set_force(
+  thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
-  LockableXctId* owner_id_address) {
+  RwLockableXctId* owner_id_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
+#ifdef USE_2PL
+  if (is_locked_by_me(owner_id_address)) {
+    return kErrorCodeOk;
+  }
+#endif
   if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
@@ -411,19 +452,29 @@ inline ErrorCode Xct::add_to_read_set_force(
   read_set_[read_set_size_].owner_id_address_ = owner_id_address;
   read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
   read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
+#ifdef USE_2PL
+  read_set_[read_set_size_].mcs_block_ =
+    context->mcs_acquire_reader_lock(owner_id_address->get_key_lock());
+#endif
   ++read_set_size_;
   return kErrorCodeOk;
 }
 
 inline ErrorCode Xct::add_to_write_set(
+  thread::Thread* context,
   storage::StorageId storage_id,
-  LockableXctId* owner_id_address,
+  RwLockableXctId* owner_id_address,
   char* payload_address,
   log::RecordLogType* log_entry) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(payload_address);
   ASSERT_ND(log_entry);
+#ifdef USE_2PL
+  if (is_locked_by_me(owner_id_address)) {
+    return kErrorCodeOk;
+  }
+#endif
   if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
     return kErrorCodeXctWriteSetOverflow;
   }
@@ -433,44 +484,56 @@ inline ErrorCode Xct::add_to_write_set(
 #endif  // NDEBUG
 
   write_set_[write_set_size_].storage_id_ = storage_id;
-  write_set_[write_set_size_].mcs_block_ = 0;
   write_set_[write_set_size_].write_set_ordinal_ = write_set_size_;
   write_set_[write_set_size_].owner_id_address_ = owner_id_address;
   write_set_[write_set_size_].payload_address_ = payload_address;
   write_set_[write_set_size_].log_entry_ = log_entry;
   write_set_[write_set_size_].related_read_ = CXX11_NULLPTR;
+#ifdef USE_2PL
+  write_set_[write_set_size_].mcs_block_ =
+    context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
+#endif
   ++write_set_size_;
   return kErrorCodeOk;
 }
 
 inline ErrorCode Xct::add_to_write_set(
+  thread::Thread* context,
   storage::StorageId storage_id,
   storage::Record* record,
   log::RecordLogType* log_entry) {
-  return add_to_write_set(storage_id, &record->owner_id_, record->payload_, log_entry);
+  return add_to_write_set(context, storage_id, &record->owner_id_, record->payload_, log_entry);
 }
 
 inline ErrorCode Xct::add_to_read_and_write_set(
+  thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
-  LockableXctId* owner_id_address,
+  RwLockableXctId* owner_id_address,
   char* payload_address,
   log::RecordLogType* log_entry) {
   ASSERT_ND(observed_owner_id.is_valid());
   WriteXctAccess* write = write_set_ + write_set_size_;
-  CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
+  CHECK_ERROR_CODE(add_to_write_set(
+    context,
+    storage_id,
+    owner_id_address,
+    payload_address,
+    log_entry));
   ASSERT_ND(write->log_entry_ == log_entry);
   ASSERT_ND(write->owner_id_address_ == owner_id_address);
 
+#ifndef USE_2PL
   // in this method, we force to add a read set because it's critical to confirm that
   // the physical record we write to is still the one we found.
   ReadXctAccess* read = read_set_ + read_set_size_;
-  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
+  CHECK_ERROR_CODE(add_to_read_set_force(context, storage_id, observed_owner_id, owner_id_address));
   ASSERT_ND(read->owner_id_address_ == owner_id_address);
   read->related_write_ = write;
   write->related_read_ = read;
   ASSERT_ND(read->related_write_->related_read_ == read);
   ASSERT_ND(write->related_read_->related_write_ == write);
+#endif
   return kErrorCodeOk;
 }
 

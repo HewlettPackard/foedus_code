@@ -245,7 +245,7 @@ struct MasstreeCommonLogType : public log::RecordLogType {
    * While it is \e "correct", we of course observed unnecessary aborts especially in transactions
    * that caused the migration themselves. So, we
    */
-  inline RecordAddresses apply_record_prepare(xct::LockableXctId* owner_id, char* record) const {
+  inline RecordAddresses apply_record_prepare(xct::RwLockableXctId* owner_id, char* record) const {
     ASSERT_ND(owner_id->is_keylocked());
     ASSERT_ND(!owner_id->xct_id_.is_next_layer());
     ASSERT_ND(!owner_id->xct_id_.is_moved());
@@ -321,7 +321,7 @@ struct MasstreeInsertLogType : public MasstreeCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     RecordAddresses addresses = apply_record_prepare(owner_id, data);
     ASSERT_ND(owner_id->xct_id_.is_deleted());
@@ -366,7 +366,7 @@ struct MasstreeDeleteLogType : public MasstreeCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     apply_record_prepare(owner_id, data);  // In this log type, just for sanity checks
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
@@ -404,7 +404,7 @@ struct MasstreeUpdateLogType : public MasstreeCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     RecordAddresses addresses = apply_record_prepare(owner_id, data);
     ASSERT_ND(!owner_id->xct_id_.is_deleted());
@@ -449,7 +449,7 @@ struct MasstreeOverwriteLogType : public MasstreeCommonLogType {
   void            apply_record(
     thread::Thread* /*context*/,
     StorageId /*storage_id*/,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* data) const ALWAYS_INLINE {
     RecordAddresses addresses = apply_record_prepare(owner_id, data);
     ASSERT_ND(!owner_id->xct_id_.is_deleted());

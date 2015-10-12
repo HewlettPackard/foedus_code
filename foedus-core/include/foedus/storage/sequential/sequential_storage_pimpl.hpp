@@ -71,7 +71,7 @@ struct SequentialStorageControlBlock final {
    * \li Scan-operations take this as a read-set.
    * \li Truncate-operation locks it and update cur_truncate_epoch_.
    */
-  xct::LockableXctId  cur_truncate_epoch_tid_;
+  xct::RwLockableXctId  cur_truncate_epoch_tid_;
 
   /** @copydoc foedus::storage::sequential::SequentialMetadata::truncate_epoch_ */
   std::atomic< Epoch::EpochInteger >  cur_truncate_epoch_;

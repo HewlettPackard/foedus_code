@@ -117,7 +117,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * Previously it was 64, but now kBorderPageMaxSlots is 100 for 4kb pages.
    */
   xct::TrackMovedRecordResult track_moved_record(
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
 
   //// Masstree API

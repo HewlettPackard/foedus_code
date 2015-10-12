@@ -37,6 +37,12 @@ mark_as_advanced(FOEDUS_SRC_ROOT FOEDUS_BIN_ROOT FOEDUS_CORE_SRC_ROOT
 # http://www.jimmo.org/threads-blocked-in-pthread_cond_signal-on-linux/
 find_package(Threads REQUIRED)
 
+option(USE_2PL "Use two-phase locking" OFF)
+if (USE_2PL)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_2PL")
+  message(STATUS "Using two-phase locking")
+endif()
+
 # Further, all modules should be compiled with -pthread
 # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58929
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")

@@ -538,7 +538,7 @@ class MasstreeBorderPage final : public MasstreePage {
     /**
      * TID of the record.
      */
-    xct::LockableXctId  tid_;       // +16 -> 16
+    xct::RwLockableXctId  tid_;       // +16 -> 16
 
     /**
      * Stores mutable length information of the record. Because these are mutable,
@@ -847,10 +847,10 @@ class MasstreeBorderPage final : public MasstreePage {
     return get_slot(index)->lengthes_.components.offset_;
   }
 
-  xct::LockableXctId* get_owner_id(SlotIndex index) ALWAYS_INLINE {
+  xct::RwLockableXctId* get_owner_id(SlotIndex index) ALWAYS_INLINE {
     return &get_slot(index)->tid_;
   }
-  const xct::LockableXctId* get_owner_id(SlotIndex index) const ALWAYS_INLINE {
+  const xct::RwLockableXctId* get_owner_id(SlotIndex index) const ALWAYS_INLINE {
     return &get_slot(index)->tid_;
   }
 
@@ -1011,12 +1011,12 @@ class MasstreeBorderPage final : public MasstreePage {
   /** @see StorageManager::track_moved_record() */
   xct::TrackMovedRecordResult track_moved_record(
     Engine* engine,
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
   /** This one further tracks it to next layer. Instead it requires a non-null write_set. */
   xct::TrackMovedRecordResult track_moved_record_next_layer(
     Engine* engine,
-    xct::LockableXctId* old_address);
+    xct::RwLockableXctId* old_address);
 
   /** @returns whether the length information seems okay. used only for assertions. */
   bool verify_slot_lengthes(SlotIndex index) const;

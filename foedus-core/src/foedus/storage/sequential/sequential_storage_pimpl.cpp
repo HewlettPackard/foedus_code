@@ -227,9 +227,10 @@ ErrorCode SequentialStorageControlBlock::optimistic_read_truncate_epoch(
 
   *out = Epoch(cur_truncate_epoch_.load());  // atomic!
   CHECK_ERROR_CODE(cur_xct.add_to_read_set(
+    context,
     meta_.id_,
     observed,
-    const_cast< xct::LockableXctId* >(address)));  // why it doesn't receive const? I forgot..
+    const_cast< xct::RwLockableXctId* >(address)));  // why it doesn't receive const? I forgot..
   return kErrorCodeOk;
 }
 

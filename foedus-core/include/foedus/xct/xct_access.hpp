@@ -94,8 +94,12 @@ struct ReadXctAccess {
   /** The storage we accessed. */
   storage::StorageId  storage_id_;
 
+#ifdef USE_2PL
+  McsBlockIndex         mcs_block_;
+#endif
+
   /** Pointer to the accessed record. */
-  LockableXctId*      owner_id_address_;
+  RwLockableXctId*      owner_id_address_;
 
   /**
    * An optional member that points to a write access related to this read.
@@ -143,7 +147,7 @@ struct WriteXctAccess {
   uint32_t              write_set_ordinal_;
 
   /** Pointer to the accessed record. */
-  LockableXctId*        owner_id_address_;
+  RwLockableXctId*        owner_id_address_;
 
   /** Pointer to the payload of the record. */
   char*                 payload_address_;

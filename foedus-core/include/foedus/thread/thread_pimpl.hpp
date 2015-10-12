@@ -279,7 +279,7 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** not used so far */
   void                mcs_toolong_wait(
-    xct::McsLock* mcs_lock,
+    xct::McsRwLock* mcs_lock,
     ThreadId predecessor_id,
     xct::McsBlockIndex my_block,
     xct::McsBlockIndex pred_block);

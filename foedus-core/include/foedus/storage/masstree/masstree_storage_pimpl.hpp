@@ -76,7 +76,7 @@ struct MasstreeStorageControlBlock final {
   // Type-specific shared members below.
 
   /** Lock to synchronize updates to root_page_pointer_. */
-  xct::LockableXctId  first_root_owner_;
+  xct::RwLockableXctId  first_root_owner_;
 };
 
 /**
@@ -105,7 +105,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   const MasstreeMetadata& get_meta()  const { return control_block_->meta_; }
   DualPagePointer& get_first_root_pointer() { return control_block_->root_page_pointer_; }
   DualPagePointer* get_first_root_pointer_address() { return &control_block_->root_page_pointer_; }
-  xct::LockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
+  xct::RwLockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
 
   ErrorCode get_first_root(
     thread::Thread* context,
@@ -114,7 +114,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   ErrorCode grow_root(
     thread::Thread* context,
     DualPagePointer* root_pointer,
-    xct::LockableXctId* root_pointer_owner,
+    xct::RwLockableXctId* root_pointer_owner,
     MasstreeIntermediatePage** new_root);
 
   /**
@@ -415,7 +415,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     KeySlice to);
 
   xct::TrackMovedRecordResult track_moved_record(
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set) ALWAYS_INLINE;
 
   /** Defined in masstree_storage_peek.cpp */

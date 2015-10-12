@@ -83,7 +83,8 @@ ErrorCode HashStorage::get_record(
   uint16_t key_length,
   const HashCombo& combo,
   void* payload,
-  uint16_t* payload_capacity) {
+  uint16_t* payload_capacity,
+  bool for_write_2pl) {
   HashStoragePimpl pimpl(this);
   return pimpl.get_record(
     context,
@@ -91,7 +92,8 @@ ErrorCode HashStorage::get_record(
     key_length,
     combo,
     payload,
-    payload_capacity);
+    payload_capacity,
+    for_write_2pl);
 }
 
 ErrorCode HashStorage::get_record_part(
@@ -101,7 +103,8 @@ ErrorCode HashStorage::get_record_part(
   const HashCombo& combo,
   void* payload,
   uint16_t payload_offset,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  bool for_write_2pl) {
   HashStoragePimpl pimpl(this);
   return pimpl.get_record_part(
     context,
@@ -110,7 +113,8 @@ ErrorCode HashStorage::get_record_part(
     combo,
     payload,
     payload_offset,
-    payload_count);
+    payload_count,
+    for_write_2pl);
 }
 
 template <typename PAYLOAD>
@@ -248,7 +252,7 @@ std::ostream& operator<<(std::ostream& o, const HashStorage& v) {
 }
 
 xct::TrackMovedRecordResult HashStorage::track_moved_record(
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   HashStoragePimpl pimpl(this);
   return pimpl.track_moved_record(old_address, write_set);

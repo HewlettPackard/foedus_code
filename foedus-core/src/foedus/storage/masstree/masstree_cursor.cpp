@@ -230,6 +230,7 @@ ErrorCode MasstreeCursor::proceed_route_border() {
       fetch_cur_record(page, route->get_cur_original_index());
       if (!route->snapshot_ && !is_cur_key_next_layer()) {
         CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+          context_,
           storage_.get_id(),
           cur_key_observed_owner_id_,
           cur_key_owner_id_address));
@@ -472,6 +473,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
 
   if (!route->snapshot_ && !is_cur_key_next_layer()) {
     CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+      context_,
       storage_.get_id(),
       cur_key_observed_owner_id_,
       cur_key_owner_id_address));
@@ -1081,6 +1083,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
         // but if that's next layer pointer, don't bother. the pointer is always valid
         if (!route->snapshot_ && !is_cur_key_next_layer()) {
           CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+            context_,
             storage_.get_id(),
             cur_key_observed_owner_id_,
             cur_key_owner_id_address));
@@ -1103,6 +1106,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
 
         if (!route->snapshot_ && !is_cur_key_next_layer()) {
           CHECK_ERROR_CODE(current_xct_->add_to_read_set(
+            context_,
             storage_.get_id(),
             cur_key_observed_owner_id_,
             cur_key_owner_id_address));

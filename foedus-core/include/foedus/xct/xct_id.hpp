@@ -802,10 +802,10 @@ class McsOwnerlessLockScope {
 struct TrackMovedRecordResult {
   TrackMovedRecordResult()
     : new_owner_address_(CXX11_NULLPTR), new_payload_address_(CXX11_NULLPTR) {}
-  TrackMovedRecordResult(LockableXctId* new_owner_address, char* new_payload_address)
+  TrackMovedRecordResult(RwLockableXctId* new_owner_address, char* new_payload_address)
     : new_owner_address_(new_owner_address), new_payload_address_(new_payload_address) {}
 
-  LockableXctId* new_owner_address_;
+  RwLockableXctId* new_owner_address_;
   char* new_payload_address_;
 };
 

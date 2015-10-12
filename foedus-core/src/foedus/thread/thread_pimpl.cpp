@@ -873,7 +873,7 @@ inline void assert_mcs_aligned(const void* address) {
 }
 
 void ThreadPimpl::mcs_toolong_wait(
-  xct::McsLock* mcs_lock,
+  xct::McsRwLock* mcs_lock,
   ThreadId predecessor_id,
   xct::McsBlockIndex my_block,
   xct::McsBlockIndex pred_block) {

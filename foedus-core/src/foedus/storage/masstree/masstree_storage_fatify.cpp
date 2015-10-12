@@ -89,7 +89,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
 
   while (true) {
     // lock the first root.
-    xct::McsLockScope owner_scope(context, &get_first_root_owner());
+    xct::McsRwLockScope owner_scope(context, &get_first_root_owner(), false);
     LOG(INFO) << "Locked the root page owner address.";
     MasstreeIntermediatePage* root;
     WRAP_ERROR_CODE(get_first_root(context, true, &root));

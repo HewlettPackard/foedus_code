@@ -114,7 +114,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
 
 
   xct::TrackMovedRecordResult track_moved_record(
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
   xct::TrackMovedRecordResult track_moved_record_search(
     HashDataPage* page,
@@ -168,7 +168,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     void* payload,
-    uint16_t* payload_capacity);
+    uint16_t* payload_capacity,
+    bool for_write_2pl);
 
   /** @see foedus::storage::hash::HashStorage::get_record_primitive() */
   template <typename PAYLOAD>
@@ -178,7 +179,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     PAYLOAD* payload,
-    uint16_t payload_offset) {
+    uint16_t payload_offset,
+    bool for_write_2pl = false) {
     // at this point, there isn't enough benefit to do optimization specific to this case.
     // hash-lookup is anyway dominant. memcpy-vs-primitive is not the issue.
     return get_record_part(
@@ -188,7 +190,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
       combo,
       payload,
       payload_offset,
-      sizeof(PAYLOAD));
+      sizeof(PAYLOAD),
+      for_write_2pl);
   }
 
   /** @see foedus::storage::hash::HashStorage::get_record_part() */
@@ -199,7 +202,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     const HashCombo& combo,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    bool for_write_2pl);
 
   /** @see foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(

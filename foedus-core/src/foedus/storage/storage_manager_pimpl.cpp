@@ -374,14 +374,14 @@ void StorageManagerPimpl::create_storage_apply(const Metadata& metadata) {
 // define here to allow inline
 xct::TrackMovedRecordResult StorageManager::track_moved_record(
   StorageId storage_id,
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   return pimpl_->track_moved_record(storage_id, old_address, write_set);
 }
 
 xct::TrackMovedRecordResult StorageManagerPimpl::track_moved_record(
   StorageId storage_id,
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   // so far Masstree and Hash have tracking
   StorageControlBlock* block = storages_ + storage_id;

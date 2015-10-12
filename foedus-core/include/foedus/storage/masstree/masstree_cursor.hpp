@@ -335,7 +335,7 @@ class MasstreeCursor CXX11_FINAL {
   KeyLength   cur_key_in_layer_remainder_;
   KeySlice    cur_key_in_layer_slice_;
   xct::XctId  cur_key_observed_owner_id_;
-  xct::LockableXctId* cur_key_owner_id_address;
+  xct::RwLockableXctId* cur_key_owner_id_address;
 
   /** full big-endian key to terminate search. allocated in transaction's local work memory */
   char*       end_key_;

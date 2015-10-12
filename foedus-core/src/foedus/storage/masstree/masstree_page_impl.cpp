@@ -433,7 +433,7 @@ ErrorCode MasstreeBorderPage::split_foster(
     twin[0]->next_offset_ = next_offset_;
     twin[1]->next_offset_ = 0;
     for (SlotIndex i = 0; i < key_count; ++i) {
-      xct::LockableXctId* owner_id = twin[0]->get_owner_id(i);
+      xct::RwLockableXctId* owner_id = twin[0]->get_owner_id(i);
       ASSERT_ND(owner_id->is_keylocked());
       owner_id->get_key_lock()->reset();  // no race
     }
@@ -460,9 +460,9 @@ ErrorCode MasstreeBorderPage::split_foster(
   // release all record locks, but set the "moved" bit so that concurrent transactions
   // check foster-twin for read-set/write-set checks.
   for (SlotIndex i = 0; i < key_count; ++i) {
-    xct::LockableXctId* owner_id = get_owner_id(i);
+    xct::RwLockableXctId* owner_id = get_owner_id(i);
     owner_id->xct_id_.set_moved();
-    context->mcs_release_lock(owner_id->get_key_lock(), lock_blocks[i]);
+    context->mcs_release_writer_lock(owner_id->get_key_lock(), lock_blocks[i]);
   }
 
   assorted::memory_fence_release();
@@ -654,8 +654,8 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   // lock in address order (thus, backward in indexes). so, no deadlock possible
   // we have to lock them whether the record is deleted or not. all physical records.
   for (SlotIndex i = key_count - 1U; i < kBorderPageMaxSlots; --i) {  // SlotIndex is unsigned
-    xct::LockableXctId* owner_id = get_owner_id(i);
-    out_blocks[i] = context->mcs_acquire_lock(owner_id->get_key_lock());
+    xct::RwLockableXctId* owner_id = get_owner_id(i);
+    out_blocks[i] = context->mcs_acquire_writer_lock(owner_id->get_key_lock());
     ASSERT_ND(owner_id->is_keylocked());
   }
 
@@ -1453,7 +1453,7 @@ MasstreePage* MasstreePage::track_foster_child(
 
 xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   Engine* engine,
-  xct::LockableXctId* owner_address,
+  xct::RwLockableXctId* owner_address,
   xct::WriteXctAccess* /*write_set*/) {
   ASSERT_ND(owner_address->is_moved() || owner_address->is_next_layer());
   ASSERT_ND(!header().snapshot_);
@@ -1506,7 +1506,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
     }
 
     Slot* cur_slot = cur_page->get_slot(index);
-    xct::LockableXctId* new_owner_address = &cur_slot->tid_;
+    xct::RwLockableXctId* new_owner_address = &cur_slot->tid_;
     char* new_record_address = cur_page->get_record(index);
     if (cur_page->does_point_to_layer(index)) {
       // another rare case. the record has been now moved to another layer.
@@ -1528,7 +1528,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
 
 xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
   Engine* engine,
-  xct::LockableXctId* owner_address) {
+  xct::RwLockableXctId* owner_address) {
   ASSERT_ND(!header().snapshot_);
   ASSERT_ND(header().get_page_type() == kMasstreeBorderPageType);
   ASSERT_ND(owner_address->xct_id_.is_next_layer());
@@ -1604,7 +1604,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
       return xct::TrackMovedRecordResult();
     }
 
-    xct::LockableXctId* new_owner_address = casted->get_owner_id(index);
+    xct::RwLockableXctId* new_owner_address = casted->get_owner_id(index);
     ASSERT_ND(new_owner_address != owner_address);
     char* new_record_address = casted->get_record(index);
     if (casted->does_point_to_layer(index)) {

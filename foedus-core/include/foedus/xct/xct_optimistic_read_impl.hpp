@@ -37,9 +37,10 @@ namespace xct {
  */
 template <typename HANDLER>
 inline ErrorCode optimistic_read_protocol(
+  thread::Thread* context,
   Xct* xct,
   storage::StorageId storage_id,
-  LockableXctId* owner_id_address,
+  RwLockableXctId* owner_id_address,
   bool in_snapshot,
   HANDLER handler) {
   if (in_snapshot || xct->get_isolation_level() == kDirtyRead) {
@@ -54,7 +55,7 @@ inline ErrorCode optimistic_read_protocol(
   // The Masstree paper additionally has another fence and version-check and then a retry if the
   // version differs. However, in our protocol such thing is anyway caught in commit phase.
   // Thus, we have only one fence here.
-  return xct->add_to_read_set(storage_id, observed, owner_id_address);
+  return xct->add_to_read_set(context, storage_id, observed, owner_id_address);
 }
 
 }  // namespace xct

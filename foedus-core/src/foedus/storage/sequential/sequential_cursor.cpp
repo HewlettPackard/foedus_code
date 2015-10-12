@@ -606,8 +606,12 @@ ErrorCode SequentialCursor::next_batch_unsafe_volatiles(
           Epoch epoch = page->get_first_record_epoch();
           if (epoch > grace_epoch_) {
             uint16_t offset = page->get_record_offset(record_count - 1);
-            xct::LockableXctId* owner_id = page->owner_id_from_offset(offset);
-            CHECK_ERROR_CODE(xct_->add_to_read_set(storage_.get_id(), owner_id->xct_id_, owner_id));
+            xct::RwLockableXctId* owner_id = page->owner_id_from_offset(offset);
+            CHECK_ERROR_CODE(xct_->add_to_read_set(
+              context_,
+              storage_.get_id(),
+              owner_id->xct_id_,
+              owner_id));
           }
         }
 

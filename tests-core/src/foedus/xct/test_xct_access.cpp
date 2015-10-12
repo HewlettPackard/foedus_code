@@ -39,7 +39,7 @@ ReadXctAccess create_access(int i) {
   ReadXctAccess access;
   access.observed_owner_id_.set(i * 20, i * 12);
   access.storage_id_ = i * 1234U;
-  access.owner_id_address_ = reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 8452));
+  access.owner_id_address_ = reinterpret_cast<xct::RwLockableXctId*>(to_ptr(i * 8452));
   return access;
 }
 void verify_access(const ReadXctAccess &access, int i) {
@@ -47,7 +47,8 @@ void verify_access(const ReadXctAccess &access, int i) {
   tmp.set(i * 20, i * 12);
   EXPECT_TRUE(access.observed_owner_id_ == tmp);
   EXPECT_EQ(i * 1234U, access.storage_id_);
-  EXPECT_TRUE(access.owner_id_address_ == reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 8452)));
+  EXPECT_TRUE(
+    access.owner_id_address_ == reinterpret_cast<xct::RwLockableXctId*>(to_ptr(i * 8452)));
 }
 
 TEST(XctAccessTest, CompareReadSet) {
@@ -115,7 +116,7 @@ WriteXctAccess create_write_access(int i) {
   WriteXctAccess access;
   access.payload_address_ = reinterpret_cast<char*>(to_ptr(i * 542312));
   access.storage_id_ = i * 52223ULL;
-  access.owner_id_address_ = reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 14325));
+  access.owner_id_address_ = reinterpret_cast<xct::RwLockableXctId*>(to_ptr(i * 14325));
   access.write_set_ordinal_ = 0;  // we should have a testcase to test this order
   access.log_entry_ = reinterpret_cast<log::RecordLogType*>(to_ptr(i * 5423423));
   return access;
@@ -123,7 +124,8 @@ WriteXctAccess create_write_access(int i) {
 void verify_access(const WriteXctAccess &access, int i) {
   EXPECT_TRUE(access.payload_address_  == reinterpret_cast<char*>(to_ptr(i * 542312)));
   EXPECT_EQ(i * 52223ULL, access.storage_id_);
-  EXPECT_TRUE(access.owner_id_address_ == reinterpret_cast<xct::LockableXctId*>(to_ptr(i * 14325)));
+  EXPECT_TRUE(
+    access.owner_id_address_ == reinterpret_cast<xct::RwLockableXctId*>(to_ptr(i * 14325)));
   EXPECT_TRUE(access.log_entry_ == to_ptr(i * 5423423));
 }
 
