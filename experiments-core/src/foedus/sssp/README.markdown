@@ -27,3 +27,22 @@ Edges are uni-directional to make the path-finding more interesting.
 Considering edge_max=20/edge_prob=0.8 or something.
 
 All randoms are uniform random. Can use skewed randoms, but I don't think it's important in the main story.
+
+Queries
+------------
+Because of how I generated the data, Node IDs are strongly correlated with their coordinates.
+
+For pair-wise navigational queries, we just pick two nodes close to each other.
+
+  from_id : randomly pick from [0, #nodes)
+  to_id : from_id + 64 (or 128, 256,... the larger, the more steps)
+
+Most likely all node-pairs are reachable (20 edges), but there is a small chance that some node-pairs are unreachable.
+
+
+For analytic queries, just pick any node.
+ from_id : randomly pick from [0, #nodes)
+
+From that node, we will calculate all-destination shortest-paths.
+
+For more details about the query exectuion, see foedus::sssp::SsspDriver.

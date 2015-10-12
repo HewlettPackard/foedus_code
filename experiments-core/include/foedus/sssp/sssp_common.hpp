@@ -35,7 +35,7 @@ const uint64_t kBlockSize = 1U << 10;
 const uint64_t kNodesPerBlock = 1U << 5;
 
 /** how many blocks per block in both x and y directions. */
-const uint32_t kPartitionSize = 1U << 10;
+const uint32_t kPartitionSize = 1U << 8;
 // const uint64_t kPartitionSize = 1U << 1;  // for trivial test data
 
 /** how many blocks per block in total. */
@@ -142,6 +142,31 @@ struct Partition {
 };
 
 const uint64_t kPartitionAlignedByteSize = ((sizeof(Partition) >> 21) + 1ULL) << 21;
+
+inline void to_px_py(uint32_t p, uint32_t flags_p_x, uint32_t* px, uint32_t* py) {
+  *px = p % flags_p_x;
+  *py = p / flags_p_x;
+}
+
+inline void to_bx_by(uint32_t px, uint32_t py, uint32_t block, uint32_t* bx, uint32_t* by) {
+  *bx = px * kPartitionSize + (block % kPartitionSize);
+  *by = py * kPartitionSize + (block / kPartitionSize);
+}
+
+inline uint32_t calculate_from(uint32_t total, uint32_t splits, uint32_t index) {
+  uint32_t count_per_split = total / splits;
+  return count_per_split * index;
+}
+
+inline uint32_t calculate_to(uint32_t total, uint32_t splits, uint32_t index) {
+  uint32_t count_per_split = total / splits;
+  if (index + 1U == splits) {
+    // last one takes all
+    return total;
+  } else {
+    return count_per_split * (index + 1U);
+  }
+}
 
 }  // namespace sssp
 }  // namespace foedus

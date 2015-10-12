@@ -110,14 +110,6 @@ struct DataGen {
   void set_partition(uint32_t px, uint32_t py, Partition* ptr) {
     partitions_.get()[px + py * FLAGS_p_x] = ptr;
   }
-  void to_px_py(uint32_t partition, uint32_t* px, uint32_t* py) const {
-    *px = partition % FLAGS_p_x;
-    *py = partition / FLAGS_p_x;
-  }
-  void to_bx_by(Partition* partition, uint32_t block, uint32_t* bx, uint32_t* by) const {
-    *bx = partition->px_ * kPartitionSize + (block % kPartitionSize);
-    *by = partition->py_ * kPartitionSize + (block / kPartitionSize);
-  }
 
   uint32_t partition_count_;
   uint32_t numa_nodes_;
@@ -158,21 +150,6 @@ int DataGen::main_impl(int argc, char **argv) {
   return 0;
 }
 
-uint32_t calculate_from(uint32_t total, uint32_t splits, uint32_t index) {
-  uint32_t count_per_split = total / splits;
-  return count_per_split * index;
-}
-
-uint32_t calculate_to(uint32_t total, uint32_t splits, uint32_t index) {
-  uint32_t count_per_split = total / splits;
-  if (index + 1U == splits) {
-    // last one takes all
-    return total;
-  } else {
-    return count_per_split * (index + 1U);
-  }
-}
-
 void DataGen::generate_nodes() {
   std::vector< std::thread > threads;
   for (uint32_t socket_id = 0; socket_id < numa_nodes_; ++socket_id) {
@@ -194,7 +171,7 @@ void DataGen::generate_nodes() {
     Partition* partition = partitions_.get()[p];
     ASSERT_ND(partition);
     uint32_t px, py;
-    to_px_py(p, &px, &py);
+    to_px_py(p, FLAGS_p_x, &px, &py);
     ASSERT_ND(partition->pid_ == p);
     ASSERT_ND(partition->px_ == px);
     ASSERT_ND(partition->py_ == py);
@@ -212,7 +189,7 @@ void DataGen::generate_nodes() {
 void DataGen::generate_nodes_socket(int socket_id, uint32_t partition_from, uint32_t partition_to) {
   for (auto p = partition_from; p < partition_to; ++p) {
     uint32_t px, py;
-    to_px_py(p, &px, &py);
+    to_px_py(p, FLAGS_p_x, &px, &py);
     LOG(INFO) << "Socket-" << socket_id << ", generating nodes in p-" << p
       << " (px=" << px << ", py=" << py << ")";
 
@@ -263,7 +240,7 @@ void DataGen::generate_nodes_thread(
 
     Block* block = partition->blocks_ + b;
     uint32_t bx, by;
-    to_bx_by(partition, b, &bx, &by);
+    to_bx_by(partition->px_, partition->py_, b, &bx, &by);
     block->init(bx, by);
     for (uint32_t i = 0; i < kNodesPerBlock; ++i) {
       coordinates[i].x_ = block->x_ + ((ur.next_uint32() >> 6) % kBlockSize);
@@ -558,7 +535,7 @@ void DataGen::writeout_socket_thread(
 
   for (auto p = partition_from; p < partition_to; ++p) {
     uint32_t px, py;
-    to_px_py(p, &px, &py);
+    to_px_py(p, FLAGS_p_x, &px, &py);
 
     fs::Path path("/dev/shm/sssp_out_");
     path += FLAGS_out_binary ? "bin_" : "text_";
