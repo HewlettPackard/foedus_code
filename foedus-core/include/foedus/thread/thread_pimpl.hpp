@@ -263,6 +263,16 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
 
+  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
+  void               mcs_release_reader_lock(
+    xct::McsRwLock* mcs_rw_lock,
+    xct::McsBlockIndex block_index);
+
+  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
+  void               mcs_release_writer_lock(
+    xct::McsRwLock* mcs_rw_lock,
+    xct::McsBlockIndex block_index);
+
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
