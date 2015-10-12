@@ -158,7 +158,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         } else {  // read-modify-write
           // FIXME(tzwang): figure out what to do with deadlocks.
           // For now, just generate all keys and sort them for 2PL.
-#ifdef USE_2PL
+          // Use the same for OCC, for fair comparison.
           std::vector<YcsbKey> keys;
           auto nkeys = workload_.reps_per_tx_ + workload_.rmw_additional_reads_;
           for (int32_t k = 0; k < nkeys; k++) {
@@ -179,19 +179,6 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
             // Follow skewed accessed in RMW
             ret = do_read(keys[ar]);
           }
-#else
-          for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            auto hi = zrnd_key_high.next();
-            auto lo = vec_zrnd_key_low[hi].next();
-            ret = do_rmw(build_key(hi, lo));
-          }
-          for (int32_t ar = 0; ar < workload_.rmw_additional_reads_; ar++) {
-            // Follow skewed accessed in RMW
-            auto hi = zrnd_key_high.next();
-            auto lo = vec_zrnd_key_low[hi].next();
-            ret = do_read(build_key(hi, lo));
-          }
-#endif
         }
       }
 
