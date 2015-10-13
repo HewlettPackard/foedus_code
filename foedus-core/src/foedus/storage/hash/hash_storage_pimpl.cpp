@@ -204,25 +204,10 @@ ErrorCode HashStoragePimpl::get_record(
   xct::Xct& cur_xct = context->get_current_xct();
 #ifdef USE_2PL
   if (for_write_2pl) {
-    uint16_t log_length = HashOverwriteLogType::calculate_log_length(key_length, payload_length);
-    HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
-      context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate(
-      get_id(),
-      key,
-      key_length,
-      get_bin_bits(),
-      combo.hash_,
-      payload,
-      0,
-      payload_length);
-    CHECK_ERROR_CODE(cur_xct.add_to_read_and_write_set(
+    CHECK_ERROR_CODE(cur_xct.add_to_write_set(
       context,
       get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      location.record_,
-      log_entry));
+      &location.slot_->tid_));
   } else {
     CHECK_ERROR_CODE(cur_xct.add_to_read_set(
       context,
@@ -281,25 +266,10 @@ ErrorCode HashStoragePimpl::get_record_part(
   }
 #ifdef USE_2PL
   if (for_write_2pl) {
-    uint16_t log_length = HashOverwriteLogType::calculate_log_length(key_length, payload_length);
-    HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
-      context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate(
-      get_id(),
-      key,
-      key_length,
-      get_bin_bits(),
-      combo.hash_,
-      payload,
-      0,
-      payload_length);
-    CHECK_ERROR_CODE(cur_xct.add_to_read_and_write_set(
+    CHECK_ERROR_CODE(cur_xct.add_to_write_set(
       context,
       get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      location.record_,
-      log_entry));
+      &location.slot_->tid_));
   } else {
     CHECK_ERROR_CODE(cur_xct.add_to_read_set(
       context,
@@ -608,6 +578,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   } else if (location.observed_.is_deleted()) {
+    // FIXME(tzwang): what to do for 2PL?
     CHECK_ERROR_CODE(cur_xct.add_to_read_set(
       context,
       get_id(),

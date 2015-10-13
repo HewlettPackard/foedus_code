@@ -29,11 +29,12 @@
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
+#include "foedus/log/log_type_invoke.hpp"
 
 // For log verification. Only in debug mode
-#ifndef NDEBUG
-#include "foedus/log/log_type_invoke.hpp"
-#endif  // NDEBUG
+//#ifndef NDEBUG
+//#include "foedus/log/log_type_invoke.hpp"
+//#endif  // NDEBUG
 
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
@@ -226,6 +227,16 @@ class Xct {
     storage::Record* record,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
+#ifdef USE_2PL
+  /**
+   * @brief A special add_to_write_set function for readers taking X-lock.
+   */
+  ErrorCode           add_to_write_set(
+    thread::Thread* context,
+    storage::StorageId storage_id,
+    RwLockableXctId* owner_id_address) ALWAYS_INLINE;
+#endif
+
   /**
    * @brief Add a pair of read and write set of this transaction.
    */
@@ -416,13 +427,13 @@ inline bool Xct::is_locked_by_me(RwLockableXctId* owner_id_address) {
     return false;
   }
   for (uint32_t i = 0; i < write_set_size_; i++) {
-    auto &write = write_set_[i];
+    WriteXctAccess &write = write_set_[i];
     if (write.owner_id_address_ == owner_id_address) {
       return true;
     }
   }
   for (uint32_t i = 0; i < read_set_size_; i++) {
-    auto &read = read_set_[i];
+    ReadXctAccess &read = read_set_[i];
     if (read.owner_id_address_ == owner_id_address) {
       return true;
     }
@@ -492,6 +503,14 @@ inline ErrorCode Xct::add_to_write_set(
 #ifdef USE_2PL
   write_set_[write_set_size_].mcs_block_ =
     context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
+
+  // TODO(tzwang): figure out new_xct_id with CC switching
+  log::invoke_apply_record(
+    write_set_[write_set_size_].log_entry_,
+    context,
+    write_set_[write_set_size_].storage_id_,
+    write_set_[write_set_size_].owner_id_address_,
+    write_set_[write_set_size_].payload_address_);
 #endif
   ++write_set_size_;
   return kErrorCodeOk;
@@ -505,6 +524,27 @@ inline ErrorCode Xct::add_to_write_set(
   return add_to_write_set(context, storage_id, &record->owner_id_, record->payload_, log_entry);
 }
 
+#ifdef USE_2PL
+// Special version for readers taking X-locks, so no change to apply
+inline ErrorCode Xct::add_to_write_set(
+  thread::Thread* context,
+  storage::StorageId storage_id,
+  RwLockableXctId* owner_id_address) {
+  // FIXME(tzwang): also need to check whether the read set has it locked already
+  write_set_[write_set_size_].storage_id_ = storage_id;
+  write_set_[write_set_size_].write_set_ordinal_ = write_set_size_;
+  write_set_[write_set_size_].owner_id_address_ = owner_id_address;
+  write_set_[write_set_size_].payload_address_ = CXX11_NULLPTR;
+  write_set_[write_set_size_].log_entry_ = CXX11_NULLPTR;
+  write_set_[write_set_size_].related_read_ = CXX11_NULLPTR;
+  // Acquire write lock directly
+  write_set_[write_set_size_].mcs_block_ =
+    context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
+  ++write_set_size_;
+  return kErrorCodeOk;
+}
+#endif
+
 inline ErrorCode Xct::add_to_read_and_write_set(
   thread::Thread* context,
   storage::StorageId storage_id,
@@ -513,6 +553,41 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   char* payload_address,
   log::RecordLogType* log_entry) {
   ASSERT_ND(observed_owner_id.is_valid());
+#ifdef USE_2PL
+  // First see if it's already in my write set (due to a read previously).
+  // If so, apply the change and we're done.
+  for (uint32_t i = 0; i < write_set_size_; i++) {
+    WriteXctAccess &write = write_set_[i];
+    if (write.owner_id_address_ == owner_id_address) {
+      // Found!
+      ASSERT_ND(write.payload_address_ = CXX11_NULLPTR);
+      ASSERT_ND(write.log_entry_ = CXX11_NULLPTR);
+      ASSERT_ND(write.owner_id_address_->is_keylocked());
+      ASSERT_ND(write.mcs_block_ > 0);
+      write.payload_address_ = payload_address;
+      write.log_entry_ = log_entry;
+
+      // TODO(tzwang): figure out new_xct_id with CC switching
+      log::invoke_apply_record(
+        write.log_entry_,
+        context,
+        write.storage_id_,
+        write.owner_id_address_,
+        write.payload_address_);
+      return kErrorCodeOk;
+    }
+  }
+  // Didn't find it, proceed as usual; add_to_write_set will apply the change.
+  WriteXctAccess* write = write_set_ + write_set_size_;
+  CHECK_ERROR_CODE(add_to_write_set(
+    context,
+    storage_id,
+    owner_id_address,
+    payload_address,
+    log_entry));
+  ASSERT_ND(write->log_entry_ == log_entry);
+  ASSERT_ND(write->owner_id_address_ == owner_id_address);
+#else
   WriteXctAccess* write = write_set_ + write_set_size_;
   CHECK_ERROR_CODE(add_to_write_set(
     context,
@@ -523,7 +598,6 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   ASSERT_ND(write->log_entry_ == log_entry);
   ASSERT_ND(write->owner_id_address_ == owner_id_address);
 
-#ifndef USE_2PL
   // in this method, we force to add a read set because it's critical to confirm that
   // the physical record we write to is still the one we found.
   ReadXctAccess* read = read_set_ + read_set_size_;
