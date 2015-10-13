@@ -2,3 +2,4 @@ add_foedus_test_individual(test_xct_access "CompareReadSet;SortReadSet;RandomRea
 add_foedus_test_individual(test_xct_commit_conflict "NoConflict;LightConflict;HeavyConflict;ExtremeConflict")
 add_foedus_test_individual(test_xct_id "Empty;SetAll;SetEpoch;SetOrdinal;SetThread")
 add_foedus_test_individual(test_xct_id_lock "NoConflict;Conflict;Random")
+add_foedus_test_individual(test_xct_id_rw_lock "NoConflict;Conflict;Random")

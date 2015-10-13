@@ -50,6 +50,118 @@ void McsLock::ownerless_initial_lock() {
   thread::Thread::mcs_ownerless_initial_lock(this);
 }
 
+McsRwLockScope::McsRwLockScope(bool as_reader)
+  : context_(nullptr), lock_(nullptr), block_(0), as_reader_(as_reader) {}
+
+McsRwLockScope::McsRwLockScope(
+  thread::Thread* context,
+  RwLockableXctId* lock,
+  bool as_reader,
+  bool acquire_now)
+  : context_(context), lock_(lock->get_key_lock()), block_(0), as_reader_(as_reader) {
+  if (acquire_now) {
+    acquire();
+  }
+}
+
+McsRwLockScope::McsRwLockScope(
+  thread::Thread* context,
+  McsRwLock* lock,
+  bool as_reader,
+  bool acquire_now)
+  : context_(context), lock_(lock), block_(0), as_reader_(as_reader) {
+  if (acquire_now) {
+    acquire();
+  }
+}
+
+void McsRwLockScope::initialize(
+  thread::Thread* context,
+  McsRwLock* lock,
+  bool as_reader,
+  bool acquire_now) {
+  if (is_valid() && is_locked()) {
+    release();
+  }
+  context_ = context;
+  lock_ = lock;
+  block_ = 0;
+  as_reader_ = as_reader;
+  if (acquire_now) {
+    acquire();
+  }
+}
+
+McsRwLockScope::~McsRwLockScope() {
+  release();
+  context_ = nullptr;
+  lock_ = nullptr;
+}
+
+McsRwLockScope::McsRwLockScope(McsRwLockScope&& other) {
+  context_ = other.context_;
+  lock_ = other.lock_;
+  block_ = other.block_;
+  as_reader_ = other.as_reader_;
+  other.block_ = 0;
+}
+
+McsRwLockScope& McsRwLockScope::operator=(McsRwLockScope&& other) {
+  if (is_valid()) {
+    release();
+  }
+  context_ = other.context_;
+  lock_ = other.lock_;
+  block_ = other.block_;
+  as_reader_ = other.as_reader_;
+  other.block_ = 0;
+  return *this;
+}
+
+/*
+void McsRwLockScope::move_to(storage::PageVersionLockScope* new_owner) {
+  ASSERT_ND(is_locked());
+  new_owner->context_ = context_;
+  // PageVersion's first member is McsRwLock, so this is ok.
+  new_owner->version_ = reinterpret_cast<storage::PageVersion*>(lock_);
+  ASSERT_ND(lock_ == &new_owner->version_->lock_);
+  new_owner->block_ = block_;
+  new_owner->as_reader_ = as_reader;
+  new_owner->changed_ = false;
+  new_owner->released_ = false;
+  context_ = nullptr;
+  lock_ = nullptr;
+  block_ = 0;
+  as_reader_ = false;
+  ASSERT_ND(!is_locked());
+}
+*/
+
+void McsRwLockScope::acquire() {
+  if (is_valid()) {
+    if (block_ == 0) {
+      if (as_reader_) {
+        block_ = context_->mcs_acquire_reader_lock(lock_);
+      } else {
+        block_ = context_->mcs_acquire_writer_lock(lock_);
+      }
+    }
+  }
+}
+
+void McsRwLockScope::release() {
+  if (is_valid()) {
+    if (block_) {
+      if (as_reader_) {
+        context_->mcs_release_reader_lock(lock_, block_);
+      } else {
+        context_->mcs_release_writer_lock(lock_, block_);
+      }
+      block_ = 0;
+    }
+  }
+}
+
 McsLockScope::McsLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
 
 McsLockScope::McsLockScope(
@@ -212,5 +324,16 @@ std::ostream& operator<<(std::ostream& o, const LockableXctId& v) {
   return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const McsRwLock& v) {
+  o << "<McsRwLock><locked>" << v.is_locked() << "</locked><tail_waiter>"
+    << v.get_tail_waiter() << "</tail_waiter><tail_block>" << v.get_tail_waiter_block()
+    << "</tail_block></McsRwLock>";
+  return o;
+}
+
+std::ostream& operator<<(std::ostream& o, const RwLockableXctId& v) {
+  o << "<RwLockableXctId>" << v.xct_id_ << v.lock_ << "</RwLockableXctId>";
+  return o;
+}
 }  // namespace xct
 }  // namespace foedus
