@@ -416,13 +416,13 @@ inline bool Xct::is_locked_by_me(RwLockableXctId* owner_id_address) {
     return false;
   }
   for (uint32_t i = 0; i < write_set_size_; i++) {
-    auto &write = write_set_[0];
+    auto &write = write_set_[i];
     if (write.owner_id_address_ == owner_id_address) {
       return true;
     }
   }
   for (uint32_t i = 0; i < read_set_size_; i++) {
-    auto &read = read_set_[0];
+    auto &read = read_set_[i];
     if (read.owner_id_address_ == owner_id_address) {
       return true;
     }

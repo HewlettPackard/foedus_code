@@ -386,11 +386,15 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   XctId max_xct_id;
   max_xct_id.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
   bool success = precommit_xct_lock(context, &max_xct_id);  // Phase 1
+#ifdef USE_2PL
+  ASSERT_ND(success);
+#else
   // lock can fail only when physical records went too far away
   if (!success) {
     DLOG(INFO) << *context << " Interesting. failed due to records moved far away or early abort";
     return false;
   }
+#endif
 
   // BEFORE the first fence, update the in commit epoch for epoch chime.
   // see InCommitEpochGuard class comments for why we need to do this.
@@ -431,7 +435,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
 
 #ifdef USE_2PL
   precommit_xct_unlock_reads(context);
-  precommit_xct_unlock_writes(context);  // just unlock in this case
+  precommit_xct_unlock_writes(context);
 #endif  // USE_2PL
 
   return verified;
