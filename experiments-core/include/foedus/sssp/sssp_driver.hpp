@@ -18,6 +18,11 @@
 #ifndef FOEDUS_EXPERIMENTS_SSSP_DRIVER_HPP_
 #define FOEDUS_EXPERIMENTS_SSSP_DRIVER_HPP_
 
+#include <stdint.h>
+
+#include <iosfwd>
+
+#include "foedus/fwd.hpp"
 #include "foedus/sssp/sssp_common.hpp"
 
 namespace foedus {
@@ -38,10 +43,42 @@ namespace sssp {
  * the query on about half of worker threads. For parallelization,
  * we use Xxx algorithm.
  */
-struct SsspDriver {
-  int main_impl(int argc, char **argv);
+class SsspDriver {
+ public:
+  enum Constants {
+    kMaxNavigationWorkers = 256,
+  };
+
+  struct NavigationWorkerResult {
+    uint32_t id_;
+    uint64_t processed_;
+    friend std::ostream& operator<<(std::ostream& o, const NavigationWorkerResult& v);
+  };
+  struct AnalysisResult {
+    uint64_t processed_;
+    uint64_t total_microseconds_;
+    friend std::ostream& operator<<(std::ostream& o, const AnalysisResult& v);
+  };
+
+  struct Result {
+    Result() : duration_sec_(0), navigation_worker_count_(0), navigation_total_(0) {}
+    double   duration_sec_;
+    uint32_t navigation_worker_count_;
+    uint64_t navigation_total_;
+    NavigationWorkerResult navigation_workers_[kMaxNavigationWorkers];
+    AnalysisResult analysis_result_;
+    friend std::ostream& operator<<(std::ostream& o, const Result& v);
+  };
+
+  explicit SsspDriver(Engine* engine) : engine_(engine) {
+  }
+  Result run();
+
+ private:
+  Engine* const engine_;
 };
 
+int driver_main(int argc, char **argv);
 
 }  // namespace sssp
 }  // namespace foedus
