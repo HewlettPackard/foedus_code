@@ -505,12 +505,7 @@ inline ErrorCode Xct::add_to_write_set(
     context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
 
   // TODO(tzwang): figure out new_xct_id with CC switching
-  log::invoke_apply_record(
-    write_set_[write_set_size_].log_entry_,
-    context,
-    write_set_[write_set_size_].storage_id_,
-    write_set_[write_set_size_].owner_id_address_,
-    write_set_[write_set_size_].payload_address_);
+  log::invoke_apply_record(log_entry, context, storage_id, owner_id_address, payload_address);
 #endif
   ++write_set_size_;
   return kErrorCodeOk;
@@ -578,16 +573,7 @@ inline ErrorCode Xct::add_to_read_and_write_set(
     }
   }
   // Didn't find it, proceed as usual; add_to_write_set will apply the change.
-  WriteXctAccess* write = write_set_ + write_set_size_;
-  CHECK_ERROR_CODE(add_to_write_set(
-    context,
-    storage_id,
-    owner_id_address,
-    payload_address,
-    log_entry));
-  ASSERT_ND(write->log_entry_ == log_entry);
-  ASSERT_ND(write->owner_id_address_ == owner_id_address);
-#else
+#endif
   WriteXctAccess* write = write_set_ + write_set_size_;
   CHECK_ERROR_CODE(add_to_write_set(
     context,
@@ -598,6 +584,7 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   ASSERT_ND(write->log_entry_ == log_entry);
   ASSERT_ND(write->owner_id_address_ == owner_id_address);
 
+#ifndef USE_2PL
   // in this method, we force to add a read set because it's critical to confirm that
   // the physical record we write to is still the one we found.
   ReadXctAccess* read = read_set_ + read_set_size_;

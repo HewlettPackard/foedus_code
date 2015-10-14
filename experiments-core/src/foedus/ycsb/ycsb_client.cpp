@@ -162,14 +162,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           std::vector<YcsbKey> keys;
           auto nkeys = workload_.reps_per_tx_ + workload_.rmw_additional_reads_;
           for (int32_t k = 0; k < nkeys; k++) {
-          retry:
             auto hi = zrnd_key_high.next();
             auto lo = vec_zrnd_key_low[hi].next();
-            auto key = build_key(hi, lo);
-            if (std::find(keys.begin(), keys.end(), key) != keys.end()) {
-              goto retry;
-            }
-            keys.push_back(key);
+            keys.push_back(build_key(hi, lo));
           }
           std::sort(keys.begin(), keys.end(), YcsbKey::compare);
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
