@@ -61,7 +61,7 @@ class ZipfianRandom {
   explicit ZipfianRandom() {}
 
   uint64_t next() {
-    double u = urnd_.uniform_within(0, 99) / 100.0;
+    double u = urnd_.uniform_within(0, max_) / static_cast<double>(max_);
     double uz = u * zetan_;
     if (uz < 1.0) {
       return 0;
@@ -71,7 +71,7 @@ class ZipfianRandom {
       return 1;
     }
 
-    uint64_t ret = (uint64_t)((max_ + 1) * std::pow(eta_ * u - eta_ + 1, alpha_));
+    uint64_t ret = (uint64_t)(max_ * std::pow(eta_ * u - eta_ + 1, alpha_));
     return ret;
   }
 
