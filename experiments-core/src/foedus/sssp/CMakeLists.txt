@@ -13,3 +13,4 @@ add_executable(sssp
 target_link_libraries(sssp ${EXPERIMENT_LIB} gflags-static)
 
 add_executable(bitswap_dump ${CMAKE_CURRENT_SOURCE_DIR}/bitswap_dump.cpp)
+add_executable(sssp_querygen ${CMAKE_CURRENT_SOURCE_DIR}/sssp_querygen.cpp)

@@ -19,23 +19,31 @@
 
 #include <iostream>
 
-uint8_t slow_bitswap(uint8_t b) {
-  uint8_t ret = 0;
-  for (uint8_t pos = 0; pos < 8U; ++pos) {
-    if (b & (1U << pos)) {
-      ret |= (1U << (7U - pos));
-    }
-  }
-  return ret;
-}
+#include "foedus/assorted/uniform_random.hpp"
+#include "foedus/sssp/sssp_common.hpp"
 
 int main(int /*argc*/, char **/*argv*/) {
-  for (uint32_t i = 0; i < 256U; ++i) {
-    std::cout << " ";
-    std::cout << static_cast<int>(slow_bitswap(i));
-    std::cout << ",";
-    if (i % 16 == 15) {
-      std::cout << std::endl << " ";
+  foedus::assorted::UniformRandom rnd_(123456);
+  for (uint32_t i = 0; i < (1U << 21);) {
+    uint32_t in_partition_node = rnd_.next_uint32() % foedus::sssp::kNodesPerPartition;
+    foedus::sssp::NodeId source_id = in_partition_node;
+
+    // Then, determine the destination node. So far we blindly add 64 (2 blocks away).
+    // If this results in more than max_node_id_, we must retry.
+    foedus::sssp::NodeId dest_id = source_id + 64;
+    if (dest_id >= foedus::sssp::kNodesPerPartition) {
+      continue;
     }
+
+    // Also, this occasionally picks a too-far node for a navigational query.
+    // It happens when adding 64 changes its "by". Let's retry in that case too.
+    const uint64_t kNodePerBy = foedus::sssp::kNodesPerBlock * foedus::sssp::kPartitionSize;
+    if ((in_partition_node % kNodePerBy) >= kNodePerBy - 64) {
+      continue;
+    }
+
+    std::cout << source_id << "," << dest_id << std::endl;
+
+    ++i;
   }
 }

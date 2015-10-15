@@ -70,6 +70,7 @@ SsspDriver::Result SsspDriver::run() {
   LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
 
   const uint32_t total_partitions = FLAGS_p_x * FLAGS_p_y;
+  const uint64_t total_blocks = total_partitions * kBlocksPerPartition;
   const uint32_t sockets = options.thread_.group_count_;
   const uint32_t cores_per_socket = options.thread_.thread_count_per_group_;
   const uint32_t partitions_per_socket = assorted::int_div_ceil(total_partitions, sockets);
@@ -191,6 +192,18 @@ SsspDriver::Result SsspDriver::run() {
       inputs.max_node_id_ = kNodesPerPartition * total_partitions - 1U;
       inputs.max_px_ = FLAGS_p_x;
       inputs.max_py_ = FLAGS_p_y;
+      inputs.analytic_workers_per_socket_ = FLAGS_analysis_per_node;
+      inputs.navigational_workers_per_socket_ = FLAGS_navigation_per_node;
+      inputs.analytic_stripe_size_ = FLAGS_analysis_per_node * sockets;
+      inputs.analytic_stripe_count_
+        = assorted::int_div_ceil(total_blocks, inputs.analytic_stripe_size_);
+      inputs.analytic_stripes_per_l1_
+        = assorted::int_div_ceil(inputs.analytic_stripe_count_, kL1VersionFactors);
+      uint64_t output_size
+        = inputs.analytic_stripe_count_ * sizeof(VersionCounter) + sizeof(SsspClientTask::Outputs);
+      if (output_size > soc::ThreadMemoryAnchors::kTaskOutputMemorySize) {
+        LOG(FATAL) << "Ohhh, number of stripes is too large.";
+      }
       if (ordinal >= static_cast<uint16_t>(FLAGS_navigation_per_node)) {
         inputs.navigational_ = false;
         inputs.analytic_leader_ = (analytic_count == 0);

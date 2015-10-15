@@ -125,6 +125,10 @@ class DijkstraHashtable final {
   Record*   get(Key key) ALWAYS_INLINE;
   Record*   get_follow_next(Key key);
 
+  uint32_t  get_inserted_key_count() const { return inserted_keys_count_; }
+  const Key* get_inserted_keys() const { return inserted_keys_; }
+  Key* get_inserted_keys() { return inserted_keys_; }
+
   friend std::ostream& operator<<(std::ostream& o, const DijkstraHashtable& v);
 
  private:
@@ -141,11 +145,11 @@ class DijkstraHashtable final {
    */
   Record*       buckets_;
   /**
-   * array of bucket index that currently holds some record.
-   * used only to cleanup.
+   * All keys inserted so far.
+   * used only for cleanup.
    */
-  uint16_t*     used_buckets_;
-  uint32_t      used_buckets_count_;
+  Key*          inserted_keys_;
+  uint32_t      inserted_keys_count_;
 
   /**
    * Used only when one bucket receives more than one record.
@@ -193,8 +197,8 @@ inline DijkstraHashtable::Record* DijkstraHashtable::get_or_create(Key key) {
     // has to create a new record
     record->init(key);
     record->used_ = true;
-    used_buckets_[used_buckets_count_] = hash;
-    ++used_buckets_count_;
+    inserted_keys_[inserted_keys_count_] = hash;
+    ++inserted_keys_count_;
     return record;
   }
   if (record->key_ == key) {

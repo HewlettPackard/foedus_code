@@ -495,7 +495,7 @@ uint32_t write_text_file(fs::DirectIoFile* file, const Partition* partition, cha
       for (uint32_t e = 0; e < node->edge_count_; ++e) {
         const Edge* edge = node->edges_ + e;
         // from_id, to_id, mileage
-        uint32_t written = std::sprintf(
+        uint32_t written = std::sprintf(  // NOLINT(runtime/printf) this is just for experiments..
           text_buffer + text_buffer_pos,
           "%d,%d,%d\n",
           node->id_,

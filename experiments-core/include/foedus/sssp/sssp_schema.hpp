@@ -74,7 +74,6 @@ struct VertexBfData {
   NodeId   pred_node_;
 };
 
-
 }  // namespace sssp
 }  // namespace foedus
 

@@ -62,7 +62,7 @@ class SsspLoadTask {
       */
     uint32_t partition_to_;
   };
-  SsspLoadTask(const Inputs& inputs) : inputs_(inputs) {}
+  explicit SsspLoadTask(const Inputs& inputs) : inputs_(inputs) {}
   ErrorStack          run(thread::Thread* context);
 
   ErrorStack          load_tables();

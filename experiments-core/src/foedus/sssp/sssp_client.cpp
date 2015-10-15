@@ -52,10 +52,11 @@ ErrorStack sssp_client_task(const proc::ProcArguments& args) {
 ErrorStack SsspClientTask::run(thread::Thread* context) {
   context_ = context;
   engine_ = context->get_engine();
+  xct_manager_ = engine_->get_xct_manager();
   storages_.initialize_tables(engine_);
   channel_ = reinterpret_cast<SsspClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
-
+  std::memset(analytic_other_outputs_, 0, sizeof(analytic_other_outputs_));
 
   ErrorStack result;
   if (inputs_.navigational_) {

@@ -43,30 +43,24 @@ namespace sssp {
  */
 class VersionCounter {
  public:
+  typedef uint16_t CounterInt;
   /** Invoked from a foreign counter to record an update */
   void on_update() ALWAYS_INLINE;
 
   /**
    * Efficiently checks if there was any update.
-   * Forconcurrent access, we might miss an update for now (relaxed), but we will see
+   * For concurrent access, we might miss an update for now (relaxed), but we will see
    * it eventually.
+   * @return whether there was some update.
    */
-  bool was_any_update() ALWAYS_INLINE;
-
-  /** Invoke action when there was some update, and sets internal counter for next loop */
-  template <typename ACTION>
-  void invoke_if_updated(ACTION action) ALWAYS_INLINE;
-
-  /** Batched version of invoke_if_updated(). */
-  template <typename ACTION>
-  void invoke_if_updated_batch(ACTION action, uint32_t to_index) ALWAYS_INLINE;
+  bool check_update() ALWAYS_INLINE;
 
  private:
   /**
    * This counter is atomically incremented by foreign threads who updated some of the nodes
    * in this block.
    */
-  std::atomic< uint32_t > updated_counter_;
+  std::atomic< CounterInt > updated_counter_;
 
   /**
    * This counter is set (no need to be atomic) by the owner thread
@@ -81,54 +75,43 @@ class VersionCounter {
    * it is guaranteed that there is no updated node.
    * @invariant checked_counter_ <= updated_counter_.
    */
-  std::atomic< uint32_t > checked_counter_;
+  std::atomic< CounterInt > checked_counter_;
 };
 
 inline void VersionCounter::on_update() {
   updated_counter_.fetch_add(1U);
 }
 
-inline bool VersionCounter::was_any_update() {
-  uint32_t updated = updated_counter_.load(std::memory_order_relaxed);
-  uint32_t checked = checked_counter_.load(std::memory_order_relaxed);
+inline bool VersionCounter::check_update() {
+  CounterInt updated = updated_counter_.load(std::memory_order_relaxed);
+  CounterInt checked = checked_counter_.load(std::memory_order_relaxed);
   ASSERT_ND(updated >= checked);
-  return updated != checked;
-}
-
-template <typename ACTION>
-inline void VersionCounter::invoke_if_updated(ACTION action) {
-  if (LIKELY(!was_any_update())) {
-    return;
+  if (LIKELY(updated == checked)) {
+    return false;
   }
 
   // at least the accesses are ordered, we are safe. No need to use acquire.
-  uint32_t updated_safe = updated_counter_.load(std::memory_order_consume);
+  CounterInt updated_safe = updated_counter_.load(std::memory_order_consume);
   // I'm the only one who loads/stores checked_.
-  uint32_t checked_safe = checked_counter_.load(std::memory_order_relaxed);
+  CounterInt checked_safe = checked_counter_.load(std::memory_order_relaxed);
   if (updated_safe > checked_safe) {
     checked_counter_.store(updated_safe, std::memory_order_relaxed);
-    action();
-  }
-}
-
-template <typename ACTION>
-inline void VersionCounter::invoke_if_updated_batched(ACTION action, uint32_t to_index) {
-  // hopefully compiler unrolls this loop.
-  for (uint32_t i = 0; i < to_index; ++i) {
-    (this + to_index)->invoke_if_updated(action);
+    return true;
+  } else {
+    return false;
   }
 }
 
 /**
- * First (highest) level contains 128 entries, thus 1 kbytes.
+ * First (highest) level contains 128 entries, thus 0.5 KB.
  * Each worker is usually spinning in this layer.
  * When someone has updated updated_counter_,
  * our cost to check is still dominated by re-retrieving the cacheline.
- * Scanning 1 kbytes of already-existing cachelines has negligible effect on latency.
+ * Scanning 0.5 KB of already-existing cachelines has negligible effect on latency.
  *
  * Some numbers in context:
  * 32 nodes per block. Block is the smallest granularity (L2).
- * Suppose 98M nodes data, 98 workers for SSSP. Each worker is responsible for
+ * Suppose 96M nodes data, 96 workers for SSSP. Each worker is responsible for
  * 1M nodes (=32k blocks). There will be 256 blocks per L1 entry, not bad.
  * Even if we scale up the data size, it will be within a reasonable range.
  * So, we simply use 2-levels where L2 size is dynamic (blocks-per-thread / kL1VersionFactors).
