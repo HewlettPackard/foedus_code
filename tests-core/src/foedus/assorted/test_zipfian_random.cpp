@@ -34,9 +34,8 @@ DEFINE_TEST_CASE_PACKAGE(ZipfianRandomTest, foedus.assorted);
 
 TEST(ZipfianRandomTest, OneMillion) {
   int kItems = 1000000;
-  int kBucketSize = 200000;
-  double thetas[2] = { 0, 0.999999 };  // 0: low skew
-  double stdevs[2] = { 0, 0 };  // { for theta = 0, theta = 0.999999 }
+  int kBucketSize = 1;
+  double thetas[2] = { 0, 0.999999 };  // 0: uniformly random, 0.999: high skew
   for (int i = 0; i < 2; i++) {
     uint64_t max = 0, min = kItems;
     ZipfianRandom rnd(kItems, thetas[i], 777);
@@ -58,20 +57,11 @@ TEST(ZipfianRandomTest, OneMillion) {
     EXPECT_GE(min, 0);
 
     int items = 0;
-    uint64_t sq_sum = 0;
-    auto mean = kBucketSize;
     for (uint k = 0; k < histo.size(); k++) {
-      sq_sum += (histo[k] - mean) * (histo[k] - mean);
       items += histo[k];
-      std::cout << k << " "<< histo[k] << std::endl;
     }
     EXPECT_EQ(items, kItems);
-    uint64_t var = sq_sum / (histo.size() - 1);
-    stdevs[i] = std::sqrt(var);
   }
-  EXPECT_LT(stdevs[0] / kBucketSize, 0.5);
-  EXPECT_GT(stdevs[1] / kBucketSize, 0.5);
-  EXPECT_LT(stdevs[0], stdevs[1]);
 }
 
 }  // namespace assorted
