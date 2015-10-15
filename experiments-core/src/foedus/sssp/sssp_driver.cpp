@@ -60,7 +60,6 @@ DEFINE_int32(duration, 10, "Duration of the experiments in seconds.");
 DEFINE_int32(p_x, 1, "Number of partitions in x direction. Increase this to enlarge data");
 DEFINE_int32(p_y, 1, "Number of partitions in y direction. Increase this to enlarge data");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(volatile_pool_size, 12, "Size of volatile memory pool per NUMA node in GB.");
 DEFINE_int32(navigation_per_node, 1, "Workers per node to spend for navigational queries.");
 DEFINE_int32(analysis_per_node, 1, "Workers per node to spend for analytic queries.");
 DEFINE_int32(numa_nodes, 1, "Number of NUMA nodes. 0 uses physical count");
@@ -367,8 +366,19 @@ int driver_main(int argc, char **argv) {
 
   options.log_.log_buffer_kb_ = 1U << 20;
   options.log_.log_file_size_mb_ = 1 << 15;
-  std::cout << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node" << std::endl;
-  options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
+
+  // this program automatically adjusts volatile pool size.
+  const uint32_t kVolatilePoolSizeBuffer = 3;
+  uint64_t total_volatile_pool_bytes
+    = kVolatilePoolSizeBuffer * sizeof(Partition) * FLAGS_p_x * FLAGS_p_y;
+  uint64_t volatile_pool_bytes_per_socket
+    = assorted::int_div_ceil(total_volatile_pool_bytes, options.thread_.group_count_);
+  uint64_t volatile_pool_mb_per_socket
+    = assorted::int_div_ceil(volatile_pool_bytes_per_socket, 1ULL << 20);
+
+  std::cout << "volatile_pool_size="
+    << volatile_pool_mb_per_socket << "MB per NUMA node" << std::endl;
+  options.memory_.page_pool_size_mb_per_node_ = volatile_pool_mb_per_socket;
 
   uint32_t total_per_node = (FLAGS_navigation_per_node + FLAGS_analysis_per_node);
   std::cout << "navigation_per_node=" << FLAGS_navigation_per_node

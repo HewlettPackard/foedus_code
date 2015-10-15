@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/engine.hpp"
@@ -62,6 +63,9 @@ ErrorStack SsspClientTask::run_impl_analytic() {
     }
   }
 
+  // Clear L1/L2 version counters
+  outputs_->init_analytic_query(inputs_.analytic_stripe_count_);
+
   // Now everyone set the analytic_thread_ids_. Let's get buddies' Outputs address.
   thread::ThreadPool* thread_pool = engine_->get_thread_pool();
   for (uint32_t buddy = 0; buddy < total_buddies; ++buddy) {
@@ -73,46 +77,53 @@ ErrorStack SsspClientTask::run_impl_analytic() {
     ASSERT_ND(analytic_other_outputs_[buddy]->analytic_buddy_index_ == buddy);
   }
 
+  if (inputs_.analytic_leader_) {
+    // Let's do the initial relax.
+    CHECK_ERROR(analytic_initial_relax());
+    // Let's start the chime to periodically check the end of the query
+    AnalyticEpochPtr clean_since_addresses[kMaxBuddies];
+    AnalyticEpochPtr clean_upto_addresses[kMaxBuddies];
+    for (uint32_t buddy = 0; buddy < total_buddies; ++buddy) {
+      clean_since_addresses[buddy] = &analytic_other_outputs_[buddy]->analytic_clean_since_;
+      clean_upto_addresses[buddy] = &analytic_other_outputs_[buddy]->analytic_clean_upto_;
+    }
+    analytic_chime_.start_chime(
+      &channel_->analytic_epoch_,
+      clean_since_addresses,
+      clean_upto_addresses,
+      total_buddies,
+      &channel_->analytic_query_ended_);
+  }
+
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "SSSP Client-" << get_worker_id() << " started processing analytic queries "
     << " buddy_index=" << inputs_.buddy_index_ << "/" << inputs_.analytic_stripe_size_;
 
-  CHECK_ERROR(do_analytic());
+  debugging::StopWatch watch;
+  WRAP_ERROR_CODE(do_analytic());
+
+  if (inputs_.analytic_leader_) {
+    watch.stop();
+    outputs_->analytic_processed_ = 1U;
+    outputs_->analytic_total_microseconds_ = static_cast<uint64_t>(watch.elapsed_us());
+    analytic_chime_.stop_chime();
+    CHECK_ERROR(analytic_write_result());
+  }
 
   hashtable_.release_memory();
   return kRetOk;
 }
 
-void SsspClientTask::analytic_prepare_query() {
-  // Clear L1/L2 version counters
-  outputs_->init_analytic(inputs_.analytic_stripe_count_);
-
-  // This worker is done with preparation. Let others know and wait.
-  uint32_t before = channel_->analytic_prepared_clients_.fetch_add(1U);
-  if (before + 1U == inputs_.analytic_stripe_size_) {
-    // ok, I'm the last one.
-    channel_->analytic_state_.store(SsspClientChannel::kAnalyticStarted);
-  } else {
-    while (channel_->analytic_state_.load(std::memory_order_acquire)
-              == SsspClientChannel::kAnalyticPreparing) {
-      continue;
-    }
-  }
-}
-
-ErrorCode SsspClientTask::analytic_wait_for_task() {
+ErrorCode SsspClientTask::do_analytic() {
   const uint32_t stripes_per_l1 = inputs_.analytic_stripe_size_;
-  while (true) {
-    // Has the query ended or stop requested? Check it for each iteration
-    if (channel_->analytic_state_.load(std::memory_order_acquire)
-        != SsspClientChannel::kAnalyticStarted) {
-      return kErrorCodeOk;
-    }
-
+  uint32_t no_update_in_a_row = 0;
+  while (!channel_->analytic_query_ended_.load(std::memory_order_acquire)) {
+    bool has_any_update = false;
     // Check all L1 counters
     for (uint32_t i1 = 0; i1 < kL1VersionFactors; ++i1) {
       if (UNLIKELY(outputs_->analytic_l1_versions_[i1].check_update())) {
         // whoa, there might be some update!
+        has_any_update = true;
         for (uint32_t i2 = 0; i2 < stripes_per_l1; ++i2) {
           uint32_t stripe_index = i1 * stripes_per_l1 + i2;
           if (UNLIKELY(outputs_->analytic_l2_versions_[stripe_index].check_update())) {
@@ -120,6 +131,34 @@ ErrorCode SsspClientTask::analytic_wait_for_task() {
             CHECK_ERROR_CODE(analytic_relax_block(stripe_index));
           }
         }
+      }
+    }
+
+    if (!has_any_update) {
+      // at least in this cycle, we didn't find any update
+      ++no_update_in_a_row;
+      const uint32_t kUpdateEpochInterval = 5;
+      if (no_update_in_a_row % kUpdateEpochInterval == 0) {
+        // no update at least for a while. let's announce that
+        AnalyticEpoch global_epoch = channel_->analytic_epoch_.load(std::memory_order_acquire);
+        if (outputs_->analytic_clean_since_.load(std::memory_order_relaxed) == kNullAnalyticEpoch) {
+          outputs_->analytic_clean_since_.store(global_epoch, std::memory_order_release);
+        }
+        outputs_->analytic_clean_upto_.store(global_epoch, std::memory_order_release);
+      }
+    } else {
+      if (no_update_in_a_row != 0) {
+        no_update_in_a_row = 0;
+        // _Reading_ shouldn't need any barrier. I'm the only writer. but Writing must be ordered.
+        if (outputs_->analytic_clean_since_.load(std::memory_order_relaxed) != kNullAnalyticEpoch) {
+          outputs_->analytic_clean_since_.store(kNullAnalyticEpoch, std::memory_order_release);
+        }
+        if (outputs_->analytic_clean_upto_.load(std::memory_order_relaxed) != kNullAnalyticEpoch) {
+          outputs_->analytic_clean_upto_.store(kNullAnalyticEpoch, std::memory_order_release);
+        }
+      } else {
+        ASSERT_ND(outputs_->analytic_clean_since_.load() == kNullAnalyticEpoch);
+        ASSERT_ND(outputs_->analytic_clean_upto_.load() == kNullAnalyticEpoch);
       }
     }
   }
@@ -317,8 +356,8 @@ ErrorCode SsspClientTask::analytic_apply_foreign_blocks() {
 }
 
 void SsspClientTask::analytic_relax_node_recurse(uint32_t n, NodeId node_id_offset) {
-  // This recursion is upto kNodesPerBlock depth, and not much stack variables,
-  // so it should'd cause stackoverflow.
+  // This recursion is upto kNodesPerBlock depth, and not many stack variables,
+  // so it shouldn't cause stackoverflow.
   ASSERT_ND(n < kNodesPerBlock);
   const VertexBfData* my_data = analytic_tmp_bf_records_ + n;
   ASSERT_ND(my_data->distance_ != 0);
@@ -347,24 +386,13 @@ void SsspClientTask::analytic_relax_node_recurse(uint32_t n, NodeId node_id_offs
   }
 }
 
-ErrorStack SsspClientTask::do_analytic() {
-  outputs_->init_analytic(inputs_.analytic_stripe_count_);
-  uint32_t before = channel_->analytic_prepared_clients_.fetch_add(1U);
-  if (before + 1U == inputs_.analytic_stripe_size_) {
-    // ok, I'm the last one.
-    channel_->analytic_state_.store(SsspClientChannel::kAnalyticStarted);
-  } else {
-    while (channel_->analytic_state_.load(std::memory_order_acquire)
-              == SsspClientChannel::kAnalyticPreparing) {
-      continue;
-    }
-  }
-  return kRetOk;
-}
-
-void SsspClientTask::Outputs::init_analytic(uint32_t stripe_count) {
+void SsspClientTask::Outputs::init_analytic_query(uint32_t stripe_count) {
   std::memset(analytic_l1_versions_, 0, sizeof(analytic_l1_versions_));
   std::memset(analytic_l2_versions_, 0, sizeof(VersionCounter) * stripe_count);
+  analytic_processed_ = 0;
+  analytic_total_microseconds_ = 0;
+  analytic_clean_since_.store(kNullAnalyticEpoch);
+  analytic_clean_upto_.store(kNullAnalyticEpoch);
 }
 
 void SsspClientTask::Outputs::increment_l2_then_l1(uint32_t stripe, uint32_t stripes_per_l1) {
@@ -372,6 +400,56 @@ void SsspClientTask::Outputs::increment_l2_then_l1(uint32_t stripe, uint32_t str
   uint32_t l1_index = stripe / stripes_per_l1;
   ASSERT_ND(l1_index < kL1VersionFactors);
   analytic_l1_versions_[l1_index].on_update();
+}
+
+/**
+ * distance==0 means it's not reachable, but source-node is inherently zero-distance.
+ * so, we do distance=1 as a hack. when we show the result, we subtract 1.
+ */
+const uint32_t kDummySourceDistance = 1;
+const NodeId kSourceNodeId = 0;  // hardcoded, yay
+
+ErrorStack SsspClientTask::analytic_initial_relax() {
+  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+  VertexBfData source_data;
+  source_data.distance_ = kDummySourceDistance;
+  source_data.pred_node_ = 0;
+  WRAP_ERROR_CODE(storages_.vertex_bf_.overwrite_record(
+    context_,
+    kSourceNodeId,
+    &source_data));
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
+
+  // should be ourselves
+  ASSERT_ND(inputs_.buddy_index_ == 0);  // we should be the analytic leader!
+  outputs_->increment_l2_then_l1(0, inputs_.analytic_stripe_size_);
+  return kRetOk;
+}
+
+ErrorStack SsspClientTask::analytic_write_result() {
+  // Output the distance from 0 to 10, 1000000, and 90000000.
+  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+  std::vector<NodeId> to;
+  to.push_back(10U);
+  to.push_back(1000000U);
+  to.push_back(90000000U);
+  for (auto i : to) {
+    if (i >= inputs_.max_node_id_) {
+      continue;
+    }
+    uint32_t distance;
+    WRAP_ERROR_CODE(storages_.vertex_bf_.get_record_primitive<uint32_t>(
+      context_,
+      i,
+      &distance,
+      offsetof(VertexBfData, distance_)));
+    distance -= kDummySourceDistance;  // see the above for why
+    LOG(INFO) << "SSSP query result: to " << i << " = " << distance;
+  }
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
+  return kRetOk;
 }
 
 }  // namespace sssp

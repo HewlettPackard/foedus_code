@@ -4,6 +4,7 @@ target_link_libraries(sssp_datagen ${EXPERIMENT_LIB} gflags-static)
 add_executable(sssp
   ${CMAKE_CURRENT_SOURCE_DIR}/sssp_client.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/sssp_client_analytic.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/sssp_client_chime.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/sssp_client_nav.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/sssp_driver.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/sssp_hashtable.cpp

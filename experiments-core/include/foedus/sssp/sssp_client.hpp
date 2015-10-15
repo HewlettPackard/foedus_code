@@ -35,6 +35,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
+#include "foedus/sssp/sssp_client_chime.hpp"
 #include "foedus/sssp/sssp_common.hpp"
 #include "foedus/sssp/sssp_hashtable.hpp"
 #include "foedus/sssp/sssp_scheduler.hpp"
@@ -123,7 +124,23 @@ struct SsspClientChannel {
   std::atomic<uint32_t> analytic_thread_ids_setup_;
 
   char                padding4_[256];
-  NodeId              analytic_source_id_;
+
+  /**
+   * An increasing counter incremented by the chime.
+   * This is occasionally read by analytic workers to declare
+   * since when they are waiting for a task.
+   */
+  std::atomic<AnalyticEpoch> analytic_epoch_;
+
+  char                padding5_[256 - 4];
+
+  /**
+   * Set to true when no analytic workers have a task.
+   */
+  std::atomic<bool>   analytic_query_ended_;
+
+  // so far hard-coded to be node-0
+  // NodeId              analytic_source_id_;
 };
 
 /**
@@ -221,6 +238,18 @@ class SsspClientTask {
     char  padding_[256 - 32];
 
     /**
+     * See sssp_client_chime.hpp.
+     */
+    std::atomic< AnalyticEpoch > analytic_clean_since_;
+    char  padding1_[256 - 4];
+
+    /**
+     * See sssp_client_chime.hpp.
+     */
+    std::atomic< AnalyticEpoch > analytic_clean_upto_;
+    char  padding2_[256 - 4];
+
+    /**
      * Layer-1 version counters.
      * This has a fixed number of elements.
      */
@@ -228,7 +257,7 @@ class SsspClientTask {
 
     /**
      * Layer-2 version counters.
-     * This is actually of a dynamic size.
+     * This is actually of a dynamic size. so, "sizeof(Outputs)" underestimates the size!
      * Same as the number of blocks this worker is responsible for, or stripe_count.
      */
     VersionCounter  analytic_l2_versions_[64];
@@ -240,7 +269,8 @@ class SsspClientTask {
       analytic_buddy_index_ = 0;
     }
 
-    void init_analytic(uint32_t stripe_count);
+    /** Additional initialization for \b each analytic query */
+    void init_analytic_query(uint32_t stripe_count);
 
     /**
      * This is called by arbitrary workers.
@@ -286,6 +316,11 @@ class SsspClientTask {
   /** Used in both queries */
   DijkstraHashtable hashtable_;
 
+  /**
+   * Started only by analytic leader. otherwise unused.
+   */
+  SsspAnalyticChime analytic_chime_;
+
   storage::array::ArrayOffset analytic_tmp_node_ids_[kNodesPerBlock];
   Node                  analytic_tmp_nodes_[kNodesPerBlock];
   const void*           analytic_tmp_nodes_addresses_[kNodesPerBlock];
@@ -306,15 +341,16 @@ class SsspClientTask {
     NodeId dest_id,
     DijkstraMinheap* minheap);
 
-  /// Sou-routines of run_impl_analytic()
-  ErrorStack do_analytic();
-  void      analytic_prepare_query();
-  ErrorCode analytic_wait_for_task();
+  /// Sub-routines of run_impl_analytic()
+  ErrorCode do_analytic();
+  // this is only done by analytic leader
+  ErrorStack analytic_initial_relax();
   ErrorCode analytic_relax_block_retrieve_topology();
   ErrorCode analytic_relax_block(uint32_t stripe);
   ErrorCode analytic_apply_own_block();
   ErrorCode analytic_apply_foreign_blocks();
   void      analytic_relax_node_recurse(uint32_t n, NodeId node_id_offset);
+  ErrorStack analytic_write_result();
 };
 }  // namespace sssp
 }  // namespace foedus
