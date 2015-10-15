@@ -525,6 +525,9 @@ inline ErrorCode Xct::add_to_write_set(
   thread::Thread* context,
   storage::StorageId storage_id,
   RwLockableXctId* owner_id_address) {
+  if (is_locked_by_me(owner_id_address)) {
+    return kErrorCodeOk;
+  }
   // FIXME(tzwang): also need to check whether the read set has it locked already
   write_set_[write_set_size_].storage_id_ = storage_id;
   write_set_[write_set_size_].write_set_ordinal_ = write_set_size_;
