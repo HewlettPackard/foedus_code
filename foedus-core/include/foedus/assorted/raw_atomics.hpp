@@ -142,7 +142,7 @@ inline T raw_atomic_exchange(T* target, T desired) {
 /**
  * @brief Atomic fetch-add for raw primitive types rather than std::atomic<T>.
  * @tparam T integer type
- * @return result of arithmetic addition of the value and addendum
+ * @return the previous value.
  * @ingroup ASSORTED
  */
 template <typename T>
@@ -151,6 +151,27 @@ inline T raw_atomic_fetch_add(T* target, T addendum) {
   // Just to align with above, use __atomic_fetch_add rather than __sync_fetch_and_add.
   // It's equivalent.
   // return ::__sync_fetch_and_add(target, addendum);
+}
+
+/**
+ * @brief Atomic fetch-bitwise-and for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @return the previous value.
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T raw_atomic_fetch_and_bitwise_and(T* target, T operand) {
+  return ::__atomic_fetch_and(target, operand, __ATOMIC_SEQ_CST);
+}
+/**
+ * @brief Atomic fetch-bitwise-or for raw primitive types rather than std::atomic<T>.
+ * @tparam T integer type
+ * @return the previous value.
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T raw_atomic_fetch_and_bitwise_or(T* target, T operand) {
+  return ::__atomic_fetch_or(target, operand, __ATOMIC_SEQ_CST);
 }
 
 }  // namespace assorted
