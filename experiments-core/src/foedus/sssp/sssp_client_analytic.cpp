@@ -185,7 +185,7 @@ ErrorStack SsspClientTask::analytic_relax_block(uint32_t stripe) {
   // With this protocol, false positive (we check it again) is possible, but no false negative.
   Epoch commit_epoch;
   while (true) {  // in case we get race-retry
-    WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+    WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kDirtyRead));  // thus okay to dirty-read
     ASSERT_ND(sizeof(VertexBfData) == sizeof(uint64_t));
     WRAP_ERROR_CODE(storages_.vertex_bf_.get_record_primitive_batch<uint64_t>(
       context_,
@@ -389,20 +389,34 @@ ErrorCode SsspClientTask::analytic_apply_foreign_blocks(uint32_t own_block) {
     ASSERT_ND(count <= kNodesPerBlock);
     ASSERT_ND(index == 0 || (node_ids[index - 1] / kNodesPerBlock) != block);
 
+    // Note: we tried both 1) all writes in this foreign block as one transaction,
+    // and 2) each node as one transaction.
+    // We observed that 2) causes more overhead to begin/commit more frequently.
+    // While 1) causes more aborts and more wasted work per abort, it's rare enough.
+    // Thus, we chose 1).
     bool has_update = false;
     while (true) {  // in case we get race-retry
+      has_update = false;
       CHECK_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+      storage::array::ArrayOffset foreign_ids[kNodesPerBlock];
+      for (uint32_t n = 0; n < count; ++n) {
+        foreign_ids[n] = node_ids[index + n];
+      }
+      // Also, by doing it in one transaction, we can batch them up.
+      storage::Record* foreign_records[kNodesPerBlock];
+      CHECK_ERROR_CODE(storages_.vertex_bf_.get_record_for_write_batch(
+        context_,
+        count,
+        foreign_ids,
+        foreign_records));
+
       for (uint32_t n = 0; n < count; ++n) {
         NodeId key = node_ids[index + n];
         const DijkstraHashtable::Record* record = hashtable_.get(key);
         ASSERT_ND(record->value_.distance_ > 0);
-        uint32_t cur_distance;
-        CHECK_ERROR_CODE(storages_.vertex_bf_.get_record_primitive<uint32_t>(
-          context_,
-          key,
-          &cur_distance,
-          offsetof(VertexBfData, distance_)));
-        if (cur_distance == 0 || cur_distance > record->value_.distance_) {
+        const VertexBfData* cur
+          = reinterpret_cast<const VertexBfData*>(foreign_records[n]->payload_);
+        if (cur->distance_ == 0 || cur->distance_ > record->value_.distance_) {
           has_update = true;
           VertexBfData new_data;
           new_data.distance_ = record->value_.distance_;
@@ -410,7 +424,10 @@ ErrorCode SsspClientTask::analytic_apply_foreign_blocks(uint32_t own_block) {
           CHECK_ERROR_CODE(storages_.vertex_bf_.overwrite_record(
             context_,
             key,
-            &new_data));
+            foreign_records[n],
+            &new_data,
+            0,
+            sizeof(new_data)));
         }
       }
 
