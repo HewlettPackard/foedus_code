@@ -386,6 +386,12 @@ int driver_main(int argc, char **argv) {
   options.log_.log_buffer_kb_ = 1U << 20;
   options.log_.log_file_size_mb_ = 1 << 15;
 
+  uint32_t total_per_node = (FLAGS_navigation_per_node + FLAGS_analysis_per_node);
+  std::cout << "navigation_per_node=" << FLAGS_navigation_per_node
+    << ", analysis_per_node=" << FLAGS_analysis_per_node
+    << ", total_per_node=" << total_per_node << std::endl;
+  options.thread_.thread_count_per_group_ = total_per_node;
+
   // this program automatically adjusts volatile pool size.
   const uint32_t kVolatilePoolSizeBuffer = 3;
   uint64_t total_volatile_pool_bytes
@@ -395,15 +401,12 @@ int driver_main(int argc, char **argv) {
   uint64_t volatile_pool_mb_per_socket
     = assorted::int_div_ceil(volatile_pool_bytes_per_socket, 1ULL << 20);
 
+  // Let's put 100MB per thread. They will grab something initially.
+  volatile_pool_mb_per_socket += options.thread_.thread_count_per_group_ * 100;
+
   std::cout << "volatile_pool_size="
     << volatile_pool_mb_per_socket << "MB per NUMA node" << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = volatile_pool_mb_per_socket;
-
-  uint32_t total_per_node = (FLAGS_navigation_per_node + FLAGS_analysis_per_node);
-  std::cout << "navigation_per_node=" << FLAGS_navigation_per_node
-    << ", analysis_per_node=" << FLAGS_analysis_per_node
-    << ", total_per_node=" << total_per_node << std::endl;
-  options.thread_.thread_count_per_group_ = total_per_node;
 
   SsspDriver::Result result;
   {
