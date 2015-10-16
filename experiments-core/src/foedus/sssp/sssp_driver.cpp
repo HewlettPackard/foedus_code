@@ -199,8 +199,12 @@ SsspDriver::Result SsspDriver::run() {
       inputs.analytic_my_worker_index_per_socket_ = 0;
       inputs.analytic_stripe_x_size_ = FLAGS_analysis_per_node;
       inputs.analytic_stripe_y_size_ = sockets;
-      inputs.analytic_stripe_x_count_
-        = assorted::int_div_ceil(FLAGS_p_x * kPartitionSize, inputs.analytic_stripe_x_size_);
+      if (inputs.analytic_stripe_x_size_ == 0) {
+        inputs.analytic_stripe_x_count_ = 1;
+      } else {
+        inputs.analytic_stripe_x_count_
+          = assorted::int_div_ceil(FLAGS_p_x * kPartitionSize, inputs.analytic_stripe_x_size_);
+      }
       inputs.analytic_stripe_y_count_
         = assorted::int_div_ceil(FLAGS_p_y * kPartitionSize, inputs.analytic_stripe_y_size_);
       inputs.analytic_stripe_max_axis_
