@@ -47,6 +47,7 @@ class SsspDriver {
  public:
   enum Constants {
     kMaxNavigationWorkers = 256,
+    kAnalyticAbortTypes = 4,
   };
 
   struct NavigationWorkerResult {
@@ -57,11 +58,16 @@ class SsspDriver {
   struct AnalysisResult {
     uint64_t processed_;
     uint64_t total_microseconds_;
+    uint64_t total_aborts_[kAnalyticAbortTypes];
     friend std::ostream& operator<<(std::ostream& o, const AnalysisResult& v);
   };
 
   struct Result {
-    Result() : duration_sec_(0), navigation_worker_count_(0), navigation_total_(0) {}
+    Result() : duration_sec_(0), navigation_worker_count_(0), navigation_total_(0) {
+      for (uint32_t j = 0; j < SsspDriver::kAnalyticAbortTypes; ++j) {
+        analysis_result_.total_aborts_[j] = 0;
+      }
+    }
     double   duration_sec_;
     uint32_t navigation_worker_count_;
     uint64_t navigation_total_;

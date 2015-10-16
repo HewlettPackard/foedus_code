@@ -158,6 +158,7 @@ class SsspClientTask {
   enum Constants {
     kRandomSeed = 123456,
     kMaxBuddies = 512,
+    kAnalyticAbortTypes = 4,
   };
   struct Inputs {
     /** unique ID of this worker from 0 to #workers-1. */
@@ -250,6 +251,14 @@ class SsspClientTask {
     char  padding2_[256 - 4];
 
     /**
+     * Abort-retries in this worker.
+     * Nav queries have no aborts.
+     */
+    uint32_t analytic_aborts_[kAnalyticAbortTypes];
+    char  padding3_[256 - sizeof(analytic_aborts_)];
+
+
+    /**
      * Layer-1 version counters.
      * This has a fixed number of elements.
      */
@@ -267,6 +276,7 @@ class SsspClientTask {
       analytic_processed_ = 0;
       analytic_total_microseconds_ = 0;
       analytic_buddy_index_ = 0;
+      std::memset(analytic_aborts_, 0, sizeof(analytic_aborts_));
     }
 
     /** Additional initialization for \b each analytic query */

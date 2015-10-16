@@ -104,6 +104,7 @@ ErrorStack SsspClientTask::run_impl_analytic() {
     watch.stop();
     outputs_->analytic_processed_ = 1U;
     outputs_->analytic_total_microseconds_ = static_cast<uint64_t>(watch.elapsed_us());
+    LOG(INFO) << "Analytic query ended in " << outputs_->analytic_total_microseconds_ << "us";
     analytic_chime_.stop_chime();
     CHECK_ERROR(analytic_write_result());
   }
@@ -198,8 +199,13 @@ ErrorStack SsspClientTask::analytic_relax_block(uint32_t stripe) {
     } else {
       // If someone else has just changed it, retry. this should be rare.
       DVLOG(0) << "Abort-retry in second step";
-      ASSERT_ND(ret == kErrorCodeXctRaceAbort);
       ASSERT_ND(!context_->is_running_xct());
+      if (ret == kErrorCodeXctRaceAbort) {
+        ++outputs_->analytic_aborts_[0];  // type-0 abort
+      } else {
+        LOG(ERROR) << "Unexpected error " << ret;
+        WRAP_ERROR_CODE(ret);  // WTF?
+      }
     }
   }
 
@@ -321,8 +327,13 @@ ErrorCode SsspClientTask::analytic_apply_own_block(uint32_t own_block) {
     } else {
       // If someone else has just changed it, retry. this should be rare.
       DVLOG(0) << "Abort-retry in own-apply step";
-      ASSERT_ND(ret == kErrorCodeXctRaceAbort);
       ASSERT_ND(!context_->is_running_xct());
+      if (ret == kErrorCodeXctRaceAbort) {
+        ++outputs_->analytic_aborts_[1];  // type-1 abort
+      } else {
+        LOG(ERROR) << "Unexpected error " << ret;
+        return ret;  // WTF?
+      }
     }
   }
   return kErrorCodeOk;
@@ -410,8 +421,13 @@ ErrorCode SsspClientTask::analytic_apply_foreign_blocks(uint32_t own_block) {
       } else {
         // This might happen often.
         DVLOG(0) << "Abort-retry in foreign-apply step";
-        ASSERT_ND(ret == kErrorCodeXctRaceAbort);
         ASSERT_ND(!context_->is_running_xct());
+        if (ret == kErrorCodeXctRaceAbort) {
+          ++outputs_->analytic_aborts_[2];  // type-2 abort
+        } else {
+          LOG(ERROR) << "Unexpected error " << ret;
+          return ret;  // WTF?
+        }
       }
     }
 
@@ -440,6 +456,7 @@ void SsspClientTask::Outputs::init_analytic_query(uint32_t stripe_count) {
   analytic_total_microseconds_ = 0;
   analytic_clean_since_.store(kNullAnalyticEpoch);
   analytic_clean_upto_.store(kNullAnalyticEpoch);
+  std::memset(analytic_aborts_, 0, sizeof(analytic_aborts_));
 }
 
 void SsspClientTask::Outputs::increment_l2_then_l1(uint32_t stripe, uint32_t stripes_per_l1) {

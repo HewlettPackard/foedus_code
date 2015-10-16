@@ -170,7 +170,7 @@ SsspDriver::Result SsspDriver::run() {
   // this time we have fewer cores per socket.
   uint16_t navigational_count = 0;
   uint16_t analytic_count = 0;
-  uint16_t analytic_leader_index = 0;
+  const uint16_t analytic_leader_index = FLAGS_navigation_per_node;  // socket-0, first anl worker
   for (uint16_t socket = 0; socket < sockets; ++socket) {
     uint32_t socket_from_partition = partitions_per_socket * socket;
     uint32_t socket_to_partition = socket_from_partition + partitions_per_socket;
@@ -206,8 +206,6 @@ SsspDriver::Result SsspDriver::run() {
       if (ordinal >= static_cast<uint16_t>(FLAGS_navigation_per_node)) {
         inputs.navigational_ = false;
         inputs.analytic_leader_ = (analytic_count == 0);
-        analytic_leader_index = outputs.size();
-
         inputs.buddy_index_ = analytic_count;
         ++analytic_count;
         inputs.nav_partition_from_ = 0;
@@ -276,6 +274,11 @@ SsspDriver::Result SsspDriver::run() {
       const SsspClientTask::Outputs* output = outputs[i];
       result.navigation_workers_[i].processed_ += output->navigational_processed_;
       result.navigation_total_ += output->navigational_processed_;
+      ASSERT_ND(static_cast<int>(SsspDriver::kAnalyticAbortTypes)
+        == static_cast<int>(SsspClientTask::kAnalyticAbortTypes));
+      for (uint32_t j = 0; j < SsspDriver::kAnalyticAbortTypes; ++j) {
+        result.analysis_result_.total_aborts_[j] += output->analytic_aborts_[j];
+      }
     }
     LOG(INFO) << "Intermediate report after " << result.duration_sec_ << " sec";
     LOG(INFO) << result;
@@ -299,6 +302,9 @@ SsspDriver::Result SsspDriver::run() {
     const SsspClientTask::Outputs* output = outputs[i];
     result.navigation_workers_[i].processed_ = output->navigational_processed_;
     result.navigation_total_ += output->navigational_processed_;
+    for (uint32_t j = 0; j < SsspDriver::kAnalyticAbortTypes; ++j) {
+      result.analysis_result_.total_aborts_[j] += output->analytic_aborts_[j];
+    }
   }
   LOG(INFO) << "Shutting down...";
 
@@ -437,7 +443,12 @@ std::ostream& operator<<(std::ostream& o, const SsspDriver::AnalysisResult& v) {
   o << "<analytic><processed>" << v.processed_ << "</processed>"
     << "<total_microseconds>" << v.total_microseconds_ << "</total_microseconds>"
     << "<ave_us>" << (static_cast<double>(v.total_microseconds_) / v.processed_)
-      << "</ave_us>"
+    << "</ave_us>"
+    << "<total_aborts>";
+  for (uint32_t j = 0; j < SsspDriver::kAnalyticAbortTypes; ++j) {
+    o << "<type_" << j << ">" << v.total_aborts_[j] << "</type_" << j << ">";
+  }
+  o << "</total_aborts>"
     << "</analytic>";
   return o;
 }
