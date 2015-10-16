@@ -245,13 +245,67 @@ ErrorCode SsspClientTask::analytic_relax_block_retrieve_topology() {
 void SsspClientTask::analytic_relax_calculate(NodeId node_id_offset) {
   hashtable_.clean();
   ASSERT_ND(hashtable_.get_inserted_key_count() == 0);
+  /*
   for (uint32_t n = 0; n < kNodesPerBlock; ++n) {
     if (analytic_tmp_bf_records_[n].distance_ != 0) {
       analytic_relax_calculate_recurse(n, node_id_offset);
     }
   }
+  */
+
+  // rather than recursion, let's just do simple loop with scanning everytime.
+  // we have a very small number of nodes in each block, so this is more efficient than min-heap
+  ASSERT_ND(kNodesPerBlock <= 32U);
+  uint32_t ended_bits = 0;  // 1U << (n) indicates n-th node was finalized
+  for (uint32_t loop = 0; loop < kNodesPerBlock; ++loop) {
+    uint32_t min_n = kNodesPerBlock;
+    uint32_t min_distance = 0xFFFFFFFFU;
+    for (uint32_t n = 0; n < kNodesPerBlock; ++n) {
+      if ((ended_bits & (1U << n)) != 0) {
+        continue;
+      }
+      uint32_t distance = analytic_tmp_bf_records_[n].distance_;
+      if (distance != 0 && distance < min_distance) {
+        min_n = n;
+        min_distance = distance;
+      }
+    }
+
+    if (UNLIKELY(min_n >= kNodesPerBlock)) {
+      // This means all remaining nodes are unreachable. we are done.
+      ASSERT_ND(min_distance == 0xFFFFFFFFU);
+      break;
+    }
+
+    const VertexBfData* min_data = analytic_tmp_bf_records_ + min_n;
+    const Node* min_node = analytic_tmp_nodes_ + min_n;
+    NodeId min_id = min_n + node_id_offset;
+    for (uint32_t e = 0; e < min_node->edge_count_; ++e) {
+      const Edge* edge = min_node->edges_ + e;
+      const uint32_t new_distance = edge->mileage_ + min_data->distance_;
+      if (edge->to_ >= node_id_offset && edge->to_ < node_id_offset + kNodesPerBlock) {
+        const uint32_t another_n = edge->to_ - node_id_offset;
+        VertexBfData* another_data = analytic_tmp_bf_records_ + another_n;
+        if (another_data->distance_ == 0 || another_data->distance_ > new_distance) {
+          another_data->distance_ = new_distance;
+          another_data->pred_node_ = min_id;
+        }
+      } else {
+        // Pointing to foreign block. Check with hashtable
+        DijkstraHashtable::Record* record = hashtable_.get_or_create(edge->to_);
+        ASSERT_ND(hashtable_.get(edge->to_));
+        if (record->value_.distance_ == 0 || record->value_.distance_ > new_distance) {
+          record->value_.distance_ = new_distance;
+          record->value_.previous_ = min_id;
+        }
+      }
+    }
+
+    ended_bits |= (1U << min_n);
+  }
 }
 
+// This method is not used now.
 void SsspClientTask::analytic_relax_calculate_recurse(uint32_t n, NodeId node_id_offset) {
   // This recursion is upto kNodesPerBlock depth, and not many stack variables,
   // so it shouldn't cause stackoverflow.
