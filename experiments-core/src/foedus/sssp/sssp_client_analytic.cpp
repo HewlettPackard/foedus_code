@@ -43,7 +43,6 @@ namespace sssp {
 
 
 ErrorStack SsspClientTask::run_impl_analytic() {
-  ASSERT_ND(inputs_.buddy_index_ < inputs_.analytic_stripe_size_);
   outputs_->init();
   outputs_->analytic_buddy_index_ = inputs_.buddy_index_;
   WRAP_ERROR_CODE(hashtable_.create_memory(context_->get_numa_node()));
@@ -52,7 +51,7 @@ ErrorStack SsspClientTask::run_impl_analytic() {
   ASSERT_ND(channel_->analytic_thread_ids_[inputs_.buddy_index_] == 0);
   channel_->analytic_thread_ids_[inputs_.buddy_index_] = context_->get_thread_id();
   channel_->analytic_thread_ids_setup_.fetch_add(1U);
-  const uint32_t total_buddies = inputs_.analytic_stripe_size_;
+  const uint32_t total_buddies = inputs_.analytic_workers_per_socket_ * inputs_.sockets_count_;
   while (true) {
     uint32_t count = channel_->analytic_thread_ids_setup_.load(std::memory_order_acquire);
     ASSERT_ND(count <= total_buddies);
@@ -62,7 +61,7 @@ ErrorStack SsspClientTask::run_impl_analytic() {
   }
 
   // Clear L1/L2 version counters
-  outputs_->init_analytic_query(inputs_.analytic_stripe_count_);
+  outputs_->init_analytic_query(inputs_.analytic_total_stripe_count_);
 
   // Now everyone set the analytic_thread_ids_. Let's get buddies' Outputs address.
   thread::ThreadPool* thread_pool = engine_->get_thread_pool();
@@ -95,7 +94,8 @@ ErrorStack SsspClientTask::run_impl_analytic() {
 
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "SSSP Client-" << get_worker_id() << " started processing analytic queries "
-    << " buddy_index=" << inputs_.buddy_index_ << "/" << inputs_.analytic_stripe_size_;
+    << " buddy_index=" << inputs_.buddy_index_ << "/"
+    << (inputs_.analytic_workers_per_socket_ * inputs_.sockets_count_);
 
   debugging::StopWatch watch;
   CHECK_ERROR(do_analytic());
@@ -118,25 +118,51 @@ ErrorStack SsspClientTask::do_analytic() {
   uint32_t no_update_in_a_row = 0;
   while (!channel_->analytic_query_ended_.load(std::memory_order_acquire)) {
     bool has_any_update = false;
-    // Check all L1 counters
+    // Check all L1 counters. Stripes are ordered in a distance-aware fashion.
+    // So, whenever there seems some update, we always check from 0
+    // and process stripes of lower indexes first.
+    // This makes sure we focus on finalizing nodes closer to source first.
+    assorted::memory_fence_acq_rel();
     for (uint32_t i1 = 0; i1 < kL1VersionFactors; ++i1) {
-      if (UNLIKELY(outputs_->analytic_l1_versions_[i1].check_update())) {
+      VersionCounter* l1_counter = outputs_->analytic_l1_versions_ + i1;
+      if (UNLIKELY(l1_counter->has_update(std::memory_order_relaxed))) {
         // whoa, there might be some update!
         has_any_update = true;
+        // Important: we observe L1 updated_counter, then check L2 counters.
+        VersionCounter::CounterInt observed_updated_counter
+          = l1_counter->get_updated_counter(std::memory_order_acquire);
+        bool has_any_update_l2 = false;
         for (uint32_t i2 = 0; i2 < stripes_per_l1; ++i2) {
           uint32_t stripe_index = i1 * stripes_per_l1 + i2;
-          if (UNLIKELY(outputs_->analytic_l2_versions_[stripe_index].check_update())) {
+          VersionCounter* l2_counter = outputs_->analytic_l2_versions_ + stripe_index;
+          if (UNLIKELY(l2_counter->has_update(std::memory_order_consume))) {
             // Yes, this block might contain update.
+            has_any_update_l2 = true;
+
+            // same as L1. observe "updated", process it, then set checked_counter
+            VersionCounter::CounterInt l2_observed_updated_counter
+              = l2_counter->get_updated_counter(std::memory_order_acquire);
             CHECK_ERROR(analytic_relax_block(stripe_index));
+            l2_counter->set_checked_counter(l2_observed_updated_counter);
+            break;  // immediately retry from 0 to favor stripes closer to source
           }
         }
+
+        if (!has_any_update_l2) {
+          // only when there was no dirty L2 counter, we bump L1 counter.
+          // Further, we use the observed updated_counter before we check L2 counters.
+          l1_counter->set_checked_counter(observed_updated_counter);
+        }
+
+        break;  // immediately retry from 0 to favor stripes closer to source
       }
     }
+    assorted::memory_fence_acq_rel();
 
     if (!has_any_update) {
       // at least in this cycle, we didn't find any update
       ++no_update_in_a_row;
-      const uint32_t kUpdateEpochInterval = 5;
+      const uint32_t kUpdateEpochInterval = 10;
       if (no_update_in_a_row % kUpdateEpochInterval == 0) {
         // no update at least for a while. let's announce that
         AnalyticEpoch global_epoch = channel_->analytic_epoch_.load(std::memory_order_acquire);
@@ -166,10 +192,11 @@ ErrorStack SsspClientTask::do_analytic() {
 }
 
 ErrorStack SsspClientTask::analytic_relax_block(uint32_t stripe) {
-  ASSERT_ND(stripe < inputs_.analytic_stripe_count_);
+  ASSERT_ND(stripe < inputs_.analytic_total_stripe_count_);
   const uint64_t block = to_my_block_from_stripe(stripe);
   const NodeId node_id_offset = block * kNodesPerBlock;
-  // DLOG(INFO) << "Relaxing block-" << block << " in analytic worker-" << inputs_.buddy_index_;
+  // DLOG(INFO) << "Relaxing block-" << block << " (stripe-" << stripe
+  //   << ") in analytic worker-" << inputs_.buddy_index_;
 
   for (uint32_t n = 0; n < kNodesPerBlock; ++n) {
     analytic_tmp_node_ids_[n] = n + node_id_offset;
@@ -559,7 +586,7 @@ ErrorStack SsspClientTask::analytic_initial_relax() {
 
   // should be ourselves
   ASSERT_ND(inputs_.buddy_index_ == 0);  // we should be the analytic leader!
-  outputs_->increment_l2_then_l1(0, inputs_.analytic_stripe_size_);
+  outputs_->increment_l2_then_l1(0, inputs_.analytic_total_stripe_count_);
   return kRetOk;
 }
 

@@ -60,7 +60,7 @@ DEFINE_int32(duration, 10, "Duration of the experiments in seconds.");
 DEFINE_int32(p_x, 1, "Number of partitions in x direction. Increase this to enlarge data");
 DEFINE_int32(p_y, 1, "Number of partitions in y direction. Increase this to enlarge data");
 DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.");
-DEFINE_int32(navigation_per_node, 1, "Workers per node to spend for navigational queries.");
+DEFINE_int32(navigation_per_node, 0, "Workers per node to spend for navigational queries.");
 DEFINE_int32(analysis_per_node, 1, "Workers per node to spend for analytic queries.");
 DEFINE_int32(numa_nodes, 1, "Number of NUMA nodes. 0 uses physical count");
 
@@ -69,7 +69,6 @@ SsspDriver::Result SsspDriver::run() {
   LOG(INFO) << engine_->get_memory_manager()->dump_free_memory_stat();
 
   const uint32_t total_partitions = FLAGS_p_x * FLAGS_p_y;
-  const uint64_t total_blocks = total_partitions * kBlocksPerPartition;
   const uint32_t sockets = options.thread_.group_count_;
   const uint32_t cores_per_socket = options.thread_.thread_count_per_group_;
   const uint32_t partitions_per_socket = assorted::int_div_ceil(total_partitions, sockets);
@@ -184,22 +183,35 @@ SsspDriver::Result SsspDriver::run() {
       socket_to_partition = total_partitions;
     }
     const uint32_t nav_partitions_per_core
-      = assorted::int_div_ceil(socket_partitions, FLAGS_navigation_per_node);
+      = FLAGS_navigation_per_node == 0
+        ? 0U
+        : assorted::int_div_ceil(socket_partitions, FLAGS_navigation_per_node);
     for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ++ordinal) {
       SsspClientTask::Inputs inputs;
       inputs.worker_id_ = (socket << 8U) + ordinal;
+      inputs.sockets_count_ = sockets;
+      inputs.my_socket_ = socket;
       inputs.max_node_id_ = kNodesPerPartition * total_partitions - 1U;
       inputs.max_px_ = FLAGS_p_x;
       inputs.max_py_ = FLAGS_p_y;
       inputs.analytic_workers_per_socket_ = FLAGS_analysis_per_node;
       inputs.navigational_workers_per_socket_ = FLAGS_navigation_per_node;
-      inputs.analytic_stripe_size_ = FLAGS_analysis_per_node * sockets;
-      inputs.analytic_stripe_count_
-        = assorted::int_div_ceil(total_blocks, inputs.analytic_stripe_size_);
+      inputs.analytic_my_worker_index_per_socket_ = 0;
+      inputs.analytic_stripe_x_size_ = FLAGS_analysis_per_node;
+      inputs.analytic_stripe_y_size_ = sockets;
+      inputs.analytic_stripe_x_count_
+        = assorted::int_div_ceil(FLAGS_p_x * kPartitionSize, inputs.analytic_stripe_x_size_);
+      inputs.analytic_stripe_y_count_
+        = assorted::int_div_ceil(FLAGS_p_y * kPartitionSize, inputs.analytic_stripe_y_size_);
+      inputs.analytic_stripe_max_axis_
+        = inputs.analytic_stripe_x_count_ + inputs.analytic_stripe_y_count_ - 1U;
+      inputs.analytic_total_stripe_count_
+        = inputs.analytic_stripe_max_axis_ * inputs.analytic_stripe_max_axis_;
       inputs.analytic_stripes_per_l1_
-        = assorted::int_div_ceil(inputs.analytic_stripe_count_, kL1VersionFactors);
+        = assorted::int_div_ceil(inputs.analytic_total_stripe_count_, kL1VersionFactors);
       uint64_t output_size
-        = inputs.analytic_stripe_count_ * sizeof(VersionCounter) + sizeof(SsspClientTask::Outputs);
+        = inputs.analytic_total_stripe_count_ * sizeof(VersionCounter)
+          + sizeof(SsspClientTask::Outputs);
       if (output_size > soc::ThreadMemoryAnchors::kTaskOutputMemorySize) {
         LOG(FATAL) << "Ohhh, number of stripes is too large.";
       }
@@ -208,6 +220,7 @@ SsspDriver::Result SsspDriver::run() {
         inputs.analytic_leader_ = (analytic_count == 0);
         inputs.buddy_index_ = analytic_count;
         ++analytic_count;
+        inputs.analytic_my_worker_index_per_socket_ = ordinal - FLAGS_navigation_per_node;
         inputs.nav_partition_from_ = 0;
         inputs.nav_partition_to_ = 0;
       } else {

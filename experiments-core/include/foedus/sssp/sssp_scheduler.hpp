@@ -48,12 +48,12 @@ class VersionCounter {
   void on_update() ALWAYS_INLINE;
 
   /**
-   * Efficiently checks if there was any update.
-   * For concurrent access, we might miss an update for now (relaxed), but we will see
-   * it eventually.
-   * @return whether there was some update.
+   * Checks if there was any update.
    */
-  bool check_update() ALWAYS_INLINE;
+  bool has_update(std::memory_order barrier) const ALWAYS_INLINE;
+
+  CounterInt get_updated_counter(std::memory_order barrier) ALWAYS_INLINE;
+  void set_checked_counter(CounterInt new_value) ALWAYS_INLINE;
 
  private:
   /**
@@ -73,33 +73,29 @@ class VersionCounter {
    * there \b might be an updated node.
    * \li When checked_counter_ is equal to updated_counter_,
    * it is guaranteed that there is no updated node.
+   *
+   * This variable is only read/written by the owner thread. Thus not std::atomic
    * @invariant checked_counter_ <= updated_counter_.
    */
-  std::atomic< CounterInt > checked_counter_;
+  CounterInt  checked_counter_;
 };
 
 inline void VersionCounter::on_update() {
   updated_counter_.fetch_add(1U);
 }
 
-inline bool VersionCounter::check_update() {
-  CounterInt updated = updated_counter_.load(std::memory_order_relaxed);
-  CounterInt checked = checked_counter_.load(std::memory_order_relaxed);
-  ASSERT_ND(updated >= checked);
-  if (LIKELY(updated == checked)) {
-    return false;
-  }
+inline VersionCounter::CounterInt VersionCounter::get_updated_counter(std::memory_order barrier) {
+  return updated_counter_.load(barrier);
+}
+inline void VersionCounter::set_checked_counter(VersionCounter::CounterInt new_value) {
+  ASSERT_ND(new_value <= updated_counter_.load());
+  checked_counter_ = new_value;
+}
 
-  // at least the accesses are ordered, we are safe. No need to use acquire.
-  CounterInt updated_safe = updated_counter_.load(std::memory_order_consume);
-  // I'm the only one who loads/stores checked_.
-  CounterInt checked_safe = checked_counter_.load(std::memory_order_relaxed);
-  if (updated_safe > checked_safe) {
-    checked_counter_.store(updated_safe, std::memory_order_relaxed);
-    return true;
-  } else {
-    return false;
-  }
+inline bool VersionCounter::has_update(std::memory_order barrier) const {
+  CounterInt updated = updated_counter_.load(barrier);
+  ASSERT_ND(updated >= checked_counter_);
+  return updated != checked_counter_;
 }
 
 /**

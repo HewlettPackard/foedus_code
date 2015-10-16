@@ -170,6 +170,9 @@ class SsspClientTask {
      */
     uint16_t buddy_index_;
 
+    /** number of sockets */
+    uint16_t sockets_count_;
+
     /**
       * Whether this client is assigned for navigational queries.
       * Analytic queries if false.
@@ -186,6 +189,9 @@ class SsspClientTask {
 
     uint16_t analytic_workers_per_socket_;
     uint16_t navigational_workers_per_socket_;
+
+    uint16_t my_socket_;
+    uint16_t analytic_my_worker_index_per_socket_;
 
     /** Maximum number of partitions in x axis */
     uint32_t max_px_;
@@ -206,17 +212,98 @@ class SsspClientTask {
     uint32_t nav_partition_to_;
 
     /**
-     * Number of analytic worker, or the number blocks in each \e stripe.
-     * A stripe is a contiguous collection of blocks in which each analytic
-     * worker is responsible for one block.
-     * So far we simply assume that the worker is responsible for buddy_index-th
-     * block in each stripe.
+     * The number of blocks one \e stripe covers in x-direction.
+     * A stripe is a rectangular collection of blocks in which each analytic
+     * worker is responsible for exactly one block.
+     *  \li For x-axis, a stripe has analytic_workers_per_socket_ blocks.
+     *  \li For y-axis, a stripe has #-of-socket blocks.
+     *
+     * The block assignment in stripes is self-explanatory.
+     *
+     * The choice of x/y could be arbitrary and could be separate from
+     * analytic_workers_per_socket_ and sockets_count_, but this is easier to remember.
      */
-    uint32_t analytic_stripe_size_;
+    uint32_t analytic_stripe_x_size_;
+    /** As said above, same as sockets_count_ */
+    uint32_t analytic_stripe_y_size_;
+
     /**
-     * Total number of stripes. or, ceil(#blocks/analytic_stripe_size_).
+     * How many stripes  _might_ exist for x-direction.
+     * ceil(max_px_ * kPartitionSize / analytic_stripe_x_size_).
+     * You might think every stripe we give a number must have x below this,
+     * \b but it might be larger than that (but, those stripes are always dummies). See below.
      */
-    uint32_t analytic_stripe_count_;
+    uint32_t analytic_stripe_x_count_;
+    /**
+     * How many stripes _might_ exist for y-direction.
+     * ceil(max_py_ * kPartitionSize / #-of-socket).
+     * You might think every stripe we give a number must have y below this,
+     * \b but it might be larger than that (but, those stripes are always dummies). See below.
+     */
+    uint32_t analytic_stripe_y_count_;
+
+    /**
+     * @brief analytic_stripe_max_axis_ = analytic_stripe_x_count_ + analytic_stripe_y_count_ - 1.
+     * @details
+     * The numbering among stripes is a bit tricky. It looks like as follows:
+     * 0 1 3 6 ...
+     * 2 4 7 ...
+     * 5 8 ...
+     * 9 ...
+     *
+     * The numbering is based on the distance from source-node (in this query, 0).
+     * This simplifies the scheduling to finalize nodes closer to the source first.
+     *
+     * @par Simplified stripe numbering
+     * To further simplify, we do one lazy thing that slightly overuses memory.
+     * We don't want to worry about:
+     *  A. stripe's x-axis is much smaller than y-axis:
+     * 0 1
+     * 2 3
+     * 4 5
+     * 6 ...
+     *  B. stripe's y-axis is much smaller than x-axis (fig. omitted)
+     *  C. The given stripe is in right-bottom half of the matrix:
+     * 0 1 3
+     * 2 4 6
+     * 5 7 8
+     * When stripe=0~5, calculating x/y from stripe is trivial.
+     * When strip=6~8, doing so needs to think about x-axis/y-axis length.
+     *
+     * To forget about them, we also give numbers to stripes that are never actually used.
+     * Observe that all \e real stripes are on a diagonal line of a square whose size is up to
+     * y = 0, x = analytic_stripe_x_count_ + analytic_stripe_y_count_ - 1
+     * (in above example x = 3 + 3 - 1 = 5. )
+     * We thus imaginally consider diagonal lines whose sizes are \b always of that size.
+     * resulting in:
+     *  [imaginary]   [ real ]   [imaginary]
+     *              |  0  5 10 | 15 20
+     *           1  |  6 11 16 | 21
+     *        2  7  | 12 17 22 |
+     *              ------------
+     *     3  8 13  | 18 23
+     *  4  9 14 19  | 24
+     *
+     * Here, cells on the left plane separated by "|" (eg 1, 2, 7) are imaginary stripes.
+     * Also, cells on the right plane separated by another "|" (eg 15, 21) are also imaginary.
+     *
+     * This is our stripe numbering scheme. All existing stripes are placed between the two "|"s.
+     * Thus, given a stripe index "z" of an existing stripe,
+     *  y = z%5
+     *  x = z/5 - y
+     *
+     * On the other hand, when given x and y, z is
+     *  z = (x+y)*5 + y
+     *
+     * Just replace "5" with analytic_stripe_max_axis_ in general. Easy, isn't.
+     *
+     * One drawback: there are many stripes that never actually exist: eg 1, 7, 15, ...
+     * This only affects the size of L2 version counter arrays below.
+     * In all other places, considering them won't hurt anything.
+     */
+    uint32_t analytic_stripe_max_axis_;
+    /** analytic_stripe_max_axis_^2. an auxiliary var for handiness */
+    uint32_t analytic_total_stripe_count_;
     /**
      * Number of stripes one L1 version covers.
      */
@@ -363,8 +450,46 @@ class SsspClientTask {
   void      analytic_relax_calculate_recurse(uint32_t n, NodeId node_id_offset);
   ErrorStack analytic_write_result();
 
+  /**
+   * Gives x-y position as a stripe. See "Simplified stripe numbering" above.
+   */
+  inline void to_stripe_xy_from_stripe(
+    uint32_t stripe,
+    uint32_t* stripe_x,
+    uint32_t* stripe_y) const {
+    ASSERT_ND(stripe < inputs_.analytic_total_stripe_count_);
+    *stripe_y = stripe % inputs_.analytic_stripe_max_axis_;
+    uint32_t diagonal = stripe / inputs_.analytic_stripe_max_axis_;
+    ASSERT_ND(diagonal >= (*stripe_y));
+    *stripe_x = diagonal - (*stripe_y);
+  }
+
   inline uint32_t to_my_block_from_stripe(uint32_t stripe) const {
-    uint32_t block = stripe * inputs_.analytic_stripe_size_ + inputs_.buddy_index_;
+    uint32_t stripe_x;
+    uint32_t stripe_y;
+    to_stripe_xy_from_stripe(stripe, &stripe_x, &stripe_y);
+    const uint32_t bx
+      = stripe_x * inputs_.analytic_stripe_x_size_ + inputs_.analytic_my_worker_index_per_socket_;
+    const uint32_t by
+      = stripe_y * inputs_.analytic_stripe_y_size_ + inputs_.my_socket_;
+
+    const uint32_t px = bx / kPartitionSize;
+    const uint32_t in_partition_bx = bx % kPartitionSize;
+    ASSERT_ND(px < inputs_.max_px_);
+    const uint32_t py = by / kPartitionSize;
+    const uint32_t in_partition_by = by % kPartitionSize;
+    ASSERT_ND(py < inputs_.max_py_);
+
+    const uint64_t pid = px + py * inputs_.max_px_;
+#ifndef NDEBUG
+    uint32_t px_again, py_again;
+    to_px_py(pid, inputs_.max_px_, &px_again, &py_again);
+    ASSERT_ND(px_again == px);
+    ASSERT_ND(py_again == py);
+#endif  // NDEBUG
+
+    const uint32_t in_partition_block = in_partition_bx + in_partition_by * kPartitionSize;
+    const uint32_t block = pid * kBlocksPerPartition + in_partition_block;
     ASSERT_ND(block < kBlocksPerPartition * inputs_.max_px_ * inputs_.max_py_);
     return block;
   }
@@ -372,9 +497,30 @@ class SsspClientTask {
     uint32_t block,
     uint32_t* stripe,
     uint32_t* owner_buddy_index) const {
-    *stripe = block / inputs_.analytic_stripe_size_;
-    ASSERT_ND(*stripe < inputs_.analytic_stripe_count_);
-    *owner_buddy_index = block % inputs_.analytic_stripe_size_;
+    const uint32_t pid = block / kBlocksPerPartition;
+    uint32_t px, py;
+    to_px_py(pid, inputs_.max_px_, &px, &py);
+
+    const uint32_t in_partition_block = block % kBlocksPerPartition;
+    const uint32_t in_partition_bx = in_partition_block % kPartitionSize;
+    const uint32_t in_partition_by = in_partition_block / kPartitionSize;
+    const uint32_t bx = px * kPartitionSize + in_partition_bx;
+    const uint32_t by = py * kPartitionSize + in_partition_by;
+
+    const uint32_t stripe_x = bx / inputs_.analytic_stripe_x_size_;
+    const uint32_t in_stripe_bx = bx % inputs_.analytic_stripe_x_size_;
+    ASSERT_ND(stripe_x < inputs_.analytic_stripe_x_count_);
+    const uint32_t stripe_y = by / inputs_.analytic_stripe_y_size_;
+    const uint32_t in_stripe_by = by % inputs_.analytic_stripe_y_size_;
+    ASSERT_ND(stripe_y < inputs_.analytic_stripe_y_count_);
+
+    *stripe = (stripe_x + stripe_y) * inputs_.analytic_stripe_max_axis_ + stripe_y;
+    ASSERT_ND(*stripe < inputs_.analytic_total_stripe_count_);
+
+    const uint32_t analytic_worker_index_per_socket = in_stripe_bx;
+    const uint32_t socket = in_stripe_by;
+    *owner_buddy_index
+      = analytic_worker_index_per_socket + socket * inputs_.analytic_workers_per_socket_;
   }
 };
 }  // namespace sssp

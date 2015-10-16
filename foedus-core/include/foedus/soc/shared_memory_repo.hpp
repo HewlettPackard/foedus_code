@@ -410,7 +410,7 @@ struct ThreadMemoryAnchors {
   enum Constants {
     kThreadMemorySize = 1 << 15,
     kTaskInputMemorySize = 1 << 19,
-    kTaskOutputMemorySize = 1 << 19,
+    kTaskOutputMemorySize = 1 << 22,
     kMcsLockMemorySize = 1 << 19,
   };
   ThreadMemoryAnchors() { std::memset(this, 0, sizeof(*this)); }
