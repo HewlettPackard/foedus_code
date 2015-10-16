@@ -133,6 +133,8 @@ ErrorStack load_input_file(uint32_t p, uint32_t flags_p_x, uint32_t flags_p_y, P
     path += std::string("2x2");
   } else if (flags_p_x == 6U && flags_p_y == 8U) {
     path += std::string("6x8");
+  } else if (flags_p_x == 12U && flags_p_y == 16U) {
+    path += std::string("12x16");
   } else {
     LOG(FATAL) << "Unexpected px_py: " << flags_p_x << "/" << flags_p_y;
   }
