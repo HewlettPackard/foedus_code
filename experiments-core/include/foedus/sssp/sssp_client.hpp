@@ -342,13 +342,13 @@ class SsspClientTask {
     DijkstraMinheap* minheap);
 
   /// Sub-routines of run_impl_analytic()
-  ErrorCode do_analytic();
+  ErrorStack do_analytic();
   // this is only done by analytic leader
   ErrorStack analytic_initial_relax();
   ErrorCode analytic_relax_block_retrieve_topology();
-  ErrorCode analytic_relax_block(uint32_t stripe);
-  ErrorCode analytic_apply_own_block();
-  ErrorCode analytic_apply_foreign_blocks();
+  ErrorStack analytic_relax_block(uint32_t stripe);
+  ErrorCode analytic_apply_own_block(uint32_t own_block);
+  ErrorCode analytic_apply_foreign_blocks(uint32_t own_block);
   void      analytic_relax_node_recurse(uint32_t n, NodeId node_id_offset);
   ErrorStack analytic_write_result();
 };

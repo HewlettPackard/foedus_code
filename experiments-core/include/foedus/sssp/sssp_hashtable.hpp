@@ -197,7 +197,7 @@ inline DijkstraHashtable::Record* DijkstraHashtable::get_or_create(Key key) {
     // has to create a new record
     record->init(key);
     record->used_ = true;
-    inserted_keys_[inserted_keys_count_] = hash;
+    inserted_keys_[inserted_keys_count_] = key;
     ++inserted_keys_count_;
     return record;
   }
@@ -223,6 +223,8 @@ inline DijkstraHashtable::Record* DijkstraHashtable::get_or_create_follow_next(K
       Record* new_next = next_records_ + next_index;
       new_next->init(key);
       new_next->used_ = true;
+      inserted_keys_[inserted_keys_count_] = key;
+      ++inserted_keys_count_;
       record->next_ = next_index;
       ++next_records_count_;
       return new_next;

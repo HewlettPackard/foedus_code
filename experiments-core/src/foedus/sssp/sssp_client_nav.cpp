@@ -133,6 +133,7 @@ ErrorCode SsspClientTask::do_navigation(
     ASSERT_ND(from_distance > 0);
     if (from_id == dest_id) {
       // We got the answer!
+      // LOG(INFO) << "Distance was " << from_distance;
       break;
     }
 

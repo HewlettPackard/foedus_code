@@ -436,8 +436,8 @@ std::ostream& operator<<(std::ostream& o, const SsspDriver::NavigationWorkerResu
 std::ostream& operator<<(std::ostream& o, const SsspDriver::AnalysisResult& v) {
   o << "<analytic><processed>" << v.processed_ << "</processed>"
     << "<total_microseconds>" << v.total_microseconds_ << "</total_microseconds>"
-    << "<ave_ms>" << (static_cast<double>(v.total_microseconds_) * 1000U / v.processed_)
-      << "</ave_ms>"
+    << "<ave_us>" << (static_cast<double>(v.total_microseconds_) / v.processed_)
+      << "</ave_us>"
     << "</analytic>";
   return o;
 }
