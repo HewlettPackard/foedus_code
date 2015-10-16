@@ -401,6 +401,7 @@ int driver_main(int argc, char **argv) {
   uint64_t volatile_pool_mb_per_socket
     = assorted::int_div_ceil(volatile_pool_bytes_per_socket, 1ULL << 20);
 
+  volatile_pool_mb_per_socket += 100;  // make sure it has at least 100MB
   // Let's put 100MB per thread. They will grab something initially.
   volatile_pool_mb_per_socket += options.thread_.thread_count_per_group_ * 100;
 
