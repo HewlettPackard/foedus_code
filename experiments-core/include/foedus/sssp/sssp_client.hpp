@@ -362,6 +362,20 @@ class SsspClientTask {
   void      analytic_relax_calculate(NodeId node_id_offset);
   void      analytic_relax_calculate_recurse(uint32_t n, NodeId node_id_offset);
   ErrorStack analytic_write_result();
+
+  inline uint32_t to_my_block_from_stripe(uint32_t stripe) const {
+    uint32_t block = stripe * inputs_.analytic_stripe_size_ + inputs_.buddy_index_;
+    ASSERT_ND(block < kBlocksPerPartition * inputs_.max_px_ * inputs_.max_py_);
+    return block;
+  }
+  inline void to_stripe_and_owner_from_block(
+    uint32_t block,
+    uint32_t* stripe,
+    uint32_t* owner_buddy_index) const {
+    *stripe = block / inputs_.analytic_stripe_size_;
+    ASSERT_ND(*stripe < inputs_.analytic_stripe_count_);
+    *owner_buddy_index = block % inputs_.analytic_stripe_size_;
+  }
 };
 }  // namespace sssp
 }  // namespace foedus

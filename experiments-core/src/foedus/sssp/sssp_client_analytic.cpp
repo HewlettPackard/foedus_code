@@ -167,8 +167,7 @@ ErrorStack SsspClientTask::do_analytic() {
 
 ErrorStack SsspClientTask::analytic_relax_block(uint32_t stripe) {
   ASSERT_ND(stripe < inputs_.analytic_stripe_count_);
-  const uint64_t block = stripe * inputs_.analytic_stripe_size_ + inputs_.buddy_index_;
-  ASSERT_ND(block < kBlocksPerPartition * inputs_.max_px_ * inputs_.max_py_);
+  const uint64_t block = to_my_block_from_stripe(stripe);
   const NodeId node_id_offset = block * kNodesPerBlock;
   // DLOG(INFO) << "Relaxing block-" << block << " in analytic worker-" << inputs_.buddy_index_;
 
@@ -507,9 +506,8 @@ ErrorCode SsspClientTask::analytic_apply_foreign_blocks(uint32_t own_block) {
 
     if (has_update) {
       // Notify the block. who owns it?
-      const uint32_t target_stripe = block / inputs_.analytic_stripe_size_;
-      ASSERT_ND(target_stripe < inputs_.analytic_stripe_count_);
-      const uint32_t target_owner_buddy_index = block % inputs_.analytic_stripe_size_;
+      uint32_t target_stripe, target_owner_buddy_index;
+      to_stripe_and_owner_from_block(block, &target_stripe, &target_owner_buddy_index);
       Outputs* foreign_output = analytic_other_outputs_[target_owner_buddy_index];
       // Let him know that we changed something.
       foreign_output->increment_l2_then_l1(target_stripe, inputs_.analytic_stripes_per_l1_);
