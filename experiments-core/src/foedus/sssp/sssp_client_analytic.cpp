@@ -211,13 +211,7 @@ ErrorStack SsspClientTask::analytic_relax_block(uint32_t stripe) {
 
   // Third, calculate shortest path based on the info so far.
   // To remember info for other blocks, we reuse the hashtable in nav queries.
-  hashtable_.clean();
-  ASSERT_ND(hashtable_.get_inserted_key_count() == 0);
-  for (uint32_t n = 0; n < kNodesPerBlock; ++n) {
-    if (analytic_tmp_bf_records_[n].distance_ != 0) {
-      analytic_relax_node_recurse(n, node_id_offset);
-    }
-  }
+  analytic_relax_calculate(node_id_offset);
 
   // Finally, we apply the updated info.
   // Let's do our own block first. No need to notify ourselves.
@@ -248,7 +242,17 @@ ErrorCode SsspClientTask::analytic_relax_block_retrieve_topology() {
   return kErrorCodeOk;
 }
 
-void SsspClientTask::analytic_relax_node_recurse(uint32_t n, NodeId node_id_offset) {
+void SsspClientTask::analytic_relax_calculate(NodeId node_id_offset) {
+  hashtable_.clean();
+  ASSERT_ND(hashtable_.get_inserted_key_count() == 0);
+  for (uint32_t n = 0; n < kNodesPerBlock; ++n) {
+    if (analytic_tmp_bf_records_[n].distance_ != 0) {
+      analytic_relax_calculate_recurse(n, node_id_offset);
+    }
+  }
+}
+
+void SsspClientTask::analytic_relax_calculate_recurse(uint32_t n, NodeId node_id_offset) {
   // This recursion is upto kNodesPerBlock depth, and not many stack variables,
   // so it shouldn't cause stackoverflow.
   ASSERT_ND(n < kNodesPerBlock);
@@ -274,7 +278,6 @@ void SsspClientTask::analytic_relax_node_recurse(uint32_t n, NodeId node_id_offs
         another_data->distance_ = new_distance;
         another_data->pred_node_ = my_id;
         neighbor_recurse[e] = static_cast<uint8_t>(another_n) | kNeedToRecurse;
-        analytic_relax_node_recurse(another_n, node_id_offset);
       }
     } else {
       // Pointing to foreign block. Check with hashtable
@@ -291,7 +294,7 @@ void SsspClientTask::analytic_relax_node_recurse(uint32_t n, NodeId node_id_offs
     if ((neighbor_recurse[e] & kNeedToRecurse) != 0) {
       const uint8_t n = neighbor_recurse[e] ^ kNeedToRecurse;
       ASSERT_ND(n < kNodesPerBlock);
-      analytic_relax_node_recurse(n, node_id_offset);
+      analytic_relax_calculate_recurse(n, node_id_offset);
     }
   }
 }

@@ -359,7 +359,8 @@ class SsspClientTask {
   ErrorStack analytic_relax_block(uint32_t stripe);
   ErrorCode analytic_apply_own_block(uint32_t own_block);
   ErrorCode analytic_apply_foreign_blocks(uint32_t own_block);
-  void      analytic_relax_node_recurse(uint32_t n, NodeId node_id_offset);
+  void      analytic_relax_calculate(NodeId node_id_offset);
+  void      analytic_relax_calculate_recurse(uint32_t n, NodeId node_id_offset);
   ErrorStack analytic_write_result();
 };
 }  // namespace sssp
