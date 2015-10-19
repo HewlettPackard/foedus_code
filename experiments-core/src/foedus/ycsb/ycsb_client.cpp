@@ -91,13 +91,19 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
   // figure out how many cores we have (basically by adding individual core counts up).
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
-  assorted::ZipfianRandom zrnd_key_high(total_thread_count, zipfian_theta_, total_thread_count);
+  //assorted::ZipfianRandom zrnd_key_high(total_thread_count, zipfian_theta_, total_thread_count);
   // One zrnd per thread-partition
-  std::vector<assorted::ZipfianRandom> vec_zrnd_key_low;
-  for (uint32_t c = 0; c < total_thread_count; c++) {
-    auto cnt = get_local_key_counter(engine_, c)->key_counter_;
-    vec_zrnd_key_low.emplace_back(cnt, zipfian_theta_, c);
-  }
+  //std::vector<assorted::ZipfianRandom> vec_zrnd_key_low;
+  //for (uint32_t c = 0; c < total_thread_count; c++) {
+  //  auto cnt = get_local_key_counter(engine_, c)->key_counter_;
+  //  vec_zrnd_key_low.emplace_back(cnt, zipfian_theta_, c);
+  //}
+
+  // FIXME(tzwang): figure out what to do with deadlocks.
+  // For now, just generate all keys and sort them for 2PL.
+  // Use the same for OCC, for fair comparison.
+  std::vector<YcsbKey> rmw_keys;
+  rmw_keys.reserve(10);
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -156,23 +162,22 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           }
 #endif
         } else {  // read-modify-write
-          // FIXME(tzwang): figure out what to do with deadlocks.
-          // For now, just generate all keys and sort them for 2PL.
-          // Use the same for OCC, for fair comparison.
-          std::vector<YcsbKey> keys;
+          rmw_keys.clear();
           auto nkeys = workload_.reps_per_tx_ + workload_.rmw_additional_reads_;
           for (int32_t k = 0; k < nkeys; k++) {
-            auto hi = zrnd_key_high.next();
-            auto lo = vec_zrnd_key_low[hi].next();
-            keys.push_back(build_key(hi, lo));
+            //auto key_seq = zrnd_record_select.next();
+            //auto hi = key_seq / local_key_counter_->key_counter_;
+            //auto lo = key_seq % local_key_counter_->key_counter_;
+            //keys.push_back(build_key(hi, lo));
+            rmw_keys.push_back(build_rmw_key());
           }
-          std::sort(keys.begin(), keys.end(), YcsbKey::compare);
+          std::sort(rmw_keys.begin(), rmw_keys.end(), YcsbKey::compare);
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_rmw(keys[reps]);
+            ret = do_rmw(rmw_keys[reps]);
           }
           for (int32_t ar = workload_.reps_per_tx_; ar < nkeys; ar++) {
             // Follow skewed accessed in RMW
-            ret = do_read(keys[ar]);
+            ret = do_read(rmw_keys[ar]);
           }
         }
       }
@@ -272,7 +277,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
 #else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
-#if defined(USE_2PL) && defined(YCSB_HASH_STORAGE)
+#if defined(USE_2PL)
     CHECK_ERROR_CODE(user_table_.get_record(
       context_,
       key.ptr(),
@@ -287,7 +292,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
-#if defined(USE_2PL) && defined(YCSB_HASH_STORAGE)
+#if defined(USE_2PL)
     CHECK_ERROR_CODE(user_table_.get_record_part(
       context_,
       key.ptr(),

@@ -101,6 +101,8 @@ DEFINE_int32(reps_per_tx, 1, "The number of operations to repeat in each transac
 // threads. But that's hard to scale in high core counts. So we use [worker_id | local_count].
 DEFINE_bool(ordered_inserts, false, "Whether to make the keys ordered, i.e., don't hash(keynum).");
 
+DEFINE_bool(simple_int_keys, true, "Whether to use 8-byte interger key; ignores -ordered_inserts.");
+
 // Generate all keys first, then sort them before inserting to the table (loading only).
 // This is not in the spec; it makes masstree perform better.
 DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
@@ -134,17 +136,24 @@ void YcsbRecord::initialize_field(char *field) {
 
 YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
   uint64_t keynum = ((uint64_t)high_bits << 32) | low_bits;
-  if (!FLAGS_ordered_inserts) {
-    keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
+  if (FLAGS_simple_int_keys) {
+    // ignore ordered_insert as well
+    data_.clear();
+    data_.append(reinterpret_cast<char *>(&keynum), sizeof(uint64_t));
+    //LOG(INFO) << high_bits << " " << low_bits << " " << keynum << " " << data_.data();
+  } else {
+    if (!FLAGS_ordered_inserts) {
+      keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
+    }
+    int integer_length = kKeyMaxLength;
+    if (FLAGS_use_string_keys) {
+      data_ = kKeyPrefix;
+      integer_length -= kKeyPrefixLength;
+    }
+    char keychar[kKeyMaxLength + 1];
+    auto len = snprintf(keychar, integer_length + 1, "%lu", keynum);
+    data_.append(keychar, len);
   }
-  int integer_length = kKeyMaxLength;
-  if (FLAGS_use_string_keys) {
-    data_ = kKeyPrefix;
-    integer_length -= kKeyPrefixLength;
-  }
-  char keychar[kKeyMaxLength + 1];
-  auto len = snprintf(keychar, integer_length + 1, "%lu", keynum);
-  data_.append(keychar, len);
   return *this;
 }
 
@@ -292,12 +301,14 @@ ErrorStack YcsbDriver::run() {
   uint32_t total_thread_count = options.thread_.get_total_thread_count();
   channel->initialize(total_thread_count);
   int64_t initial_table_size = FLAGS_initial_table_size;
-  auto remainder = initial_table_size % total_thread_count;
-  if (remainder) {
-    initial_table_size -= remainder;
+  if (initial_table_size > total_thread_count) {
+    auto remainder = initial_table_size % total_thread_count;
+    if (remainder) {
+      initial_table_size -= remainder;
+    }
   }
   LOG(INFO) << "Requested table size: " << FLAGS_initial_table_size
-    << ", will load " << initial_table_size - remainder << " records";
+    << ", will load " << initial_table_size << " records";
 
   YcsbWorkload workload;
   if (FLAGS_workload == "A") {
@@ -367,7 +378,16 @@ ErrorStack YcsbDriver::run() {
   for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
     YcsbLoadTask::Inputs inputs;
     inputs.load_node_ = node;
-    inputs.records_per_thread_ = initial_records_per_thread;
+    if (initial_records_per_thread == 0) {
+      // Let one thread in one node load them all if we don't
+      // have at least one record per thread (note, not per loader).
+      // FIXME(tzwang): worth it to spread records as widely as possible?
+      inputs.records_per_thread_ = initial_table_size;
+      inputs.spread_ = false;
+    } else {
+      inputs.records_per_thread_ = initial_records_per_thread;
+      inputs.spread_ = true;
+    }
     inputs.sort_load_keys_ = FLAGS_sort_load_keys;
     thread::ImpersonateSession load_session;
     bool ret = thread_pool->impersonate_on_numa_node(
@@ -376,6 +396,9 @@ ErrorStack YcsbDriver::run() {
       LOG(FATAL) << "Couldn't impersonate";
     }
     load_sessions.emplace_back(std::move(load_session));
+    if (initial_records_per_thread == 0) {
+      break;
+    }
   }
   // Wait for the load tasks to finish
   const uint64_t kIntervalMs = 10;
@@ -425,8 +448,17 @@ ErrorStack YcsbDriver::run() {
       inputs.write_all_fields_ = FLAGS_write_all_fields;
       inputs.random_inserts_ = FLAGS_random_inserts;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
-      inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
+      if (initial_records_per_thread == 0) {
+        if (node == 0 && ordinal == 0) {
+          inputs.local_key_counter_->key_counter_ = initial_table_size;
+        } else {
+          inputs.local_key_counter_->key_counter_ = 0;
+        }
+      } else {
+        inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
+      }
       inputs.workload_ = workload;
+      inputs.initial_table_size_ = initial_table_size;
       bool ret = thread_pool->impersonate_on_numa_node(
         node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
       if (!ret) {

@@ -80,11 +80,12 @@ ErrorCode MasstreeStorage::get_record(
   const void* key,
   KeyLength key_length,
   void* payload,
-  PayloadLength* payload_capacity) {
+  PayloadLength* payload_capacity,
+  bool for_write_2pl) {
   // Automatically switch to faster implementation for 8-byte keys
   if (key_length == sizeof(KeySlice)) {
     KeySlice slice = normalize_be_bytes_full(key);
-    return get_record_normalized(context, slice, payload, payload_capacity);
+    return get_record_normalized(context, slice, payload, payload_capacity, for_write_2pl);
   }
 
   MasstreeBorderPage* border;
@@ -105,7 +106,8 @@ ErrorCode MasstreeStorage::get_record(
     index,
     observed,
     payload,
-    payload_capacity);
+    payload_capacity,
+    for_write_2pl);
 }
 
 ErrorCode MasstreeStorage::get_record_part(
@@ -114,11 +116,12 @@ ErrorCode MasstreeStorage::get_record_part(
   KeyLength key_length,
   void* payload,
   PayloadLength payload_offset,
-  PayloadLength payload_count) {
+  PayloadLength payload_count,
+  bool for_write_2pl) {
   // Automatically switch to faster implementation for 8-byte keys
   if (key_length == sizeof(KeySlice)) {
     KeySlice slice = normalize_be_bytes_full(key);
-    return get_record_part_normalized(context, slice, payload, payload_offset, payload_count);
+    return get_record_part_normalized(context, slice, payload, payload_offset, payload_count, for_write_2pl);
   }
 
   MasstreeBorderPage* border;
@@ -140,7 +143,8 @@ ErrorCode MasstreeStorage::get_record_part(
     observed,
     payload,
     payload_offset,
-    payload_count);
+    payload_count,
+    for_write_2pl);
 }
 
 template <typename PAYLOAD>
@@ -149,11 +153,12 @@ ErrorCode MasstreeStorage::get_record_primitive(
   const void* key,
   KeyLength key_length,
   PAYLOAD* payload,
-  PayloadLength payload_offset) {
+  PayloadLength payload_offset,
+  bool for_write_2pl) {
   // Automatically switch to faster implementation for 8-byte keys
   if (key_length == sizeof(KeySlice)) {
     KeySlice slice = normalize_be_bytes_full(key);
-    return get_record_primitive_normalized<PAYLOAD>(context, slice, payload, payload_offset);
+    return get_record_primitive_normalized<PAYLOAD>(context, slice, payload, payload_offset, for_write_2pl);
   }
 
   MasstreeBorderPage* border;
@@ -175,14 +180,16 @@ ErrorCode MasstreeStorage::get_record_primitive(
     observed,
     payload,
     payload_offset,
-    sizeof(PAYLOAD));
+    sizeof(PAYLOAD),
+    for_write_2pl);
 }
 
 ErrorCode MasstreeStorage::get_record_normalized(
   thread::Thread* context,
   KeySlice key,
   void* payload,
-  PayloadLength* payload_capacity) {
+  PayloadLength* payload_capacity,
+  bool for_write_2pl) {
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -200,7 +207,8 @@ ErrorCode MasstreeStorage::get_record_normalized(
     index,
     observed,
     payload,
-    payload_capacity);
+    payload_capacity,
+    for_write_2pl);
 }
 
 ErrorCode MasstreeStorage::get_record_part_normalized(
@@ -208,7 +216,8 @@ ErrorCode MasstreeStorage::get_record_part_normalized(
   KeySlice key,
   void* payload,
   PayloadLength payload_offset,
-  PayloadLength payload_count) {
+  PayloadLength payload_count,
+  bool for_write_2pl) {
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -227,7 +236,8 @@ ErrorCode MasstreeStorage::get_record_part_normalized(
     observed,
     payload,
     payload_offset,
-    payload_count);
+    payload_count,
+    for_write_2pl);
 }
 
 template <typename PAYLOAD>
@@ -235,7 +245,8 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
   thread::Thread* context,
   KeySlice key,
   PAYLOAD* payload,
-  PayloadLength payload_offset) {
+  PayloadLength payload_offset,
+  bool for_write_2pl) {
   MasstreeBorderPage* border;
   SlotIndex index;
   xct::XctId observed;
@@ -254,7 +265,8 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
     observed,
     payload,
     payload_offset,
-    sizeof(PAYLOAD));
+    sizeof(PAYLOAD),
+    for_write_2pl);
 }
 
 PayloadLength adjust_payload_hint(
@@ -713,12 +725,12 @@ SlotIndex MasstreeStorage::estimate_records_per_page(
 // @cond DOXYGEN_IGNORE
 #define EXPIN_1(x) template ErrorCode MasstreeStorage::get_record_primitive< x > \
   (thread::Thread* context, const void* key, KeyLength key_length, x* payload, \
-    PayloadLength payload_offset)
+    PayloadLength payload_offset, bool for_write_2pl)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_1);
 
 #define EXPIN_2(x) template ErrorCode \
   MasstreeStorage::get_record_primitive_normalized< x > \
-  (thread::Thread* context, KeySlice key, x* payload, PayloadLength payload_offset)
+  (thread::Thread* context, KeySlice key, x* payload, PayloadLength payload_offset, bool for_write_2pl)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_2);
 
 #define EXPIN_3(x) template ErrorCode MasstreeStorage::overwrite_record_primitive< x > \

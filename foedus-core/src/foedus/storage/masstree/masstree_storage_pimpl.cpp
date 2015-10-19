@@ -1167,17 +1167,33 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   SlotIndex index,
   xct::XctId observed,
   void* payload,
-  PayloadLength* payload_capacity) {
+  PayloadLength* payload_capacity,
+  bool for_write_2pl) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
   CHECK_ERROR_CODE(check_next_layer_bit(observed));
+#ifdef USE_2PL
+  if (for_write_2pl) {
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(
+      context,
+      get_id(),
+      border->get_owner_id(index)));
+  } else {
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
+    context,
+    get_id(),
+    observed,
+    border->get_owner_id(index)));
+  }
+#else
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
     context,
     get_id(),
     observed,
     border->get_owner_id(index)));
+#endif  // USE_2PL
 
   // here, we do NOT have to do another optimistic-read protocol because we already took
   // the owner_id into read-set. If this read is corrupted, we will be aware of it at commit time.
@@ -1200,17 +1216,33 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   xct::XctId observed,
   void* payload,
   PayloadLength payload_offset,
-  PayloadLength  payload_count) {
+  PayloadLength  payload_count,
+  bool for_write_2pl) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
   CHECK_ERROR_CODE(check_next_layer_bit(observed));
+#ifdef USE_2PL
+  if (for_write_2pl) {
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(
+      context,
+      get_id(),
+      border->get_owner_id(index)));
+  } else {
+    CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
+      context,
+      get_id(),
+      observed,
+      border->get_owner_id(index)));
+  }
+#else
   CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
     context,
     get_id(),
     observed,
     border->get_owner_id(index)));
+#endif
   if (border->get_payload_length(index) < payload_offset + payload_count) {
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
