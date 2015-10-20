@@ -234,6 +234,8 @@ struct PageVersionLockScope {
  * get/set basic properties.
  */
 struct PageHeader CXX11_FINAL {
+  static const uint8_t kHotThreshold = 10;
+  static const uint8_t kInvalidTemperature = 0xff;
   /**
    * @brief Page ID of this page.
    * @details
@@ -301,7 +303,23 @@ struct PageHeader CXX11_FINAL {
    * Depending on page type, this might not be even maintained (eg implicit in sequential pages).
    */
   uint8_t       stat_last_updater_node_;       // +1 -> 23
-  uint8_t       reserved_;       // +1 -> 24
+
+  /**
+   * Loosely maintained statistics on data temperature.
+   * This is a probabilistic counter: 0->1 = 100%, 1->2 = 50%, 2->3 = 25%, etc.
+   * So it grows exponentially, which should make it easy enough to tell an obviously
+   * hot record/page.
+   *
+   * XXX(tzwang): This field only makes sense for volatile pages.
+   *
+   * Among the preceeding word-size-algned fields (masstree_layer_, masstree_in_layer_level_,
+   * and stat_last_updater_node_), masstree_* are not changed once page constructed;
+   * stat_last_updater_node_ is loosely maintained stat. So we don't need to use atomic
+   * write for this field.
+   *
+   * Assuming 4-byte word size ($getconf WORD_BIT).
+   */
+  uint8_t       temperature_;                  // +1 -> 24
   /**
    * Used in several storage types as concurrency control mechanism for the page.
    */
@@ -330,7 +348,7 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = page_id.components.numa_node;
-    reserved_ = 0;
+    temperature_ = 0;
     page_version_.reset();
   }
 
@@ -347,7 +365,7 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
-    reserved_ = 0;
+    temperature_ = kInvalidTemperature;
     page_version_.reset();
   }
 
@@ -358,6 +376,23 @@ struct PageHeader CXX11_FINAL {
   void      set_key_count(uint8_t key_count) ALWAYS_INLINE {
     ASSERT_ND(snapshot_ || page_version_.is_locked());
     key_count_ = key_count;
+  }
+
+  void      increase_temperature() ALWAYS_INLINE {
+    temperature_++;
+  }
+  /* FIXME(tzwang): one option here is to decrement the counter when a transaction
+   * committed without taking shared lock on a record (not 100% accurate unless
+   * we keep stats per record).
+   */
+  void      decrease_temperature() ALWAYS_INLINE {
+    temperature_--;
+  }
+  void      reset_temperature() ALWAYS_INLINE {
+    temperature_ = 0;
+  }
+  bool      contains_hot_records() ALWAYS_INLINE {
+    return temperature_ >= kHotThreshold;
   }
 };
 

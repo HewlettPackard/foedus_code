@@ -230,7 +230,8 @@ ErrorCode SequentialStorageControlBlock::optimistic_read_truncate_epoch(
     context,
     meta_.id_,
     observed,
-    const_cast< xct::RwLockableXctId* >(address)));  // why it doesn't receive const? I forgot..
+    const_cast< xct::RwLockableXctId* >(address),
+    false));  // why it doesn't receive const? I forgot..
   return kErrorCodeOk;
 }
 

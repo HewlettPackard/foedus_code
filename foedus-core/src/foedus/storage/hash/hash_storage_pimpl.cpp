@@ -170,7 +170,7 @@ ErrorCode HashStoragePimpl::get_record(
   const HashCombo& combo,
   void* payload,
   uint16_t* payload_capacity,
-  bool for_write_2pl) {
+  bool xlock) {
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
   if (!bin_head) {
@@ -202,9 +202,10 @@ ErrorCode HashStoragePimpl::get_record(
   }
 
   xct::Xct& cur_xct = context->get_current_xct();
-#ifdef USE_2PL
-  if (for_write_2pl) {
-    CHECK_ERROR_CODE(cur_xct.add_to_write_set(
+  // If this is a hot record, and the user has the intention to update this record
+  // later, we take x-lock directly and put it in write set.
+  if (location.hot_record_ && xlock) {
+    CHECK_ERROR_CODE(cur_xct.add_hot_record_to_write_set_intention(
       context,
       get_id(),
       &location.slot_->tid_));
@@ -213,15 +214,9 @@ ErrorCode HashStoragePimpl::get_record(
       context,
       get_id(),
       location.observed_,
-      &location.slot_->tid_));
+      &location.slot_->tid_,
+      location.hot_record_));
   }
-#else
-  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-    context,
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_));
-#endif
 
   *payload_capacity = payload_length;
   uint16_t key_offset = location.slot_->get_aligned_key_length();
@@ -237,7 +232,7 @@ ErrorCode HashStoragePimpl::get_record_part(
   void* payload,
   uint16_t payload_offset,
   uint16_t payload_count,
-  bool for_write_2pl) {
+  bool xlock) {
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
   if (!bin_head) {
@@ -264,9 +259,8 @@ ErrorCode HashStoragePimpl::get_record_part(
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
-#ifdef USE_2PL
-  if (for_write_2pl) {
-    CHECK_ERROR_CODE(cur_xct.add_to_write_set(
+  if (location.hot_record_ && xlock) {
+    CHECK_ERROR_CODE(cur_xct.add_hot_record_to_write_set_intention(
       context,
       get_id(),
       &location.slot_->tid_));
@@ -275,15 +269,9 @@ ErrorCode HashStoragePimpl::get_record_part(
       context,
       get_id(),
       location.observed_,
-      &location.slot_->tid_));
+      &location.slot_->tid_,
+      location.hot_record_));
   }
-#else
-  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-    context,
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_));
-#endif
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset + payload_offset, payload_count);
   return kErrorCodeOk;
@@ -335,7 +323,8 @@ ErrorCode HashStoragePimpl::insert_record(
         context,
         get_id(),
         location.observed_,
-        &location.slot_->tid_));
+        &location.slot_->tid_,
+        location.hot_record_));
       return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
     }
 
@@ -384,6 +373,7 @@ ErrorCode HashStoragePimpl::insert_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
+    location.hot_record_,
     log_entry);
 }
 
@@ -415,7 +405,8 @@ ErrorCode HashStoragePimpl::delete_record(
       context,
       get_id(),
       location.observed_,
-      &location.slot_->tid_));
+      &location.slot_->tid_,
+      location.hot_record_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   }
 
@@ -430,6 +421,7 @@ ErrorCode HashStoragePimpl::delete_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
+    location.hot_record_,
     log_entry);
 }
 
@@ -548,6 +540,7 @@ ErrorCode HashStoragePimpl::upsert_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
+    location.hot_record_,
     log_common);
 }
 
@@ -578,12 +571,12 @@ ErrorCode HashStoragePimpl::overwrite_record(
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   } else if (location.observed_.is_deleted()) {
-    // FIXME(tzwang): what to do for 2PL?
     CHECK_ERROR_CODE(cur_xct.add_to_read_set(
       context,
       get_id(),
       location.observed_,
-      &location.slot_->tid_));
+      &location.slot_->tid_,
+      location.hot_record_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + payload_count) {
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
@@ -591,7 +584,8 @@ ErrorCode HashStoragePimpl::overwrite_record(
       context,
       get_id(),
       location.observed_,
-      &location.slot_->tid_));
+      &location.slot_->tid_,
+      location.hot_record_));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
 
@@ -614,6 +608,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
+    location.hot_record_,
     log_entry);
 }
 
@@ -648,7 +643,8 @@ ErrorCode HashStoragePimpl::increment_record(
       context,
       get_id(),
       location.observed_,
-      &location.slot_->tid_));
+      &location.slot_->tid_,
+      location.hot_record_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + sizeof(PAYLOAD)) {
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
@@ -656,7 +652,8 @@ ErrorCode HashStoragePimpl::increment_record(
       context,
       get_id(),
       location.observed_,
-      &location.slot_->tid_));
+      &location.slot_->tid_,
+      location.hot_record_));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
 
@@ -685,6 +682,7 @@ ErrorCode HashStoragePimpl::increment_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
+    location.hot_record_,
     log_entry);
 }
 
@@ -1008,6 +1006,7 @@ ErrorCode HashStoragePimpl::locate_record(
     uint16_t record_count = page->get_record_count();
     search_key_in_a_page(key, key_length, combo, page, record_count, result);
     if (result->record_) {
+      result->hot_record_ = page->header().contains_hot_records();
       return kErrorCodeOk;  // found!
     }
 
@@ -1028,6 +1027,7 @@ ErrorCode HashStoragePimpl::locate_record(
         page = reinterpret_cast<HashDataPage*>(next);
       } else {
         // it's snapshot world. the result is final, we are done.
+        ASSERT_ND(!result->hot_record_);
         return kErrorCodeOk;
       }
     } else {
@@ -1070,6 +1070,7 @@ ErrorCode HashStoragePimpl::locate_record(
             result));
           ASSERT_ND(result->slot_);
           ASSERT_ND(result->record_);
+          ASSERT_ND(!result->hot_record_);
           return kErrorCodeOk;
         } else {
           // we have to take version set because someone might
@@ -1077,6 +1078,7 @@ ErrorCode HashStoragePimpl::locate_record(
           CHECK_ERROR_CODE(current_xct.add_to_page_version_set(
             &page->header().page_version_,
             page_status));
+          ASSERT_ND(!result->hot_record_);
           return kErrorCodeOk;
         }
       } else {

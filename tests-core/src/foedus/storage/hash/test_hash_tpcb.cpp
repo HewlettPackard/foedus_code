@@ -272,11 +272,7 @@ class RunTpcbTask {
     } else {
       BranchData branch;
       uint16_t capacity = sizeof(branch);
-#ifdef USE_2PL
       WRAP_ERROR_CODE(branches.get_record(context, branch_id, &branch, &capacity, true));
-#else
-      WRAP_ERROR_CODE(branches.get_record(context, branch_id, &branch, &capacity));
-#endif
       branch_balance_old = branch.branch_balance_;
       branch_balance_new = branch_balance_old + amount;
       WRAP_ERROR_CODE(branches.overwrite_record(
@@ -315,11 +311,7 @@ class RunTpcbTask {
     } else {
       TellerData teller;
       uint16_t capacity = sizeof(teller);
-#ifdef USE_2PL
       WRAP_ERROR_CODE(tellers.get_record(context, teller_id, &teller, &capacity, true));
-#else
-      WRAP_ERROR_CODE(tellers.get_record(context, teller_id, &teller, &capacity));
-#endif
       teller_branch_id = teller.branch_id_;
       teller_balance_old = teller.teller_balance_;
       teller_balance_new = teller_balance_old + amount;
@@ -360,11 +352,7 @@ class RunTpcbTask {
     } else {
       AccountData account;
       uint16_t capacity = sizeof(account);
-#ifdef USE_2PL
       WRAP_ERROR_CODE(accounts.get_record(context, account_id, &account, &capacity, true));
-#else
-      WRAP_ERROR_CODE(accounts.get_record(context, account_id, &account, &capacity));
-#endif
       account_branch_id = account.branch_id_;
       account_balance_old = account.account_balance_;
       account_balance_new = account_balance_old + amount;
@@ -478,21 +466,13 @@ ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
   for (uint64_t i = 0; i < kBranches; ++i) {
     BranchData data;
     uint16_t capacity = sizeof(data);
-#ifdef USE_2PL
     CHECK_ERROR(branches.get_record(context, i, &data, &capacity, true));
-#else
-    CHECK_ERROR(branches.get_record(context, i, &data, &capacity));
-#endif
     EXPECT_EQ(expected_branch[i], data.branch_balance_) << "branch-" << i;
   }
   for (uint64_t i = 0; i < kBranches * kTellers; ++i) {
     TellerData data;
     uint16_t capacity = sizeof(data);
-#ifdef USE_2PL
     CHECK_ERROR(tellers.get_record(context, i, &data, &capacity, true));
-#else
-    CHECK_ERROR(tellers.get_record(context, i, &data, &capacity));
-#endif
     EXPECT_EQ(i / kTellers, data.branch_id_) << i;
     EXPECT_EQ(expected_teller[i], data.teller_balance_) << "teller-" << i;
   }

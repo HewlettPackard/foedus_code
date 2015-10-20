@@ -277,7 +277,6 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
 #else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
-#if defined(USE_2PL)
     CHECK_ERROR_CODE(user_table_.get_record(
       context_,
       key.ptr(),
@@ -285,14 +284,10 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
       &r,
       &payload_len,
       true));
-#else
-    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
-#endif
   } else {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
-#if defined(USE_2PL)
     CHECK_ERROR_CODE(user_table_.get_record_part(
       context_,
       key.ptr(),
@@ -301,15 +296,6 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
       offset,
       kFieldLength,
       true));
-#else
-    CHECK_ERROR_CODE(user_table_.get_record_part(
-      context_,
-      key.ptr(),
-      key.size(),
-      &r.data_[offset],
-      offset,
-      kFieldLength));
-#endif
   }
 
   // Modify-Write

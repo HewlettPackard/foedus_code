@@ -1168,15 +1168,15 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   xct::XctId observed,
   void* payload,
   PayloadLength* payload_capacity,
-  bool for_write_2pl) {
+  bool xlock) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
   CHECK_ERROR_CODE(check_next_layer_bit(observed));
-#ifdef USE_2PL
-  if (for_write_2pl) {
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(
+  bool hot_record = border->header().contains_hot_records();
+  if (hot_record && xlock) {
+    CHECK_ERROR_CODE(context->get_current_xct().add_hot_record_to_write_set_intention(
       context,
       get_id(),
       border->get_owner_id(index)));
@@ -1185,15 +1185,9 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     context,
     get_id(),
     observed,
-    border->get_owner_id(index)));
+    border->get_owner_id(index),
+    hot_record));
   }
-#else
-  CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    context,
-    get_id(),
-    observed,
-    border->get_owner_id(index)));
-#endif  // USE_2PL
 
   // here, we do NOT have to do another optimistic-read protocol because we already took
   // the owner_id into read-set. If this read is corrupted, we will be aware of it at commit time.
@@ -1217,15 +1211,15 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   void* payload,
   PayloadLength payload_offset,
   PayloadLength  payload_count,
-  bool for_write_2pl) {
+  bool xlock) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
   }
   CHECK_ERROR_CODE(check_next_layer_bit(observed));
-#ifdef USE_2PL
-  if (for_write_2pl) {
-    CHECK_ERROR_CODE(context->get_current_xct().add_to_write_set(
+  bool hot_record = border->header().contains_hot_records();
+  if (hot_record && xlock) {
+    CHECK_ERROR_CODE(context->get_current_xct().add_hot_record_to_write_set_intention(
       context,
       get_id(),
       border->get_owner_id(index)));
@@ -1234,15 +1228,9 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
       context,
       get_id(),
       observed,
-      border->get_owner_id(index)));
+      border->get_owner_id(index),
+      hot_record));
   }
-#else
-  CHECK_ERROR_CODE(context->get_current_xct().add_to_read_set(
-    context,
-    get_id(),
-    observed,
-    border->get_owner_id(index)));
-#endif
   if (border->get_payload_length(index) < payload_offset + payload_count) {
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
@@ -1286,6 +1274,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
+    false,
     log_entry);
 }
 
@@ -1314,6 +1303,7 @@ ErrorCode MasstreeStoragePimpl::delete_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
+    border->header().contains_hot_records(),
     log_entry);
 }
 
@@ -1384,6 +1374,7 @@ ErrorCode MasstreeStoragePimpl::upsert_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
+    border->header().contains_hot_records(),
     common_log);
 }
 ErrorCode MasstreeStoragePimpl::overwrite_general(
@@ -1424,6 +1415,7 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
+    border->header().contains_hot_records(),
     log_entry);
 }
 
@@ -1468,6 +1460,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
+    border->header().contains_hot_records(),
     log_entry);
 }
 

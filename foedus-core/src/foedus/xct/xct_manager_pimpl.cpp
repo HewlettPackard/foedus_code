@@ -345,22 +345,12 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   ASSERT_ND(current_xct.assert_related_read_write());
 
   bool success;
-#ifdef USE_2PL
-  const WriteXctAccess*   write_set = current_xct.get_write_set();
-  const uint32_t          write_set_size = current_xct.get_write_set_size();
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(!write_set[i].owner_id_address_->needs_track_moved());
-  }
-  success = precommit_xct_readwrite(context, commit_epoch);
-  // Still might abort due to phantom etc. See precommit_xct_readwrite().
-#else
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
     success = precommit_xct_readonly(context, commit_epoch);
   } else {
     success = precommit_xct_readwrite(context, commit_epoch);
   }
-#endif
 
   ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
@@ -385,14 +375,12 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   DVLOG(1) << *context << " Committing read-write";
   XctId max_xct_id;
   max_xct_id.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
-#ifndef USE_2PL
   bool success = precommit_xct_lock(context, &max_xct_id);  // Phase 1
   // lock can fail only when physical records went too far away
   if (!success) {
     DLOG(INFO) << *context << " Interesting. failed due to records moved far away or early abort";
     return false;
   }
-#endif  // USE_2PL
 
   // BEFORE the first fence, update the in commit epoch for epoch chime.
   // see InCommitEpochGuard class comments for why we need to do this.
@@ -417,27 +405,20 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   }
 #endif  // NDEBUG
   if (verified) {
-#ifndef USE_2PL
     precommit_xct_apply(context, max_xct_id, commit_epoch);  // phase 3. this also unlocks
     // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
     assorted::memory_fence_release();
-#endif  // USE_2PL
     if (engine_->get_options().log_.emulation_.null_device_) {
       context->get_thread_log_buffer().discard_current_xct_log();
     } else {
       context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
     }
   } else {
-#ifndef USE_2PL
     precommit_xct_unlock_writes(context);  // just unlock in this case
-#endif
   }
 
-#ifdef USE_2PL
+  // FIXME(tzwang): release after verification?
   precommit_xct_unlock_reads(context);
-  precommit_xct_unlock_writes(context);
-#endif  // USE_2PL
-
   return verified;
 }
 
@@ -565,8 +546,10 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           << ":" << entry->owner_id_address_
           << ". Will lock/unlock at the last one";
       } else {
-        entry->mcs_block_ = context->mcs_acquire_writer_lock(
-          entry->owner_id_address_->get_key_lock());
+        if (entry->mcs_block_ == 0) {
+          entry->mcs_block_ = context->mcs_acquire_writer_lock(
+            entry->owner_id_address_->get_key_lock());
+        }
         if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
           VLOG(0) << *context << " Interesting. moved-bit conflict in "
             << st->get_name(entry->storage_id_)
@@ -665,7 +648,6 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 }
 
 bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, XctId* max_xct_id) {
-#ifndef USE_2PL
   Xct& current_xct = context->get_current_xct();
   ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
@@ -739,7 +721,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
       }
     }
   }
-#endif  // USE_2PL
 
   // Check Page Pointer/Version
   if (!precommit_xct_verify_pointer_set(context)) {
@@ -898,10 +879,9 @@ void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
     }
   }
   assorted::memory_fence_release();
-  DLOG(INFO) << *context << " unlocked write set";
+  DVLOG(1) << *context << " unlocked write set";
 }
 
-#ifdef USE_2PL
 void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
   ReadXctAccess* read_set = context->get_current_xct().get_read_set();
   uint32_t       read_set_size = context->get_current_xct().get_read_set_size();
@@ -909,6 +889,9 @@ void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
   assorted::memory_fence_release();
   for (uint32_t i = 0; i < read_set_size; ++i) {
     ReadXctAccess& read = read_set[i];
+    if (read.mcs_block_ == 0) {
+      continue;
+    }
     ASSERT_ND(read.owner_id_address_->is_keylocked());
     DVLOG(2) << *context << " Unlocking "
       << engine_->get_storage_manager()->get_name(read.storage_id_) << ":"
@@ -917,9 +900,8 @@ void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
     read.mcs_block_ = 0;
   }
   assorted::memory_fence_release();
-  DLOG(INFO) << *context << " unlocked read set";
+  DVLOG(1) << *context << " unlocked read set";
 }
-#endif
 
 ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
@@ -928,9 +910,7 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   }
   DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
   precommit_xct_unlock_writes(context);
-#ifdef USE_2PL
   precommit_xct_unlock_reads(context);
-#endif
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
   return kErrorCodeOk;

@@ -336,11 +336,17 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
      * TID might be now moved, in which case pre-commit will catch it.
      */
     xct::XctId observed_;
+    /**
+     * Whether this record resides in a page with some hot record.
+     * This record might be hot or cold.
+     */
+    bool hot_record_;
 
     void clear() {
       slot_ = nullptr;
       record_ = nullptr;
       observed_.data_ = 0;
+      hot_record_ = false;
     }
   };
 

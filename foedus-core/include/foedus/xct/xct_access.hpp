@@ -94,9 +94,7 @@ struct ReadXctAccess {
   /** The storage we accessed. */
   storage::StorageId  storage_id_;
 
-#ifdef USE_2PL
   McsBlockIndex         mcs_block_;
-#endif
 
   /** Pointer to the accessed record. */
   RwLockableXctId*      owner_id_address_;

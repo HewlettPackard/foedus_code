@@ -114,6 +114,7 @@ X(kErrorCodeXctPageVersionSetOverflow, 0x0A06, "XCTION : Too large page-version 
 X(kErrorCodeXctPointerSetOverflow,  0x0A07, "XCTION : Too large pointer-set. Consider using snapshot isolation.")
 X(kErrorCodeXctUserAbort,           0x0A08, "XCTION : User explicitly aborted a transaction.")
 X(kErrorCodeXctNoMoreLocalWorkMemory, 0x0A09, "XCTION : Out of local work memory for the current transaction. Adjust XctOptions::local_work_memory_size_mb_.")
+X(kErrorCodeRecordTemperatureChange, 0x0AA0, "XCTION : Record page temperature changed.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")
 
