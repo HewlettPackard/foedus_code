@@ -158,7 +158,6 @@ ErrorStack YcsbLoadTask::run(
   }
   COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   watch.stop();
-  ASSERT_ND(inserted == records_per_thread * options.thread_.thread_count_per_group_);
   LOG(INFO) << "[YCSB] Loaded " << inserted << " records in " << watch.elapsed_sec() << "s";
   return kRetOk;
 }
