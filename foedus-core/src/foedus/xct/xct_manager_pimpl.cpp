@@ -348,6 +348,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
     success = precommit_xct_readonly(context, commit_epoch);
+    precommit_xct_unlock_reads(context);  // FIXME(tzwang): move this away
   } else {
     success = precommit_xct_readwrite(context, commit_epoch);
   }
@@ -471,8 +472,9 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
 
 #ifndef NDEBUG
   // Initially, write-sets must be ordered by the insertion order.
+  // FIXME(tzwang): not true any more with 2PL in place.
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(write_set[i].write_set_ordinal_ == i);
+    //ASSERT_ND(write_set[i].write_set_ordinal_ == i);
   }
 #endif  // NDEBUG
 
@@ -492,6 +494,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       // TASK(Hideaki) if this happens often, this might be too frequent virtual method call.
       // maybe a batched version of this? I'm not sure if this is that often, though.
       WriteXctAccess* entry = write_set + i;
+      ASSERT_ND(entry->owner_id_address_);
       if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
         if (!precommit_xct_lock_track_write(entry)) {
           return false;
@@ -536,7 +539,6 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     bool needs_retry = false;
     for (uint32_t i = 0; i < write_set_size; ++i) {
       WriteXctAccess* entry = write_set + i;
-      ASSERT_ND(entry->mcs_block_ == 0);
       DVLOG(2) << *context << " Locking " << st->get_name(entry->storage_id_)
         << ":" << entry->owner_id_address_;
       if (i < write_set_size - 1 &&
@@ -806,6 +808,7 @@ void XctManagerPimpl::precommit_xct_apply(
     // We must write data first (invoke_apply), then unlock.
     // Otherwise the correctness is not guaranteed.
     write.log_entry_->header_.set_xct_id(new_xct_id);
+    ASSERT_ND(new_xct_id.get_epoch().is_valid());
     if (i > 0 && write.owner_id_address_ == write_set[i - 1].owner_id_address_) {
       // the previous one has already set being_written and kept the lock
       ASSERT_ND(write.owner_id_address_->xct_id_.is_being_written());
