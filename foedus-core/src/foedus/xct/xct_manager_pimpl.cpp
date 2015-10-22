@@ -547,7 +547,14 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           << st->get_name(entry->storage_id_)
           << ":" << entry->owner_id_address_
           << ". Will lock/unlock at the last one";
+        // Pass the mcs_block_ to the next if we already acquired it, so that
+        // we can unlock after applied **all** changes for the same record.
+        ASSERT_ND(write_set[i + 1].mcs_block_ == 0);
+        write_set[i + 1].mcs_block_ = entry->mcs_block_;
+        write_set[i].mcs_block_ = 0;
       } else {
+        // Because we pass the mcs_block_ while we traverse the write set,
+        // if it's still 0, we're sure it's not locked.
         if (entry->mcs_block_ == 0) {
           entry->mcs_block_ = context->mcs_acquire_writer_lock(
             entry->owner_id_address_->get_key_lock());

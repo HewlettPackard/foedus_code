@@ -82,6 +82,7 @@ class Xct {
     page_version_set_size_ = 0;
     read_set_size_ = 0;
     write_set_size_ = 0;
+    write_set_next_ordinal_ = 0;
     lock_free_write_set_size_ = 0;
     *mcs_block_current_ = 0;
     local_work_memory_cur_ = 0;
@@ -324,6 +325,7 @@ class Xct {
   WriteXctAccess*     write_set_;
   uint32_t            write_set_size_;
   uint32_t            max_write_set_size_;
+  uint32_t            write_set_next_ordinal_;
 
   LockFreeWriteXctAccess* lock_free_write_set_;
   uint32_t                lock_free_write_set_size_;
@@ -431,9 +433,11 @@ inline ReadXctAccess* Xct::get_read_access(RwLockableXctId* owner_id_address) {
   ReadXctAccess* ret = NULL;
   // Return the one that's holding the X-lock (if any)
   for (uint32_t i = 0; i < read_set_size_; i++) {
-    ret = read_set_ + i;
-    if (ret->owner_id_address_ == owner_id_address && ret->mcs_block_) {
-      return ret;
+    if (read_set_[i].owner_id_address_ == owner_id_address) {
+      ret = read_set_ + i;
+      if (ret->mcs_block_) {
+        return ret;
+      }
     }
   }
   return ret;
@@ -442,9 +446,11 @@ inline WriteXctAccess* Xct::get_write_access(RwLockableXctId* owner_id_address) 
   WriteXctAccess* ret = NULL;
   // Return the one that's holding the X-lock (if any)
   for (uint32_t i = 0; i < write_set_size_; i++) {
-    ret = write_set_ + i;
-    if (ret->owner_id_address_ == owner_id_address && ret->mcs_block_) {
-      return ret;
+    if (write_set_[i].owner_id_address_ == owner_id_address) {
+      ret = write_set_ + i;
+      if (ret->mcs_block_) {
+        return ret;
+      }
     }
   }
   return ret;
@@ -541,41 +547,45 @@ inline ErrorCode Xct::add_to_write_set(
   ASSERT_ND(log_entry);
   bool take_x_lock = hot_record;
   WriteXctAccess* write = NULL;
-  if (hot_record) {
-    // Hot record - find out if I already X-locked the record. If not, X-lock it, otherwise
-    // just append a new entry.
-    write = get_write_access(owner_id_address);
-    if (write) {
-      if (write->mcs_block_ == 0) {
-        // Because get_write_access always tries to return the entry that has the record
-        // X-locked, if "write" we got here has mcs_block_==0, it means this record was
-        // never X-locked by me, and I should X-lock it now.
+  // Temperature might change - consider an RMW operation, where the R part thinks this
+  // is a hot record and took X-lock; but the W part thinks this is not a hot record.
+  // So we need to find out first in the write set whether somebody thought this record
+  // was hot, regardless of the current hot_record value. 
+  write = get_write_access(owner_id_address);
+  if (write) {
+    if (write->mcs_block_ == 0) {
+      // Because get_write_access always tries to return the entry that has the record
+      // X-locked, if "write" we got here has mcs_block_==0, it means this record was
+      // never X-locked by me, and I should X-lock it now if hot_record is set.
+      ASSERT_ND(!owner_id_address->is_keylocked());
+      if (hot_record) {
         write->mcs_block_ =
           context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
       }
-      take_x_lock = false;
-      // Now see if I can put this log entry in write: some RMW ops might have
-      // just finished the R part and have left the log_entry_ field as NULL to fill
-      // later at the W part. No matter if I'm the W part or a completely unrelated
+      ASSERT_ND(write->log_entry_);
+      ASSERT_ND(write->payload_address_);
+      // If it's already present in the write set and not locked, it must be representing
+      // an OCC (cold) record, and so it couldn't be the R part of an RMW of a hot record,
+      // so we need a new place to write our own change, can't use the previous insertion.
+      write = NULL; 
+    } else {
+      // Found a write inserted before, and it has X-lock: there is a chance that
+      // this was inserted by a read op which is part of an RMW - ie the log_entry_ and
+      // related fields are empty. See if they are still empty, if so, I can put this log 
+      // entry etc. directly there. No matter if I'm the W part or a completely unrelated
       // new modification to the same record, I can use that log_entry_ field if it's
-      // available. The W part belonging to RMW will just append a new entry in the
-      // write set.
-      if (write->log_entry_ == CXX11_NULLPTR) {
-        // We got lucky, found a spot; its payload_address_ should also be left NULL
-        ASSERT_ND(write->payload_address_ == CXX11_NULLPTR);
-      } else {
+      // available. The W part belonging to RMW will just append a new entry in the write set.
+      if (write->log_entry_ != CXX11_NULLPTR) {
         // No luck, have to search the write-set again to really find out if there's a
         // free spot.
         write = get_empty_write_access(owner_id_address);
-        if (!write) {
-          // Have to append a new entry
-          write = write_set_ + write_set_size_;
-        }
+        // If still write is NULL, we will use a new one
+      } else {
+        ASSERT_ND(write->log_entry_ == CXX11_NULLPTR);
+        ASSERT_ND(write->payload_address_ == CXX11_NULLPTR);
       }
-      ASSERT_ND(write->log_entry_ == CXX11_NULLPTR);
-      ASSERT_ND(write->payload_address_ == CXX11_NULLPTR);
-      ASSERT_ND(write->write_set_ordinal_ == 0);  // preserve sequence
     }
+    take_x_lock = false;
   }
   if (!write) {
     write = write_set_ + write_set_size_;
@@ -596,7 +606,10 @@ inline ErrorCode Xct::add_to_write_set(
   if (take_x_lock) {
     write->mcs_block_ = context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
   }
-  write->write_set_ordinal_ = write_set_size_;
+  if (hot_record) {
+    ASSERT_ND(owner_id_address->is_keylocked());
+  }
+  write->write_set_ordinal_ = write_set_next_ordinal_++;
   write->payload_address_ = payload_address;
   write->log_entry_ = log_entry;
   write->storage_id_ = storage_id;
@@ -613,6 +626,7 @@ inline ErrorCode Xct::add_hot_record_to_write_set_intention(
   auto *old_write = get_write_access(owner_id_address);
   bool take_x_lock = true;
   if (old_write && old_write->mcs_block_) {
+    ASSERT_ND(owner_id_address->is_keylocked());
     take_x_lock = false;  // X-lock already taken
   }  // else insert a new one directly and x-lock it there, since the W part will come later anyway,
 
@@ -623,10 +637,10 @@ inline ErrorCode Xct::add_hot_record_to_write_set_intention(
   // FIXME(tzwang): also need to check whether the read set has it locked already
   // (error checking, currently the user side makes sure of this)
   write.storage_id_ = storage_id;
-  write.write_set_ordinal_ = write_set_size_;
   write.owner_id_address_ = owner_id_address;
-  write.mcs_block_ = !take_x_lock ? 0 :
-    context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
+  if (take_x_lock) {
+    write.mcs_block_ = context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
+  }
 
   // Leave these empty to wait for the W part (or a lucky blind write) to fill
   write.payload_address_ = CXX11_NULLPTR;
@@ -654,8 +668,8 @@ inline ErrorCode Xct::add_to_read_and_write_set(
     hot_record,
     log_entry));
 
-  // If this is a hot record, don't bother to put it in the read set
-  if (!hot_record) {
+  // If this is (or was thought to be) a hot record, don't bother to put it in the read set
+  if (!owner_id_address->is_keylocked() && !hot_record) {
     auto* write = write_set_ + write_set_size_before;
     // Inserting for a cold record should generate a new entry in the set
     ASSERT_ND(write_set_size_ == write_set_size_before + 1);
