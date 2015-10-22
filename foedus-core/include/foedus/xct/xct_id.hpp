@@ -395,7 +395,9 @@ struct McsRwLock {
   uint16_t decrement_readers_count() ALWAYS_INLINE {
     return assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, -1);
   }
-  bool is_locked() const { return (tail_ & 0xFFFFU) != 0; }
+  bool is_locked() const {
+    return (tail_ & 0xFFFFU) != 0 || readers_count_ > 0;
+  }
 
   static uint32_t to_tail_int(
     thread::ThreadId tail_waiter,
