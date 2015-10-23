@@ -337,16 +337,15 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
      */
     xct::XctId observed_;
     /**
-     * Whether this record resides in a page with some hot record.
-     * This record might be hot or cold.
+     * Pointer to the hotness_ field in the page header fo the page that contains this record.
      */
-    bool hot_record_;
+    uint8_t* hotness_address_;
 
     void clear() {
       slot_ = nullptr;
       record_ = nullptr;
       observed_.data_ = 0;
-      hot_record_ = false;
+      hotness_address_ = nullptr;
     }
   };
 

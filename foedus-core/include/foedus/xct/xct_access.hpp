@@ -96,6 +96,8 @@ struct ReadXctAccess {
 
   McsBlockIndex         mcs_block_;
 
+  uint8_t*              page_hotness_address_;
+
   /** Pointer to the accessed record. */
   RwLockableXctId*      owner_id_address_;
 

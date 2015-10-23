@@ -198,13 +198,14 @@ class Xct {
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,
     bool for_write,
-    bool hot_record) ALWAYS_INLINE;
+    uint8_t* page_hotness_address) ALWAYS_INLINE;
   /** This version always adds to read set regardless of isolation level. */
   ErrorCode           add_to_read_set_force(
     thread::Thread* context,
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    RwLockableXctId* owner_id_address) ALWAYS_INLINE;
+    RwLockableXctId* owner_id_address,
+    uint8_t* page_hotness_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
@@ -234,7 +235,8 @@ class Xct {
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,
     char* payload_address,
-    log::RecordLogType* log_entry) ALWAYS_INLINE;
+    log::RecordLogType* log_entry,
+    uint8_t* page_hotness_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given log to the lock-free write set of this transaction.
@@ -402,7 +404,7 @@ inline ErrorCode Xct::add_to_read_set(
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
   bool for_write,
-  bool hot_record) {
+  uint8_t* page_hotness_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(observed_owner_id.is_valid());
@@ -411,7 +413,7 @@ inline ErrorCode Xct::add_to_read_set(
   }
 
   // Ideally, should S-lock it if this is a hot record and it's not part of an RMW.
-  bool s_lock = !for_write && hot_record;
+  bool s_lock = !for_write && *page_hotness_address;
 
   // First-touch policy: the r/w sets serve as a repo of record temperatures.
   // The temperature of a record doesn't change during the lifetime of a transaction,
@@ -437,7 +439,12 @@ inline ErrorCode Xct::add_to_read_set(
   }
 
   read = read_set_ + read_set_size_;
-  CHECK_ERROR_CODE(add_to_read_set_force(context, storage_id, observed_owner_id, owner_id_address));
+  CHECK_ERROR_CODE(add_to_read_set_force(
+    context,
+    storage_id,
+    observed_owner_id,
+    owner_id_address,
+    page_hotness_address));
 
   if (s_lock) {
     // If we need to take an S-lock, we also have to acquire all the X-locks for all
@@ -515,7 +522,8 @@ inline ErrorCode Xct::add_to_read_set_force(
   thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
-  RwLockableXctId* owner_id_address) {
+  RwLockableXctId* owner_id_address,
+  uint8_t* page_hotness_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
@@ -530,6 +538,7 @@ inline ErrorCode Xct::add_to_read_set_force(
   read_set_[read_set_size_].owner_id_address_ = owner_id_address;
   read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
   read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
+  read_set_[read_set_size_].page_hotness_address_ = page_hotness_address;
   ++read_set_size_;
   return kErrorCodeOk;
 }
@@ -582,7 +591,8 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
   char* payload_address,
-  log::RecordLogType* log_entry) {
+  log::RecordLogType* log_entry,
+  uint8_t* page_hotness_address) {
   ASSERT_ND(observed_owner_id.is_valid());
 #ifndef NDEBUG
   ReadXctAccess* r = get_read_access(owner_id_address);
@@ -598,7 +608,12 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   ReadXctAccess* read = read_set_ + read_set_size_;
   // in this method, we force to add a read set because it's critical to confirm that
   // the physical record we write to is still the one we found.
-  CHECK_ERROR_CODE(add_to_read_set_force(context, storage_id, observed_owner_id, owner_id_address));
+  CHECK_ERROR_CODE(add_to_read_set_force(
+    context,
+    storage_id,
+    observed_owner_id,
+    owner_id_address,
+    page_hotness_address));
   ASSERT_ND(read->mcs_block_ == 0);
   ASSERT_ND(read->owner_id_address_ == owner_id_address);
   read->related_write_ = write;

@@ -428,7 +428,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
     current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(context, get_id(), observed, &record->owner_id_, false, false));
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(context, get_id(), observed, &record->owner_id_, false, NULL));
   }
   *payload = record->payload_;
   return kErrorCodeOk;
@@ -449,7 +449,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
       observed,
       &((*record)->owner_id_),
       true,
-      false));
+      NULL));
   }
   return kErrorCodeOk;
 }
@@ -742,7 +742,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
           observed,
           &record_batch[i]->owner_id_,
           false,
-          false));
+          NULL));
       }
     }
     assorted::memory_fence_consume();
@@ -787,7 +787,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
           observed,
           &record_batch[i]->owner_id_,
           false,
-          false));
+          NULL));
       }
     }
     assorted::memory_fence_consume();
@@ -819,7 +819,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
         observed,
         &record_batch[i]->owner_id_,
         true,
-        false));
+        NULL));
     }
     assorted::memory_fence_consume();
   }

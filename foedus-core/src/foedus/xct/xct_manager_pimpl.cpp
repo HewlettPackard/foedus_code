@@ -352,7 +352,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
     success = precommit_xct_readwrite(context, commit_epoch);
   }
 
-  precommit_xct_unlock_reads(context);  // FIXME(tzwang): move this away
+  //precommit_xct_unlock_reads(context);  // FIXME(tzwang): move this away
   ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
   if (success) {
@@ -421,7 +421,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   }
 
   // FIXME(tzwang): release after verification?
-  precommit_xct_unlock_reads(context);
+  precommit_xct_unlock_reads(context, verified);
   return verified;
 }
 
@@ -575,7 +575,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           precommit_xct_unlock_writes(context);
           // XXX(tzwang): if we unlock all writes, we need to do so for all reads
           // as well, otherwise we violate 2PL.
-          precommit_xct_unlock_reads(context);
+          precommit_xct_unlock_reads(context, true);
           needs_retry = true;
           break;
         }
@@ -907,7 +907,7 @@ void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
   DVLOG(1) << *context << " unlocked write set";
 }
 
-void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
+void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context, bool abort) {
   ReadXctAccess* read_set = context->get_current_xct().get_read_set();
   uint32_t       read_set_size = context->get_current_xct().get_read_set_size();
   DVLOG(1) << *context << " unlocking without applying.. read_set_size=" << read_set_size;
@@ -923,6 +923,10 @@ void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
       << read.owner_id_address_;
     context->mcs_release_reader_lock(read.owner_id_address_->get_key_lock(), read.mcs_block_);
     read.mcs_block_ = 0;
+    ASSERT_ND(read.page_hotness_address_);
+    if (abort) {
+      storage::PageHeader::increase_hotness(read.page_hotness_address_);
+    }
   }
   assorted::memory_fence_release();
   DVLOG(1) << *context << " unlocked read set";
@@ -935,7 +939,7 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   }
   DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
   precommit_xct_unlock_writes(context);
-  precommit_xct_unlock_reads(context);
+  precommit_xct_unlock_reads(context, true);
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
   return kErrorCodeOk;

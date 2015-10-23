@@ -1180,7 +1180,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     observed,
     border->get_owner_id(index),
     xlock,
-    border->header().contains_hot_records()));
+    border->header().hotness_address()));
 
   // here, we do NOT have to do another optimistic-read protocol because we already took
   // the owner_id into read-set. If this read is corrupted, we will be aware of it at commit time.
@@ -1216,7 +1216,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
     observed,
     border->get_owner_id(index),
     xlock,
-    border->header().contains_hot_records()));
+    border->header().hotness_address()));
   if (border->get_payload_length(index) < payload_offset + payload_count) {
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
@@ -1260,7 +1260,8 @@ ErrorCode MasstreeStoragePimpl::insert_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry);
+    log_entry,
+    border->header().hotness_address());
 }
 
 ErrorCode MasstreeStoragePimpl::delete_general(
@@ -1288,7 +1289,8 @@ ErrorCode MasstreeStoragePimpl::delete_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry);
+    log_entry,
+    border->header().hotness_address());
 }
 
 ErrorCode MasstreeStoragePimpl::upsert_general(
@@ -1358,7 +1360,8 @@ ErrorCode MasstreeStoragePimpl::upsert_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    common_log);
+    common_log,
+    border->header().hotness_address());
 }
 ErrorCode MasstreeStoragePimpl::overwrite_general(
   thread::Thread* context,
@@ -1398,7 +1401,8 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry);
+    log_entry,
+    border->header().hotness_address());
 }
 
 template <typename PAYLOAD>
@@ -1442,7 +1446,8 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry);
+    log_entry,
+    border->header().hotness_address());
 }
 
 inline xct::TrackMovedRecordResult MasstreeStoragePimpl::track_moved_record(

@@ -235,7 +235,7 @@ struct PageVersionLockScope {
  */
 struct PageHeader CXX11_FINAL {
   static const uint8_t kHotThreshold = 10;
-  static const uint8_t kInvalidTemperature = 0xff;
+  static const uint8_t kInvalidHotness = 0xff;
   /**
    * @brief Page ID of this page.
    * @details
@@ -319,7 +319,7 @@ struct PageHeader CXX11_FINAL {
    *
    * Assuming 4-byte word size ($getconf WORD_BIT).
    */
-  uint8_t       temperature_;                  // +1 -> 24
+  uint8_t       hotness_;                    // +1 -> 24
   /**
    * Used in several storage types as concurrency control mechanism for the page.
    */
@@ -334,6 +334,7 @@ struct PageHeader CXX11_FINAL {
   PageType get_page_type() const { return static_cast<PageType>(page_type_); }
   uint8_t get_in_layer_level() const { return masstree_in_layer_level_; }
   void set_in_layer_level(uint8_t level) { masstree_in_layer_level_ = level; }
+  uint8_t* hotness_address() { return &hotness_; }
 
   inline void init_volatile(
     VolatilePagePointer page_id,
@@ -348,7 +349,7 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = page_id.components.numa_node;
-    temperature_ = 0;
+    hotness_ = 0;
     page_version_.reset();
   }
 
@@ -365,7 +366,7 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
-    temperature_ = kInvalidTemperature;
+    hotness_ = kInvalidHotness;
     page_version_.reset();
   }
 
@@ -378,21 +379,21 @@ struct PageHeader CXX11_FINAL {
     key_count_ = key_count;
   }
 
-  void      increase_temperature() ALWAYS_INLINE {
-    temperature_++;
+  static void increase_hotness(uint8_t* haddr) ALWAYS_INLINE {
+    (*haddr)++;
   }
   /* FIXME(tzwang): one option here is to decrement the counter when a transaction
    * committed without taking shared lock on a record (not 100% accurate unless
    * we keep stats per record).
    */
-  void      decrease_temperature() ALWAYS_INLINE {
-    temperature_--;
+  static void decrease_htoness(uint8_t* haddr) ALWAYS_INLINE {
+    (*haddr)--;
   }
-  void      reset_temperature() ALWAYS_INLINE {
-    temperature_ = 0;
+  static void reset_hotness(uint8_t* haddr) ALWAYS_INLINE {
+    *haddr = 0;
   }
   bool      contains_hot_records() ALWAYS_INLINE {
-    return temperature_ >= kHotThreshold;
+    return hotness_ >= kHotThreshold;
   }
 };
 

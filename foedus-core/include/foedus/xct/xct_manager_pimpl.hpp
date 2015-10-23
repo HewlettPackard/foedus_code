@@ -185,7 +185,7 @@ class XctManagerPimpl final : public DefaultInitializable {
    */
   void        precommit_xct_apply(thread::Thread* context, XctId max_xct_id, Epoch *commit_epoch);
   /** unlocking all acquired locks, used when aborts. */
-  void        precommit_xct_unlock_reads(thread::Thread* context);
+  void        precommit_xct_unlock_reads(thread::Thread* context, bool abort = false);
   void        precommit_xct_unlock_writes(thread::Thread* context);
 
   /**

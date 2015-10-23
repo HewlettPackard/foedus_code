@@ -613,7 +613,7 @@ ErrorCode SequentialCursor::next_batch_unsafe_volatiles(
               owner_id->xct_id_,
               owner_id,
               false,
-              false));
+              NULL));
           }
         }
 
