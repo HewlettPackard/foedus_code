@@ -428,7 +428,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
     current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(context, get_id(), observed, &record->owner_id_, false));
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(context, get_id(), observed, &record->owner_id_, false, false));
   }
   *payload = record->payload_;
   return kErrorCodeOk;
@@ -448,6 +448,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
       get_id(),
       observed,
       &((*record)->owner_id_),
+      true,
       false));
   }
   return kErrorCodeOk;
@@ -487,7 +488,6 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    false,
     log_entry);
 }
 
@@ -507,7 +507,6 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    false,
     log_entry);
 }
 
@@ -549,7 +548,6 @@ ErrorCode ArrayStoragePimpl::increment_record(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    false,
     log_entry);
 }
 
@@ -572,7 +570,6 @@ ErrorCode ArrayStoragePimpl::increment_record_oneshot(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    false,
     log_entry);
 }
 
@@ -744,6 +741,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
           get_id(),
           observed,
           &record_batch[i]->owner_id_,
+          false,
           false));
       }
     }
@@ -788,6 +786,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
           get_id(),
           observed,
           &record_batch[i]->owner_id_,
+          false,
           false));
       }
     }
@@ -819,6 +818,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
         get_id(),
         observed,
         &record_batch[i]->owner_id_,
+        true,
         false));
     }
     assorted::memory_fence_consume();

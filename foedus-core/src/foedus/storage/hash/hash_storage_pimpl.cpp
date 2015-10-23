@@ -202,22 +202,13 @@ ErrorCode HashStoragePimpl::get_record(
   }
 
   xct::Xct& cur_xct = context->get_current_xct();
-  // If this is a hot record, and the user has the intention to update this record
-  // later, we take x-lock directly and put it in write set.
-  if (location.hot_record_ && xlock) {
-    CHECK_ERROR_CODE(cur_xct.add_hot_record_to_write_set_intention(
-      context,
-      get_id(),
-      &location.slot_->tid_));
-  } else {
-    CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-      context,
-      get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      location.hot_record_));
-  }
-
+  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
+    context,
+    get_id(),
+    location.observed_,
+    &location.slot_->tid_,
+    xlock,
+    location.hot_record_));
   *payload_capacity = payload_length;
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset, payload_length);
@@ -259,19 +250,13 @@ ErrorCode HashStoragePimpl::get_record_part(
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
-  if (location.hot_record_ && xlock) {
-    CHECK_ERROR_CODE(cur_xct.add_hot_record_to_write_set_intention(
-      context,
-      get_id(),
-      &location.slot_->tid_));
-  } else {
-    CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-      context,
-      get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      location.hot_record_));
-  }
+  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
+    context,
+    get_id(),
+    location.observed_,
+    &location.slot_->tid_,
+    xlock,
+    location.hot_record_));
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset + payload_offset, payload_count);
   return kErrorCodeOk;
@@ -324,6 +309,7 @@ ErrorCode HashStoragePimpl::insert_record(
         get_id(),
         location.observed_,
         &location.slot_->tid_,
+        false,
         location.hot_record_));
       return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
     }
@@ -373,7 +359,6 @@ ErrorCode HashStoragePimpl::insert_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    location.hot_record_,
     log_entry);
 }
 
@@ -406,6 +391,7 @@ ErrorCode HashStoragePimpl::delete_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
+      false,
       location.hot_record_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   }
@@ -421,7 +407,6 @@ ErrorCode HashStoragePimpl::delete_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    location.hot_record_,
     log_entry);
 }
 
@@ -540,7 +525,6 @@ ErrorCode HashStoragePimpl::upsert_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    location.hot_record_,
     log_common);
 }
 
@@ -576,6 +560,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
+      false,
       location.hot_record_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + payload_count) {
@@ -585,6 +570,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
+      false,
       location.hot_record_));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
@@ -608,7 +594,6 @@ ErrorCode HashStoragePimpl::overwrite_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    location.hot_record_,
     log_entry);
 }
 
@@ -644,6 +629,7 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
+      true,
       location.hot_record_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + sizeof(PAYLOAD)) {
@@ -653,6 +639,7 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
+      true,
       location.hot_record_));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
@@ -682,7 +669,6 @@ ErrorCode HashStoragePimpl::increment_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    location.hot_record_,
     log_entry);
 }
 

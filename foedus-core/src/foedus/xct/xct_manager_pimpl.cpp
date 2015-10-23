@@ -348,11 +348,11 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
     success = precommit_xct_readonly(context, commit_epoch);
-    precommit_xct_unlock_reads(context);  // FIXME(tzwang): move this away
   } else {
     success = precommit_xct_readwrite(context, commit_epoch);
   }
 
+  precommit_xct_unlock_reads(context);  // FIXME(tzwang): move this away
   ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
   if (success) {
@@ -402,6 +402,8 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     for (uint32_t i = 0; i < write_set_size; ++i) {
       ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
       ASSERT_ND(!write_set[i].owner_id_address_->needs_track_moved());
+      ASSERT_ND(write_set[i].log_entry_);
+      ASSERT_ND(write_set[i].payload_address_);
     }
   }
 #endif  // NDEBUG
@@ -472,9 +474,8 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
 
 #ifndef NDEBUG
   // Initially, write-sets must be ordered by the insertion order.
-  // FIXME(tzwang): not true any more with 2PL in place.
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    //ASSERT_ND(write_set[i].write_set_ordinal_ == i);
+    ASSERT_ND(write_set[i].write_set_ordinal_ == i);
   }
 #endif  // NDEBUG
 
@@ -549,13 +550,19 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           << ". Will lock/unlock at the last one";
         // Pass the mcs_block_ to the next if we already acquired it, so that
         // we can unlock after applied **all** changes for the same record.
-        ASSERT_ND(write_set[i + 1].mcs_block_ == 0);
-        write_set[i + 1].mcs_block_ = entry->mcs_block_;
-        write_set[i].mcs_block_ = 0;
+        if (entry->mcs_block_ > 0) {
+          ASSERT_ND(write_set[i + 1].mcs_block_ == 0);
+          write_set[i + 1].mcs_block_ = entry->mcs_block_;
+          write_set[i].mcs_block_ = 0;
+        }
       } else {
         // Because we pass the mcs_block_ while we traverse the write set,
         // if it's still 0, we're sure it's not locked.
         if (entry->mcs_block_ == 0) {
+          if (entry->owner_id_address_->is_keylocked()) {
+            auto* read = current_xct.get_read_access(entry->owner_id_address_);
+            ASSERT_ND(!read || !read->mcs_block_);
+          }
           entry->mcs_block_ = context->mcs_acquire_writer_lock(
             entry->owner_id_address_->get_key_lock());
         }
@@ -566,6 +573,9 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
             << ". This occasionally happens.";
           // release all locks acquired so far, retry
           precommit_xct_unlock_writes(context);
+          // XXX(tzwang): if we unlock all writes, we need to do so for all reads
+          // as well, otherwise we violate 2PL.
+          precommit_xct_unlock_reads(context);
           needs_retry = true;
           break;
         }
@@ -700,26 +710,30 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     }
     max_xct_id->store_max(access.observed_owner_id_);
     if (access.owner_id_address_->is_keylocked()) {
+      // Might be myself S-locked, or myself X-locked, or somebody else S/X-locked it.
       DVLOG(2) << *context
         << " read set contained a locked record. was it myself who locked it?";
       // write set is sorted. so we can do binary search.
       WriteXctAccess dummy;
       dummy.owner_id_address_ = access.owner_id_address_;
       dummy.write_set_ordinal_ = 0;  // will catch the smallest possible of the address
-      const WriteXctAccess* lower_it = std::lower_bound(
-        write_set,
-        write_set + write_set_size,
-        dummy,
-        WriteXctAccess::compare);
-      bool found;
-      if (lower_it == write_set + write_set_size) {
-        found = false;
-        ASSERT_ND(reinterpret_cast<uintptr_t>(write_set[write_set_size - 1].owner_id_address_)
-            < reinterpret_cast<uintptr_t>(access.owner_id_address_));
-      } else {
-        ASSERT_ND(reinterpret_cast<uintptr_t>(lower_it->owner_id_address_)
-            >= reinterpret_cast<uintptr_t>(access.owner_id_address_));
-        found = (lower_it->owner_id_address_ == access.owner_id_address_);
+      bool found = current_xct.get_read_access(access.owner_id_address_)->mcs_block_ > 0;
+      if (!found) {
+        // Not myself who S-locked it, have to see write set
+        const WriteXctAccess* lower_it = std::lower_bound(
+          write_set,
+          write_set + write_set_size,
+          dummy,
+          WriteXctAccess::compare);
+        if (lower_it == write_set + write_set_size) {
+          found = false;
+          ASSERT_ND(reinterpret_cast<uintptr_t>(write_set[write_set_size - 1].owner_id_address_)
+              < reinterpret_cast<uintptr_t>(access.owner_id_address_));
+        } else {
+          ASSERT_ND(reinterpret_cast<uintptr_t>(lower_it->owner_id_address_)
+              >= reinterpret_cast<uintptr_t>(access.owner_id_address_));
+          found = (lower_it->owner_id_address_ == access.owner_id_address_);
+        }
       }
 
       if (!found) {
@@ -814,6 +828,7 @@ void XctManagerPimpl::precommit_xct_apply(
     // We must be careful on the memory order of unlock and data write.
     // We must write data first (invoke_apply), then unlock.
     // Otherwise the correctness is not guaranteed.
+    ASSERT_ND(write.log_entry_);
     write.log_entry_->header_.set_xct_id(new_xct_id);
     ASSERT_ND(new_xct_id.get_epoch().is_valid());
     if (i > 0 && write.owner_id_address_ == write_set[i - 1].owner_id_address_) {

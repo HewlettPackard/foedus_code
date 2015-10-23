@@ -32,9 +32,9 @@
 #include "foedus/log/log_type_invoke.hpp"
 
 // For log verification. Only in debug mode
-//#ifndef NDEBUG
-//#include "foedus/log/log_type_invoke.hpp"
-//#endif  // NDEBUG
+#ifndef NDEBUG
+#include "foedus/log/log_type_invoke.hpp"
+#endif  // NDEBUG
 
 #include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
@@ -82,7 +82,6 @@ class Xct {
     page_version_set_size_ = 0;
     read_set_size_ = 0;
     write_set_size_ = 0;
-    write_set_next_ordinal_ = 0;
     lock_free_write_set_size_ = 0;
     *mcs_block_current_ = 0;
     local_work_memory_cur_ = 0;
@@ -198,14 +197,14 @@ class Xct {
     storage::StorageId storage_id,
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,
-    bool hot_record_) ALWAYS_INLINE;
+    bool for_write,
+    bool hot_record) ALWAYS_INLINE;
   /** This version always adds to read set regardless of isolation level. */
   ErrorCode           add_to_read_set_force(
     thread::Thread* context,
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    RwLockableXctId* owner_id_address,
-    bool hot_record_) ALWAYS_INLINE;
+    RwLockableXctId* owner_id_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
@@ -215,7 +214,6 @@ class Xct {
     storage::StorageId storage_id,
     RwLockableXctId* owner_id_address,
     char* payload_address,
-    bool hot_record,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
@@ -225,17 +223,7 @@ class Xct {
     thread::Thread* context,
     storage::StorageId storage_id,
     storage::Record* record,
-    bool hot_record,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
-
-  /**
-   * @brief A special add_to_write_set function for readers that have intention 
-   * to update the record later.
-   */
-  ErrorCode           add_hot_record_to_write_set_intention(
-    thread::Thread* context,
-    storage::StorageId storage_id,
-    RwLockableXctId* owner_id_address) ALWAYS_INLINE;
 
   /**
    * @brief Add a pair of read and write set of this transaction.
@@ -246,7 +234,6 @@ class Xct {
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,
     char* payload_address,
-    bool hot_record,
     log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
@@ -325,7 +312,6 @@ class Xct {
   WriteXctAccess*     write_set_;
   uint32_t            write_set_size_;
   uint32_t            max_write_set_size_;
-  uint32_t            write_set_next_ordinal_;
 
   LockFreeWriteXctAccess* lock_free_write_set_;
   uint32_t                lock_free_write_set_size_;
@@ -415,19 +401,75 @@ inline ErrorCode Xct::add_to_read_set(
   storage::StorageId storage_id,
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
-  bool hot_record_) {
+  bool for_write,
+  bool hot_record) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(observed_owner_id.is_valid());
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
   }
-  return add_to_read_set_force(
-    context,
-    storage_id,
-    observed_owner_id,
-    owner_id_address,
-    hot_record_);
+
+  // Ideally, should S-lock it if this is a hot record and it's not part of an RMW.
+  bool s_lock = !for_write && hot_record;
+
+  // First-touch policy: the r/w sets serve as a repo of record temperatures.
+  // The temperature of a record doesn't change during the lifetime of a transaction,
+  // regardless how the page-header level temperature changes.
+  // Now find out the record temperature from reads
+  ReadXctAccess* read = get_read_access(owner_id_address);
+  if (read) {
+    if (read->mcs_block_) {
+      // Holding S-lock already, discard hint and return. But the application should
+      // avoid callling with for_write=true in this case.
+      ASSERT_ND(!for_write);
+      return kErrorCodeOk;
+    } else {
+      // Have to discard hint because we already determined this is a cold record
+      s_lock = false;
+    }
+  }
+
+  // If it's already in the write set, we also have to discard the hint - during
+  // the precommit phase we need to take X-lock.
+  if (get_write_access(owner_id_address)) {
+    s_lock = false;
+  }
+
+  read = read_set_ + read_set_size_;
+  CHECK_ERROR_CODE(add_to_read_set_force(context, storage_id, observed_owner_id, owner_id_address));
+
+  if (s_lock) {
+    // If we need to take an S-lock, we also have to acquire all the X-locks for all
+    // writes to prevent deadlock. Sort the write-set here and acquire X-locks for
+    // entries with owner_id_address < this record's owner_id_address in order.
+    std::sort(write_set_, write_set_ + write_set_size_, WriteXctAccess::compare);
+    //LOG(INFO) << context << " write_set_size=" << write_set_size_;
+    for (uint32_t i = 0; i < write_set_size_; i++) {
+      WriteXctAccess* write = write_set_ + i;
+      //LOG(INFO) << context << " write_set " << write;
+      if (write->owner_id_address_ > owner_id_address) {
+        break;
+      } else if (write->mcs_block_ == 0) {
+        if (i < write_set_size_ - 1 &&
+            write->owner_id_address_ == write_set_[i + 1].owner_id_address_) {
+          continue;
+        } else {
+          write->mcs_block_ =
+            context->mcs_acquire_writer_lock(write->owner_id_address_->get_key_lock());
+          //LOG(INFO) << context << " X-Locked " << write->owner_id_address_ << " for " << owner_id_address;
+        }
+      }
+    }
+    ASSERT_ND(read_set_[read_set_size_ - 1].owner_id_address_ = owner_id_address);
+    ASSERT_ND(read_set_[read_set_size_ - 1].mcs_block_ == 0);
+    read_set_[read_set_size_ - 1].mcs_block_ =
+      context->mcs_acquire_reader_lock(owner_id_address->get_key_lock());
+    //LOG(INFO) << context << " S-Locked " << owner_id_address;
+  } else {
+    ASSERT_ND(read->mcs_block_ == 0);
+  }
+  return kErrorCodeOk;
 }
 inline ReadXctAccess* Xct::get_read_access(RwLockableXctId* owner_id_address) {
   ReadXctAccess* ret = NULL;
@@ -468,51 +510,19 @@ inline WriteXctAccess* Xct::get_empty_write_access(RwLockableXctId* owner_id_add
   return NULL;
 }
 
+// Unconditionally insert a new entry without taking lock.
 inline ErrorCode Xct::add_to_read_set_force(
   thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
-  RwLockableXctId* owner_id_address,
-  bool hot_record) {
+  RwLockableXctId* owner_id_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
-  // Take S-lock for hot records, unless it's already S/X-locked by myself.
-  // But if a previously-read record in my read set now becomes hot,
-  // because we maintain stats in the **page** header (not per-record),
-  // means some writer might have changed either this record or some other
-  // record in the same page, causing the temperature of the page to increase.
-  // So we can do two things here:
-  // 1. abort immediately (betting the writer changed this record, which is indeed
-  // the case if we maintain stats per-record);
-  // 2. S-lock the record and do verfication now or at pre-commit (verifying right after 
-  // taking S-lock simplifies the verification at pre-commit: no need to mark this guy
-  // as "special" because it needs verfication although S-locked), abort if failed.
-  // TODO(tzwang): compare these two approaches; for now take 1.
-  if (hot_record) {
-    // If the record is in my write-set, we skip directly. The pre-commit will figure
-    // out this when handling the write-set.
-    if (get_write_access(owner_id_address)) {
-      return kErrorCodeOk;
-    }
-    ReadXctAccess* old_read = get_read_access(owner_id_address);
-    if (old_read) {
-      if (old_read->owner_id_address_->is_keylocked()) {
-        ASSERT_ND(old_read->mcs_block_);
-        return kErrorCodeOk;
-      } else {
-        // possible temperature change after last read
-        return kErrorCodeRecordTemperatureChange;
-      }
-    }
-  }
   if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
-  // Either this is not a hot record, or it's the first time to read a hot record.
-  // So create a new entry and S-lock it if it's a hot record.
-  read_set_[read_set_size_].mcs_block_ = !hot_record ? 0 :
-    context->mcs_acquire_reader_lock(owner_id_address->get_key_lock());
-
+  // The caller should set mcs_block_ after this returns.
+  read_set_[read_set_size_].mcs_block_ = 0;
   // if the next-layer bit is ON, the record is not logically a record, so why we are adding
   // it to read-set? we should have already either aborted or retried in this case.
   ASSERT_ND(!observed_owner_id.is_next_layer());
@@ -528,10 +538,8 @@ inline ErrorCode Xct::add_to_write_set(
   thread::Thread* context,
   storage::StorageId storage_id,
   storage::Record* record,
-  bool hot_record,
   log::RecordLogType* log_entry) {
-  return add_to_write_set(
-    context, storage_id, &record->owner_id_, record->payload_, hot_record, log_entry);
+  return add_to_write_set(context, storage_id, &record->owner_id_, record->payload_, log_entry);
 }
 
 inline ErrorCode Xct::add_to_write_set(
@@ -539,113 +547,31 @@ inline ErrorCode Xct::add_to_write_set(
   storage::StorageId storage_id,
   RwLockableXctId* owner_id_address,
   char* payload_address,
-  bool hot_record,
   log::RecordLogType* log_entry) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(payload_address);
   ASSERT_ND(log_entry);
-  bool take_x_lock = hot_record;
-  WriteXctAccess* write = NULL;
-  // Temperature might change - consider an RMW operation, where the R part thinks this
-  // is a hot record and took X-lock; but the W part thinks this is not a hot record.
-  // So we need to find out first in the write set whether somebody thought this record
-  // was hot, regardless of the current hot_record value. 
-  write = get_write_access(owner_id_address);
-  if (write) {
-    if (write->mcs_block_ == 0) {
-      // Because get_write_access always tries to return the entry that has the record
-      // X-locked, if "write" we got here has mcs_block_==0, it means this record was
-      // never X-locked by me, and I should X-lock it now if hot_record is set.
-      ASSERT_ND(!owner_id_address->is_keylocked());
-      if (hot_record) {
-        write->mcs_block_ =
-          context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
-      }
-      ASSERT_ND(write->log_entry_);
-      ASSERT_ND(write->payload_address_);
-      // If it's already present in the write set and not locked, it must be representing
-      // an OCC (cold) record, and so it couldn't be the R part of an RMW of a hot record,
-      // so we need a new place to write our own change, can't use the previous insertion.
-      write = NULL; 
-    } else {
-      // Found a write inserted before, and it has X-lock: there is a chance that
-      // this was inserted by a read op which is part of an RMW - ie the log_entry_ and
-      // related fields are empty. See if they are still empty, if so, I can put this log 
-      // entry etc. directly there. No matter if I'm the W part or a completely unrelated
-      // new modification to the same record, I can use that log_entry_ field if it's
-      // available. The W part belonging to RMW will just append a new entry in the write set.
-      if (write->log_entry_ != CXX11_NULLPTR) {
-        // No luck, have to search the write-set again to really find out if there's a
-        // free spot.
-        write = get_empty_write_access(owner_id_address);
-        // If still write is NULL, we will use a new one
-      } else {
-        ASSERT_ND(write->log_entry_ == CXX11_NULLPTR);
-        ASSERT_ND(write->payload_address_ == CXX11_NULLPTR);
-      }
-    }
-    take_x_lock = false;
-  }
-  if (!write) {
-    write = write_set_ + write_set_size_;
-    ++write_set_size_;
-  }
-  if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
-    return kErrorCodeXctWriteSetOverflow;
-  }
-
+  // Plain OCC; but we assume that the record isn't S-locked. The application should
+  // make sure of that by giving the "xlock" option to add_to_read_set.
 #ifndef NDEBUG
-  auto * old_read = get_read_access(owner_id_address);
-  if (old_read) {
-    ASSERT_ND(old_read->mcs_block_ == 0);
+  ReadXctAccess* read = get_read_access(owner_id_address);
+  if (read) {
+    ASSERT_ND(read->mcs_block_ == 0);
   }
   log::invoke_assert_valid(log_entry);
 #endif  // NDEBUG
-
-  if (take_x_lock) {
-    write->mcs_block_ = context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
+  if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
   }
-  if (hot_record) {
-    ASSERT_ND(owner_id_address->is_keylocked());
-  }
-  write->write_set_ordinal_ = write_set_next_ordinal_++;
+  WriteXctAccess* write = write_set_ + write_set_size_;
+  write->mcs_block_ = 0;
+  write->write_set_ordinal_ = write_set_size_;
   write->payload_address_ = payload_address;
   write->log_entry_ = log_entry;
   write->storage_id_ = storage_id;
   write->owner_id_address_ = owner_id_address;
   write->related_read_ = CXX11_NULLPTR;
-  return kErrorCodeOk;
-}
-
-// A special version for readers with the intention to update this **hot** record later
-inline ErrorCode Xct::add_hot_record_to_write_set_intention(
-  thread::Thread* context,
-  storage::StorageId storage_id,
-  RwLockableXctId* owner_id_address) {
-  auto *old_write = get_write_access(owner_id_address);
-  bool take_x_lock = true;
-  if (old_write && old_write->mcs_block_) {
-    ASSERT_ND(owner_id_address->is_keylocked());
-    take_x_lock = false;  // X-lock already taken
-  }  // else insert a new one directly and x-lock it there, since the W part will come later anyway,
-
-  if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
-    return kErrorCodeXctWriteSetOverflow;
-  }
-  WriteXctAccess& write = write_set_[write_set_size_];
-  // FIXME(tzwang): also need to check whether the read set has it locked already
-  // (error checking, currently the user side makes sure of this)
-  write.storage_id_ = storage_id;
-  write.owner_id_address_ = owner_id_address;
-  if (take_x_lock) {
-    write.mcs_block_ = context->mcs_acquire_writer_lock(owner_id_address->get_key_lock());
-  }
-
-  // Leave these empty to wait for the W part (or a lucky blind write) to fill
-  write.payload_address_ = CXX11_NULLPTR;
-  write.log_entry_ = CXX11_NULLPTR;
-  write.related_read_ = CXX11_NULLPTR;
   ++write_set_size_;
   return kErrorCodeOk;
 }
@@ -656,42 +582,31 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
   char* payload_address,
-  bool hot_record,
   log::RecordLogType* log_entry) {
   ASSERT_ND(observed_owner_id.is_valid());
-  auto write_set_size_before = write_set_size_;
-  CHECK_ERROR_CODE(add_to_write_set(
-    context,
-    storage_id,
-    owner_id_address,
-    payload_address,
-    hot_record,
-    log_entry));
-
-  // If this is (or was thought to be) a hot record, don't bother to put it in the read set
-  if (!owner_id_address->is_keylocked() && !hot_record) {
-    auto* write = write_set_ + write_set_size_before;
-    // Inserting for a cold record should generate a new entry in the set
-    ASSERT_ND(write_set_size_ == write_set_size_before + 1);
-    // in this method, we force to add a read set because it's critical to confirm that
-    // the physical record we write to is still the one we found.
-    auto read_set_size_before = read_set_size_;
-    CHECK_ERROR_CODE(add_to_read_set_force(
-      context, storage_id, observed_owner_id, owner_id_address, hot_record));
-    ASSERT_ND(read_set_size_before + 1 == read_set_size_);
-    ReadXctAccess* read = read_set_ + read_set_size_before;
-    ASSERT_ND(read->owner_id_address_ == owner_id_address);
-    // The entry will be write_set_ + write_set_size_ we recorded in the
-    // beginning, and this is true only for cold records. A hot record might
-    // use some already-existing entry; hot records don't need to have related_r/w.
-    // Similarly, inserting for a cold record in read set also generates a new entry.
-    read->related_write_ = write;
-    write->related_read_ = read;
-    ASSERT_ND(read->related_write_->related_read_ == read);
-    ASSERT_ND(write->related_read_->related_write_ == write);
-    ASSERT_ND(write->log_entry_ == log_entry);
-    ASSERT_ND(write->owner_id_address_ == owner_id_address);
+#ifndef NDEBUG
+  ReadXctAccess* r = get_read_access(owner_id_address);
+  if (r) {
+    ASSERT_ND(r->mcs_block_ == 0);
   }
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+  WriteXctAccess* write = write_set_ + write_set_size_;
+  CHECK_ERROR_CODE(
+    add_to_write_set(context, storage_id, owner_id_address, payload_address, log_entry));
+  ASSERT_ND(write->mcs_block_ == 0);
+  ReadXctAccess* read = read_set_ + read_set_size_;
+  // in this method, we force to add a read set because it's critical to confirm that
+  // the physical record we write to is still the one we found.
+  CHECK_ERROR_CODE(add_to_read_set_force(context, storage_id, observed_owner_id, owner_id_address));
+  ASSERT_ND(read->mcs_block_ == 0);
+  ASSERT_ND(read->owner_id_address_ == owner_id_address);
+  read->related_write_ = write;
+  write->related_read_ = read;
+  ASSERT_ND(read->related_write_->related_read_ == read);
+  ASSERT_ND(write->related_read_->related_write_ == write);
+  ASSERT_ND(write->log_entry_ == log_entry);
+  ASSERT_ND(write->owner_id_address_ == owner_id_address);
   return kErrorCodeOk;
 }
 
