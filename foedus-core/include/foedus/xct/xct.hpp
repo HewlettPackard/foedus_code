@@ -413,7 +413,7 @@ inline ErrorCode Xct::add_to_read_set(
   }
 
   // Ideally, should S-lock it if this is a hot record and it's not part of an RMW.
-  bool s_lock = !for_write && *page_hotness_address;
+  bool s_lock = !for_write && storage::PageHeader::contains_hot_records(page_hotness_address);
 
   // First-touch policy: the r/w sets serve as a repo of record temperatures.
   // The temperature of a record doesn't change during the lifetime of a transaction,

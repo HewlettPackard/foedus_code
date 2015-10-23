@@ -392,8 +392,8 @@ struct PageHeader CXX11_FINAL {
   static void reset_hotness(uint8_t* haddr) ALWAYS_INLINE {
     *haddr = 0;
   }
-  bool      contains_hot_records() ALWAYS_INLINE {
-    return hotness_ >= kHotThreshold;
+  static bool contains_hot_records(uint8_t* haddr) ALWAYS_INLINE {
+    return *haddr >= kHotThreshold;
   }
 };
 

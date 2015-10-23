@@ -352,7 +352,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
     success = precommit_xct_readwrite(context, commit_epoch);
   }
 
-  //precommit_xct_unlock_reads(context);  // FIXME(tzwang): move this away
+  precommit_xct_unlock_reads(context, !success);  // FIXME(tzwang): move this away
   ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
   if (success) {
@@ -421,7 +421,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   }
 
   // FIXME(tzwang): release after verification?
-  precommit_xct_unlock_reads(context, verified);
+  precommit_xct_unlock_reads(context, !verified);
   return verified;
 }
 
