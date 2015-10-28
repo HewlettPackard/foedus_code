@@ -855,6 +855,10 @@ void Thread::mcs_release_writer_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockI
   pimpl_->mcs_release_writer_lock(mcs_rw_lock, block_index);
 }
 
+bool Thread::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
+  return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock);
+}
+
 bool Thread::mcs_try_upgrade_reader_lock(
   xct::McsRwLock* mcs_rw_lock,
   xct::McsBlockIndex block_index) {
@@ -1236,6 +1240,110 @@ bool ThreadPimpl::mcs_post_upgrade_reader_lock(
   mcs_rw_lock->decrement_readers_count();
   ASSERT_ND(mcs_rw_lock->nreaders() == 0);
   return true;
+}
+
+// Try to acquire the lock as a reader; return 0 (invalid block) if can't get it immediately.
+bool ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
+  ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
+  xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
+  ASSERT_ND(block_index > 0);
+  // TODO(tzwang): make this a static_size_check...
+  ASSERT_ND(sizeof(xct::McsRwBlock) == sizeof(xct::McsBlock));
+  xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_blocks_ + block_index;
+
+  // So I'm a reader
+  my_block->init_reader();
+  ASSERT_ND(my_block->is_blocked() && my_block->is_reader());
+  ASSERT_ND(!my_block->has_successor());
+  ASSERT_ND(my_block->successor_block_index_ == 0);
+
+  // Now ready to XCHG
+  uint32_t tail_desired = xct::McsRwLock::to_tail_int(id_, block_index);
+  uint32_t* tail_address = &(mcs_rw_lock->tail_);
+  uint32_t pred_tail_int = assorted::raw_atomic_exchange<uint32_t>(tail_address, tail_desired);
+
+  if (pred_tail_int == 0) {
+    mcs_rw_lock->increment_readers_count();
+    my_block->unblock();  // reader successors will know they don't need to wait
+  } else {
+    // See if the predecessor is a reader; if so, if it already acquired the lock.
+    xct::McsRwLock old;
+    old.tail_ = pred_tail_int;
+    xct::McsBlockIndex pred_block_index = old.get_tail_waiter_block();
+    ThreadId pred_id = old.get_tail_waiter();
+    ThreadRef pred = pool_pimpl_->get_thread_ref(pred_id);
+    xct::McsRwBlock* pred_block = (xct::McsRwBlock *)pred.get_mcs_blocks() + pred_block_index;
+    uint16_t* pred_state_address = &pred_block->self_.data_;
+    uint16_t pred_state_expected = pred_block->make_blocked_with_no_successor_state();
+    uint16_t pred_state_desired = pred_block->make_blocked_with_reader_successor_state();
+    if (!pred_block->is_reader() || assorted::raw_atomic_compare_exchange_strong<uint16_t>(
+      pred_state_address,
+      &pred_state_expected,
+      pred_state_desired)) {
+      // Now we know that we can't acquire this lock immediately: predecessor is a writer or
+      // a waiting reader. The basic idea is to let the predecessor wake up my successor (if any),
+      // so that I can exit now.
+      // Now the predecessor already knows that it has me as a successor "waiting":
+      // if pred is a writer, it waits for successor_is_ready(), ie after I set_successor_next_only();
+      // if pred is a reader, the CAS above already made it will get true when calling
+      // has_reader_successor in reader_acquire(). So as long as I don't set_successor_next_only(),
+      // pred won't do anything.
+      //
+      // Now try to recover the lock tail, if succeeded, it's like nothing has happened;
+      // if failed, then my successor is a writer I can just make it my pred's successor;
+      // if my successor is a reader then it won't attach to me either, so just return.
+      uint32_t curr_tail_expected = xct::McsRwLock::to_tail_int(id_, block_index);
+      // Last peek before we head to the CAS...
+      if (!pred_block->is_reader() || pred_block->is_blocked()) {
+        bool ret = assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+          tail_address,
+          &curr_tail_expected,
+          pred_tail_int);
+        if (ret) {
+          // Great, no new successor
+          return 0;
+        } else {
+          ASSERT_ND(my_block->has_successor());
+          if (!my_block->has_reader_successor()) {
+            // it's a writer, make it my pred's successor
+            spin_until([my_block]{ return !my_block->successor_is_ready(); });
+            pred_block->set_successor_class_writer();
+            pred_block->set_successor_next_only(my_block->successor_thread_id_, my_block->successor_block_index_);
+            // FIXME(tzwang): reuse this block?
+          }
+          // else the guy won't attach after me, because I'm blocked. So just go.
+          // The last reader will succeed the CAS above or get the lock actually or
+          // some writer came in. In case my predecessor was already awake when we're
+          // doing all this, it will anyway block on its own successor field until we
+          // fill any thing there.
+          return 0;
+        }
+      }
+      // Heh, got lucky, it's a reader just unblocked
+      ASSERT_ND(pred_block->is_reader() && !pred_block->is_blocked());
+      // Predecessor is a writer or a waiting reader. The successor class field and the
+      // blocked state in pred_block are separated, so we can blindly set_successor().
+      pred_block->set_successor_next_only(id_, block_index);
+      spin_until([my_block]{ return my_block->is_blocked(); });
+    } else {
+      // Join the active, reader predecessor
+      ASSERT_ND(!pred_block->is_blocked());
+      mcs_rw_lock->increment_readers_count();
+      pred_block->set_successor_next_only(id_, block_index);
+      my_block->unblock();
+    }
+  }
+
+  if (my_block->has_reader_successor()) {
+    spin_until([my_block]{ return !my_block->successor_is_ready(); });
+    // Unblock the reader successor
+    thread::ThreadRef successor = pool_pimpl_->get_thread_ref(my_block->successor_thread_id_);
+    xct::McsRwBlock* successor_block =
+      (xct::McsRwBlock *)successor.get_mcs_blocks() + my_block->successor_block_index_;
+    mcs_rw_lock->increment_readers_count();
+    successor_block->unblock();
+  }
+  return block_index;
 }
 
 void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {
