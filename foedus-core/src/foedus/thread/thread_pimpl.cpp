@@ -855,6 +855,12 @@ void Thread::mcs_release_writer_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockI
   pimpl_->mcs_release_writer_lock(mcs_rw_lock, block_index);
 }
 
+bool Thread::mcs_try_upgrade_reader_lock(
+  xct::McsRwLock* mcs_rw_lock,
+  xct::McsBlockIndex block_index) {
+  return pimpl_->mcs_try_upgrade_reader_lock(mcs_rw_lock, block_index);
+}
+
 void Thread::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
 }
@@ -1091,9 +1097,8 @@ void ThreadPimpl::mcs_release_reader_lock(
   if (mcs_rw_lock->decrement_readers_count() == 1) {
     // I'm the last active reader
     ThreadId next_writer = assorted::atomic_load_acquire<ThreadId>(&mcs_rw_lock->next_writer_);
-    uint16_t nreaders = assorted::atomic_load_acquire<uint16_t>(&mcs_rw_lock->readers_count_);
     if (next_writer != xct::McsRwLock::kNextWriterNone &&
-        nreaders == 0 &&
+        mcs_rw_lock->nreaders() == 0 &&
         assorted::raw_atomic_compare_exchange_strong<ThreadId>(
           &mcs_rw_lock->next_writer_,
           &next_writer,
@@ -1132,8 +1137,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_l
   ThreadId old_next_writer = 0xFFFFU;
   if (pred_tail_int == 0) {
     assorted::raw_atomic_exchange<ThreadId>(&mcs_rw_lock->next_writer_, id_);
-    uint16_t nreaders = assorted::atomic_load_acquire<uint16_t>(&mcs_rw_lock->readers_count_);
-    if (nreaders == 0) {
+    if (mcs_rw_lock->nreaders() == 0) {
       old_next_writer = assorted::raw_atomic_exchange<ThreadId>(
         &mcs_rw_lock->next_writer_,
         xct::McsRwLock::kNextWriterNone);
@@ -1179,6 +1183,59 @@ void ThreadPimpl::mcs_release_writer_lock(
     }
     successor_block->unblock();
   }
+}
+
+// Returns true if the upgrade is successful and the caller should follow the writer's
+// release protocol to release the lock.
+bool ThreadPimpl::mcs_try_upgrade_reader_lock(
+  xct::McsRwLock* mcs_rw_lock,
+  xct::McsBlockIndex block_index) {
+  ASSERT_ND(mcs_rw_lock);
+  ASSERT_ND(block_index > 0);
+  ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
+  xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_blocks_ + block_index;
+
+  // If I already have a writer successor waiting, then upgrade is granted
+  if (my_block->has_writer_successor()) {
+    return mcs_post_upgrade_reader_lock(mcs_rw_lock, my_block);
+  }
+
+  if (mcs_rw_lock->nreaders() == 1) {
+    // Harder case, avoid more readers first (mark myself as blocked, so incoming reader's
+    // CAS will succeed and it will then spin, instead of joining as an active reader)
+    my_block->reader_upgrade_block();
+
+    // Now if the readers_count is still 1, upgrade can succeed
+    if (mcs_rw_lock->nreaders() == 1) {
+      return mcs_post_upgrade_reader_lock(mcs_rw_lock, my_block);
+    } else {
+      // Otherwise I must have a **reader** successor who incremented the readers count
+      // and now spinning. Wake it up and give up the upgrade.
+      spin_until([my_block]{ return !my_block->successor_is_ready(); });
+      ASSERT_ND(my_block->has_reader_successor());
+      ThreadRef successor = pool_pimpl_->get_thread_ref(my_block->successor_thread_id_);
+      xct::McsRwBlock* successor_block =
+        (xct::McsRwBlock *)successor.get_mcs_blocks() + my_block->successor_block_index_;
+      ASSERT_ND(successor_block->is_blocked());
+      ASSERT_ND(successor_block->is_reader());
+      successor_block->unblock();
+      my_block->unblock();
+    }
+  }
+  return false;
+}
+
+bool ThreadPimpl::mcs_post_upgrade_reader_lock(
+  xct::McsRwLock* mcs_rw_lock,
+  xct::McsRwBlock* block) {
+  // Change my class as well to a writer
+  // No one else can change any of my node, so use plain write
+  ASSERT_ND(block->self_.components_.state_ & xct::McsRwBlock::kStateClassReaderFlag);
+  block->self_.components_.state_ &= (~xct::McsRwBlock::kStateClassMask);
+  block->self_.components_.state_ |= xct::McsRwBlock::kStateClassWriterFlag;
+  mcs_rw_lock->decrement_readers_count();
+  ASSERT_ND(mcs_rw_lock->nreaders() == 0);
+  return true;
 }
 
 void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {

@@ -221,6 +221,17 @@ struct McsRwBlock {
     ASSERT_ND(
       !(assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask));
   }
+
+  // Change a reader's state back to blocked (for reader upgrade only)
+  inline void reader_upgrade_block() ALWAYS_INLINE {
+    ASSERT_ND(
+      !(assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedFlag));
+    assorted::raw_atomic_fetch_and_bitwise_xor<uint8_t>(
+      &self_.components_.state_,
+      static_cast<uint8_t>(kStateBlockedMask));
+    ASSERT_ND(
+      assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask);
+  }
   inline bool is_blocked() ALWAYS_INLINE {
     return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask;
   }
@@ -397,6 +408,9 @@ struct McsRwLock {
   }
   bool is_locked() const {
     return (tail_ & 0xFFFFU) != 0 || readers_count_ > 0;
+  }
+  uint16_t nreaders() ALWAYS_INLINE {
+    return assorted::atomic_load_acquire<uint16_t>(&readers_count_);
   }
 
   static uint32_t to_tail_int(

@@ -272,6 +272,10 @@ class ThreadPimpl final : public DefaultInitializable {
   void               mcs_release_writer_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
+  bool mcs_try_upgrade_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
+
+  /** Helper function for mcs_try_upgrade_reader_lock(). */
+  bool mcs_post_upgrade_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsRwBlock* block);
 
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
