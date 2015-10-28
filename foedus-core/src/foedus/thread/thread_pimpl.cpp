@@ -855,7 +855,7 @@ void Thread::mcs_release_writer_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockI
   pimpl_->mcs_release_writer_lock(mcs_rw_lock, block_index);
 }
 
-bool Thread::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
+xct::McsBlockIndex Thread::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
   return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock);
 }
 
@@ -1243,7 +1243,7 @@ bool ThreadPimpl::mcs_post_upgrade_reader_lock(
 }
 
 // Try to acquire the lock as a reader; return 0 (invalid block) if can't get it immediately.
-bool ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
+xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
