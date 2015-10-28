@@ -189,7 +189,7 @@ struct McsRwBlock {
   } self_;
   // TODO(tzwang): make these two fields 8 bytes by themselves. Now we need
   // to worry about sub-word writes (ie have to use atomic ops even when
-  // changing only these two fields because they are in the same byte as data_).
+  // changing only these two fields because they are in the same word as data_).
   thread::ThreadId successor_thread_id_;  // +2 => 4
   McsBlockIndex successor_block_index_;   // +4 => 8
 
