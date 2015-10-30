@@ -232,6 +232,18 @@ struct McsRwBlock {
     ASSERT_ND(
       assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask);
   }
+/*
+  inline void reader_upgrade_set_blocked_writer() ALWAYS_INLINE {
+    ASSERT_ND(
+      !(assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedFlag));
+    assorted::raw_atomic_fetch_and_bitwise_xor<uint8_t>(
+      &self_.components_.state_,
+      static_cast<uint8_t>(kStateClassMask | kStateBlockedMask));
+    ASSERT_ND(
+      assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) ==
+      (kStateBlockedFlag | kStateClassWriterFlag));
+  }
+  */
   inline bool is_blocked() ALWAYS_INLINE {
     return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask;
   }
