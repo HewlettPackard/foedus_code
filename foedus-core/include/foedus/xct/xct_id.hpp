@@ -166,6 +166,11 @@ struct McsBlock {
 };
 
 struct McsRwBlock {
+  /**
+   * The state_ field in struct Components:
+   * Bit: |---7---|-6 5 4-|-3 2--|------1 0------|
+   * For: |blocked|-empty-|-mode-|successor class|
+   */
   static const uint8_t kStateClassMask       = 3U;        // [LSB + 1, LSB + 2]
   static const uint8_t kStateClassReaderFlag = 1U;        // LSB binary = 01
   static const uint8_t kStateClassWriterFlag = 2U;        // LSB binary = 10
@@ -173,6 +178,13 @@ struct McsRwBlock {
   static const uint8_t kStateBlockedFlag     = 1U << 7U;  // MSB binary = 1
   static const uint8_t kStateBlockedMask     = 1U << 7U;
 
+  // Mode is for readers only; trying writers do different things, they don't need this.
+  static const uint8_t kStateModeMask        = 3U << 2U;  // bit 2-3
+  static const uint8_t kStateModeNormal      = 1U << 2U;
+  static const uint8_t kStateModeTrying      = 2U << 2U;
+  static const uint8_t kStateModeFailed      = 3U << 2U;
+
+  /** Possible values of self_.components_.successor_class_ */
   static const uint8_t kSuccessorClassReader = 1U;
   static const uint8_t kSuccessorClassWriter = 2U;
   static const uint8_t kSuccessorClassNone   = 3U;        // LSB binary 11
@@ -181,9 +193,6 @@ struct McsRwBlock {
     uint16_t data_;                       // +2 => 2
     struct Components {
       uint8_t successor_class_;
-      // state_ covers:
-      // Bit 0-1: my **own** class (am I a reader or writer?)
-      // Bit 7: blocked (am I waiting for the lock or acquired?)
       uint8_t state_;
     } components_;
   } self_;
@@ -193,21 +202,60 @@ struct McsRwBlock {
   thread::ThreadId successor_thread_id_;  // +2 => 4
   McsBlockIndex successor_block_index_;   // +4 => 8
 
-  inline void init_reader() {
+  inline void init_reader(bool trying = false) {
     self_.components_.state_ = kStateClassReaderFlag | kStateBlockedFlag;
-    init_common();
+    init_common(trying);
   }
   inline void init_writer() {
     self_.components_.state_ = kStateClassWriterFlag | kStateBlockedFlag;
-    init_common();
+    init_common(false);
   }
-  inline void init_common() ALWAYS_INLINE {
+  inline void init_common(bool trying) ALWAYS_INLINE {
     self_.components_.successor_class_ = kSuccessorClassNone;
+    if (trying) {
+      ASSERT_ND(is_reader());
+      self_.components_.state_ |= kStateModeTrying;
+    } else {
+      self_.components_.state_ |= kStateModeNormal;
+    }
+    ASSERT_ND(self_.components_.state_ & kStateModeMask);
     successor_thread_id_ = 0;
     successor_block_index_ = 0;
     assorted::memory_fence_release();
   }
-
+  inline bool is_normal() ALWAYS_INLINE {
+    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateModeMask;
+    ASSERT_ND(s);
+    return s == kStateModeNormal;
+  }
+  inline bool is_trying() ALWAYS_INLINE {
+    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateModeMask;
+    ASSERT_ND(s);
+    ASSERT_ND(is_reader());
+    return s == kStateModeTrying;
+  }
+  inline bool has_failed() ALWAYS_INLINE {
+    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateModeMask;
+    ASSERT_ND(s);
+    ASSERT_ND(is_reader());
+    return s == kStateModeFailed;
+  }
+  inline void set_mode_normal() ALWAYS_INLINE {
+    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateModeMask;
+    ASSERT_ND(s == kStateModeTrying);
+    assorted::raw_atomic_fetch_and_bitwise_xor<uint8_t>(
+      &self_.components_.state_,
+      kStateModeMask);
+    ASSERT_ND(has_failed());
+  }
+  inline void set_mode_failed() ALWAYS_INLINE {
+    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateModeMask;
+    ASSERT_ND(s == kStateModeTrying);
+    assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
+      &self_.components_.state_,
+      kStateModeFailed);
+    ASSERT_ND(has_failed());
+  }
   inline bool is_reader() ALWAYS_INLINE {
     return (self_.components_.state_ & kStateClassMask) == kStateClassReaderFlag;
   }
@@ -232,18 +280,6 @@ struct McsRwBlock {
     ASSERT_ND(
       assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask);
   }
-/*
-  inline void reader_upgrade_set_blocked_writer() ALWAYS_INLINE {
-    ASSERT_ND(
-      !(assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedFlag));
-    assorted::raw_atomic_fetch_and_bitwise_xor<uint8_t>(
-      &self_.components_.state_,
-      static_cast<uint8_t>(kStateClassMask | kStateBlockedMask));
-    ASSERT_ND(
-      assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) ==
-      (kStateBlockedFlag | kStateClassWriterFlag));
-  }
-  */
   inline bool is_blocked() ALWAYS_INLINE {
     return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask;
   }

@@ -98,6 +98,7 @@ class Xct {
 
   uint32_t            get_mcs_block_current() const { return *mcs_block_current_; }
   uint32_t            increment_mcs_block_current() { return ++(*mcs_block_current_); }
+  void                decrement_mcs_block_current() { --(*mcs_block_current_); }
 
   /** Returns whether the object is an active transaction. */
   bool                is_active() const { return active_; }
