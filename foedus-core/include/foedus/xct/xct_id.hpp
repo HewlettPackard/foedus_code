@@ -246,7 +246,6 @@ struct McsRwBlock {
     assorted::raw_atomic_fetch_and_bitwise_xor<uint8_t>(
       &self_.components_.state_,
       kStateModeMask);
-    ASSERT_ND(has_failed());
   }
   inline void set_mode_failed() ALWAYS_INLINE {
     uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateModeMask;

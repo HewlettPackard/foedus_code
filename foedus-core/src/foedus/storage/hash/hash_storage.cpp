@@ -83,8 +83,7 @@ ErrorCode HashStorage::get_record(
   uint16_t key_length,
   const HashCombo& combo,
   void* payload,
-  uint16_t* payload_capacity,
-  bool for_write_2pl) {
+  uint16_t* payload_capacity) {
   HashStoragePimpl pimpl(this);
   return pimpl.get_record(
     context,
@@ -92,8 +91,7 @@ ErrorCode HashStorage::get_record(
     key_length,
     combo,
     payload,
-    payload_capacity,
-    for_write_2pl);
+    payload_capacity);
 }
 
 ErrorCode HashStorage::get_record_part(
@@ -103,8 +101,7 @@ ErrorCode HashStorage::get_record_part(
   const HashCombo& combo,
   void* payload,
   uint16_t payload_offset,
-  uint16_t payload_count,
-  bool for_write_2pl) {
+  uint16_t payload_count) {
   HashStoragePimpl pimpl(this);
   return pimpl.get_record_part(
     context,
@@ -113,8 +110,7 @@ ErrorCode HashStorage::get_record_part(
     combo,
     payload,
     payload_offset,
-    payload_count,
-    for_write_2pl);
+    payload_count);
 }
 
 template <typename PAYLOAD>

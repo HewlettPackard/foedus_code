@@ -234,7 +234,6 @@ ErrorCode MasstreeCursor::proceed_route_border() {
           storage_.get_id(),
           cur_key_observed_owner_id_,
           cur_key_owner_id_address,
-          false,
           page->header().hotness_address()));
       }
       // If it points to next-layer, we ignore deleted bit. It has no meaning for next-layer rec.
@@ -479,7 +478,6 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
       storage_.get_id(),
       cur_key_observed_owner_id_,
       cur_key_owner_id_address,
-      false,
       page->header().hotness_address()));
   }
 
@@ -1091,7 +1089,6 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
             storage_.get_id(),
             cur_key_observed_owner_id_,
             cur_key_owner_id_address,
-            false,
             border->header().hotness_address()));
         }
         break;
@@ -1116,7 +1113,6 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
             storage_.get_id(),
             cur_key_observed_owner_id_,
             cur_key_owner_id_address,
-            false,
             border->header().hotness_address()));
         }
         break;

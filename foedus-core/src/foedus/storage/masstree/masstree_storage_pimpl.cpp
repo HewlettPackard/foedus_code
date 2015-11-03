@@ -1167,8 +1167,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
   SlotIndex index,
   xct::XctId observed,
   void* payload,
-  PayloadLength* payload_capacity,
-  bool xlock) {
+  PayloadLength* payload_capacity) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
@@ -1179,7 +1178,6 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     get_id(),
     observed,
     border->get_owner_id(index),
-    xlock,
     border->header().hotness_address()));
 
   // here, we do NOT have to do another optimistic-read protocol because we already took
@@ -1203,8 +1201,7 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
   xct::XctId observed,
   void* payload,
   PayloadLength payload_offset,
-  PayloadLength  payload_count,
-  bool xlock) {
+  PayloadLength  payload_count) {
   if (observed.is_deleted()) {
     // in this case, we don't need a page-version set. the physical record is surely there.
     return kErrorCodeStrKeyNotFound;
@@ -1215,7 +1212,6 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
     get_id(),
     observed,
     border->get_owner_id(index),
-    xlock,
     border->header().hotness_address()));
   if (border->get_payload_length(index) < payload_offset + payload_count) {
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.

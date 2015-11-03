@@ -1383,7 +1383,12 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
 
   uint32_t tail_desired = xct::McsRwLock::to_tail_int(id_, block_index);
   uint32_t* tail_address = &(mcs_rw_lock->tail_);
-  if (assorted::raw_atomic_compare_exchange_weak<uint32_t>(tail_address, 0, tail_desired)) {
+  uint32_t tail_expected = 0;
+  bool ret = assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+    tail_address,
+    &tail_expected,
+    tail_desired);
+  if (ret) {
     ThreadId old_next_writer = 0xFFFFU;
     assorted::raw_atomic_exchange<ThreadId>(&mcs_rw_lock->next_writer_, id_);
     if (mcs_rw_lock->nreaders() == 0) {

@@ -162,6 +162,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           }
 #endif
         } else {  // read-modify-write
+          /*
           rmw_keys.clear();
           auto nkeys = workload_.reps_per_tx_ + workload_.rmw_additional_reads_;
           for (int32_t k = 0; k < nkeys; k++) {
@@ -178,6 +179,14 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           for (int32_t ar = workload_.reps_per_tx_; ar < nkeys; ar++) {
             // Follow skewed accessed in RMW
             ret = do_read(rmw_keys[ar]);
+          }
+          */
+          for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
+            ret = do_rmw(build_rmw_key());
+          }
+
+          for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
+            ret = do_read(build_rmw_key());
           }
         }
       }
@@ -282,8 +291,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
       key.ptr(),
       key.size(),
       &r,
-      &payload_len,
-      true));
+      &payload_len));
   } else {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
@@ -294,8 +302,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
       key.size(),
       &r.data_[offset],
       offset,
-      kFieldLength,
-      true));
+      kFieldLength));
   }
 
   // Modify-Write

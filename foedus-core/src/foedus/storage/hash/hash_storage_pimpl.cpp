@@ -169,8 +169,7 @@ ErrorCode HashStoragePimpl::get_record(
   uint16_t key_length,
   const HashCombo& combo,
   void* payload,
-  uint16_t* payload_capacity,
-  bool xlock) {
+  uint16_t* payload_capacity) {
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
   if (!bin_head) {
@@ -207,7 +206,6 @@ ErrorCode HashStoragePimpl::get_record(
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    xlock,
     location.hotness_address_));
   *payload_capacity = payload_length;
   uint16_t key_offset = location.slot_->get_aligned_key_length();
@@ -222,8 +220,7 @@ ErrorCode HashStoragePimpl::get_record_part(
   const HashCombo& combo,
   void* payload,
   uint16_t payload_offset,
-  uint16_t payload_count,
-  bool xlock) {
+  uint16_t payload_count) {
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
   if (!bin_head) {
@@ -255,7 +252,6 @@ ErrorCode HashStoragePimpl::get_record_part(
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    xlock,
     location.hotness_address_));
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset + payload_offset, payload_count);
@@ -309,7 +305,6 @@ ErrorCode HashStoragePimpl::insert_record(
         get_id(),
         location.observed_,
         &location.slot_->tid_,
-        false,
         location.hotness_address_));
       return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
     }
@@ -392,7 +387,6 @@ ErrorCode HashStoragePimpl::delete_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      false,
       location.hotness_address_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   }
@@ -563,7 +557,6 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      false,
       location.hotness_address_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + payload_count) {
@@ -573,7 +566,6 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      false,
       location.hotness_address_));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
@@ -633,7 +625,6 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      true,
       location.hotness_address_));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + sizeof(PAYLOAD)) {
@@ -643,7 +634,6 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      true,
       location.hotness_address_));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }

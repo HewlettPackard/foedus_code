@@ -185,8 +185,15 @@ class XctManagerPimpl final : public DefaultInitializable {
    */
   void        precommit_xct_apply(thread::Thread* context, XctId max_xct_id, Epoch *commit_epoch);
   /** unlocking all acquired locks, used when aborts. */
-  void        precommit_xct_unlock_reads(thread::Thread* context, bool abort = false);
-  void        precommit_xct_unlock_writes(thread::Thread* context);
+  void        precommit_xct_unlock(thread::Thread* context, bool sorted);
+  bool        precommit_xct_upgrade_lock(thread::Thread* context, ReadXctAccess* read);
+  bool        precommit_xct_acquire_writer_lock(thread::Thread* context, WriteXctAccess *write);
+  void        precommit_xct_sort_access(
+    thread::Thread* context,
+    WriteXctAccess* write_set,
+    uint32_t write_set_size,
+    ReadXctAccess* read_set,
+    uint32_t read_set_size);
 
   /**
    * @brief Main routine for epoch_chime_thread_.
