@@ -1237,6 +1237,7 @@ bool ThreadPimpl::mcs_try_upgrade_reader_lock(
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
   xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_blocks_ + block_index;
 
+  ASSERT_ND(my_block->is_reader());
   ASSERT_ND(mcs_rw_lock->nreaders() >= 1);
 
   // Make sure we only have one reader upgrader one time (note myself is an active reader)
@@ -1351,11 +1352,21 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
       return 0;
     } else {
       // Join the active, reader predecessor
-      ASSERT_ND(!pred_block->is_blocked());
-      my_block->set_mode_normal();
-      mcs_rw_lock->increment_readers_count();
-      pred_block->set_successor_next_only(id_, block_index);
-      my_block->unblock();
+      ASSERT_ND(pred_block->is_reader());
+      // See if it's normal (otherwise we would fail too)
+      //spin_until([pred_block] { return pred_block->is_trying(); });
+      if (pred_block->is_normal()) {
+        ASSERT_ND(!pred_block->is_blocked());
+        my_block->set_mode_normal();
+        mcs_rw_lock->increment_readers_count();
+        pred_block->set_successor_next_only(id_, block_index);
+        my_block->unblock();
+      } else {
+        // Can't get lock immediately, give up
+        pred_block->set_successor_next_only(id_, block_index);
+        my_block->set_mode_failed();
+        return 0;
+      }
     }
   }
 

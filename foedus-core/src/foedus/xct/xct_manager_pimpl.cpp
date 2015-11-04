@@ -469,7 +469,7 @@ bool XctManagerPimpl::precommit_xct_upgrade_lock(thread::Thread* context, ReadXc
     if (context->mcs_try_upgrade_reader_lock(
       read->owner_id_address_->get_key_lock(),
       read->mcs_block_)) {
-      return true;
+        return true;
     }
   }
   return false;
@@ -605,14 +605,17 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       }
 
       // Try to find the matching read
-      while (write_entry->owner_id_address_ > read_entry->owner_id_address_) {
-        read_set_index++;
+      while (read_set_index < read_set_size) {
         // Fast forward to the last repeated read
-        if (read_set_index < read_set_size - 1 &&
-            read_entry->owner_id_address_ == read_set[read_set_index].owner_id_address_) {
-            read_entry->mcs_block_ = 0;
-        }
         read_entry = read_set + read_set_index;
+        if (read_set_index < read_set_size -1 &&
+          read_entry->owner_id_address_ == read_set[read_set_index + 1].owner_id_address_) {
+          read_entry->mcs_block_ = 0;
+        } else if (write_entry->owner_id_address_ <= read_entry->owner_id_address_) {
+          read_set_index++;
+          break;
+        }
+        read_set_index++;
       }
 
       // Acquire as a writer or upgrade?
@@ -958,7 +961,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
   uint32_t write_set_index = 0;
   ReadXctAccess* read_entry = read_set + read_set_index;
 
-  while (write_set_index++ < write_set_size) {
+  while (write_set_index < write_set_size) {
     WriteXctAccess* write_entry = write_set + write_set_index;
 
     // Fast forward to the last repeated read/write for the same record
@@ -973,20 +976,27 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
       ASSERT_ND(write_entry->mcs_block_ == 0);
       continue;
     }
+    write_set_index++;
 
-    // Try to find the matching read
-    while (read_set_index < read_set_size &&
-      write_entry->owner_id_address_ > read_entry->owner_id_address_) {
-      if (read_entry->mcs_block_) {
+    // Try to find the matching read (fast forward as well)
+    while (read_set_index < read_set_size) {
+      read_entry = read_set + read_set_index;
+      if (read_set_index < read_set_size - 1 &&
+        read_entry->owner_id_address_ == read_set[read_set_index + 1].owner_id_address_) {
+        read_set_index++;
+        continue;
+      }
+      if (write_entry->owner_id_address_ > read_entry->owner_id_address_ &&
+        read_entry->mcs_block_) {
         DVLOG(2) << *context << " Unlocking "
           << engine_->get_storage_manager()->get_name(read_entry->storage_id_) << ":"
           << read_entry->owner_id_address_;
         context->mcs_release_reader_lock(
           read_entry->owner_id_address_->get_key_lock(),
           read_entry->mcs_block_);
+        read_entry->mcs_block_ = 0;
       }
       read_set_index++;
-      read_entry = read_set + read_set_index;
     }
 
     if (write_entry->mcs_block_) {
@@ -996,6 +1006,13 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
       context->mcs_release_writer_lock(
         write_entry->owner_id_address_->get_key_lock(),
         write_entry->mcs_block_);
+#ifndef NDEBUG
+      if (write_entry->owner_id_address_ == read_entry->owner_id_address_) {
+        // Already cleared this during xct_lock
+        ASSERT_ND(read_entry->mcs_block_ == 0);
+      }
+#endif
+      write_entry->mcs_block_ = 0;
     }
   }
 
@@ -1006,6 +1023,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
       context->mcs_release_reader_lock(
         read_entry->owner_id_address_->get_key_lock(),
         read_entry->mcs_block_);
+      read_entry->mcs_block_ = 0;
     }
     read_set_index++;
   }
