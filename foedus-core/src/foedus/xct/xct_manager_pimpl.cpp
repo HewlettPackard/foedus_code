@@ -586,13 +586,16 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     uint32_t write_set_index = 0;
     ReadXctAccess* read_entry = read_set + read_set_index;
 
-    while (write_set_index++ < write_set_size) {
+    while (write_set_index < write_set_size) {
       WriteXctAccess* write_entry = write_set + write_set_index;
+      ASSERT_ND(write_entry->owner_id_address_);
       DVLOG(2) << *context << " Locking " << st->get_name(write_entry->storage_id_)
         << ":" << write_entry->owner_id_address_;
       // Fast forward to the last repeated read/write for the same record
       if (write_set_index < write_set_size - 1 &&
         write_entry->owner_id_address_ == write_set[write_set_index + 1].owner_id_address_) {
+        // Also reset mcs_block_ so that we don't release multiple times later
+        write_entry->mcs_block_ = 0;
         DVLOG(0) << *context << " Multiple write sets on record "
           << st->get_name(write_entry->storage_id_)
           << ":" << write_entry->owner_id_address_
@@ -604,6 +607,11 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       // Try to find the matching read
       while (write_entry->owner_id_address_ > read_entry->owner_id_address_) {
         read_set_index++;
+        // Fast forward to the last repeated read
+        if (read_set_index < read_set_size - 1 &&
+            read_entry->owner_id_address_ == read_set[read_set_index].owner_id_address_) {
+            read_entry->mcs_block_ = 0;
+        }
         read_entry = read_set + read_set_index;
       }
 
@@ -614,6 +622,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           return false;
         }
         write_entry->mcs_block_ = read_entry->mcs_block_;
+        read_entry->mcs_block_ = 0;
       } else {
         // like normal OCC, try to acquire as a writer
         if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
@@ -651,6 +660,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           return false;
         }
       }
+      write_set_index++;
     }
 
     if (!needs_retry) {
@@ -786,7 +796,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
           DLOG(WARNING) << *context << " no, not me. will abort";
           return false;
         }
-        ASSERT_ND(lower_it->mcs_block_);
         DVLOG(2) << *context << " okay, myself. go on.";
       }
     }
@@ -918,6 +927,7 @@ void XctManagerPimpl::precommit_xct_apply(
         write.owner_id_address_->xct_id_ = new_xct_id;
       }
       // also unlocks
+      ASSERT_ND(write.mcs_block_);
       context->mcs_release_writer_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
       write.mcs_block_ = 0;
     }
@@ -959,6 +969,8 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
         << ":" << write_entry->owner_id_address_
         << ". Will lock/unlock at the last one";
       write_set_index++;
+      // We should already have reset this during lock()
+      ASSERT_ND(write_entry->mcs_block_ == 0);
       continue;
     }
 

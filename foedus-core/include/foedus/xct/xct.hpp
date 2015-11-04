@@ -535,10 +535,6 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   uint8_t* page_hotness_address) {
   ASSERT_ND(observed_owner_id.is_valid());
 #ifndef NDEBUG
-  ReadXctAccess* r = get_read_access(owner_id_address);
-  if (r) {
-    ASSERT_ND(r->mcs_block_ == 0);
-  }
   log::invoke_assert_valid(log_entry);
 #endif  // NDEBUG
   WriteXctAccess* write = write_set_ + write_set_size_;
@@ -550,10 +546,14 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   ReadXctAccess* read = NULL;
   read = get_read_access(owner_id_address);
   xct::McsBlockIndex mcs_block = 0;
-  bool s_lock = storage::PageHeader::contains_hot_records(page_hotness_address);
-  if (read && read->mcs_block_) {
-    s_lock = false;
-    mcs_block = read->mcs_block_;
+  bool s_lock = false;
+  if (page_hotness_address) {
+    // e.g., insert doesn't have this yet
+    s_lock = storage::PageHeader::contains_hot_records(page_hotness_address);
+    if (read && read->mcs_block_) {
+      s_lock = false;
+      mcs_block = read->mcs_block_;
+    }
   }
 
   read = read_set_ + read_set_size_;

@@ -168,8 +168,8 @@ struct McsBlock {
 struct McsRwBlock {
   /**
    * The state_ field in struct Components:
-   * Bit: |---7---|-6 5 4-|-3 2--|------1 0------|
-   * For: |blocked|-empty-|-mode-|successor class|
+   * Bit: |---7---|-----6-----|--5 4--|-3 2--|-1 0-|
+   * For: |blocked|-allocated-|-empty-|-mode-|class|
    */
   static const uint8_t kStateClassMask       = 3U;        // [LSB + 1, LSB + 2]
   static const uint8_t kStateClassReaderFlag = 1U;        // LSB binary = 01
@@ -177,6 +177,8 @@ struct McsRwBlock {
 
   static const uint8_t kStateBlockedFlag     = 1U << 7U;  // MSB binary = 1
   static const uint8_t kStateBlockedMask     = 1U << 7U;
+
+  static const uint8_t kStateAllocatedMask   = 1U << 6U;
 
   // Mode is for readers only; trying writers do different things, they don't need this.
   static const uint8_t kStateModeMask        = 3U << 2U;  // bit 2-3
@@ -202,6 +204,14 @@ struct McsRwBlock {
   thread::ThreadId successor_thread_id_;  // +2 => 4
   McsBlockIndex successor_block_index_;   // +4 => 8
 
+  inline bool is_allocated() ALWAYS_INLINE {
+    return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateAllocatedMask;
+  }
+  inline void toggle_allocated() ALWAYS_INLINE {
+    assorted::raw_atomic_fetch_and_bitwise_xor<uint8_t>(
+      &self_.components_.state_,
+      kStateAllocatedMask);
+  }
   inline void init_reader(bool trying = false) {
     self_.components_.state_ = kStateClassReaderFlag | kStateBlockedFlag;
     init_common(trying);
@@ -218,6 +228,9 @@ struct McsRwBlock {
     } else {
       self_.components_.state_ |= kStateModeNormal;
     }
+    ASSERT_ND(!is_allocated());
+    self_.components_.state_ |= kStateAllocatedMask;
+    ASSERT_ND(is_allocated());
     ASSERT_ND(self_.components_.state_ & kStateModeMask);
     successor_thread_id_ = 0;
     successor_block_index_ = 0;
