@@ -272,7 +272,7 @@ class RunTpcbTask {
     } else {
       BranchData branch;
       uint16_t capacity = sizeof(branch);
-      WRAP_ERROR_CODE(branches.get_record(context, branch_id, &branch, &capacity, true));
+      WRAP_ERROR_CODE(branches.get_record(context, branch_id, &branch, &capacity));
       branch_balance_old = branch.branch_balance_;
       branch_balance_new = branch_balance_old + amount;
       WRAP_ERROR_CODE(branches.overwrite_record(
@@ -311,7 +311,7 @@ class RunTpcbTask {
     } else {
       TellerData teller;
       uint16_t capacity = sizeof(teller);
-      WRAP_ERROR_CODE(tellers.get_record(context, teller_id, &teller, &capacity, true));
+      WRAP_ERROR_CODE(tellers.get_record(context, teller_id, &teller, &capacity));
       teller_branch_id = teller.branch_id_;
       teller_balance_old = teller.teller_balance_;
       teller_balance_new = teller_balance_old + amount;
@@ -352,7 +352,7 @@ class RunTpcbTask {
     } else {
       AccountData account;
       uint16_t capacity = sizeof(account);
-      WRAP_ERROR_CODE(accounts.get_record(context, account_id, &account, &capacity, true));
+      WRAP_ERROR_CODE(accounts.get_record(context, account_id, &account, &capacity));
       account_branch_id = account.branch_id_;
       account_balance_old = account.account_balance_;
       account_balance_new = account_balance_old + amount;
@@ -466,20 +466,20 @@ ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
   for (uint64_t i = 0; i < kBranches; ++i) {
     BranchData data;
     uint16_t capacity = sizeof(data);
-    CHECK_ERROR(branches.get_record(context, i, &data, &capacity, true));
+    CHECK_ERROR(branches.get_record(context, i, &data, &capacity));
     EXPECT_EQ(expected_branch[i], data.branch_balance_) << "branch-" << i;
   }
   for (uint64_t i = 0; i < kBranches * kTellers; ++i) {
     TellerData data;
     uint16_t capacity = sizeof(data);
-    CHECK_ERROR(tellers.get_record(context, i, &data, &capacity, true));
+    CHECK_ERROR(tellers.get_record(context, i, &data, &capacity));
     EXPECT_EQ(i / kTellers, data.branch_id_) << i;
     EXPECT_EQ(expected_teller[i], data.teller_balance_) << "teller-" << i;
   }
   for (uint64_t i = 0; i < kBranches * kAccounts; ++i) {
     AccountData data;
     uint16_t capacity = sizeof(data);
-    CHECK_ERROR(accounts.get_record(context, i, &data, &capacity, true));
+    CHECK_ERROR(accounts.get_record(context, i, &data, &capacity));
     EXPECT_EQ(i / kAccounts, data.branch_id_) << i;
     EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
   }
