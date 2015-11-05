@@ -335,11 +335,13 @@ struct McsRwBlock {
 
   uint16_t make_blocked_with_reader_successor_state() {
     // Only using the class bit, which doesn't change, so no need to use atomic ops.
-    uint8_t state = self_.components_.state_ | kStateBlockedFlag;
+    uint8_t state = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) |
+      kStateBlockedFlag;
     return (uint16_t)state << 8 | kSuccessorClassReader;
   }
   uint16_t make_blocked_with_no_successor_state() {
-    uint8_t state = self_.components_.state_ | kStateBlockedFlag;
+    uint8_t state = assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) |
+      kStateBlockedFlag;
     return (uint16_t)state << 8 | kSuccessorClassNone;
   }
 };

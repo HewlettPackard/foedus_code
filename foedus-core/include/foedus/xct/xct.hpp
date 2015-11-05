@@ -186,6 +186,29 @@ class Xct {
   ReadXctAccess*      get_read_access(RwLockableXctId* owner_id_address) ALWAYS_INLINE;
   WriteXctAccess*     get_write_access(RwLockableXctId* owner_id_address) ALWAYS_INLINE;
 
+  McsBlockIndex       next_mcs_block_index(McsRwBlock* base_mcs_block) ALWAYS_INLINE {
+    xct::McsBlockIndex block_index = 0;
+    ASSERT_ND(base_mcs_block);
+    xct::McsRwBlock* my_block = NULL;
+    while (true) {
+      block_index = increment_mcs_block_current();
+      ASSERT_ND(block_index > 0);
+      if (block_index >= 0xFFFFU) {
+        *mcs_block_current_ = 0;
+        continue;
+      }
+      ASSERT_ND(block_index);
+      ASSERT_ND(block_index < 0xFFFFU);
+      ASSERT_ND(get_mcs_block_current() < 0xFFFFU);
+      my_block = (xct::McsRwBlock *)base_mcs_block + block_index;
+      ASSERT_ND(my_block);
+      if (!my_block->is_allocated()) {
+        break;
+      }
+    }
+    return block_index;
+  }
+
   /**
    * @brief Add the given record to the read set of this transaction.
    * @details
