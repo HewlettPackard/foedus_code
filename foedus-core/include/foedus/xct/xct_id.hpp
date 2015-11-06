@@ -229,8 +229,8 @@ struct McsRwBlock {
       self_.components_.state_ |= kStateModeNormal;
     }
     ASSERT_ND(!is_allocated());
-    self_.components_.state_ |= kStateAllocatedMask;
-    ASSERT_ND(is_allocated());
+    //self_.components_.state_ |= kStateAllocatedMask;
+    //ASSERT_ND(is_allocated());
     ASSERT_ND(self_.components_.state_ & kStateModeMask);
     successor_thread_id_ = 0;
     successor_block_index_ = 0;
