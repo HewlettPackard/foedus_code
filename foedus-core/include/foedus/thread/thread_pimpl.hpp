@@ -287,6 +287,7 @@ class ThreadPimpl final : public DefaultInitializable {
   static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
 
   xct::McsRwBlock* get_mcs_rw_block(thread::ThreadId id, xct::McsBlockIndex index);
+  xct::McsRwBlock* get_mcs_rw_block(uint32_t tail_int);
 
   /** not used so far */
   void                mcs_toolong_wait(

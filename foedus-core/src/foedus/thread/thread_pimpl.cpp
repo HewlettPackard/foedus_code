@@ -809,6 +809,12 @@ xct::McsRwBlock* ThreadPimpl::get_mcs_rw_block(thread::ThreadId id, xct::McsBloc
   ThreadRef thread = pool_pimpl_->get_thread_ref(id);
   return (xct::McsRwBlock *)thread.get_mcs_blocks() + index;
 }
+xct::McsRwBlock* ThreadPimpl::get_mcs_rw_block(uint32_t tail_int) {
+  xct::McsRwLock lock;
+  lock.tail_ = tail_int;
+  ThreadRef thread = pool_pimpl_->get_thread_ref(lock.get_tail_waiter());
+  return (xct::McsRwBlock *)thread.get_mcs_blocks() + lock.get_tail_waiter_block();
+}
 
 // Put Thread methods here to allow inlining.
 xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsLock* mcs_lock) {
