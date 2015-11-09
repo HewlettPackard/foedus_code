@@ -18,6 +18,8 @@
 #ifndef FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
 
+#include <glog/logging.h>
+
 #include <atomic>
 #include <thread>
 
@@ -40,6 +42,21 @@
 
 namespace foedus {
 namespace thread {
+
+/** Spin locally until the given condition returns false */
+template <typename COND>
+void spin_until(COND spin_while_cond) {
+  DVLOG(1) << "Locally spinning...";
+  uint64_t spins = 0;
+  while (spin_while_cond()) {
+    ++spins;
+    if ((spins & 0xFFFFFFU) == 0) {
+      assorted::spinlock_yield();
+    }
+  }
+  DVLOG(1) << "Spin ended. Spent " << spins << " spins";
+}
+
 /** Shared data of ThreadPimpl */
 struct ThreadControlBlock {
   // this is backed by shared memory. not instantiation. just reinterpret_cast.
@@ -274,7 +291,17 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::McsBlockIndex block_index);
   xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
   xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
-  bool mcs_try_upgrade_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
+  xct::McsBlockIndex mcs_try_upgrade_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
+
+  /** Helper functions for try locks */
+  inline xct::McsBlockIndex pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
+  inline xct::McsBlockIndex abort_as_group_leader(
+    xct::McsRwLock* lock,
+    xct::McsRwBlock* block,
+    uint32_t my_tail,
+    uint32_t old_tail,
+    xct::McsRwBlock* holder);
 
   /** Helper function for mcs_try_upgrade_reader_lock(). */
   bool mcs_post_upgrade_reader_lock(
@@ -369,6 +396,7 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   xct::McsBlock*          mcs_blocks_;
+  xct::McsRwBlock*        mcs_rw_blocks_;
 };
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(

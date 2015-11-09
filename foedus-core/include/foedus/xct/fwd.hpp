@@ -29,6 +29,8 @@ struct  LockableXctId;
 struct  LockFreeWriteXctAccess;
 struct  McsBlock;
 struct  McsLock;
+struct  McsRwLock;
+struct  McsRwBlock;
 struct  McsLockScope;
 struct  PointerAccess;
 struct  ReadXctAccess;

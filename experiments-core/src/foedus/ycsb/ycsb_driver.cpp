@@ -140,7 +140,6 @@ YcsbKey& YcsbKey::build(uint32_t high_bits, uint32_t low_bits) {
     // ignore ordered_insert as well
     data_.clear();
     data_.append(reinterpret_cast<char *>(&keynum), sizeof(uint64_t));
-    //LOG(INFO) << high_bits << " " << low_bits << " " << keynum << " " << data_.data();
   } else {
     if (!FLAGS_ordered_inserts) {
       keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));

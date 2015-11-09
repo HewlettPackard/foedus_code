@@ -29,7 +29,6 @@
 #include "foedus/fwd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
-#include "foedus/log/log_type_invoke.hpp"
 
 // For log verification. Only in debug mode
 #ifndef NDEBUG
@@ -185,29 +184,6 @@ class Xct {
 
   ReadXctAccess*      get_read_access(RwLockableXctId* owner_id_address) ALWAYS_INLINE;
   WriteXctAccess*     get_write_access(RwLockableXctId* owner_id_address) ALWAYS_INLINE;
-
-  McsBlockIndex       next_mcs_block_index(McsRwBlock* base_mcs_block) ALWAYS_INLINE {
-    xct::McsBlockIndex block_index = 0;
-    ASSERT_ND(base_mcs_block);
-    xct::McsRwBlock* my_block = NULL;
-    while (true) {
-      block_index = increment_mcs_block_current();
-      ASSERT_ND(block_index > 0);
-      if (block_index >= 0xFFFFU) {
-        *mcs_block_current_ = 0;
-        continue;
-      }
-      ASSERT_ND(block_index);
-      ASSERT_ND(block_index < 0xFFFFU);
-      ASSERT_ND(get_mcs_block_current() < 0xFFFFU);
-      my_block = (xct::McsRwBlock *)base_mcs_block + block_index;
-      ASSERT_ND(my_block);
-      if (!my_block->is_allocated()) {
-        break;
-      }
-    }
-    return block_index;
-  }
 
   /**
    * @brief Add the given record to the read set of this transaction.
@@ -479,7 +455,8 @@ inline ErrorCode Xct::add_to_read_set(
     owner_id_address,
     page_hotness_address));
   if (s_lock) {
-    read->mcs_block_ = context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
+    read->mcs_block_ =
+      context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
   } else {
     read->mcs_block_ = mcs_block;
   }
@@ -598,7 +575,8 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   ASSERT_ND(write->owner_id_address_ == owner_id_address);
   ASSERT_ND(write->mcs_block_ == 0);
   if (s_lock) {
-    read->mcs_block_ = context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
+    read->mcs_block_ =
+      context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
   } else {
     read->mcs_block_ = mcs_block;
   }

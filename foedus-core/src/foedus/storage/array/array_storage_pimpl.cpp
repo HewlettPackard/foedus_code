@@ -428,7 +428,8 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
     current_xct.get_isolation_level() != xct::kDirtyRead) {
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(context, get_id(), observed, &record->owner_id_, NULL));
+    CHECK_ERROR_CODE(current_xct.add_to_read_set(
+      context, get_id(), observed, &record->owner_id_, NULL));
   }
   *payload = record->payload_;
   return kErrorCodeOk;

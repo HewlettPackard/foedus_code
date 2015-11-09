@@ -306,7 +306,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
   xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
-  bool mcs_try_upgrade_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
+  xct::McsBlockIndex mcs_try_upgrade_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
 
   /**
    * Ownerless versions of mcs_acquire/release_lock().

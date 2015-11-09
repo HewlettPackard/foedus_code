@@ -61,6 +61,7 @@ class ThreadRef CXX11_FINAL {
   void*         get_task_input_memory() const { return task_input_memory_; }
   void*         get_task_output_memory() const { return task_output_memory_; }
   xct::McsBlock* get_mcs_blocks() const { return mcs_blocks_; }
+  xct::McsRwBlock* get_mcs_rw_blocks() const { return mcs_rw_blocks_; }
   ThreadControlBlock* get_control_block() const { return control_block_; }
 
   /** @see foedus::xct::InCommitEpochGuard  */
@@ -84,6 +85,7 @@ class ThreadRef CXX11_FINAL {
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   xct::McsBlock*        mcs_blocks_;
+  xct::McsRwBlock*      mcs_rw_blocks_;
 };
 
 

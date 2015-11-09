@@ -69,8 +69,7 @@ ErrorStack test_write_log(const proc::ProcArguments& args) {
     12345,
     &dummy_record,
     reinterpret_cast<char*>(&dummy_record),
-    reinterpret_cast<RecordLogType*>(filler)
-    );
+    reinterpret_cast<RecordLogType*>(filler));
 
   EXPECT_EQ(committed_before, buffer.get_offset_committed());
   EXPECT_EQ(durable_before, buffer.get_offset_durable());

@@ -474,15 +474,17 @@ bool XctManagerPimpl::precommit_xct_verify_track_read(ReadXctAccess* entry) {
 }
 
 const int kLockAcquireRetries = 1;
-bool XctManagerPimpl::precommit_xct_upgrade_lock(thread::Thread* context, ReadXctAccess* read) {
+xct::McsBlockIndex XctManagerPimpl::precommit_xct_upgrade_lock(
+  thread::Thread* context, ReadXctAccess* read) {
   for (int i = 0; i < kLockAcquireRetries; i++) {
-    if (context->mcs_try_upgrade_reader_lock(
+    auto block_index = context->mcs_try_upgrade_reader_lock(
       read->owner_id_address_->get_key_lock(),
-      read->mcs_block_)) {
-        return true;
+      read->mcs_block_);
+    if (block_index > 0) {
+      return block_index;
     }
   }
-  return false;
+  return 0;
 }
 
 bool XctManagerPimpl::precommit_xct_acquire_writer_lock(
@@ -630,11 +632,13 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       // Acquire as a writer or upgrade?
       if (read_entry->owner_id_address_ == write_entry->owner_id_address_ &&
         read_entry->mcs_block_) {
-        if (!precommit_xct_upgrade_lock(context, read_entry)) {
+        auto writer_block = precommit_xct_upgrade_lock(context, read_entry);
+        if (writer_block == 0) {
           ASSERT_ND(read_entry->mcs_block_);
           return false;
         }
-        write_entry->mcs_block_ = read_entry->mcs_block_;
+        write_entry->mcs_block_ = writer_block;
+        ASSERT_ND(writer_block != read_entry->mcs_block_);
         read_entry->mcs_block_ = 0;
       } else {
         // like normal OCC, try to acquire as a writer
@@ -668,7 +672,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
         ASSERT_ND(write_entry->related_read_->owner_id_address_ == write_entry->owner_id_address_);
         if (write_entry->owner_id_address_->xct_id_ !=
           write_entry->related_read_->observed_owner_id_) {
-          DLOG(WARNING) << *context << " related read set changed. abort early";
+          //DLOG(WARNING) << *context << " related read set changed. abort early";
           return false;
         }
       }
@@ -977,7 +981,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
   }
   DVLOG(1) << *context << " unlocking without applying.. write_set_size=" << write_set_size;
   assorted::memory_fence_release();
-  
+
   uint32_t read_set_index = 0;
   uint32_t write_set_index = 0;
   ReadXctAccess* read_entry = read_set + read_set_index;
@@ -1006,7 +1010,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
         // We might be half-way through clearing the mcs_block_ fields in xct_lock, so
         // double check and clear it here
         read_entry->mcs_block_ = 0;
-      } else { 
+      } else {
         if (read_entry->mcs_block_) {
           DVLOG(2) << *context << " Unlocking "
             << engine_->get_storage_manager()->get_name(read_entry->storage_id_) << ":"

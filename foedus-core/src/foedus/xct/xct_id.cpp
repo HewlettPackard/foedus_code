@@ -22,6 +22,7 @@
 #include "foedus/assorted/raw_atomics.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pimpl.hpp"
 
 namespace foedus {
 namespace xct {
