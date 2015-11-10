@@ -295,8 +295,8 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
 
   /** Helper functions for try locks */
-  inline xct::McsBlockIndex pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
-  inline xct::McsBlockIndex abort_as_group_leader(
+  inline void pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
+  inline bool abort_as_group_leader(
     xct::McsRwLock* lock,
     xct::McsRwBlock* block,
     uint32_t my_tail,

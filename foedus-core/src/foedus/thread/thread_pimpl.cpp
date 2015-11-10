@@ -1329,7 +1329,7 @@ void ThreadPimpl::mcs_release_writer_lock(
 */
 
 /** MCS try-reader-writer lock helpers */
-inline xct::McsBlockIndex ThreadPimpl::pass_group_tail_to_successor(
+inline void ThreadPimpl::pass_group_tail_to_successor(
   xct::McsRwBlock* block,
   uint32_t my_tail) {
   spin_until([block] { return block->get_group_tail_int() == 0; });
@@ -1347,10 +1347,9 @@ inline xct::McsBlockIndex ThreadPimpl::pass_group_tail_to_successor(
     ASSERT_ND(sb->is_waiting());
     sb->set_state_aborting();
   }
-  return 0;
 }
 
-inline xct::McsBlockIndex ThreadPimpl::abort_as_group_leader(
+inline bool ThreadPimpl::abort_as_group_leader(
   xct::McsRwLock* lock,
   xct::McsRwBlock* leader,
   uint32_t leader_tail,
@@ -1371,10 +1370,11 @@ inline xct::McsBlockIndex ThreadPimpl::abort_as_group_leader(
     auto group_tail = (uint64_t)lock->install_tail(holder_tail);
     ASSERT_ND(group_tail);
     leader->set_group_tail_int(group_tail);
-    return pass_group_tail_to_successor(leader, leader_tail);
+    pass_group_tail_to_successor(leader, leader_tail);
+    return false;
   }
-  ASSERT_ND(holder->is_releasing());
-  return 1;
+  //ASSERT_ND(holder->is_releasing());
+  return true;
 }
 
 xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
@@ -1408,18 +1408,24 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
       pred_block->set_successor_next_only(id_, block_index);
       spin_until([my_block]{ return my_block->is_waiting(); });
       if (my_block->is_aborting()) {
-        return pass_group_tail_to_successor(my_block, my_tail_int);
-      }  // else the pred will take care of readers_count
+        pass_group_tail_to_successor(my_block, my_tail_int);
+        return 0;
+      } else {
+        ASSERT_ND(mcs_rw_lock->nreaders() >= 1);  // pred should increment nreaders
+      }
     } else {
-      // pred's state changed to or is granted or releasing or aborting; granted might
-      // become relasing later, but aborting will never change
+      // pred's state isn't waiting. From waiting, pred can either change to aborting
+      // or granted (from which it can transition to releasing). So if the CAS failed
+      // pred.state should be either granted/releasing or aborting.
       ASSERT_ND(!pred_block->is_waiting());
       if (pred_block->is_aborting()) {
         pred_block->set_successor_next_only(id_, block_index);
         spin_until([my_block]{ return my_block->is_waiting(); });
         ASSERT_ND(my_block->is_aborting());
-        return pass_group_tail_to_successor(my_block, my_tail_int);
+        pass_group_tail_to_successor(my_block, my_tail_int);
+        return 0;
       } else {
+        // pred is a lock holder, and I'm the group leader
         ASSERT_ND(pred_block->is_releasing() || pred_block->is_granted());
         // If pred is a reader, I can get the lock; if it's a writer, give up unless
         // it's releasing
@@ -1429,10 +1435,10 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
           my_block->set_state_granted();
           ASSERT_ND(my_block->is_granted());
         } else {
-          if (abort_as_group_leader(
-            mcs_rw_lock, my_block, my_tail_int, pred_tail_int, pred_block)) {
-          ASSERT_ND(mcs_rw_lock->tail_ == my_tail_int);
-            ASSERT_ND(pred_block->is_releasing());
+          bool can_get_lock = abort_as_group_leader(
+            mcs_rw_lock, my_block, my_tail_int, pred_tail_int, pred_block);
+          if (can_get_lock) {
+            //ASSERT_ND(pred_block->is_releasing());
             pred_block->set_successor_next_only(id_, block_index);
             spin_until([my_block]{ return my_block->is_waiting(); });
             ASSERT_ND(my_block->is_granted());
