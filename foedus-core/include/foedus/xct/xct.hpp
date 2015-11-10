@@ -438,12 +438,11 @@ inline ErrorCode Xct::add_to_read_set(
 
   // See if I already took the S-lock
   ReadXctAccess* read = NULL;
-  xct::McsBlockIndex mcs_block = 0;
   read = get_read_access(owner_id_address);
-  bool s_lock = storage::PageHeader::contains_hot_records(page_hotness_address);
-  if (read && read->mcs_block_) {
-    s_lock = false;
-    mcs_block = read->mcs_block_;
+  bool s_lock = false;
+  ASSERT_ND(page_hotness_address);
+  if (!read || read->mcs_block_ == 0) {
+    s_lock = storage::PageHeader::contains_hot_records(page_hotness_address);
   }
 
   // Either no need to S-lock or didn't hold an S-lock before
@@ -543,15 +542,10 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   // See if I already took the S-lock
   ReadXctAccess* read = NULL;
   read = get_read_access(owner_id_address);
-  xct::McsBlockIndex mcs_block = 0;
   bool s_lock = false;
-  if (page_hotness_address) {
-    // e.g., insert doesn't have this yet
+  // e.g., insert doesn't have this yet
+  if (page_hotness_address && (!read || read->mcs_block_ == 0)) {
     s_lock = storage::PageHeader::contains_hot_records(page_hotness_address);
-    if (read && read->mcs_block_) {
-      s_lock = false;
-      mcs_block = read->mcs_block_;
-    }
   }
 
   read = read_set_ + read_set_size_;
