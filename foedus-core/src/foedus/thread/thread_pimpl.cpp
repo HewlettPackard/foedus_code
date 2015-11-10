@@ -1361,13 +1361,12 @@ inline xct::McsBlockIndex ThreadPimpl::abort_as_group_leader(
   ASSERT_ND(holder->self_.components_.successor_thread_id_ == 0);
   ASSERT_ND(holder->self_.components_.successor_block_index_ == 0);
   ASSERT_ND(holder->is_granted() || holder->is_releasing());
-  ASSERT_ND(!holder->has_aborting_successor() && !holder->has_reader_successor());
   ASSERT_ND(leader != holder);
   ASSERT_ND(leader_tail != holder_tail);
   uint64_t expected = holder->make_granted_with_no_successor_state();
   uint64_t desired = holder->make_granted_with_aborting_successor_state();
   uint64_t *address = &holder->self_.data_;
-  if (assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+  if (!holder->has_aborting_successor() && assorted::raw_atomic_compare_exchange_strong<uint64_t>(
     address, &expected, desired)) {
     auto group_tail = (uint64_t)lock->install_tail(holder_tail);
     ASSERT_ND(group_tail);
@@ -1397,8 +1396,6 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
     auto* pred_block = get_mcs_rw_block(pred_tail_int);
     ASSERT_ND(pred_block->self_.components_.successor_thread_id_ == 0);
     ASSERT_ND(pred_block->self_.components_.successor_block_index_ == 0);
-    spin_until([pred_block]{
-      return pred_block->has_aborting_successor() || pred_block->has_reader_successor(); });
     // Doesn't matter pred is a writer or reader so far
     uint64_t state_desired = pred_block->make_waiting_with_reader_successor_state();
     uint64_t state_expected = pred_block->make_waiting_with_no_successor_state();
