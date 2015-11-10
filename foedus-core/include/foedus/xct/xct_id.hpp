@@ -231,8 +231,7 @@ struct McsRwBlock {
     return (read_state() & kStateMask) == kStateWaiting;
   }
   inline bool is_granted() ALWAYS_INLINE {
-    auto s = read_state() & kStateMask;
-    return s == kStateGranted;
+    return (read_state() & kStateMask) == kStateGranted;
   }
   inline bool is_aborting() ALWAYS_INLINE {
     return (read_state() & kStateMask) == kStateAborting;

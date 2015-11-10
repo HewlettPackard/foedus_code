@@ -1362,20 +1362,29 @@ inline bool ThreadPimpl::abort_as_group_leader(
   ASSERT_ND(holder->is_granted() || holder->is_releasing());
   ASSERT_ND(leader != holder);
   ASSERT_ND(leader_tail != holder_tail);
+
+  if (holder->is_releasing()) {
+    return true;
+  }
+  // Prepare to give up
   uint64_t expected = holder->make_granted_with_no_successor_state();
   uint64_t desired = holder->make_granted_with_aborting_successor_state();
   uint64_t *address = &holder->self_.data_;
-  // Check has_aborting_successor first for repetitive aborts
-  if (holder->has_aborting_successor() || assorted::raw_atomic_compare_exchange_strong<uint64_t>(
-    address, &expected, desired)) {
-    auto group_tail = (uint64_t)lock->install_tail(holder_tail);
-    ASSERT_ND(group_tail);
-    leader->set_group_tail_int(group_tail);
-    pass_group_tail_to_successor(leader, leader_tail);
-    return false;
+  if (!assorted::raw_atomic_compare_exchange_strong<uint64_t>(address, &expected, desired)) {
+    // Two cases the above CAS might fail:
+    // 1. holder changed to releasing state;
+    // 2. holder already has_aborting_successor() (ie some previous requestor succeeded
+    // the above CAS and gave up).
+    if (holder->is_releasing()) {
+      return true;
+    }
   }
-  //ASSERT_ND(holder->is_releasing());
-  return true;
+
+  auto group_tail = (uint64_t)lock->install_tail(holder_tail);
+  ASSERT_ND(group_tail);
+  leader->set_group_tail_int(group_tail);
+  pass_group_tail_to_successor(leader, leader_tail);
+  return false;
 }
 
 xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
@@ -1427,7 +1436,9 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
         return 0;
       } else {
         // pred is a lock holder, and I'm the group leader
-        ASSERT_ND(pred_block->is_releasing() || pred_block->is_granted());
+        ASSERT_ND(!pred_block->is_waiting());
+        // Must first ASSERT_ND is_granted(), then is_releasing()...
+        ASSERT_ND(pred_block->is_granted() || pred_block->is_releasing());
         // If pred is a reader, I can get the lock; if it's a writer, give up unless
         // it's releasing
         if (pred_block->is_reader()) {
@@ -1439,7 +1450,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
           bool can_get_lock = abort_as_group_leader(
             mcs_rw_lock, my_block, my_tail_int, pred_tail_int, pred_block);
           if (can_get_lock) {
-            //ASSERT_ND(pred_block->is_releasing());
+            ASSERT_ND(pred_block->is_releasing());
             pred_block->set_successor_next_only(id_, block_index);
             spin_until([my_block]{ return my_block->is_waiting(); });
             ASSERT_ND(my_block->is_granted());
@@ -1501,7 +1512,7 @@ void ThreadPimpl::mcs_release_reader_lock(
   //my_block->set_state_releasing();
   ASSERT_ND(my_block->is_reader());
   if (!my_block->successor_is_ready() &&
-    !assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
+    !assorted::raw_atomic_compare_exchange_weak<uint32_t>(tail_address, &expected, 0)) {
     spin_until([my_block]{ return !my_block->successor_is_ready(); });
   }
   mcs_rw_lock->decrement_readers_count();
@@ -1516,7 +1527,7 @@ void ThreadPimpl::mcs_release_writer_lock(
   ASSERT_ND(my_block->is_writer());
   uint32_t expected = xct::McsRwLock::to_tail_int(id_, block_index);
   uint32_t* tail_address = &mcs_rw_lock->tail_;
-  //my_block->set_state_releasing();
+  my_block->set_state_releasing();
 retry:
   expected = xct::McsRwLock::to_tail_int(id_, block_index);
   ASSERT_ND(expected == xct::McsRwLock::to_tail_int(id_, block_index));
@@ -1528,7 +1539,7 @@ retry:
     }
     // Must check successor_is_ready first
     if (!my_block->successor_is_ready() && (my_block->has_aborting_successor())) {
-        goto retry;
+      goto retry;
     }
     ASSERT_ND(my_block->successor_is_ready());
     auto* successor_block = get_mcs_rw_block(
