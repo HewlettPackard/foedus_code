@@ -457,8 +457,6 @@ inline ErrorCode Xct::add_to_read_set(
   if (s_lock) {
     read->mcs_block_ =
       context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
-  } else {
-    read->mcs_block_ = mcs_block;
   }
   return kErrorCodeOk;
 }
@@ -577,8 +575,6 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   if (s_lock) {
     read->mcs_block_ =
       context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
-  } else {
-    read->mcs_block_ = mcs_block;
   }
   return kErrorCodeOk;
 }

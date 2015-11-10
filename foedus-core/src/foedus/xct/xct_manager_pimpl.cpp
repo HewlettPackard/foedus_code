@@ -344,6 +344,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   }
   ASSERT_ND(current_xct.assert_related_read_write());
 
+  precommit_xct_sort_access(context);
   bool success;
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
@@ -351,17 +352,6 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   } else {
     success = precommit_xct_readwrite(context, commit_epoch);
   }
-
-#ifndef NDEBUG
-  ReadXctAccess* read_set = current_xct.get_read_set();
-  for (uint32_t i = 0; i < current_xct.get_read_set_size(); i++) {
-    ASSERT_ND(read_set[i].mcs_block_ == 0);
-  }
-  WriteXctAccess* write_set = current_xct.get_write_set();
-  for (uint32_t i = 0; i < current_xct.get_write_set_size(); i++) {
-    ASSERT_ND(write_set[i].mcs_block_ == 0);
-  }
-#endif  // NDEBUG
 
   ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
@@ -428,7 +418,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
       context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
     }
   }
-  precommit_xct_unlock(context, true);  // for S-locks too
+  precommit_xct_unlock(context, true);
   return verified;
 }
 
@@ -501,13 +491,13 @@ bool XctManagerPimpl::precommit_xct_acquire_writer_lock(
   return false;
 }
 
-void XctManagerPimpl::precommit_xct_sort_access(
-  thread::Thread* context,
-  WriteXctAccess* write_set,
-  uint32_t write_set_size,
-  ReadXctAccess* read_set,
-  uint32_t read_set_size) {
+void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
+  WriteXctAccess* write_set = current_xct.get_write_set();
+  uint32_t        write_set_size = current_xct.get_write_set_size();
+  ReadXctAccess*  read_set = current_xct.get_read_set();
+  uint32_t        read_set_size = current_xct.get_read_set_size();
+
   ASSERT_ND(current_xct.assert_related_read_write());
   std::sort(write_set, write_set + write_set_size, WriteXctAccess::compare);
   // after the sorting, the related-link from read-set to write-set is now broken.
@@ -519,6 +509,8 @@ void XctManagerPimpl::precommit_xct_sort_access(
       ASSERT_ND(entry->related_read_->related_write_);
       entry->related_read_->related_write_ = entry;
     }
+    ASSERT_ND(entry->mcs_block_ == 0);
+    entry->write_set_ordinal_ = i;
   }
   ASSERT_ND(current_xct.assert_related_read_write());
 
@@ -529,6 +521,13 @@ void XctManagerPimpl::precommit_xct_sort_access(
       ASSERT_ND(entry->owner_id_address_ == entry->related_write_->owner_id_address_);
       ASSERT_ND(entry->related_write_->related_read_);
       entry->related_write_->related_read_ = entry;
+    }
+    if (i < read_set_size - 1 && entry->owner_id_address_ == read_set[i + 1].owner_id_address_) {
+      if (entry->mcs_block_) {
+        ASSERT_ND(read_set[i + 1].mcs_block_ == 0);
+        read_set[i + 1].mcs_block_ = entry->mcs_block_;
+        entry->mcs_block_ = 0;
+      }
     }
   }
   ASSERT_ND(current_xct.assert_related_read_write());
@@ -558,9 +557,10 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
 #ifndef NDEBUG
-  // Initially, write-sets must be ordered by the insertion order.
+  // Initially, write-sets must be ordered by the insertion order, and no X-locks taken.
   for (uint32_t i = 0; i < write_set_size; ++i) {
     ASSERT_ND(write_set[i].write_set_ordinal_ == i);
+    ASSERT_ND(write_set[i].mcs_block_ == 0);
   }
 #endif  // NDEBUG
 
@@ -588,8 +588,6 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       }
     }
 
-    precommit_xct_sort_access(context, write_set, write_set_size, read_set, read_set_size);
-
     // One differences from original SILO protocol.
     // As there might be multiple write sets on one record, we check equality of next
     // write set and lock/unlock only at the last write-set of the record.
@@ -611,6 +609,18 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
           << st->get_name(write_entry->storage_id_)
           << ":" << write_entry->owner_id_address_
           << ". Will lock/unlock at the last one";
+
+        // FIXME(tzwang): make this a function; it's exactly the same as the one we do later.
+        // If we have to abort, we should abort early to not waste time.
+        // Thus, we check related read sets right here.
+        if (write_entry->related_read_) {
+          ASSERT_ND(write_entry->related_read_->owner_id_address_ == write_entry->owner_id_address_);
+          if (write_entry->owner_id_address_->xct_id_ !=
+            write_entry->related_read_->observed_owner_id_) {
+            //DLOG(WARNING) << *context << " related read set changed. abort early";
+            return false;
+          }
+        }
         write_set_index++;
         continue;
       }
@@ -621,12 +631,16 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
         read_entry = read_set + read_set_index;
         if (read_set_index < read_set_size -1 &&
           read_entry->owner_id_address_ == read_set[read_set_index + 1].owner_id_address_) {
-          read_entry->mcs_block_ = 0;
-        } else if (write_entry->owner_id_address_ <= read_entry->owner_id_address_) {
-          read_set_index++;  // for next write-set entry
+          ASSERT_ND(read_entry->mcs_block_ == 0);
+          read_set_index++;
+        } else if (write_entry->owner_id_address_ < read_entry->owner_id_address_) {
           break;
+        } else {
+          read_set_index++;  // for next write-set entry
+          if (write_entry->owner_id_address_ == read_entry->owner_id_address_) {
+            break;
+          }
         }
-        read_set_index++;
       }
 
       // Acquire as a writer or upgrade?
@@ -647,7 +661,6 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
         }
       }
       ASSERT_ND(write_entry->mcs_block_);
-      ASSERT_ND(read_entry->mcs_block_ == 0 || read_entry->mcs_block_ == write_entry->mcs_block_);
 
       if (UNLIKELY(write_entry->owner_id_address_->needs_track_moved())) {
         VLOG(0) << *context << " Interesting. moved-bit conflict in "
@@ -794,7 +807,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     }
 
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
-      DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
+      //DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       return false;
     }
     max_xct_id->store_max(access.observed_owner_id_);
@@ -821,7 +834,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
           dummy,
           WriteXctAccess::compare);
         if (lower_it == write_set + write_set_size) {
-          DLOG(WARNING) << *context << " no, not me. will abort";
+          //DLOG(WARNING) << *context << " no, not me. will abort";
           return false;
         }
         DVLOG(2) << *context << " okay, myself. go on.";
@@ -977,108 +990,31 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
   ReadXctAccess*  read_set = context->get_current_xct().get_read_set();
   uint32_t        read_set_size = context->get_current_xct().get_read_set_size();
   if (!sorted) {
-    precommit_xct_sort_access(context, write_set, write_set_size, read_set, read_set_size);
+    precommit_xct_sort_access(context);
   }
   DVLOG(1) << *context << " unlocking without applying.. write_set_size=" << write_set_size;
   assorted::memory_fence_release();
 
-  uint32_t read_set_index = 0;
-  uint32_t write_set_index = 0;
-  ReadXctAccess* read_entry = read_set + read_set_index;
+  // Because we made sure there is only one write/read set entry can have mcs_block_ > 0,
+  // and we also reset the read-set's mcs_block_ to 0 after upgrade, we can blindly release
+  // whenever we find a non-zero entry.
 
-  while (write_set_index < write_set_size) {
-    WriteXctAccess* write_entry = write_set + write_set_index;
-
-    // Fast forward to the last repeated read/write for the same record
-    if (write_set_index < write_set_size - 1 &&
-      write_entry->owner_id_address_ == write_set[write_set_index + 1].owner_id_address_) {
-      DVLOG(0) << *context << " Multiple write sets on record "
-        << engine_->get_storage_manager()->get_name(write_entry->storage_id_)
-        << ":" << write_entry->owner_id_address_
-        << ". Will lock/unlock at the last one";
-      write_set_index++;
-      write_entry->mcs_block_ = 0;
-      continue;
-    }
-    write_set_index++;
-
-    // Try to find the matching read (fast forward as well)
-    while (read_set_index < read_set_size) {
-      read_entry = read_set + read_set_index;
-      if (read_set_index < read_set_size - 1 &&
-        read_entry->owner_id_address_ == read_set[read_set_index + 1].owner_id_address_) {
-        // We might be half-way through clearing the mcs_block_ fields in xct_lock, so
-        // double check and clear it here
-        read_entry->mcs_block_ = 0;
-      } else {
-        if (read_entry->mcs_block_) {
-          DVLOG(2) << *context << " Unlocking "
-            << engine_->get_storage_manager()->get_name(read_entry->storage_id_) << ":"
-            << read_entry->owner_id_address_;
-          context->mcs_release_reader_lock(
-            read_entry->owner_id_address_->get_key_lock(),
-            read_entry->mcs_block_);
-          read_entry->mcs_block_ = 0;
-        }
-        if (write_entry->owner_id_address_ <= read_entry->owner_id_address_) {
-          read_set_index++;  // for next write-set entry
-          break;
-        }
-      }
-      read_set_index++;
-    }
-
-    if (write_entry->mcs_block_) {
-      DVLOG(2) << *context << " Unlocking "
-        << engine_->get_storage_manager()->get_name(write_entry->storage_id_) << ":"
-        << write_entry->owner_id_address_;
-      context->mcs_release_writer_lock(
-        write_entry->owner_id_address_->get_key_lock(),
-        write_entry->mcs_block_);
-      write_entry->mcs_block_ = 0;
-    }
-
-    if (write_entry->owner_id_address_ == read_entry->owner_id_address_ && read_entry->mcs_block_) {
-        read_entry->mcs_block_ = 0;
-    } else if (read_entry->mcs_block_) {
-      // have to take care of the read_entry, because we already advanced read_set_index, we
-      // would miss it otherwise.
-      ASSERT_ND(read_entry->owner_id_address_ > write_entry->owner_id_address_);
-      context->mcs_release_reader_lock(
-        read_entry->owner_id_address_->get_key_lock(),
-        read_entry->mcs_block_);
-      read_entry->mcs_block_ = 0;
-    }
-    ASSERT_ND(read_entry->mcs_block_ == 0);
-    ASSERT_ND(write_entry->mcs_block_ == 0);
-  }
-
-  // More reads?
-  while (read_set_index < read_set_size) {
-    read_entry = read_set + read_set_index;
-    if (read_set_index < read_set_size - 1 &&
-      read_entry->owner_id_address_ == read_set[read_set_index + 1].owner_id_address_) {
-      read_entry->mcs_block_ = 0;
-    } else if (read_entry->mcs_block_) {
-      context->mcs_release_reader_lock(
-        read_entry->owner_id_address_->get_key_lock(),
-        read_entry->mcs_block_);
-      read_entry->mcs_block_ = 0;
-    }
-    ASSERT_ND(read_entry->mcs_block_ == 0);
-    read_set_index++;
-  }
-  assorted::memory_fence_release();
-  DVLOG(1) << *context << " unlocked write set";
-
-#ifndef NDEBUG
-  for (uint32_t i = 0; i < read_set_size; i++) {
-    ASSERT_ND(read_set[i].mcs_block_ == 0);
-  }
   for (uint32_t i = 0; i < write_set_size; i++) {
-    ASSERT_ND(write_set[i].mcs_block_ == 0);
+    auto* entry = write_set + i;
+    if (entry->mcs_block_) {
+      context->mcs_release_writer_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
+    }
   }
-#endif  // NDEBUG
+
+  for (uint32_t i = 0; i < read_set_size; i++) {
+    auto* entry = read_set + i;
+    if (entry->mcs_block_) {
+      context->mcs_release_reader_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
+    }
+  }
+
+  assorted::memory_fence_release();
+  DVLOG(1) << *context << " unlocked read and write sets";
 }
 
 ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
