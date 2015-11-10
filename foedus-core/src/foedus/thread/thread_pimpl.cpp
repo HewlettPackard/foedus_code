@@ -1365,7 +1365,8 @@ inline bool ThreadPimpl::abort_as_group_leader(
   uint64_t expected = holder->make_granted_with_no_successor_state();
   uint64_t desired = holder->make_granted_with_aborting_successor_state();
   uint64_t *address = &holder->self_.data_;
-  if (!holder->has_aborting_successor() && assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+  // Check has_aborting_successor first for repetitive aborts
+  if (holder->has_aborting_successor() || assorted::raw_atomic_compare_exchange_strong<uint64_t>(
     address, &expected, desired)) {
     auto group_tail = (uint64_t)lock->install_tail(holder_tail);
     ASSERT_ND(group_tail);
@@ -1499,7 +1500,8 @@ void ThreadPimpl::mcs_release_reader_lock(
   uint32_t* tail_address = &mcs_rw_lock->tail_;
   //my_block->set_state_releasing();
   ASSERT_ND(my_block->is_reader());
-  if (!assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
+  if (!my_block->successor_is_ready() &&
+    !assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
     spin_until([my_block]{ return !my_block->successor_is_ready(); });
   }
   mcs_rw_lock->decrement_readers_count();
@@ -1511,21 +1513,22 @@ void ThreadPimpl::mcs_release_writer_lock(
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
   xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
+  ASSERT_ND(my_block->is_writer());
   uint32_t expected = xct::McsRwLock::to_tail_int(id_, block_index);
   uint32_t* tail_address = &mcs_rw_lock->tail_;
   //my_block->set_state_releasing();
-  ASSERT_ND(my_block->is_writer());
 retry:
   expected = xct::McsRwLock::to_tail_int(id_, block_index);
   ASSERT_ND(expected == xct::McsRwLock::to_tail_int(id_, block_index));
-  if (!assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
-    spin_until([my_block]{
-      return !(my_block->successor_is_ready() || my_block->has_aborting_successor()); });
+  if (my_block->successor_is_ready() ||
+    !assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
+    if (!(my_block->successor_is_ready() || my_block->has_aborting_successor())) {
+      spin_until([my_block]{
+        return !(my_block->successor_is_ready() || my_block->has_aborting_successor()); });
+    }
     // Must check successor_is_ready first
-    if (!my_block->successor_is_ready()) {
-      if (my_block->has_aborting_successor()) {
+    if (!my_block->successor_is_ready() && (my_block->has_aborting_successor())) {
         goto retry;
-      }
     }
     ASSERT_ND(my_block->successor_is_ready());
     auto* successor_block = get_mcs_rw_block(
