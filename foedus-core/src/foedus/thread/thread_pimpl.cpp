@@ -1410,7 +1410,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
     uint64_t state_desired = pred_block->make_waiting_with_reader_successor_state();
     uint64_t state_expected = pred_block->make_waiting_with_no_successor_state();
     uint64_t* state_address = &pred_block->self_.data_;
-    bool ret = assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+    bool ret = assorted::raw_atomic_compare_exchange_weak<uint64_t>(
       state_address, &state_expected, state_desired);
     if (ret) {
       // attached to a waiting pred, wait for order
