@@ -1481,7 +1481,6 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
     reinterpret_cast<uint64_t*>(&lock_expected),
     *reinterpret_cast<uint64_t*>(&lock_desired))) {
     return block_index;
-    LOG(INFO) << id_ << " A W-acquired " << block_index;
   } else {
     return 0;
   }
@@ -1519,9 +1518,9 @@ retry:
   if (!assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
     spin_until([my_block]{
       return !(my_block->successor_is_ready() || my_block->has_aborting_successor()); });
-    if (my_block->has_aborting_successor()) {
-      my_block->clear_successor_class();
-      if (!my_block->successor_is_ready()) {
+    // Must check successor_is_ready first
+    if (!my_block->successor_is_ready()) {
+      if (my_block->has_aborting_successor()) {
         goto retry;
       }
     }
