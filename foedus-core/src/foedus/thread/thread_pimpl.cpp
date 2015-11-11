@@ -1387,9 +1387,16 @@ inline bool ThreadPimpl::abort_as_group_leader(
   return false;
 }
 
+const int kLockReaderAcquireRetries = 4;
+const int kLockWriterAcquireRetries = 10;
+const int kLockReaderUpgradeRetries = 10;
+const uint64_t kLockAcquireRetryBackoff = 250;  // wait for this many cycles before retrying
+
 xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
+  int attempts = 0;
+retry:
   my_block->init_reader();
   ASSERT_ND(my_block->is_waiting());
   ASSERT_ND(my_block->is_reader());
@@ -1419,6 +1426,11 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
       spin_until([my_block]{ return my_block->is_waiting(); });
       if (my_block->is_aborting()) {
         pass_group_tail_to_successor(my_block, my_tail_int);
+        if (++attempts < kLockReaderAcquireRetries) {
+          uint64_t loops = 0;
+          while (++loops < kLockAcquireRetryBackoff) {}
+          goto retry;
+        }
         return 0;
       } else {
         ASSERT_ND(mcs_rw_lock->nreaders() >= 1);  // pred should increment nreaders
@@ -1433,6 +1445,11 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
         spin_until([my_block]{ return my_block->is_waiting(); });
         ASSERT_ND(my_block->is_aborting());
         pass_group_tail_to_successor(my_block, my_tail_int);
+        if (++attempts < kLockReaderAcquireRetries) {
+          uint64_t loops = 0;
+          while (++loops < kLockAcquireRetryBackoff) {}
+          goto retry;
+        }
         return 0;
       } else {
         // pred is a lock holder, and I'm the group leader
@@ -1455,6 +1472,11 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
             spin_until([my_block]{ return my_block->is_waiting(); });
             ASSERT_ND(my_block->is_granted());
           } else {
+            if (++attempts < kLockReaderAcquireRetries) {
+              uint64_t loops = 0;
+              while (++loops < kLockAcquireRetryBackoff) {}
+              goto retry;
+            }
             return 0;
           }
         }
@@ -1480,6 +1502,8 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
 xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock) {
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
+  int attempts = 0;
+retry:
   my_block->init_writer();
   ASSERT_ND(my_block->is_waiting());
   ASSERT_ND(my_block->is_writer());
@@ -1496,9 +1520,13 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
     reinterpret_cast<uint64_t*>(&lock_expected),
     *reinterpret_cast<uint64_t*>(&lock_desired))) {
     return block_index;
-  } else {
-    return 0;
   }
+  if (++attempts < kLockWriterAcquireRetries) {
+    uint64_t loops = 0;
+    while (++loops < kLockAcquireRetryBackoff) {}
+    goto retry;
+  }
+  return 0;
 }
 
 void ThreadPimpl::mcs_release_reader_lock(
@@ -1539,6 +1567,8 @@ retry:
     }
     // Must check successor_is_ready first
     if (!my_block->successor_is_ready() && (my_block->has_aborting_successor())) {
+      uint64_t loops = 0;
+      while (++loops < kLockAcquireRetryBackoff) {}
       goto retry;
     }
     ASSERT_ND(my_block->successor_is_ready());
@@ -1570,7 +1600,9 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_upgrade_reader_lock(
   ASSERT_ND(my_block->is_reader());
   ASSERT_ND(my_block->is_granted());
 
+  int attempts = 0;
   // Prepare a new writer block
+retry:
   xct::McsBlockIndex writer_block_index = current_xct_.increment_mcs_block_current();
   xct::McsRwBlock* writer_block = mcs_rw_blocks_ + writer_block_index;
   writer_block->init_writer();
@@ -1601,8 +1633,12 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_upgrade_reader_lock(
       // free the writer block
       current_xct_.decrement_mcs_block_current();
       ASSERT_ND(mcs_rw_lock->nreaders() >= 1);
-      return 0;
     }
+  }
+  if (++attempts < kLockReaderUpgradeRetries) {
+    uint64_t loops = 0;
+    while (++loops < kLockAcquireRetryBackoff) {}
+    goto retry;
   }
   return 0;
 }

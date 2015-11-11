@@ -76,6 +76,14 @@ ErrorStack ycsb_client_task(const proc::ProcArguments& args) {
   return result;
 }
 
+#define BREAK_ON_FAILURE(ret) \
+{ \
+  if (ret != kErrorCodeOk) {  \
+    break;                    \
+  } \
+}
+
+
 ErrorStack YcsbClientTask::run(thread::Thread* context) {
   context_ = context;
   ASSERT_ND(context_);
@@ -126,16 +134,24 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
             } else {
               (*low)++;
             }
+          } else {
+            break;
           }
         }
       } else {
         if (xct_type <= workload_.read_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
             ret = do_read(build_rus_key(total_thread_count));
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
         } else if (xct_type <= workload_.update_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
             ret = do_update(build_rus_key(total_thread_count));
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
         } else if (xct_type <= workload_.scan_percent_) {
 #ifdef YCSB_HASH_STORAGE
@@ -146,28 +162,39 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
             auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
             increment_total_scans();
             ret = do_scan(build_rus_key(total_thread_count), nrecs);
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
 #endif
         } else {  // read-modify-write
           for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
             ret = do_rmw(build_rmw_key());
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
-
-          for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
-            ret = do_read(build_rmw_key());
+          if (ret == kErrorCodeOk) {
+            for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
+              ret = do_read(build_rmw_key());
+              if (ret != kErrorCodeOk) {
+                break;
+              }
+            }
           }
         }
       }
 
       // Done with data access, try to commit
       Epoch commit_epoch;
-      ret = xct_manager_->precommit_xct(context_, &commit_epoch);
       if (ret == kErrorCodeOk) {
-        ASSERT_ND(!context->is_running_xct());
-        break;
-      }
-
-      if (context->is_running_xct()) {
+        ret = xct_manager_->precommit_xct(context_, &commit_epoch);
+        if (ret == kErrorCodeOk) {
+          ASSERT_ND(!context->is_running_xct());
+          break;
+        }
+      } else {
+        ASSERT_ND(context->is_running_xct());
         WRAP_ERROR_CODE(xct_manager_->abort_xct(context));
       }
 

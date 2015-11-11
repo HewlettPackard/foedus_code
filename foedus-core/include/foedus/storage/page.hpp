@@ -393,7 +393,6 @@ struct PageHeader CXX11_FINAL {
     *haddr = 0;
   }
   static bool contains_hot_records(uint8_t* haddr) ALWAYS_INLINE {
-    return true;
     return *haddr >= kHotThreshold;
   }
 };

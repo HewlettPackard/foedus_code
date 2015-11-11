@@ -463,32 +463,18 @@ bool XctManagerPimpl::precommit_xct_verify_track_read(ReadXctAccess* entry) {
   return true;
 }
 
-const int kLockAcquireRetries = 1;
 xct::McsBlockIndex XctManagerPimpl::precommit_xct_upgrade_lock(
   thread::Thread* context, ReadXctAccess* read) {
-  for (int i = 0; i < kLockAcquireRetries; i++) {
-    auto block_index = context->mcs_try_upgrade_reader_lock(
-      read->owner_id_address_->get_key_lock(),
-      read->mcs_block_);
-    if (block_index > 0) {
-      return block_index;
-    }
-  }
-  return 0;
+  return context->mcs_try_upgrade_reader_lock(
+    read->owner_id_address_->get_key_lock(),
+    read->mcs_block_);
 }
 
 bool XctManagerPimpl::precommit_xct_acquire_writer_lock(
   thread::Thread* context,
   WriteXctAccess *write) {
-  for (int i = 0; i < kLockAcquireRetries; i++) {
-    write->mcs_block_ = context->mcs_try_acquire_writer_lock(
-      write->owner_id_address_->get_key_lock());
-    if (write->mcs_block_) {
-      return true;
-    }
-  }
-  ASSERT_ND(write->mcs_block_ == 0);
-  return false;
+  return write->mcs_block_ = context->mcs_try_acquire_writer_lock(
+    write->owner_id_address_->get_key_lock());
 }
 
 void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
@@ -509,8 +495,16 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
       ASSERT_ND(entry->related_read_->related_write_);
       entry->related_read_->related_write_ = entry;
     }
-    ASSERT_ND(entry->mcs_block_ == 0);
+    //ASSERT_ND(entry->mcs_block_ == 0);
     entry->write_set_ordinal_ = i;
+    // Pass the mcs_block down to the last repeated write
+    if (i < write_set_size - 1 &&
+      entry->owner_id_address_ == write_set[i + 1].owner_id_address_) {
+      if (entry->mcs_block_) {
+        write_set[i + 1].mcs_block_ = entry->mcs_block_;
+        entry->mcs_block_ = 0;
+      }
+    }
   }
   ASSERT_ND(current_xct.assert_related_read_write());
 
@@ -560,7 +554,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   // Initially, write-sets must be ordered by the insertion order, and no X-locks taken.
   for (uint32_t i = 0; i < write_set_size; ++i) {
     ASSERT_ND(write_set[i].write_set_ordinal_ == i);
-    ASSERT_ND(write_set[i].mcs_block_ == 0);
+    //ASSERT_ND(write_set[i].mcs_block_ == 0);
   }
 #endif  // NDEBUG
 
@@ -604,7 +598,12 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       // Fast forward to the last repeated read/write for the same record
       if (write_set_index < write_set_size - 1 &&
         write_entry->owner_id_address_ == write_set[write_set_index + 1].owner_id_address_) {
-        ASSERT_ND(write_entry->mcs_block_ == 0);  // haven't X-locked it yet
+        //ASSERT_ND(write_entry->mcs_block_ == 0);  // haven't X-locked it yet
+        // Pass the mcs_block down
+        if (write_entry->mcs_block_) {
+          write_set[write_set_index + 1].mcs_block_ = write_entry->mcs_block_;
+          write_entry->mcs_block_ = 0;
+        }
         DVLOG(0) << *context << " Multiple write sets on record "
           << st->get_name(write_entry->storage_id_)
           << ":" << write_entry->owner_id_address_
@@ -644,20 +643,29 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       }
 
       // Acquire as a writer or upgrade?
-      if (read_entry->owner_id_address_ == write_entry->owner_id_address_ &&
-        read_entry->mcs_block_) {
-        auto writer_block = precommit_xct_upgrade_lock(context, read_entry);
-        if (writer_block == 0) {
-          ASSERT_ND(read_entry->mcs_block_);
-          return false;
-        }
-        write_entry->mcs_block_ = writer_block;
-        ASSERT_ND(writer_block != read_entry->mcs_block_);
-        read_entry->mcs_block_ = 0;
-      } else {
-        // like normal OCC, try to acquire as a writer
-        if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
-          return false;
+      if (!write_entry->mcs_block_) {
+        if (read_entry->owner_id_address_ == write_entry->owner_id_address_) {// &&
+          //read_entry->mcs_block_) {
+          //auto writer_block = precommit_xct_upgrade_lock(context, read_entry);
+          //if (writer_block == 0) {
+          //  ASSERT_ND(read_entry->mcs_block_);
+          //  return false;
+          //}
+          //write_entry->mcs_block_ = writer_block;
+          //ASSERT_ND(writer_block != read_entry->mcs_block_);
+          //read_entry->mcs_block_ = 0;
+          if (!write_entry->mcs_block_) {
+            ASSERT_ND(read_entry->mcs_block_ == 0);
+          }
+          ASSERT_ND(read_entry->mcs_block_ == 0);
+          if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
+            return false;
+          }
+        } else {
+          // like normal OCC, try to acquire as a writer
+          if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
+            return false;
+          }
         }
       }
       ASSERT_ND(write_entry->mcs_block_);
@@ -989,9 +997,7 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
   uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
   ReadXctAccess*  read_set = context->get_current_xct().get_read_set();
   uint32_t        read_set_size = context->get_current_xct().get_read_set_size();
-  if (!sorted) {
-    precommit_xct_sort_access(context);
-  }
+  precommit_xct_sort_access(context);
   DVLOG(1) << *context << " unlocking without applying.. write_set_size=" << write_set_size;
   assorted::memory_fence_release();
 
@@ -1001,6 +1007,11 @@ void XctManagerPimpl::precommit_xct_unlock(thread::Thread* context, bool sorted)
 
   for (uint32_t i = 0; i < write_set_size; i++) {
     auto* entry = write_set + i;
+    if (i < write_set_size - 1 &&
+      entry->owner_id_address_ == write_set[i + 1].owner_id_address_) {
+      ASSERT_ND(entry->mcs_block_ == 0);
+      continue;
+    }
     if (entry->mcs_block_) {
       context->mcs_release_writer_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
     }
