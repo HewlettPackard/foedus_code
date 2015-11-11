@@ -369,7 +369,11 @@ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *com
       context->get_thread_log_buffer().get_offset_tail());
   *commit_epoch = Epoch();
   assorted::memory_fence_acquire();  // this is enough for read-only case
-  return precommit_xct_verify_readonly(context, commit_epoch);
+  bool ret = precommit_xct_verify_readonly(context, commit_epoch);
+  if (!ret) {
+    precommit_xct_unlock(context, true);
+  }
+  return ret;
 }
 
 bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
@@ -744,6 +748,10 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       return false;
+    }
+
+    if (access.mcs_block_) {
+      context->mcs_release_reader_lock(access.owner_id_address_->get_key_lock(), access.mcs_block_);
     }
 
     // Remembers the highest epoch observed.
