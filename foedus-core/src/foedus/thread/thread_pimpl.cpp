@@ -1387,10 +1387,10 @@ inline bool ThreadPimpl::abort_as_group_leader(
   return false;
 }
 
-const int kLockReaderAcquireRetries = 4;
-const int kLockWriterAcquireRetries = 10;
-const int kLockReaderUpgradeRetries = 10;
-const uint64_t kLockAcquireRetryBackoff = 250;  // wait for this many cycles before retrying
+const int kLockReaderAcquireRetries = 8;
+const int kLockWriterAcquireRetries = 6;
+const int kLockReaderUpgradeRetries = 2;
+const uint64_t kLockAcquireRetryBackoff = 1 << 2;  // wait for this many cycles before retrying
 
 xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
