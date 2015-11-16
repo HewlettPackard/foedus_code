@@ -260,10 +260,36 @@ ErrorStack TpceLoadTask::load_trade_types() {
 
 ErrorStack TpceLoadTask::load_trades() {
   LOG(INFO) << "Loading TRADE for partition=" << partition_id_;
-  // TODO(Hideaki): Load the trades_ and trades_secondary_ca_dts_
   Epoch ep;
   auto trades = storages_.trades_;
   auto ca_dts_index = storages_.trades_secondary_ca_dts_;
+
+  // This partition loads initial trade records for the following customers.
+  // This doesn't mean transactions on workers are naturally
+  // partitioned by customer. They are random and touch all customers.
+  const IdentT customers_per_pertition = scale_.customers_ / scale_.total_partitions_;
+  const IdentT customer_from = customers_per_pertition * partition_id_;
+  const IdentT customer_to =
+    (partition_id_ + 1U == scale_.total_partitions_
+      ? scale_.customers_
+      : customer_from + customers_per_pertition);
+
+  const Datetime dts_to = get_current_datetime();
+  const Datetime dts_from = dts_to - scale_.initial_trade_days_ * 8U * 3600U;
+  for (IdentT cid = customer_from; cid < customer_to; ++cid) {
+    for (Datetime dts = dts_from; dts < dts_to; ++dts) {
+      const CaDtsKey ca_dts = to_ca_dts_key(cid, dts);
+      // TPC-E spec explicitly prohibits correlating customer ID with trade ID.
+      // To satisfy the requirement without worrying about duplicate keys,
+      // high bits use CA_DTS (unique in this worker) and low bits use partition ID.
+      // This way, we are spreading out trade IDs uniformly for customer ID.
+      uint64_t trade_t_high_bits = ca_dts;
+      TradeT tid = trade_t_high_bits * scale_.total_partitions_ + partition_id_;
+      DVLOG(3) << "tid=" << tid;
+
+      // TODO(Hideaki): ... Load the trades_ and trades_secondary_ca_dts_
+    }
+  }
   return kRetOk;
 }
 

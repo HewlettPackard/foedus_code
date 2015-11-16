@@ -153,11 +153,10 @@ ErrorStack TpceClientTask::run_impl(thread::Thread* context) {
   return kRetOk;
 }
 
-ErrorStack TpceClientTask::warmup(thread::Thread* context) {
+ErrorStack TpceClientTask::warmup(thread::Thread* /*context*/) {
   // Warmup snapshot cache for read-only tables. Install volatile pages for dynamic tables.
 
   // so far empty..
-  UNUSED_ND(context);
 
   // Warmup done!
   ++(channel_->warmup_complete_counter_);

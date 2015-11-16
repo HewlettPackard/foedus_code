@@ -20,14 +20,11 @@
 
 #include <stdint.h>
 
-#include <cstring>
+#include <ctime>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/assorted/assorted_func.hpp"
-#include "foedus/assorted/endianness.hpp"
-#include "foedus/storage/record.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
@@ -69,10 +66,25 @@ struct TpceStorages {
 /**
  * DATETIME represents the data type of date value
  * that includes a time component with granulality in seconds.
- * Our implementation uses ("NOW"-1800/01/01) / 3 seconds as the value.
- * This can hold all values among 1800/01/01 - 2199-12/31 in 32 bits.
+ * Our implementation so far just uses std::time_t.
  */
 typedef uint32_t Datetime;
+
+inline Datetime get_current_datetime() {
+  return static_cast<Datetime>(std::time(nullptr));
+}
+
+inline std::string to_datetime_string(Datetime value) {
+  std::time_t converted = static_cast<std::time_t>(value);
+  // Yes, this function must not be called in a racy place due to this.
+  std::tm * ptm = std::gmtime(&converted);  // NOLINT(runtime/threadsafe_fn)
+  // No clean solution in std, though ("_r" thingy are not standard yet).
+  // Did you drink enough coffee, C++ committees?
+  // http://stackoverflow.com/questions/25618702/why-is-there-no-c11-threadsafe-alternative-to-stdlocaltime-and-stdgmtime
+  char buffer[64];
+  int written = std::strftime(buffer, 64, "%Y/%m/%d %H:%M:%S GMT", ptm);
+  return std::string(buffer, written);
+}
 
 /**
  * IDENT_T is defined as NUM(11) and is used to hold non-trade identifiers.
