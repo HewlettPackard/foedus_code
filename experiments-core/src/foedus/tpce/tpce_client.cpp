@@ -54,16 +54,6 @@ ErrorStack tpce_client_task(const proc::ProcArguments& args) {
   return task.run(context);
 }
 
-
-void TpceClientTask::update_timestring_if_needed() {
-  uint64_t now = debugging::get_rdtsc();
-  if (now  - previous_timestring_update_ > (1ULL << 30)) {
-    timestring_.assign(get_current_time_string(ctime_buffer_));
-    previous_timestring_update_ = now;
-  }
-  ASSERT_ND(timestring_.length() > 0);
-}
-
 const uint32_t kMaxUnexpectedErrors = 1;
 
 
@@ -73,18 +63,6 @@ ErrorStack TpceClientTask::run(thread::Thread* context) {
   storages_.initialize_tables(engine_);
   channel_ = reinterpret_cast<TpceClientChannel*>(
     engine_->get_soc_manager()->get_shared_memory_repo()->get_global_user_memory());
-  tmp_sids_memory_.alloc(
-    kMaxOlCount * 21U * sizeof(storage::array::ArrayOffset),
-    1U << 21,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    context->get_numa_node());
-  tmp_sids_ = reinterpret_cast<storage::array::ArrayOffset*>(tmp_sids_memory_.get_block());
-  tmp_quantities_memory_.alloc(
-    kMaxOlCount * 21U * sizeof(uint32_t),
-    1U << 21,
-    memory::AlignedMemory::kNumaAllocOnnode,
-    context->get_numa_node());
-  tmp_quantities_ = reinterpret_cast<uint32_t*>(tmp_quantities_memory_.get_block());
 
   ErrorStack result = run_impl(context);
   if (result.is_error()) {
@@ -102,41 +80,28 @@ ErrorStack TpceClientTask::run_impl(thread::Thread* context) {
   outputs_->processed_ = 0;
   outputs_->snapshot_cache_hits_ = 0;
   outputs_->snapshot_cache_misses_ = 0;
-  timestring_.assign(get_current_time_string(ctime_buffer_));
-  ASSERT_ND(timestring_.length() > 0);
-  previous_timestring_update_ = debugging::get_rdtsc();
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
 
   channel_->start_rendezvous_.wait();
-  LOG(INFO) << "TPCE Client-" << worker_id_ << " started working! home wid="
-    << from_wid_ << "-" << to_wid_;
+  LOG(INFO) << "TPCE Client-" << worker_id_ << " started working!";
 
   context->reset_snapshot_cache_counts();
 
   while (!is_stop_requested()) {
-    Wid wid = from_wid_;  // home WID. some transaction randomly uses remote WID.
     uint16_t transaction_type = rnd_.uniform_within(1, 100);
+    const uint16_t kXctTradeOrderPercent = 80;
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_.get_current_seed();
 
     // abort-retry loop
     while (!is_stop_requested()) {
       rnd_.set_current_seed(rnd_seed);
-      update_timestring_if_needed();
-      xct::IsolationLevel isolation
-        = dirty_read_mode_ ? xct::kDirtyRead : xct::kSerializable;
-      WRAP_ERROR_CODE(xct_manager->begin_xct(context, isolation));
+      WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       ErrorCode ret;
-      if (transaction_type <= kXctNewOrderPercent) {
-        ret = do_neworder(wid);
-      } else if (transaction_type <= kXctPaymentPercent) {
-        ret = do_payment(wid);
-      } else if (transaction_type <= kXctOrderStatusPercent) {
-        ret = do_order_status(wid);
-      } else if (transaction_type <= kXctDelieveryPercent) {
-        ret = do_delivery(wid);
+      if (transaction_type <= kXctTradeOrderPercent) {
+        ret = do_trade_order();
       } else {
-        ret = do_stock_level(wid);
+        ret = do_trade_update();
       }
 
       if (ret == kErrorCodeOk) {
@@ -164,15 +129,6 @@ ErrorStack TpceClientTask::run_impl(thread::Thread* context) {
         // this usually doesn't happen, but possible.
         increment_largereadset_aborts();
         continue;
-#ifdef OLAP_MODE
-      } else if (ret == kErrorCodeFsTooShortRead) {
-        // this is an unexpected bug, but only happens in OLAP experiment once in a while.
-        // wtf. TASK(Hideaki) figure this out.
-        // This seems to happen only when log file moves on to next file.
-        LOG(ERROR) << "The kErrorCodeFsTooShortRead error happened while OLAP experiment";
-        rnd_seed = rnd_.next_uint64();  // re-roll, and go on. This is rare.
-        continue;
-#endif  // OLAP_MODE
       } else {
         increment_unexpected_aborts();
         LOG(WARNING) << "Unexpected error: " << get_error_name(ret);
@@ -197,185 +153,11 @@ ErrorStack TpceClientTask::run_impl(thread::Thread* context) {
   return kRetOk;
 }
 
-ErrorCode TpceClientTask::lookup_customer_by_id_or_name(Wid wid, Did did, Cid *cid) {
-  // 60% by name, 40% by ID
-  bool by_name = rnd_.uniform_within(1, 100) <= 60;
-  if (by_name) {
-    char lastname[16];
-    generate_lastname(rnd_.non_uniform_within(255, 0, kLnames - 1), lastname);
-    CHECK_ERROR_CODE(lookup_customer_by_name(wid, did, lastname, cid));
-  } else {
-    *cid = rnd_.non_uniform_within(1023, 0, kCustomers - 1);
-  }
-  return kErrorCodeOk;
-}
-
-ErrorCode TpceClientTask::lookup_customer_by_name(Wid wid, Did did, const char* lname, Cid *cid) {
-  char low_be[sizeof(Wid) + sizeof(Did) + 16];
-  assorted::write_bigendian<Wid>(wid, low_be);
-  assorted::write_bigendian<Did>(did, low_be + sizeof(Wid));
-  std::memcpy(low_be + sizeof(Wid) + sizeof(Did), lname, 16);
-
-  char high_be[sizeof(Wid) + sizeof(Did) + 16];
-  std::memcpy(high_be, low_be, sizeof(high_be));
-
-  // this increment never overflows because it's ASCII.
-  ASSERT_ND(high_be[sizeof(high_be) - 1] + 1 > high_be[sizeof(high_be) - 1]);
-  ++high_be[sizeof(high_be) - 1];
-
-  storage::masstree::MasstreeCursor cursor(storages_.customers_secondary_, context_);
-  CHECK_ERROR_CODE(cursor.open(low_be, sizeof(low_be), high_be, sizeof(high_be)));
-
-  uint8_t cid_count = 0;
-  const uint16_t offset = sizeof(Wid) + sizeof(Did) + 32;
-  while (cursor.is_valid_record()) {
-    ASSERT_ND(cursor.get_key_length() == CustomerSecondaryKey::kKeyLength);
-
-#ifndef NDEBUG
-    char key_be[CustomerSecondaryKey::kKeyLength];
-    cursor.copy_combined_key(key_be);
-    ASSERT_ND(assorted::read_bigendian<Wid>(key_be) == wid);
-    ASSERT_ND(assorted::read_bigendian<Did>(key_be + sizeof(Wid)) == did);
-    ASSERT_ND(std::memcmp(key_be, low_be, sizeof(low_be)) == 0);
-#endif  // NDEBUG
-
-    char cid_be[sizeof(Cid)];
-    cursor.copy_combined_key_part(offset, sizeof(cid_be), cid_be);
-    Cid cid = assorted::read_bigendian<Cid>(cid_be);
-    if (UNLIKELY(cid_count >= kMaxCidsPerLname)) {
-      return kErrorCodeInvalidParameter;
-    }
-    tmp_cids_[cid_count] = cid;
-    ++cid_count;
-    CHECK_ERROR_CODE(cursor.next());
-  }
-
-  if (UNLIKELY(cid_count == 0)) {
-    return kErrorCodeStrKeyNotFound;
-  }
-
-  // take midpoint
-  *cid = tmp_cids_[cid_count / 2];
-  return kErrorCodeOk;
-}
-
 ErrorStack TpceClientTask::warmup(thread::Thread* context) {
   // Warmup snapshot cache for read-only tables. Install volatile pages for dynamic tables.
 
-  // in olap mode, let's selectively prefetch because the data size is huge.
-  if (olap_mode_) {
-    CHECK_ERROR(warmup_olap(context));
-    ++(channel_->warmup_complete_counter_);
-    return kRetOk;
-  }
-
-  // item has no locality, but still we want to pre-load snapshot cache, so:
-  if (channel_->preload_snapshot_pages_) {
-    uint64_t items_per_warehouse = kItems / total_warehouses_;
-    uint64_t from = items_per_warehouse * from_wid_;
-    uint64_t to = items_per_warehouse * to_wid_;
-    WRAP_ERROR_CODE(storages_.items_.prefetch_pages(context, false, true, from, to));
-  }
-
-  Wid wid_begin = from_wid_;
-  Wid wid_end = to_wid_;
-  {
-    // customers arrays
-    Wdcid from = combine_wdcid(combine_wdid(wid_begin, 0), 0);
-    Wdcid to = combine_wdcid(combine_wdid(wid_end, 0), 0);
-    if (channel_->preload_snapshot_pages_ || olap_mode_) {
-      WRAP_ERROR_CODE(storages_.customers_static_.prefetch_pages(context, false, true, from, to));
-    }
-    if (olap_mode_) {
-      WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, false, true, from, to));
-      WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, false, true, from, to));
-    } else {
-      WRAP_ERROR_CODE(storages_.customers_dynamic_.prefetch_pages(context, true, false, from, to));
-      WRAP_ERROR_CODE(storages_.customers_history_.prefetch_pages(context, true, false, from, to));
-    }
-  }
-  if (channel_->preload_snapshot_pages_ || olap_mode_) {
-    // customers secondary
-    storage::masstree::KeySlice from = static_cast<storage::masstree::KeySlice>(wid_begin) << 48U;
-    storage::masstree::KeySlice to = static_cast<storage::masstree::KeySlice>(wid_end) << 48U;
-    WRAP_ERROR_CODE(storages_.customers_secondary_.prefetch_pages_normalized(
-      context,
-      false,
-      true,
-      from,
-      to));
-  }
-  {
-    // stocks
-    Sid from = combine_sid(wid_begin, 0);
-    Sid to = combine_sid(wid_end, 0);
-    if (olap_mode_) {
-      WRAP_ERROR_CODE(storages_.stocks_.prefetch_pages(context, false, true, from, to));
-    } else {
-      WRAP_ERROR_CODE(storages_.stocks_.prefetch_pages(context, true, false, from, to));
-    }
-  }
-  {
-    // order/neworder
-    Wdoid from = combine_wdoid(combine_wdid(wid_begin, 0), 0);
-    Wdoid to = combine_wdoid(combine_wdid(wid_end, 0), 0);
-    if (olap_mode_) {
-      WRAP_ERROR_CODE(
-        storages_.neworders_.prefetch_pages_normalized(context, false, true, from, to));
-      WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, false, true, from, to));
-    } else {
-      WRAP_ERROR_CODE(
-        storages_.neworders_.prefetch_pages_normalized(context, true, false, from, to));
-      WRAP_ERROR_CODE(storages_.orders_.prefetch_pages_normalized(context, true, false, from, to));
-    }
-  }
-  {
-    // order_secondary
-    Wdcoid from = combine_wdcoid(combine_wdcid(combine_wdid(wid_begin, 0), 0), 0);
-    Wdcoid to = combine_wdcoid(combine_wdcid(combine_wdid(wid_end, 0), 0), 0);
-    WRAP_ERROR_CODE(storages_.orders_secondary_.prefetch_pages_normalized(
-      context,
-      olap_mode_ ? false : true,
-      olap_mode_ ? true : false,
-      from,
-      to));
-  }
-  {
-    // orderlines
-    Wdol from = combine_wdol(combine_wdoid(combine_wdid(wid_begin, 0), 0), 0);
-    Wdol to = combine_wdol(combine_wdoid(combine_wdid(wid_end, 0), 0), 0);
-    WRAP_ERROR_CODE(storages_.orderlines_.prefetch_pages_normalized(
-      context,
-      olap_mode_ ? false : true,
-      olap_mode_ ? true : false,
-      from,
-      to));
-  }
-
-  WRAP_ERROR_CODE(storages_.warehouses_static_.prefetch_pages(
-    context,
-    false,
-    true,
-    wid_begin,
-    wid_end));
-  WRAP_ERROR_CODE(storages_.warehouses_ytd_.prefetch_pages(
-    context,
-    olap_mode_ ? false : true,
-    olap_mode_ ? true : false,
-    wid_begin,
-    wid_end));
-  {
-    Wdid from = combine_wdid(wid_begin, 0);
-    Wdid to = combine_wdid(wid_end, 0);
-    WRAP_ERROR_CODE(storages_.districts_static_.prefetch_pages(context, false, true, from, to));
-    if (olap_mode_) {
-      WRAP_ERROR_CODE(storages_.districts_ytd_.prefetch_pages(context, false, true, from, to));
-      WRAP_ERROR_CODE(storages_.districts_next_oid_.prefetch_pages(context, false, true, from, to));
-    } else {
-      WRAP_ERROR_CODE(storages_.districts_ytd_.prefetch_pages(context, true, false, from, to));
-      WRAP_ERROR_CODE(storages_.districts_next_oid_.prefetch_pages(context, true, false, from, to));
-    }
-  }
+  // so far empty..
+  UNUSED_ND(context);
 
   // Warmup done!
   ++(channel_->warmup_complete_counter_);

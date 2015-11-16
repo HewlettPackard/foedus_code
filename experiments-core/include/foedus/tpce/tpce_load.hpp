@@ -30,7 +30,6 @@
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
-#include "foedus/tpce/tpce_scale.hpp"
 #include "foedus/tpce/tpce_schema.hpp"
 #include "foedus/xct/fwd.hpp"
 
@@ -39,7 +38,7 @@ namespace tpce {
 /**
  * @brief Just creates empty tables.
  */
-ErrorStack create_all(Engine* engine, Wid total_warehouses);
+ErrorStack create_all(Engine* engine, const TpceScale& scale);
 
 ErrorStack create_array(
   Engine* engine,
@@ -47,6 +46,12 @@ ErrorStack create_array(
   bool keep_all_volatile_pages,
   uint32_t payload_size,
   uint64_t array_size);
+ErrorStack create_hash(
+  Engine* engine,
+  const storage::StorageName& name,
+  bool keep_all_volatile_pages,
+  uint64_t expected_records,
+  double preferred_records_per_bin);
 ErrorStack create_masstree(
   Engine* engine,
   const storage::StorageName& name,
@@ -58,7 +63,7 @@ ErrorStack create_sequential(Engine* engine, const storage::StorageName& name);
 class TpceFinishupTask {
  public:
   struct Inputs {
-    Wid   total_warehouses_;
+    TpceScale scale_;
     bool  skip_verify_;
     bool  fatify_masstree_;
   };
@@ -87,23 +92,13 @@ ErrorStack tpce_finishup_task(const proc::ProcArguments& args);
 class TpceLoadTask {
  public:
   struct Inputs {
-    Wid total_warehouses_;
-    Wid from_wid_;
-    Wid to_wid_;
-    Iid from_iid_;
-    Iid to_iid_;
+    TpceScale scale_;
+    PartitionT partition_id_;
   };
   TpceLoadTask(
-    Wid total_warehouses,
-    Wid from_wid,
-    Wid to_wid,
-    Iid from_iid,
-    Iid to_iid)
-    : total_warehouses_(total_warehouses),
-      from_wid_(from_wid),
-      to_wid_(to_wid),
-      from_iid_(from_iid),
-      to_iid_(to_iid) {}
+    const TpceScale& scale,
+    PartitionT partition_id)
+    : scale_(scale), partition_id_(partition_id) {}
   ErrorStack          run(thread::Thread* context);
 
   ErrorStack          load_tables();
@@ -113,71 +108,23 @@ class TpceLoadTask {
     kCommitBatch = 500,
   };
 
-  const Wid total_warehouses_;
+  const TpceScale   scale_;
+  const PartitionT  partition_id_;
   TpceStorages storages_;
-  /** inclusive beginning of responsible wid */
-  const Wid from_wid_;
-  /** exclusive end of responsible wid */
-  const Wid to_wid_;
-  /** inclusive beginning of responsible iid. */
-  const Iid from_iid_;
-  /** exclusive end of responsible iid. */
-  const Iid to_iid_;
 
   Engine* engine_;
   thread::Thread* context_;
   xct::XctManager* xct_manager_;
 
   assorted::UniformRandom rnd_;
-  memory::AlignedMemory customer_secondary_keys_buffer_;
-
-  void      random_orig(bool *orig);
-
-  Cid       get_permutation(bool* cid_array);
 
   ErrorCode  commit_if_full();
 
-  /** Loads the Item table. */
-  ErrorStack load_items();
+  /** Loads the Trade table. */
+  ErrorStack load_trades();
 
-  /** Loads the Warehouse table. */
-  ErrorStack load_warehouses();
-
-  /** Loads the Customer Table */
-  ErrorStack load_customers();
-
-  /**
-  * Loads Customer Table.
-  * Also inserts corresponding history record.
-  * @param[in] wid warehouse id
-  * @param[in] did district id
-  */
-  ErrorStack load_customers_in_district(Wid wid, Did did);
-
-  /** Loads the Orders and Order_Line Tables */
-  ErrorStack load_orders();
-
-  /**
-  *  Loads the Orders table.
-  *  Also loads the orderLine table on the fly.
-  *  @param[in] w_id warehouse id
-  *  @param[in] d_id district id
-  */
-  ErrorStack load_orders_in_district(Wid wid, Did did);
-
-  /** Loads the Stock table. */
-  ErrorStack load_stocks();
-
-  /** Loads the District table. */
-  ErrorStack load_districts();
-
-  void       make_address(char *str1, char *str2, char *city, char *state, char *zip);
-
-  /** Make a string of letter */
-  int32_t    make_alpha_string(int32_t min, int32_t max, char *str);
-
-  /** Make a string of letter */
-  int32_t    make_number_string(int32_t min, int32_t max, char *str);
+  /** Loads the TradeType table. */
+  ErrorStack load_trade_types();
 };
 
 /**

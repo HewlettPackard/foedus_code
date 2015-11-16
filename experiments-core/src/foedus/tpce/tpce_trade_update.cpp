@@ -15,9 +15,7 @@
  * HP designates this particular file as subject to the "Classpath" exception
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
-#include "foedus/tpce/tpce_schema.hpp"
-
-#include <cstring>
+#include "foedus/tpce/tpce_client.hpp"
 
 #include "foedus/engine.hpp"
 #include "foedus/storage/storage.hpp"
@@ -26,25 +24,8 @@
 namespace foedus {
 namespace tpce {
 
-TpceStorages::TpceStorages() {
-  std::memset(static_cast<void*>(this), 0, sizeof(TpceStorages));
-}
-void TpceStorages::assert_initialized() {
-  ASSERT_ND(trades_.exists());
-  ASSERT_ND(trades_secondary_ca_dts_.exists());
-  ASSERT_ND(trade_types_.exists());
-
-  ASSERT_ND(trades_.get_name().str() == "trades");
-  ASSERT_ND(trades_secondary_ca_dts_.get_name().str() == "trades_secondary_ca_dts");
-  ASSERT_ND(trade_types_.get_name().str() == "trade_types");
-}
-
-void TpceStorages::initialize_tables(Engine* engine) {
-  storage::StorageManager* st = engine->get_storage_manager();
-  trades_ = st->get_hash("trades");
-  trades_secondary_ca_dts_ = st->get_masstree("trades_secondary_ca_dts");
-  trade_types_ = st->get_array("trade_types");
-  assert_initialized();
+ErrorCode TpceClientTask::do_trade_update() {
+  return kErrorCodeOk;
 }
 
 }  // namespace tpce

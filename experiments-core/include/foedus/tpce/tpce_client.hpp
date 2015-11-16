@@ -39,7 +39,6 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/tpce/tpce.hpp"
-#include "foedus/tpce/tpce_scale.hpp"
 #include "foedus/tpce/tpce_schema.hpp"
 
 namespace foedus {
@@ -87,10 +86,8 @@ class TpceClientTask {
     kMaxCidsPerLname = 128,
   };
   struct Inputs {
-    uint32_t worker_id_;
-    Wid total_warehouses_;
-    Wid from_wid_;
-    Wid to_wid_;
+    TpceScale   scale_;
+    PartitionT  worker_id_;
   };
   struct Outputs {
     /** How many transactions processed so far*/
@@ -107,10 +104,8 @@ class TpceClientTask {
     uint64_t snapshot_cache_misses_;
   };
   TpceClientTask(const Inputs& inputs, Outputs* outputs)
-    : worker_id_(inputs.worker_id_),
-      total_warehouses_(inputs.total_warehouses_),
-      from_wid_(inputs.from_wid_),
-      to_wid_(inputs.to_wid_),
+    : scale_(inputs.scale_),
+      worker_id_(inputs.worker_id_),
       outputs_(outputs),
       rnd_(kRandomSeed + inputs.worker_id_) {
     outputs_->processed_ = 0;
@@ -118,10 +113,6 @@ class TpceClientTask {
     outputs_->race_aborts_ = 0;
     outputs_->unexpected_aborts_ = 0;
     outputs_->largereadset_aborts_ = 0;
-    tmp_sids_ = nullptr;
-    tmp_quantities_ = nullptr;
-//    std::memset(stat_wids_, 0, sizeof(stat_wids_));
-//    std::memset(stat_dids_, 0, sizeof(stat_dids_));
   }
   ~TpceClientTask() {}
 
@@ -146,20 +137,9 @@ class TpceClientTask {
   uint64_t get_processed() const { return outputs_->processed_; }
 
  private:
+  const TpceScale   scale_;
   /** unique ID of this worker from 0 to #workers-1. */
-  const uint32_t    worker_id_;
-  const Wid         total_warehouses_;
-
-  /** inclusive beginning of "home" wid */
-  const Wid from_wid_;
-  /** exclusive end of "home" wid */
-  const Wid to_wid_;
-
-  /** Set to true only when compiled and run in OLAP_MODE */
-  const bool olap_mode_;
-
-  /** Set to true only when compiled and run in OLAP_MODE and also given dirty_read=true */
-  const bool dirty_read_mode_;
+  const PartitionT  worker_id_;
 
   TpceClientChannel* channel_;
 
@@ -170,110 +150,15 @@ class TpceClientTask {
   Engine*           engine_;
   Outputs* const    outputs_;
 
-
-  /**
-   * Percent of each orderline that is inserted to remote warehouse.
-   * The default value is 1 (which means a little bit less than 10% of an order has some remote
-   * orderline). This corresponds to H-Store's neworder_multip/neworder_multip_mix in
-   * tpce.properties.
-   */
-  const uint16_t    neworder_remote_percent_;
-
-  /**
-   * Percent of each payment that is inserted to remote warehouse. The default value is 5.
-   * This corresponds to H-Store's payment_multip/payment_multip_mix in tpce.properties.
-   */
-  const uint16_t    payment_remote_percent_;
-
-
   /** thread local random. */
   assorted::UniformRandom rnd_;
 
-  /** Updates timestring_ only per second. */
-  uint64_t    previous_timestring_update_;
-
-  char        ctime_buffer_[64];
-
-  assorted::FixedString<28> timestring_;
-
-  Cid     tmp_cids_[kMaxCidsPerLname];
-
-  /** used in stock_level*/
-  storage::array::ArrayOffset* tmp_sids_;
-  uint32_t* tmp_quantities_;
-  memory::AlignedMemory tmp_sids_memory_;
-  memory::AlignedMemory tmp_quantities_memory_;
-
-  // For neworder. these are for showing results on stdout (part of the spec, kind of)
-  char        output_bg_[kMaxOlCount];
-  uint32_t    output_prices_[kMaxOlCount];
-  char        output_item_names_[kMaxOlCount][24];
-  uint32_t    output_quantities_[kMaxOlCount];
-  double      output_amounts_[kMaxOlCount];
-  double      output_total_;
-
-  void      update_timestring_if_needed();
-
-  /** Run the TPCE Neworder transaction. Implemented in tpce_neworder.cpp. */
-  ErrorCode do_neworder(Wid wid);
-  ErrorCode do_neworder_create_orderlines(
-    Wid wid,
-    Did did,
-    Oid oid,
-    double w_tax,
-    double d_tax,
-    double c_discount,
-    bool will_rollback,
-    Ol ol_cnt,
-    bool* all_local_warehouse);
-
-  /** Run the TPCE Payment transaction. Implemented in tpce_payment.cpp. */
-  ErrorCode do_payment(Wid wid);
-
-  /** Run the TPCE Neworder transaction. Implemented in tpce_order_status.cpp. */
-  ErrorCode do_order_status(Wid wid);
-  ErrorCode get_last_orderid_by_customer(Wid wid, Did did, Cid cid, Oid* oid);
-
-  /** Run the TPCE Neworder transaction. Implemented in tpce_delivery.cpp. */
-  ErrorCode do_delivery(Wid wid);
-
-  /** Run the TPCE Neworder transaction. Implemented in tpce_stock_level.cpp. */
-  ErrorCode do_stock_level(Wid wid);
-
-
-  /** slightly special. Search 60% by last name (take midpoint), 40% by ID. */
-  ErrorCode lookup_customer_by_id_or_name(Wid wid, Did did, Cid *cid);
-  ErrorCode lookup_customer_by_name(Wid wid, Did did, const char* lname, Cid *cid);
-
-  /**
-   * SELECT SUM(ol_amount) FROM ORDERLINE WHERE wid/did/oid=..
-   * UPDATE ORDERLINE SET DELIVERY_D=delivery_time WHERE wid/did/oid=..
-   * Implemented in tpce_delivery.cpp.
-   */
-  ErrorCode update_orderline_delivery_dates(
-    Wid wid,
-    Did did,
-    Oid oid,
-    const char* delivery_date,
-    uint32_t delivery_date_len,
-    uint64_t* ol_amount_total,
-    uint32_t* ol_count);
-
-
-  /**
-    * SELECT TOP 1 OID FROM NEWORDER WHERE WID=wid AND DID=did ORDER BY OID
-    * then delete it from NEWORDER, returning the OID (kErrorCodeStrKeyNotFound if no record found).
-    * Implemented in tpce_delivery.cpp.
-    */
-  ErrorCode pop_neworder(Wid wid, Did did, Oid* oid);
-
-  Did get_random_district_id() ALWAYS_INLINE { return rnd_.uniform_within(0, kDistricts - 1); }
-  Wid get_random_warehouse_id() ALWAYS_INLINE {
-    return rnd_.uniform_within(0, total_warehouses_ - 1);
-  }
+  /** Run the TPCE TradeOrder transaction. Implemented in tpce_trade_order.cpp. */
+  ErrorCode do_trade_order();
+  /** Run the TPCE TradeUpdate transaction. Implemented in tpce_trade_update.cpp. */
+  ErrorCode do_trade_update();
 
   ErrorStack warmup(thread::Thread* context);
-  ErrorStack warmup_olap(thread::Thread* context);
 };
 }  // namespace tpce
 }  // namespace foedus

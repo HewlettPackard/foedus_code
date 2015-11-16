@@ -28,6 +28,7 @@
 #include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/tpce/fwd.hpp"
 #include "foedus/tpce/tpce.hpp"
+#include "foedus/tpce/tpce_schema.hpp"
 
 namespace foedus {
 namespace tpce {
@@ -41,7 +42,7 @@ class TpceDriver {
     kMaxWorkers = 1024,
   };
   struct WorkerResult {
-    uint32_t id_;
+    PartitionT id_;
     uint64_t processed_;
     uint64_t user_requested_aborts_;
     uint64_t race_aborts_;
@@ -81,22 +82,8 @@ class TpceDriver {
   Result run();
 
  private:
+  TpceScale scale_;
   Engine* const engine_;
-
-  /** inclusive beginning of responsible wid. index=thread ordinal */
-  std::vector<Wid>              from_wids_;
-  /** exclusive end of responsible wid. index=thread ordinal */
-  std::vector<Wid>              to_wids_;
-
-  /** inclusive beginning of responsible iid. index=thread ordinal */
-  std::vector<Iid>              from_iids_;
-  /** exclusive end of responsible iid. index=thread ordinal */
-  std::vector<Iid>              to_iids_;
-
-  char ctime_buffer_[64];
-
-  void assign_wids();
-  void assign_iids();
 };
 
 int driver_main(int argc, char **argv);

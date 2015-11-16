@@ -20,16 +20,14 @@
 
 /**
  * @file tpce.hpp
- * @brief Common methods for TPC-C benchmark.
+ * @brief Common methods for TPC-E benchmark.
  */
 #include <stdint.h>
-#include <time.h>
 
 #include <cstring>
+#include <ctime>
 #include <string>
 
-#include "foedus/storage/masstree/masstree_id.hpp"
-#include "foedus/tpce/tpce_scale.hpp"
 #include "foedus/tpce/tpce_schema.hpp"
 
 namespace foedus {
@@ -40,54 +38,31 @@ inline void zero_clear(T* data) {
   std::memset(data, 0, sizeof(T));
 }
 
-/**
- * TPC-C Lastname Function.
- * @param[in] num  non-uniform random number
- * @param[out] name last name string
- */
-inline void generate_lastname(uint32_t num, char *name) {
-  const char *n[] = {
-    "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
-  };
-  const uint8_t l[] = {3, 5, 4, 3, 4, 3, 4, 5, 5, 4};
+// seconds from 1800/1/1 to unix epoch time.
+// thx to http://www.epochconverter.com/
+const uint64_t kUnixAdjustSeconds = 5364662400UL;
+// granularity of our datetime/time in seconds
+const uint32_t kTimeUnitInSeconds = 3;
+const uint64_t kUnixAdjustUnits = kUnixAdjustSeconds / kTimeUnitInSeconds;
 
-  uint8_t len = 0;
-  for (int i = 0; i < 3; ++i) {
-    uint16_t choice = i == 0 ? num % 10 : (i == 1 ? (num / 10) % 10 : (num / 100) % 10);
-    ASSERT_ND(choice < 10U);
-    ASSERT_ND(len + l[choice] <= 17U);
-    std::memcpy(name + len, n[choice], l[choice]);
-    len += l[choice];
-  }
-
-  // to make sure, fill out _all_ remaining part with NULL character.
-  std::memset(name + len, 0, 17 - len);
+inline Datetime get_current_datetime() {
+  std::time_t now = std::time(nullptr);
+  uint32_t seconds = static_cast<uint32_t>(now);
+  Datetime units = seconds / kTimeUnitInSeconds;
+  units += kUnixAdjustUnits;
+  return units;
 }
 
-inline storage::masstree::KeySlice to_wdoid_slice(Wid wid, Did did, Oid oid) {
-  Wdid wdid = combine_wdid(wid, did);
-  Wdoid wdoid = combine_wdoid(wdid, oid);
-  return storage::masstree::normalize_primitive<Wdoid>(wdoid);
-}
-
-inline storage::masstree::KeySlice to_wdol_slice(Wid wid, Did did, Oid oid, Ol ol) {
-  Wdid wdid = combine_wdid(wid, did);
-  Wdoid wdoid = combine_wdoid(wdid, oid);
-  Wdol wdol = combine_wdol(wdoid, ol);
-  return storage::masstree::normalize_primitive<Wdol>(wdol);
-}
-
-inline storage::masstree::KeySlice to_wdcid_slice(Wid wid, Did did, Cid cid) {
-  Wdid wdid = combine_wdid(wid, did);
-  Wdcid wdcid = combine_wdcid(wdid, cid);
-  return storage::masstree::normalize_primitive<Wdcid>(wdcid);
-}
-
-inline std::string get_current_time_string(char* ctime_buffer) {
-  time_t t_clock;
-  ::time(&t_clock);
-  const char* str = ::ctime_r(&t_clock, ctime_buffer);
-  return std::string(str, ::strlen(str));
+inline std::string to_datetime_string(Datetime value) {
+  std::time_t converted = (value  - kUnixAdjustUnits) * kTimeUnitInSeconds;
+  // Yes, this function must not be called in a racy place due to this.
+  std::tm * ptm = std::gmtime(&converted);  // NOLINT(runtime/threadsafe_fn)
+  // No clean solution in std, though ("_r" thingy are not standard yet).
+  // Did you drink enough coffee, C++ committees?
+  // http://stackoverflow.com/questions/25618702/why-is-there-no-c11-threadsafe-alternative-to-stdlocaltime-and-stdgmtime
+  char buffer[64];
+  int written = std::strftime(buffer, 64, "%Y/%m/%d %H:%M:%S GMT", ptm);
+  return std::string(buffer, written);
 }
 
 }  // namespace tpce
