@@ -272,7 +272,7 @@ ErrorStack TpceLoadTask::load_trades() {
       ? scale_.customers_
       : customer_from + customers_per_pertition);
 
-  const SymbT max_symb_id = scale_.get_security_cardinality();
+  // const SymbT max_symb_id = scale_.get_security_cardinality();
   const Datetime dts_to = get_current_datetime();
   const Datetime dts_from = dts_to - scale_.initial_trade_days_ * 8U * 3600U;
   uint64_t in_partition_count = 0;
@@ -283,7 +283,7 @@ ErrorStack TpceLoadTask::load_trades() {
         const SymbT symb_id = 0;  // TODO(Hideaki) zipfian random [0, max_symb_id)
         const SymbDtsKey secondary_key = to_symb_dts_key(symb_id, dts, partition_id_);
         const TradeT tid = get_new_trade_id(scale_, partition_id_, in_partition_count);
-        DVLOG(3) << "tid=" << tid << ", secondary_key=" << secondary_key;
+        DVLOG(3) << "tid=" << tid << ", secondary_key=" << secondary_key << ", ca=" << ca;
 
         // TODO(Hideaki): ... Load the trades and symb_dts_index.
         // Use the templated version of insert_record<TradeT> for trades,

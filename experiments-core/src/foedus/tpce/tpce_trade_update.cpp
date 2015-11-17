@@ -52,7 +52,7 @@ ErrorCode TpceClientTask::do_trade_update() {
   const Datetime in_end_trade_dts = artificial_cur_dts_;
 
   // Input "symbol" is an ID in our implementation
-  const SymbT max_symb_id = scale_.get_security_cardinality();
+  // const SymbT max_symb_id = scale_.get_security_cardinality();
   const SymbT symbol = 0;  // TODO(Hideaki) zipfian random [0,max_symb_id)
   // Input "max_attr_id" is not used in the spec
 
