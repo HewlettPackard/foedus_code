@@ -140,6 +140,29 @@ class TpceClientTask {
   const TpceScale   scale_;
   /** unique ID of this worker from 0 to #workers-1. */
   const PartitionT  worker_id_;
+  /**
+   * A counter to generate a unique TradeT.
+   * This is a thread-local counter. We combine
+   * this value with partition ID to generate
+   * a globally unique TradeT.
+   * @see init_in_partition_trade_counter()
+   * @see get_artificial_new_trade_id()
+   * @note This does NOT conform to the official TPC-E spec. By design.
+   */
+  uint64_t          in_partition_trade_counter_;
+
+  /**
+   * In the same way, we emulate "get_current_dts()" with
+   * a local counter. This is initialized with the real
+   * get_current_datetime() call, but after that we just keep
+   * incrementing. As our Datetime implementation is so far just
+   * integer seconds, otherwise there will be too many duplicates.
+   * This shouldn't be an issue with high-reso DATETIME data type.
+   * @see init_articifical_current_dts()
+   * @see get_articifical_current_dts()
+   * @note This does NOT conform to the official TPC-E spec. By design.
+   */
+  Datetime          artificial_cur_dts_;
 
   TpceClientChannel* channel_;
 
@@ -153,10 +176,58 @@ class TpceClientTask {
   /** thread local random. */
   assorted::UniformRandom rnd_;
 
-  /** Run the TPCE TradeOrder transaction. Implemented in tpce_trade_order.cpp. */
+  /**
+   * Run the TPCE TradeOrder transaction. See Section 3.3.7.
+   * Implemented in tpce_trade_order.cpp.
+   * It's supposed to consist of six frames, but so far
+   * we only implement the 3rd and 4th frames
+   * (5th/6th are commit/rollback, tho).
+   * Further, we access only TRADE and TRADE_TYPE tables.
+   */
   ErrorCode do_trade_order();
-  /** Run the TPCE TradeUpdate transaction. Implemented in tpce_trade_update.cpp. */
+
+  /**
+   * Run the TPCE TradeUpdate transaction. See Section 3.3.10.
+   * Implemented in tpce_trade_update.cpp.
+   * It's supposed to consist of mutually independent three frames;
+   * \li Frames 1 and 3, which are triggered by brokerage
+   * \li Frame 2, which is triggered by customer
+   *
+   * We only implement Frame-3, and also we only use TRADE and TRADE_TYPE
+   * tables. This makes this transaction read-only, not read-write, because
+   * the only write in Frame-3 is an update on CASH_TRANSACTION.
+   *
+   * Again, this is not a full TPC-E implementation at all!
+   */
   ErrorCode do_trade_update();
+
+  void init_in_partition_trade_counter() {
+    // Let's initialize the locally-unique TradeT counter.
+    // In the loading phase, we made at most the following number of
+    // Trade records per partition.
+    // We keep counting this up whether the transaction got aborted or
+    // not. We only care uniqueness. Ok to have some holes.
+    in_partition_trade_counter_ =
+      ((scale_.customers_ / scale_.total_partitions_) + 1U)
+      * scale_.initial_trade_days_
+      * 8U
+      * 3600U
+      * kAccountsPerCustomer;
+  }
+  TradeT get_artificial_new_trade_id() {
+    TradeT tid = get_new_trade_id(scale_, worker_id_, in_partition_trade_counter_);
+    ++in_partition_trade_counter_;
+    return tid;
+  }
+  void init_articifical_current_dts() {
+    artificial_cur_dts_ = get_current_datetime();
+  }
+  Datetime get_articifical_current_dts() {
+    Datetime ret = artificial_cur_dts_;
+    ++artificial_cur_dts_;
+    return ret;
+  }
+
 
   ErrorStack warmup(thread::Thread* context);
 };

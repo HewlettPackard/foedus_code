@@ -21,7 +21,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <mutex>
 #include <string>
 
 #include "foedus/assert_nd.hpp"
@@ -38,7 +37,6 @@
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
-#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/storage/sequential/sequential_metadata.hpp"
 #include "foedus/storage/sequential/sequential_storage.hpp"
@@ -101,9 +99,9 @@ ErrorStack create_all(Engine* engine, const TpceScale& scale) {
 
   CHECK_ERROR(create_masstree(
     engine,
-    "trades_secondary_ca_dts",
+    "trades_secondary_symb_dts",
     true,
-    estimate_masstree_records(0, sizeof(CaDtsKey), sizeof(TradeT)) * 0.75,
+    estimate_masstree_records(0, sizeof(SymbDtsKey), sizeof(TradeT)) * 0.75,
     0));
 
   CHECK_ERROR(create_array(
@@ -196,7 +194,7 @@ ErrorStack TpceFinishupTask::run(thread::Thread* context) {
     // a better solution for partitioning is to consider children, not just root. later, later, ...
     LOG(INFO) << "FAT. FAAAT. FAAAAAAAAAAAAAAAAAT";
     uint32_t desired = 32;  // context->get_engine()->get_soc_count();  // maybe 2x?
-    CHECK_ERROR(storages_.trades_secondary_ca_dts_.fatify_first_root(context, desired));
+    CHECK_ERROR(storages_.trades_secondary_symb_dts_.fatify_first_root(context, desired));
   }
 
   if (inputs_.skip_verify_) {
@@ -206,7 +204,7 @@ ErrorStack TpceFinishupTask::run(thread::Thread* context) {
     // to speedup experiments, skip a few storages' verify() if they are static storages.
     // TASK(Hideaki) make verify() checks snapshot pages too.
     CHECK_ERROR(storages_.trades_.verify_single_thread(context));
-    CHECK_ERROR(storages_.trades_secondary_ca_dts_.verify_single_thread(context));
+    CHECK_ERROR(storages_.trades_secondary_symb_dts_.verify_single_thread(context));
     CHECK_ERROR(storages_.trade_types_.verify_single_thread(context));
     WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
   }
@@ -262,7 +260,7 @@ ErrorStack TpceLoadTask::load_trades() {
   LOG(INFO) << "Loading TRADE for partition=" << partition_id_;
   Epoch ep;
   auto trades = storages_.trades_;
-  auto ca_dts_index = storages_.trades_secondary_ca_dts_;
+  auto symb_dts_index = storages_.trades_secondary_symb_dts_;
 
   // This partition loads initial trade records for the following customers.
   // This doesn't mean transactions on workers are naturally
@@ -274,20 +272,26 @@ ErrorStack TpceLoadTask::load_trades() {
       ? scale_.customers_
       : customer_from + customers_per_pertition);
 
+  const SymbT max_symb_id = scale_.get_security_cardinality();
   const Datetime dts_to = get_current_datetime();
   const Datetime dts_from = dts_to - scale_.initial_trade_days_ * 8U * 3600U;
+  uint64_t in_partition_count = 0;
   for (IdentT cid = customer_from; cid < customer_to; ++cid) {
-    for (Datetime dts = dts_from; dts < dts_to; ++dts) {
-      const CaDtsKey ca_dts = to_ca_dts_key(cid, dts);
-      // TPC-E spec explicitly prohibits correlating customer ID with trade ID.
-      // To satisfy the requirement without worrying about duplicate keys,
-      // high bits use CA_DTS (unique in this worker) and low bits use partition ID.
-      // This way, we are spreading out trade IDs uniformly for customer ID.
-      uint64_t trade_t_high_bits = ca_dts;
-      TradeT tid = trade_t_high_bits * scale_.total_partitions_ + partition_id_;
-      DVLOG(3) << "tid=" << tid;
+    for (IdentT ordinal = 0; ordinal < kAccountsPerCustomer; ++ordinal) {
+      const IdentT ca = to_ca(cid, ordinal);
+      for (Datetime dts = dts_from; dts < dts_to; ++dts) {
+        const SymbT symb_id = 0;  // TODO(Hideaki) zipfian random [0, max_symb_id)
+        const SymbDtsKey secondary_key = to_symb_dts_key(symb_id, dts, partition_id_);
+        const TradeT tid = get_new_trade_id(scale_, partition_id_, in_partition_count);
+        DVLOG(3) << "tid=" << tid << ", secondary_key=" << secondary_key;
 
-      // TODO(Hideaki): ... Load the trades_ and trades_secondary_ca_dts_
+        // TODO(Hideaki): ... Load the trades and symb_dts_index.
+        // Use the templated version of insert_record<TradeT> for trades,
+        // and use the insert_record_normalized for symb_dts_index.
+        // Commit and retry in case of race abort.
+        // We might want to consider batching, but not mandatory.
+        ++in_partition_count;  // count up only when it didn't abort.
+      }
     }
   }
   return kRetOk;

@@ -73,8 +73,6 @@ ErrorStack TpceClientTask::run(thread::Thread* context) {
 }
 
 ErrorStack TpceClientTask::run_impl(thread::Thread* context) {
-  // std::memset(debug_wdcid_access_, 0, sizeof(debug_wdcid_access_));
-  // std::memset(debug_wdid_access_, 0, sizeof(debug_wdid_access_));
   CHECK_ERROR(warmup(context));
 
   outputs_->processed_ = 0;
@@ -86,6 +84,8 @@ ErrorStack TpceClientTask::run_impl(thread::Thread* context) {
   LOG(INFO) << "TPCE Client-" << worker_id_ << " started working!";
 
   context->reset_snapshot_cache_counts();
+  init_in_partition_trade_counter();
+  init_articifical_current_dts();
 
   while (!is_stop_requested()) {
     uint16_t transaction_type = rnd_.uniform_within(1, 100);

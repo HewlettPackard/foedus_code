@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <ctime>
+#include <string>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
@@ -53,10 +54,10 @@ struct TpceStorages {
    */
   storage::hash::HashStorage              trades_;
   /**
-   * Index(CA_ID,DTS) on TRADE. Key is CaDtsKey, Value is TradeT.
+   * Index(SYMB_ID,DTS) on TRADE. Key is SymbDtsKey, Value is TradeT.
    * Used in a cursor for OrderUpdate etc.
    */
-  storage::masstree::MasstreeStorage      trades_secondary_ca_dts_;
+  storage::masstree::MasstreeStorage      trades_secondary_symb_dts_;
   /** Index in TRADE_TYPE has no meaning. Always TradeTypeData::kCount entries. */
   storage::array::ArrayStorage            trade_types_;
 };
@@ -132,6 +133,22 @@ typedef int64_t ValueT;
 typedef uint32_t PartitionT;
 
 /**
+ * This is a drastic simplification from full TPC-E.
+ * We don't have SECURITY table yet. so we can't query on symbols.
+ * Instead, we just use an integer to represent s_symb_.
+ * The value is 0 to TpceScale::get_security_cardinality() - 1.
+ * @see TpceScale::get_security_cardinality()
+ */
+typedef uint32_t SymbT;
+/**
+ * we also assume SymbT consumes up to 20 bits.
+ * This means we so far support tpsE up to 2^20 / (685/2)=3061.
+ * It should be plenty.
+ */
+const SymbT kMaxSymbT = 1U << 20;
+
+
+/**
  * Parameters to determine the size of TPC-E tables.
  * See Section 2.6.
  */
@@ -167,6 +184,10 @@ struct TpceScale {
   uint64_t calculate_initial_trade_cardinality() const {
     return initial_trade_days_ * 8ULL * 3600ULL * get_tpse();
   }
+
+  uint64_t get_security_cardinality() const {
+    return 685U * customers_ / 1000U;
+  }
 };
 
 /** TRADE table, Section 2.2.5.6 */
@@ -176,7 +197,12 @@ struct TradeData {
   char      st_id_[4];
   char      tt_id_[3];
   bool      is_cash_;
-  char      s_symb_[15];
+  // char      s_symb_[15];
+  /**
+   * Instead of s_symb_.
+   * @see SymbT
+   */
+  SymbT     symb_id_;
   SQtyT     qty_;
   SPriceT   bid_price_;
   IdentT    ca_id_;
@@ -193,23 +219,68 @@ struct TradeData {
 };
 
 /**
- * Composite Key for the secondary index TRADE(CA_ID,DTS).
- * High 32-bits are CA_ID, low 32-bits are DTS.
+ * The spec says CUSTOMER_ACCOUNT's cardinality is always
+ * 5 * customers. Our implementation thus constructs
+ * Customer Account (CA_ID) as CID * 5 + [0,5).
  */
-typedef uint64_t CaDtsKey;
+const IdentT kAccountsPerCustomer = 5;
 
-inline CaDtsKey to_ca_dts_key(IdentT ca, Datetime dts) {
-  CaDtsKey ret = static_cast<CaDtsKey>(ca);
+inline IdentT to_cid_from_ca(IdentT ca) {
+  return ca / kAccountsPerCustomer;
+}
+inline IdentT to_ordinal_from_ca(IdentT ca) {
+  return ca % kAccountsPerCustomer;
+}
+inline IdentT to_ca(IdentT cid, IdentT ordinal) {
+  ASSERT_ND(ordinal < kAccountsPerCustomer);
+  return cid * kAccountsPerCustomer + ordinal;
+}
+
+/**
+ * Composite Key for the secondary index TRADE(SYMB_ID,DTS).
+ * High 20-bits are SYMB_ID, next 32-bits are DTS, then
+ * the last 12 bits are partition_id just as a uniquefier.
+ */
+typedef uint64_t SymbDtsKey;
+
+inline SymbDtsKey to_symb_dts_key(SymbT symb_id, Datetime dts, PartitionT partition_id) {
+  SymbDtsKey ret = static_cast<SymbDtsKey>(symb_id);
   ret = (ret << 32) | dts;
+  ret = (ret << 12) | partition_id;
   return ret;
 }
-inline IdentT to_ca_from_ca_dts_key(CaDtsKey key) {
-  return static_cast<IdentT>(key >> 32);
+inline SymbT to_symb_from_symb_dts_key(SymbDtsKey key) {
+  return static_cast<SymbT>(key >> 42);
 }
-inline Datetime to_dts_from_ca_dts_key(CaDtsKey key) {
-  return static_cast<Datetime>(key);
+inline Datetime to_dts_from_symb_dts_key(SymbDtsKey key) {
+  return static_cast<Datetime>(key >> 12);
+}
+inline PartitionT to_uniquefier_from_symb_dts_key(SymbDtsKey key) {
+  return static_cast<PartitionT>(key & ((1U << 12) - 1U));
 }
 
+
+/**
+ * @brief generates a new and unique TradeT
+ * @details
+ * TPC-E spec explicitly prohibits correlating trade ID with customer ID
+ * or any other partitionable data.
+ * To satisfy the requirement without worrying about duplicate keys,
+ * high bits use a unique counter in each partition and low bits use partition ID.
+ * This way, we guarantee there are no correlations between trade IDs and
+ * partitions.
+ *
+ * We don't want to make this function a bottleneck, eg atomic increment
+ * among \e all threads. TradeT anyway has no meaning in its value,
+ * so this simple value generator suffices.
+ */
+inline TradeT get_new_trade_id(
+  const TpceScale& scale,
+  PartitionT partition_id,
+  uint64_t in_partition_count) {
+  TradeT tid = in_partition_count * scale.total_partitions_ + partition_id;
+  return tid;
+}
 
 /** TRADE_TYPE table, Section 2.2.5.9 */
 struct TradeTypeData {
@@ -230,7 +301,6 @@ struct TradeTypeData {
   // 1 byte (some DBMS does it), it will be 16 byte and save many things.
   // but for now I don't care...
 };
-
 
 }  // namespace tpce
 }  // namespace foedus

@@ -31,18 +31,18 @@ TpceStorages::TpceStorages() {
 }
 void TpceStorages::assert_initialized() {
   ASSERT_ND(trades_.exists());
-  ASSERT_ND(trades_secondary_ca_dts_.exists());
+  ASSERT_ND(trades_secondary_symb_dts_.exists());
   ASSERT_ND(trade_types_.exists());
 
   ASSERT_ND(trades_.get_name().str() == "trades");
-  ASSERT_ND(trades_secondary_ca_dts_.get_name().str() == "trades_secondary_ca_dts");
+  ASSERT_ND(trades_secondary_symb_dts_.get_name().str() == "trades_secondary_symb_dts");
   ASSERT_ND(trade_types_.get_name().str() == "trade_types");
 }
 
 void TpceStorages::initialize_tables(Engine* engine) {
   storage::StorageManager* st = engine->get_storage_manager();
   trades_ = st->get_hash("trades");
-  trades_secondary_ca_dts_ = st->get_masstree("trades_secondary_ca_dts");
+  trades_secondary_symb_dts_ = st->get_masstree("trades_secondary_symb_dts");
   trade_types_ = st->get_array("trade_types");
   assert_initialized();
 }
