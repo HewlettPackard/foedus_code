@@ -189,19 +189,20 @@ struct McsRwBlock {
   static const uint8_t kSuccessorClassNone   = 0U;
   static const uint8_t kSuccessorClassReader = 1U;
   static const uint8_t kSuccessorClassAborting = 2U;
+  static const uint8_t kSuccessorClassWriter = 3U;
 
   // TODO(tzwang): make these two fields 8 bytes by themselves. Now we need
   // to worry about sub-word writes (ie have to use atomic ops even when
   // changing only these two fields because they are in the same word as data_).
   union Self {
-    uint64_t data_;                       // +2 => 2
+    uint16_t data_;                       // +2 => 2
     struct Components {
       uint8_t successor_class_;
       uint8_t state_;
-      thread::ThreadId successor_thread_id_;  // +2 => 4
-      McsBlockIndex successor_block_index_;   // +4 => 8
     } components_;
   } self_;
+  thread::ThreadId successor_thread_id_;  // +2 => 4
+  McsBlockIndex successor_block_index_;   // +4 => 8
   uint64_t group_tail_int_;               // +8 => 16
 
   inline void init_reader() ALWAYS_INLINE {
@@ -219,8 +220,8 @@ struct McsRwBlock {
   inline void init_common() ALWAYS_INLINE {
     self_.components_.state_ |= kStateWaiting;
     self_.components_.successor_class_ = kSuccessorClassNone;
-    self_.components_.successor_thread_id_ = 0;
-    self_.components_.successor_block_index_ = 0;
+    successor_thread_id_ = 0;
+    successor_block_index_ = 0;
     group_tail_int_ = 0;
     assorted::memory_fence_release();
   }
@@ -270,23 +271,26 @@ struct McsRwBlock {
   }
   inline void set_successor_next_only(
     thread::ThreadId thread_id, McsBlockIndex block_index) ALWAYS_INLINE {
-    McsRwBlock::Self tmp;
-    tmp.data_ = 0;
-    tmp.components_.successor_thread_id_ = thread_id;
-    tmp.components_.successor_block_index_ = block_index;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    assorted::raw_atomic_fetch_and_bitwise_or<uint64_t>(&self_.data_, tmp.data_);
+    McsRwBlock tmp;
+    tmp.self_.data_ = 0;
+    tmp.successor_thread_id_ = thread_id;
+    tmp.successor_block_index_ = block_index;
+    ASSERT_ND(successor_thread_id_ == 0);
+    ASSERT_ND(successor_block_index_ == 0);
+    assorted::raw_atomic_fetch_and_bitwise_or<uint64_t>(
+      reinterpret_cast<uint64_t *>(this), *reinterpret_cast<uint64_t *>(&tmp));
   }
   bool successor_is_ready() {
     // Check block index only - thread ID could be 0
-    return assorted::atomic_load_acquire<McsBlockIndex>(
-      &self_.components_.successor_block_index_) != 0;
+    return assorted::atomic_load_acquire<McsBlockIndex>(&successor_block_index_) != 0;
   }
   inline bool has_reader_successor() ALWAYS_INLINE {
     auto s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
-    ASSERT_ND(s == kSuccessorClassNone || s == kSuccessorClassReader);
     return s == kSuccessorClassReader;
+  }
+  inline bool has_writer_successor() ALWAYS_INLINE {
+    auto s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
+    return s == kSuccessorClassWriter;
   }
   inline bool has_aborting_successor() ALWAYS_INLINE {
     auto s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
@@ -300,68 +304,41 @@ struct McsRwBlock {
     uint8_t state = read_state();
     state &= ~kStateMask;
     state |= kStateWaiting;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassReader;
+    ASSERT_ND(successor_thread_id_ == 0);
+    ASSERT_ND(successor_block_index_ == 0);
+    return (uint16_t)state << 8 | kSuccessorClassReader;
+  }
+  inline uint16_t make_waiting_with_writer_successor_state() ALWAYS_INLINE {
+    uint8_t state = read_state();
+    state &= ~kStateMask;
+    state |= kStateWaiting;
+    ASSERT_ND(successor_thread_id_ == 0);
+    ASSERT_ND(successor_block_index_ == 0);
+    return (uint16_t)state << 8 | kSuccessorClassWriter;
   }
   inline uint16_t make_waiting_with_no_successor_state() ALWAYS_INLINE {
     uint8_t state = read_state();
     state &= ~kStateMask;
     state |= kStateWaiting;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassNone;
-  }
-  inline uint16_t make_granted_with_reader_successor_state() ALWAYS_INLINE {
-    uint8_t state = read_state();
-    state &= ~kStateMask;
-    state |= kStateGranted;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassReader;
+    ASSERT_ND(successor_thread_id_ == 0);
+    ASSERT_ND(successor_block_index_ == 0);
+    return (uint16_t)state << 8 | kSuccessorClassNone;
   }
   inline uint16_t make_granted_with_no_successor_state() ALWAYS_INLINE {
     uint8_t state = read_state();
     state &= ~kStateMask;
     state |= kStateGranted;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassNone;
+    ASSERT_ND(successor_thread_id_ == 0);
+    ASSERT_ND(successor_block_index_ == 0);
+    return (uint16_t)state << 8 | kSuccessorClassNone;
   }
   inline uint16_t make_granted_with_aborting_successor_state() ALWAYS_INLINE {
     uint8_t state = read_state();
     state &= ~kStateMask;
     state |= kStateGranted;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassAborting;
-  }
-  inline uint16_t make_releasing_with_reader_successor_state() ALWAYS_INLINE {
-    ASSERT_ND(is_granted() || is_releasing());
-    uint8_t state = read_state();
-    state &= ~kStateMask;
-    state |= kStateReleasing;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassReader;
-  }
-  inline uint16_t make_releasing_with_aborting_successor_state() ALWAYS_INLINE {
-    ASSERT_ND(is_granted() || is_releasing());
-    uint8_t state = read_state();
-    state &= ~kStateMask;
-    state |= kStateReleasing;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassAborting;
-  }
-  inline uint16_t make_releasing_with_no_successor_state() ALWAYS_INLINE {
-    ASSERT_ND(is_granted() || is_releasing());
-    uint8_t state = read_state();
-    state &= ~kStateMask;
-    state |= kStateReleasing;
-    ASSERT_ND(self_.components_.successor_thread_id_ == 0);
-    ASSERT_ND(self_.components_.successor_block_index_ == 0);
-    return (uint64_t)state << 8 | kSuccessorClassNone;
+    ASSERT_ND(successor_thread_id_ == 0);
+    ASSERT_ND(successor_block_index_ == 0);
+    return (uint16_t)state << 8 | kSuccessorClassAborting;
   }
   inline void clear_successor_class() ALWAYS_INLINE {
     uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
@@ -370,11 +347,12 @@ struct McsRwBlock {
       &self_.components_.successor_class_, ~kSuccessorClassMask);
   }
   inline void clear_successor() ALWAYS_INLINE {
-    McsRwBlock::Self tmp;
-    tmp.data_ = ~0;
-    tmp.components_.successor_thread_id_ = 0;
-    tmp.components_.successor_block_index_ = 0;
-    assorted::raw_atomic_fetch_and_bitwise_and<uint64_t>(&self_.data_, tmp.data_);
+    McsRwBlock tmp;
+    tmp.self_.data_ = ~0;
+    tmp.successor_thread_id_ = 0;
+    tmp.successor_block_index_ = 0;
+    assorted::raw_atomic_fetch_and_bitwise_and<uint64_t>(
+      reinterpret_cast<uint64_t *>(this), *reinterpret_cast<uint64_t *>(&tmp));
   }
 };
 
@@ -492,7 +470,8 @@ struct McsRwLock {
 
   void  reset() ALWAYS_INLINE {
     tail_ = readers_count_ = 0;
-    next_writer_ = kNextWriterNone;
+    set_next_writer(kNextWriterNone);
+    assorted::memory_fence_release();
   }
   void increment_readers_count() ALWAYS_INLINE {
     assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, 1);
@@ -517,6 +496,12 @@ struct McsRwLock {
   McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_ & 0xFFFFU; }
   thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_ >> 16U; }
   bool has_next_writer() const ALWAYS_INLINE {return next_writer_ != kNextWriterNone; }
+  void set_next_writer(thread::ThreadId thread_id) ALWAYS_INLINE {
+    assorted::atomic_store_release<thread::ThreadId>(&next_writer_, thread_id);
+  }
+  thread::ThreadId xchg_clear_next_writer() ALWAYS_INLINE {
+    return assorted::raw_atomic_exchange<thread::ThreadId>(&next_writer_, kNextWriterNone);
+  }
   uint32_t install_tail(uint32_t new_tail) ALWAYS_INLINE {
     return assorted::raw_atomic_exchange<uint32_t>(&tail_, new_tail);
   }

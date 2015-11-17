@@ -177,6 +177,9 @@ DataPageSlotIndex HashDataPage::reserve_record(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
     0);
   initial_id.set_deleted();
+  // FIXME(tzwang): do this in a more meaningful place,
+  // e.g., have something like get_new_slot.
+  slot.tid_.reset();
   slot.tid_.xct_id_ = initial_id;
 
   // we install the fingerprint to bloom filter BEFORE we increment key count.
