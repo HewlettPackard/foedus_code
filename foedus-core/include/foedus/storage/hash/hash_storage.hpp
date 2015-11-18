@@ -148,9 +148,10 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* key,
     uint16_t key_length,
     void* payload,
-    uint16_t* payload_capacity) {
+    uint16_t* payload_capacity,
+    bool read_only) {
     HashCombo c(combo(key, key_length));
-    return get_record(context, key, key_length, c, payload, payload_capacity);
+    return get_record(context, key, key_length, c, payload, payload_capacity, read_only);
   }
 
   /** Overlord to receive key as a primitive type. */
@@ -159,9 +160,10 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     thread::Thread* context,
     KEY key,
     void* payload,
-    uint16_t* payload_capacity) {
+    uint16_t* payload_capacity,
+    bool read_only) {
     HashCombo c(combo<KEY>(&key));
-    return get_record(context, &key, sizeof(key), c, payload, payload_capacity);
+    return get_record(context, &key, sizeof(key), c, payload, payload_capacity, read_only);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -171,7 +173,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     void* payload,
-    uint16_t* payload_capacity);
+    uint16_t* payload_capacity,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this hash storage.
@@ -190,7 +193,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count) {
+    uint16_t payload_count,
+    bool read_only) {
     HashCombo c(combo(key, key_length));
     return get_record_part(
       context,
@@ -199,7 +203,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
       c,
       payload,
       payload_offset,
-      payload_count);
+      payload_count,
+      read_only);
   }
 
   /** Overlord to receive key as a primitive type. */
@@ -209,7 +214,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count) {
+    uint16_t payload_count,
+    bool read_only) {
     HashCombo c(combo<KEY>(&key));
     return get_record_part(
       context,
@@ -218,7 +224,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
       c,
       payload,
       payload_offset,
-      payload_count);
+      payload_count,
+      read_only);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -229,7 +236,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const HashCombo& combo,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this storage as a primitive value.
@@ -248,7 +256,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* key,
     uint16_t key_length,
     PAYLOAD* payload,
-    uint16_t payload_offset) {
+    uint16_t payload_offset,
+    bool read_only) {
     HashCombo c(combo(key, key_length));
     return get_record_primitive<PAYLOAD>(
       context,
@@ -256,7 +265,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
       key_length,
       c,
       payload,
-      payload_offset);
+      payload_offset,
+      read_only);
   }
 
   /** Overlord to receive key as a primitive type. */
@@ -265,7 +275,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     thread::Thread* context,
     KEY key,
     PAYLOAD* payload,
-    uint16_t payload_offset) {
+    uint16_t payload_offset,
+    bool read_only) {
     HashCombo c(combo<KEY>(&key));
     return get_record_primitive<PAYLOAD>(
       context,
@@ -273,7 +284,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
       sizeof(key),
       c,
       payload,
-      payload_offset);
+      payload_offset,
+      read_only);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -284,7 +296,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     PAYLOAD* payload,
-    uint16_t payload_offset);
+    uint16_t payload_offset,
+    bool read_only);
 
   // insert_record() methods
 

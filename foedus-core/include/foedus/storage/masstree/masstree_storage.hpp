@@ -144,7 +144,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     const void* key,
     KeyLength key_length,
     void* payload,
-    PayloadLength* payload_capacity);
+    PayloadLength* payload_capacity,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this Masstree.
@@ -163,7 +164,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     KeyLength key_length,
     void* payload,
     PayloadLength payload_offset,
-    PayloadLength payload_count);
+    PayloadLength payload_count,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this Masstree as a primitive value.
@@ -182,7 +184,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     const void* key,
     KeyLength key_length,
     PAYLOAD* payload,
-    PayloadLength payload_offset);
+    PayloadLength payload_offset,
+    bool read_only);
 
   /**
    * @brief Retrieves an entire record of the given primitive key in this Masstree.
@@ -196,7 +199,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     void* payload,
-    PayloadLength* payload_capacity);
+    PayloadLength* payload_capacity,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given primitive key in this Masstree.
@@ -208,7 +212,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     KeySlice key,
     void* payload,
     PayloadLength payload_offset,
-    PayloadLength payload_count);
+    PayloadLength payload_count,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given primitive key in this Masstree as a primitive value.
@@ -220,7 +225,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     PAYLOAD* payload,
-    PayloadLength payload_offset);
+    PayloadLength payload_offset,
+    bool read_only);
 
   // insert_record() methods
 

@@ -348,7 +348,8 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   bool success;
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
-    success = precommit_xct_readonly(context, commit_epoch);
+    success = precommit_xct_readwrite(context, commit_epoch);
+    //success = precommit_xct_readonly(context, commit_epoch);
   } else {
     success = precommit_xct_readwrite(context, commit_epoch);
   }
@@ -592,7 +593,6 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
     bool needs_retry = false;
     uint32_t read_set_index = 0;
     uint32_t write_set_index = 0;
-    ReadXctAccess* read_entry = NULL;
 
     while (write_set_index < write_set_size) {
       WriteXctAccess* write_entry = write_set + write_set_index;
@@ -628,49 +628,10 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
         continue;
       }
 
-      // Try to find the matching read
-      while (read_set_index < read_set_size) {
-        // Fast forward to the last repeated read
-        read_entry = read_set + read_set_index;
-        if (read_set_index < read_set_size -1 &&
-          read_entry->owner_id_address_ == read_set[read_set_index + 1].owner_id_address_) {
-          ASSERT_ND(read_entry->mcs_block_ == 0);
-          read_set_index++;
-        } else if (write_entry->owner_id_address_ < read_entry->owner_id_address_) {
-          break;
-        } else {
-          read_set_index++;  // for next write-set entry
-          if (write_entry->owner_id_address_ == read_entry->owner_id_address_) {
-            break;
-          }
-        }
-      }
-
       // Acquire as a writer or upgrade?
-      if (!write_entry->mcs_block_) {
-        if (read_entry->owner_id_address_ == write_entry->owner_id_address_) {// &&
-          //read_entry->mcs_block_) {
-          //auto writer_block = precommit_xct_upgrade_lock(context, read_entry);
-          //if (writer_block == 0) {
-          //  ASSERT_ND(read_entry->mcs_block_);
-          //  return false;
-          //}
-          //write_entry->mcs_block_ = writer_block;
-          //ASSERT_ND(writer_block != read_entry->mcs_block_);
-          //read_entry->mcs_block_ = 0;
-          if (!write_entry->mcs_block_) {
-            ASSERT_ND(read_entry->mcs_block_ == 0);
-          }
-          ASSERT_ND(read_entry->mcs_block_ == 0);
-          if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
-            return false;
-          }
-        } else {
-          // like normal OCC, try to acquire as a writer
-          if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
-            return false;
-          }
-        }
+      ASSERT_ND(write_entry->mcs_block_ == 0);
+      if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
+        return false;
       }
       ASSERT_ND(write_entry->mcs_block_);
 

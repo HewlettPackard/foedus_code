@@ -169,7 +169,8 @@ ErrorCode HashStoragePimpl::get_record(
   uint16_t key_length,
   const HashCombo& combo,
   void* payload,
-  uint16_t* payload_capacity) {
+  uint16_t* payload_capacity,
+  bool read_only) {
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
   if (!bin_head) {
@@ -206,7 +207,7 @@ ErrorCode HashStoragePimpl::get_record(
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    location.hotness_address_));
+    read_only ? location.hotness_address_ : NULL));
   *payload_capacity = payload_length;
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset, payload_length);
@@ -220,7 +221,8 @@ ErrorCode HashStoragePimpl::get_record_part(
   const HashCombo& combo,
   void* payload,
   uint16_t payload_offset,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  bool read_only) {
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
   if (!bin_head) {
@@ -247,12 +249,14 @@ ErrorCode HashStoragePimpl::get_record_part(
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
+
+  // Give hotness_address_ if read-only, otherwise give NULL so add_to_read_set won't take lock
   CHECK_ERROR_CODE(cur_xct.add_to_read_set(
     context,
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    location.hotness_address_));
+    read_only ? location.hotness_address_ : NULL));
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset + payload_offset, payload_count);
   return kErrorCodeOk;

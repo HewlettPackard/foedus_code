@@ -100,6 +100,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   // figure out how many cores we have (basically by adding individual core counts up).
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
 
+  std::vector<YcsbKey> rmw_keys;
+  rmw_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+
   // Wait for the driver's order
   channel_->exit_nodes_--;
   ASSERT_ND(channel_->exit_nodes_ <= total_thread_count);
@@ -168,15 +171,23 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           }
 #endif
         } else {  // read-modify-write
+          // Get x different keys first
+          for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
+          retry:
+            rmw_keys[i] = build_rmw_key();
+            if (std::find(rmw_keys.begin(), rmw_keys.end(), rmw_keys[i]) != rmw_keys.end()) {
+              goto retry;
+            }
+          }
           for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
-            ret = do_rmw(build_rmw_key());
+            ret = do_rmw(rmw_keys[i]);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
           if (ret == kErrorCodeOk) {
             for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
-              ret = do_read(build_rmw_key());
+              ret = do_read(rmw_keys[workload_.reps_per_tx_ + i]);
               if (ret != kErrorCodeOk) {
                 break;
               }
@@ -243,13 +254,13 @@ ErrorCode YcsbClientTask::do_read(const YcsbKey& key) {
 #else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
-    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
+    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len, true));
   } else {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
     CHECK_ERROR_CODE(user_table_.get_record_part(context_,
-      key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
+      key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength, true));
   }
   return kErrorCodeOk;
 }
@@ -286,7 +297,8 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
       key.ptr(),
       key.size(),
       &r,
-      &payload_len));
+      &payload_len,
+      false));
   } else {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
@@ -297,7 +309,8 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
       key.size(),
       &r.data_[offset],
       offset,
-      kFieldLength));
+      kFieldLength,
+      false));
   }
 
   // Modify-Write

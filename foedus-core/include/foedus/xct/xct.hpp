@@ -458,7 +458,8 @@ inline ErrorCode Xct::add_to_read_set(
     observed_owner_id,
     owner_id_address,
     page_hotness_address));
-  if (storage::PageHeader::contains_hot_records(page_hotness_address)) {
+  ASSERT_ND(read->mcs_block_ == 0);
+  if (page_hotness_address && storage::PageHeader::contains_hot_records(page_hotness_address)) {
     read->mcs_block_ =
       context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
   }
@@ -538,57 +539,12 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   ASSERT_ND(observed_owner_id.is_valid());
 #ifndef NDEBUG
   log::invoke_assert_valid(log_entry);
+  {  // make sure we didn't take S-lock already
+    ReadXctAccess* read = get_read_access(owner_id_address);
+    ASSERT_ND(!read || !read->mcs_block_);
+  }
 #endif  // NDEBUG
-  // e.g., insert doesn't have this yet
-  if (page_hotness_address &&
-    storage::PageHeader::contains_hot_records(page_hotness_address)) {
-    auto* read = get_read_access(owner_id_address);
-    McsBlockIndex write_block = 0;
-    if (read && read->mcs_block_) {
-      // upgrade to X-lock
-      write_block = context->mcs_try_upgrade_reader_lock(
-        owner_id_address->get_key_lock(), read->mcs_block_);
-    } else {
-      // See if already X-locked
-      auto* write = get_write_access(owner_id_address);
-      if (write && write->mcs_block_) {
-        write_block = write->mcs_block_;
-      } else {
-        write_block = context->mcs_try_acquire_writer_lock(owner_id_address->get_key_lock());
-      }
-    }
-    if (!write_block) {
-      return kErrorCodeXctRaceAbort;
-    }
-    if (write_block && read) {
-      read->mcs_block_ = 0;
-    }
-    WriteXctAccess* write = write_set_ + write_set_size_;
-    CHECK_ERROR_CODE(
-      add_to_write_set(context, storage_id, owner_id_address, payload_address, log_entry));
-    ASSERT_ND(write->mcs_block_ == 0);
-    write->mcs_block_ = write_block;
-
-    // Put it in read set
-    read = read_set_ + read_set_size_;
-    // in this method, we force to add a read set because it's critical to confirm that
-    // the physical record we write to is still the one we found.
-    CHECK_ERROR_CODE(add_to_read_set_force(
-      context,
-      storage_id,
-      observed_owner_id,
-      owner_id_address,
-      page_hotness_address));
-    ASSERT_ND(read->mcs_block_ == 0);
-    ASSERT_ND(read->owner_id_address_ == owner_id_address);
-    read->related_write_ = write;
-    write->related_read_ = read;
-    ASSERT_ND(read->related_write_->related_read_ == read);
-    ASSERT_ND(write->related_read_->related_write_ == write);
-    ASSERT_ND(write->log_entry_ == log_entry);
-    ASSERT_ND(write->owner_id_address_ == owner_id_address);
-    ASSERT_ND(write->mcs_block_ == write_block);
-  } else {
+  {
     WriteXctAccess* write = write_set_ + write_set_size_;
     CHECK_ERROR_CODE(
       add_to_write_set(context, storage_id, owner_id_address, payload_address, log_entry));
@@ -615,51 +571,6 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   }
   ASSERT_ND(write_set_size_ > 0);
   return kErrorCodeOk;
- 
-  /*
-  WriteXctAccess* write = write_set_ + write_set_size_;
-  CHECK_ERROR_CODE(
-    add_to_write_set(context, storage_id, owner_id_address, payload_address, log_entry));
-  ASSERT_ND(write->mcs_block_ == 0);
-
-  // See if I already took the S-lock
-  ReadXctAccess* read = NULL;
-  read = get_read_access(owner_id_address);
-  xct::McsBlockIndex mcs_block = 0;
-  bool s_lock = false;
-  if (page_hotness_address) {
-    // e.g., insert doesn't have this yet
-    s_lock = storage::PageHeader::contains_hot_records(page_hotness_address);
-    if (read && read->mcs_block_) {
-      s_lock = false;
-      mcs_block = read->mcs_block_;
-    }
-  }
-
-  read = read_set_ + read_set_size_;
-  // in this method, we force to add a read set because it's critical to confirm that
-  // the physical record we write to is still the one we found.
-  CHECK_ERROR_CODE(add_to_read_set_force(
-    context,
-    storage_id,
-    observed_owner_id,
-    owner_id_address,
-    page_hotness_address));
-  ASSERT_ND(read->mcs_block_ == 0);
-  ASSERT_ND(read->owner_id_address_ == owner_id_address);
-  read->related_write_ = write;
-  write->related_read_ = read;
-  ASSERT_ND(read->related_write_->related_read_ == read);
-  ASSERT_ND(write->related_read_->related_write_ == write);
-  ASSERT_ND(write->log_entry_ == log_entry);
-  ASSERT_ND(write->owner_id_address_ == owner_id_address);
-  ASSERT_ND(write->mcs_block_ == 0);
-  if (s_lock) {
-    read->mcs_block_ =
-      context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
-  }
-  return kErrorCodeOk;
-  */
 }
 
 inline ErrorCode Xct::add_to_lock_free_write_set(

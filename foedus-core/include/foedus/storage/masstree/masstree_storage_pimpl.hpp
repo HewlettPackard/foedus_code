@@ -269,7 +269,8 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     SlotIndex index,
     xct::XctId observed,
     void* payload,
-    PayloadLength* payload_capacity);
+    PayloadLength* payload_capacity,
+    bool read_only);
   ErrorCode retrieve_part_general(
     thread::Thread* context,
     MasstreeBorderPage* border,
@@ -277,7 +278,8 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     xct::XctId observed,
     void* payload,
     PayloadLength payload_offset,
-    PayloadLength payload_count);
+    PayloadLength payload_count,
+    bool read_only);
 
   /** implementation of insert_record family. use with \b reserve_record() */
   ErrorCode insert_general(
