@@ -36,24 +36,8 @@ ErrorCode TpceClientTask::do_trade_order() {
   // This is also drastically simplified from the full spec.
   // Our intent here is to focus on the behavior around
   // TRADE/TRADE_TYPE. We aren't even trying the full spec.
-  const char* in_trade_type_id;
   uint32_t r = rnd_.next_uint32() % TradeTypeData::kCount;
-  switch (r) {
-    case TradeTypeData::kTlb:
-      in_trade_type_id = "TLB";
-      break;
-    case TradeTypeData::kTls:
-      in_trade_type_id = "TLS";
-      break;
-    case TradeTypeData::kTmb:
-      in_trade_type_id = "TMB";
-      break;
-    case TradeTypeData::kTms:
-      in_trade_type_id = "TMS";
-      break;
-    default:
-      in_trade_type_id = "TSL";
-  }
+  const char* in_trade_type_id = TradeTypeData::generate_type_id(r);
 
   // Lookup in TRADE_TYPE. It's just 5 records. Better to just scan all.
   TradeTypeData tt_record;
@@ -68,16 +52,32 @@ ErrorCode TpceClientTask::do_trade_order() {
   ASSERT_ND(type_found);
 
   // Frame-4
-  // This is about the same as full spec except that
-  // the inputs are directly coming from above code
-  // or fixed numbers.
+  // Inserted values are directly coming from above code or fixed values.
   const Datetime now_dts = get_articifical_current_dts();
   const TradeT tid = get_artificial_new_trade_id();
   DVLOG(3) << "tid=" << tid << ", now_dts=" << now_dts;
   TradeData record;
   record.dts_ = now_dts;
   record.id_ = tid;
-  // TODO(Hideaki) Set other fields. do the same as data loading...
+  std::memcpy(record.tt_id_, in_trade_type_id, sizeof(record.tt_id_));
+  record.symb_id_ = zipfian_symbol_.next();
+  ASSERT_ND(record.symb_id_ < scale_.get_security_cardinality());
+  record.ca_id_ = rnd_.next_uint64() % (scale_.customers_ * kAccountsPerCustomer);
+  record.tax_ = 0;
+  record.lifo_ = false;
+  record.trade_price_ = 0;
+
+  // Followings should be given as inputs, but we hard-code them for now.
+  std::memcpy(record.st_id_, "ACTV", sizeof(record.st_id_));
+  record.is_cash_ = true;
+  record.qty_ = 10;
+  record.bid_price_ = tt_record.is_mrkt_ ? 10000 : 11000;
+  std::memcpy(
+    record.exec_name_,
+    "01234567890123456789012345678901234567890123456789",
+    sizeof(record.exec_name_));
+  record.comm_ = 100;
+  record.chrg_ = 100;
 
   CHECK_ERROR_CODE(trades.insert_record<TradeT>(context_, tid, &record, sizeof(record)));
 

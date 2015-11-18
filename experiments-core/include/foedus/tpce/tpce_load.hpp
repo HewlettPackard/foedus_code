@@ -125,6 +125,12 @@ class TpceLoadTask {
 
   /** Loads the TradeType table. */
   ErrorStack load_trade_types();
+  ErrorStack load_trade_types_one_row(
+    uint16_t index,
+    const char* id,
+    const char* name,
+    bool is_sell,
+    bool is_mrkt);
 };
 
 /**

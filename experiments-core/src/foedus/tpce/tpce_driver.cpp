@@ -97,6 +97,7 @@ TpceDriver::Result TpceDriver::run() {
     options.thread_.get_total_thread_count(),
     static_cast<uint64_t>(FLAGS_customers),
     static_cast<uint64_t>(FLAGS_itd),
+    FLAGS_symbol_skew,
   };
 
   if (scale_.get_security_cardinality() > kMaxSymbT) {

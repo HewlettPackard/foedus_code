@@ -44,6 +44,7 @@ class ZipfianRandom {
     return sum;
   }
 
+ public:
   void init(uint64_t items, double theta, uint64_t urnd_seed) {
     max_ = items - 1;
     theta_ = theta;
@@ -53,12 +54,11 @@ class ZipfianRandom {
     urnd_.set_current_seed(urnd_seed);
   }
 
- public:
-  explicit ZipfianRandom(uint64_t items, double theta, uint64_t urnd_seed) {
+  ZipfianRandom(uint64_t items, double theta, uint64_t urnd_seed) {
     init(items, theta, urnd_seed);
   }
 
-  explicit ZipfianRandom() {}
+  ZipfianRandom() {}
 
   uint64_t next() {
     double u = urnd_.uniform_within(0, max_) / static_cast<double>(max_);
@@ -71,9 +71,12 @@ class ZipfianRandom {
       return 1;
     }
 
-    uint64_t ret = (uint64_t)(max_ * std::pow(eta_ * u - eta_ + 1, alpha_));
+    uint64_t ret = static_cast<uint64_t>(max_ * std::pow(eta_ * u - eta_ + 1, alpha_));
     return ret;
   }
+
+  uint64_t  get_current_seed() const { return urnd_.get_current_seed(); }
+  void      set_current_seed(uint64_t seed) { urnd_.set_current_seed(seed); }
 
  private:
   assorted::UniformRandom urnd_;

@@ -92,10 +92,12 @@ ErrorStack TpceClientTask::run_impl(thread::Thread* context) {
     const uint16_t kXctTradeOrderPercent = 80;
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_.get_current_seed();
+    uint64_t symbol_rnd_seed = zipfian_symbol_.get_current_seed();
 
     // abort-retry loop
     while (!is_stop_requested()) {
       rnd_.set_current_seed(rnd_seed);
+      zipfian_symbol_.set_current_seed(symbol_rnd_seed);
       WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       ErrorCode ret;
       if (transaction_type <= kXctTradeOrderPercent) {

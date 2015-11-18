@@ -52,8 +52,8 @@ ErrorCode TpceClientTask::do_trade_update() {
   const Datetime in_end_trade_dts = artificial_cur_dts_;
 
   // Input "symbol" is an ID in our implementation
-  // const SymbT max_symb_id = scale_.get_security_cardinality();
-  const SymbT symbol = 0;  // TODO(Hideaki) zipfian random [0,max_symb_id)
+  const SymbT symbol = zipfian_symbol_.next();
+  ASSERT_ND(symbol < scale_.get_security_cardinality());
   // Input "max_attr_id" is not used in the spec
 
   // Join TRADE with TRADE_TYPE.
@@ -113,7 +113,7 @@ ErrorCode TpceClientTask::do_trade_update() {
     outputs[fetched_rows].trade_dts_ = payload.dts_;
     std::memcpy(outputs[fetched_rows].trade_type_, payload.tt_id_, sizeof(payload.tt_id_));
 
-    // NLJ without index. Just
+    // NLJ without index. Just iterate through
     bool found = false;
     for (uint32_t j = 0; j < TradeTypeData::kCount; ++j) {
       if (std::memcmp(tt_records[j].id_, payload.tt_id_, sizeof(payload.tt_id_)) == 0) {

@@ -26,6 +26,7 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/engine.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/assorted/zipfian_random.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/memory/aligned_memory.hpp"
@@ -252,7 +253,31 @@ ErrorStack TpceLoadTask::load_trade_types() {
     return kRetOk;
   }
 
-  // TODO(Hideaki): Load the 5 rows to trade_types_
+  WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+
+  CHECK_ERROR(load_trade_types_one_row(TradeTypeData::kTlb, "TLB", "Limit-Buy", false, false));
+  CHECK_ERROR(load_trade_types_one_row(TradeTypeData::kTls, "TLS", "Limit-Sell", true, false));
+  CHECK_ERROR(load_trade_types_one_row(TradeTypeData::kTmb, "TMB", "Market-Buy", false, true));
+  CHECK_ERROR(load_trade_types_one_row(TradeTypeData::kTms, "TMS", "Market-Sell", true, true));
+  CHECK_ERROR(load_trade_types_one_row(TradeTypeData::kTsl, "TSL", "Stop-Loss", true, false));
+
+  Epoch commit_epoch;
+  WRAP_ERROR_CODE(xct_manager_->precommit_xct(context_, &commit_epoch));
+  return kRetOk;
+}
+
+ErrorStack TpceLoadTask::load_trade_types_one_row(
+  uint16_t index,
+  const char* id,
+  const char* name,
+  bool is_sell,
+  bool is_mrkt) {
+  TradeTypeData data;
+  std::memcpy(data.id_, id, sizeof(data.id_));
+  std::memcpy(data.name_, name, sizeof(data.name_));
+  data.is_sell_ = is_sell;
+  data.is_mrkt_ = is_mrkt;
+  WRAP_ERROR_CODE(storages_.trade_types_.overwrite_record(context_, index, &data));
   return kRetOk;
 }
 
@@ -276,6 +301,10 @@ ErrorStack TpceLoadTask::load_trades() {
   const Datetime dts_to = get_current_datetime();
   const Datetime dts_from = dts_to - scale_.initial_trade_days_ * 8U * 3600U;
   uint64_t in_partition_count = 0;
+  assorted::ZipfianRandom symbol_rnd(
+    scale_.get_security_cardinality(),
+    scale_.symbol_skew_,
+    partition_id_);
   for (IdentT cid = customer_from; cid < customer_to; ++cid) {
     for (IdentT ordinal = 0; ordinal < kAccountsPerCustomer; ++ordinal) {
       const IdentT ca = to_ca(cid, ordinal);
@@ -285,11 +314,63 @@ ErrorStack TpceLoadTask::load_trades() {
         const TradeT tid = get_new_trade_id(scale_, partition_id_, in_partition_count);
         DVLOG(3) << "tid=" << tid << ", secondary_key=" << secondary_key << ", ca=" << ca;
 
-        // TODO(Hideaki): ... Load the trades and symb_dts_index.
-        // Use the templated version of insert_record<TradeT> for trades,
-        // and use the insert_record_normalized for symb_dts_index.
-        // Commit and retry in case of race abort.
+        // Load the trades and symb_dts_index.
+        TradeData record;
+        record.dts_ = dts;
+        record.id_ = tid;
+        uint32_t type_index = rnd_.next_uint32() % TradeTypeData::kCount;
+        const char* type_id = TradeTypeData::generate_type_id(type_index);
+        std::memcpy(record.tt_id_, type_id, sizeof(record.tt_id_));
+        record.symb_id_ = symbol_rnd.next();
+        ASSERT_ND(record.symb_id_ < scale_.get_security_cardinality());
+        record.ca_id_ = rnd_.next_uint64() % (scale_.customers_ * kAccountsPerCustomer);
+        record.tax_ = 0;
+        record.lifo_ = false;
+        record.trade_price_ = 0;
+
+        // Followings should be also random, but we hard code them for now.
+        std::memcpy(record.st_id_, "ACTV", sizeof(record.st_id_));
+        record.is_cash_ = true;
+        record.qty_ = 10;
+        record.bid_price_ = 10000;
+        std::memcpy(
+          record.exec_name_,
+          "01234567890123456789012345678901234567890123456789",
+          sizeof(record.exec_name_));
+        record.comm_ = 100;
+        record.chrg_ = 100;
+
+        // Retry in case of race abort.
         // We might want to consider batching, but not mandatory.
+        while (true) {
+          ErrorCode ret = trades.insert_record<TradeT>(context_, tid, &record, sizeof(record));
+          if (ret == kErrorCodeXctRaceAbort) {
+            LOG(INFO) << "oops, race abort during load 1. retry..";
+            continue;
+          }
+          WRAP_ERROR_CODE(ret);
+
+          ret = symb_dts_index.insert_record_normalized(
+            context_,
+            secondary_key,
+            &tid,
+            sizeof(tid));
+          if (ret == kErrorCodeXctRaceAbort) {
+            LOG(INFO) << "oops, race abort during load 2. retry..";
+            continue;
+          }
+          WRAP_ERROR_CODE(ret);
+
+          Epoch commit_epoch;
+          ret = xct_manager_->precommit_xct(context_, &commit_epoch);
+          if (ret == kErrorCodeXctRaceAbort) {
+            LOG(INFO) << "oops, race abort during load 3. retry..";
+            continue;
+          }
+          WRAP_ERROR_CODE(ret);
+          break;
+        }
+
         ++in_partition_count;  // count up only when it didn't abort.
       }
     }

@@ -19,23 +19,18 @@
 #define FOEDUS_TPCE_TPCE_CLIENT_HPP_
 
 #include <stdint.h>
-#include <time.h>
 
 #include <atomic>
 #include <cstring>
-#include <set>
 #include <string>
-#include <vector>
 
 #include "foedus/error_stack.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/assorted/atomic_fences.hpp"
-#include "foedus/assorted/fixed_string.hpp"
 #include "foedus/assorted/uniform_random.hpp"
+#include "foedus/assorted/zipfian_random.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/proc/proc_id.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
-#include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/rendezvous_impl.hpp"
 #include "foedus/tpce/tpce.hpp"
@@ -175,6 +170,8 @@ class TpceClientTask {
 
   /** thread local random. */
   assorted::UniformRandom rnd_;
+  /** thread local random for symbol generation. */
+  assorted::ZipfianRandom zipfian_symbol_;
 
   /**
    * Run the TPCE TradeOrder transaction. See Section 3.3.7.

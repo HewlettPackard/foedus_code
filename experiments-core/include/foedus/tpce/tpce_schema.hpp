@@ -177,6 +177,13 @@ struct TpceScale {
    */
   uint64_t initial_trade_days_;
 
+  /**
+   * Skewness to pick a security symbol
+   * for both trade-order (insert) and other references.
+   * 0 means uniform. Higher value causes higher skew, skewing to lower symbol IDs.
+   */
+  double symbol_skew_;
+
   uint64_t get_tpse() const {
     return customers_ / 500U;
   }
@@ -300,6 +307,21 @@ struct TradeTypeData {
   // ah, these two make it 17 bytes. if we compact the two bools to
   // 1 byte (some DBMS does it), it will be 16 byte and save many things.
   // but for now I don't care...
+
+  static const char* generate_type_id(uint16_t index) {
+    switch (index) {
+      case TradeTypeData::kTlb:
+        return "TLB";
+      case TradeTypeData::kTls:
+        return "TLS";
+      case TradeTypeData::kTmb:
+        return "TMB";
+      case TradeTypeData::kTms:
+        return "TMS";
+      default:
+        return "TSL";
+    }
+  }
 };
 
 }  // namespace tpce
