@@ -1390,8 +1390,6 @@ const uint64_t kLockAcquireRetryBackoff = 1 << 2;  // wait for this many cycles 
 xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
   xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
-  int attempts = 0;
-retry:
   my_block->init_reader();
   ASSERT_ND(my_block->is_waiting());
   ASSERT_ND(my_block->is_reader());
@@ -1421,11 +1419,6 @@ retry:
       spin_until([my_block]{ return my_block->is_waiting(); });
       if (my_block->is_aborting()) {
         pass_group_tail_to_successor(my_block, my_tail_int);
-        if (++attempts < kLockReaderAcquireRetries) {
-          uint64_t loops = 0;
-          while (++loops < kLockAcquireRetryBackoff) {}
-          goto retry;
-        }
         return 0;
       } else {
         ASSERT_ND(mcs_rw_lock->nreaders() >= 1);  // pred should increment nreaders
@@ -1450,7 +1443,6 @@ retry:
           pred_block->set_successor_next_only(id_, block_index);
           spin_until([my_block]{ return my_block->is_waiting(); });
           ASSERT_ND(my_block->is_granted());
-          mcs_rw_lock->increment_readers_count();
         } else {
           // See if pred is really a holder
           if (pred_block->is_aborting()) {  // duang!! it's not a holder!
@@ -1526,57 +1518,32 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
   my_block->init_writer();
   uint32_t my_tail_int = xct::McsRwLock::to_tail_int(id_, block_index);
   uint32_t pred_tail_int = mcs_rw_lock->install_tail(my_tail_int);
-  xct::McsRwBlock* pred_block = NULL;
   if (pred_tail_int == 0) {
-    // Wait for the previous loser to go
-    spin_until([mcs_rw_lock]{
-      return mcs_rw_lock->next_writer_ != xct::McsRwLock::kNextWriterNone; });
-    // Set myself as the next writer, see if there's reader will pick me up, or timeout
-    mcs_rw_lock->set_next_writer(id_);
-    bool cleared = false;
     if (mcs_rw_lock->nreaders() == 0) {
-      // No readers, got lock
-      if (mcs_rw_lock->xchg_clear_next_writer() == id_) {
-        my_block->set_state_granted();
-        goto acquired;
-      }
-      cleared = true;
+      // No readers, got lock: nreaders() here is accurate and won't increase any more
+      // after I swapped my int to the tail: readers_counter is always incremented
+      // **before** setting the requesting reader's state to granted. This means if I
+      // found pred=0, either there is no one or there are readers but the last the
+      // preceeding readers released lock; e.g., there are readers R1->R2->R3 and tail
+      // is R3. Now R3 released the lock, tail=0. Now I came and found tail=0. In this
+      // case, if I found readers_count is 0, then I can be sure that there is no more
+      // readers because if R3 released the lock, that means R3 got lock before, which
+      // means R2 got lock before R3 did, so on until R1. R3 either got lock by finding
+      // R2 is already active, or by being waken up by R2. In both cases, before R3 got
+      // lock (ie set_state_granted()), we increment readers_count. So the situation
+      // where a reader is already gone and the other's readers_count is just incremented
+      // wont' happen.
+      my_block->set_state_granted();
+      goto acquired;
     }
-    /*
-      } else {
-        LOG(INFO) << id_ << " wait " << block_index;
-        spin_until([my_block]{ return my_block->is_waiting(); });
-        ASSERT_ND(my_block->is_granted());
-      }
-    } else {
-      */
-      // Give up: cancel next_writer, put 0 back to the tail,
-      // reset next_writer_, and notify successors to abort.
-      if (!cleared) {
-        ThreadId writer_id = mcs_rw_lock->xchg_clear_next_writer();
-      }
-      //if (writer_id == id_) {
-        // Lock still not available, should proceed with abort
-        ASSERT_ND(mcs_rw_lock->next_writer_ == xct::McsRwLock::kNextWriterNone);
-        uint32_t group_tail_int = mcs_rw_lock->install_tail(0);
-        if (group_tail_int != my_tail_int) {
-          spin_until([my_block]{ return !my_block->successor_is_ready(); });
-          my_block->set_state_aborting();
-          my_block->set_group_tail_int(group_tail_int);
-          pass_group_tail_to_successor(my_block, my_tail_int);
-        }  // otherwise nothing to do
-          //LOG(INFO) << "B1 " << mcs_rw_lock->nreaders();
-        return 0;
-      //} else {
-      /*
-        ASSERT_ND(false);
-        // OK, actually can get lock
-        LOG(INFO) << id_ << " wait " << block_index;
-        spin_until([my_block]{ return my_block->is_waiting(); });
-        ASSERT_ND(my_block->is_granted());
-        goto acquired;
-      }*/
-    //}
+    uint32_t group_tail_int = mcs_rw_lock->install_tail(0);
+    if (group_tail_int != my_tail_int) {
+      spin_until([my_block]{ return !my_block->successor_is_ready(); });
+      my_block->set_state_aborting();
+      my_block->set_group_tail_int(group_tail_int);
+      pass_group_tail_to_successor(my_block, my_tail_int);
+    }
+    return 0;
   } else {
     auto* pred_block = get_mcs_rw_block(pred_tail_int);
     if (pred_block->is_writer() && pred_block->is_releasing()) {
@@ -1584,6 +1551,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
       pred_block->set_successor_next_only(id_, block_index);
       spin_until([my_block]{ return my_block->is_waiting(); });
       ASSERT_ND(my_block->is_granted());
+      ASSERT_ND(mcs_rw_lock->nreaders() == 0);
       goto acquired;
     } else {
       // Have to make sure whether we should wait for order or lead the group to abort
@@ -1602,6 +1570,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
           return 0;
         }
         // Otherwise pred actually later got lock and released... potential deadlock here
+        ASSERT_ND(mcs_rw_lock->nreaders() == 0);
         goto acquired;
       } else {
         // Definitely pred is not waiting, if it's granted or releasing, I should proceed
@@ -1615,6 +1584,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
           pred_block->set_successor_next_only(id_, block_index);
           spin_until([my_block]{ return my_block->is_waiting(); });
           ASSERT_ND(my_block->is_granted());
+          ASSERT_ND(mcs_rw_lock->nreaders() == 0);
           goto acquired;
         } else {
           if (pred_block->is_aborting()) {  // wait for order
@@ -1627,7 +1597,6 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_
             my_block->set_group_tail_int(group_tail);
           }
           pass_group_tail_to_successor(my_block, my_tail_int);
-          //LOG(INFO) << "B3 " << mcs_rw_lock->nreaders();
           return 0;
         }
       }
@@ -1674,30 +1643,10 @@ retry:
       goto retry;
     }
     ASSERT_ND(my_block->successor_is_ready());
-    auto* sb = get_mcs_rw_block(my_block->successor_thread_id_, my_block->successor_block_index_);
-    if (sb->is_writer()) {
-      //mcs_rw_lock->set_next_writer(my_block->successor_thread_id_);
-    }
   } else {
     ASSERT_ND(!my_block->successor_is_ready());
   }
   mcs_rw_lock->decrement_readers_count();
-/*
-  ThreadId next_writer = assorted::atomic_load_acquire<ThreadId>(&mcs_rw_lock->next_writer_);
-  if (mcs_rw_lock->decrement_readers_count() == 1 &&
-    next_writer != xct::McsRwLock::kNextWriterNone &&
-    mcs_rw_lock->nreaders() == 0 &&
-    assorted::raw_atomic_compare_exchange_strong<ThreadId>(
-      &mcs_rw_lock->next_writer_, &next_writer, xct::McsRwLock::kNextWriterNone)) {
-      ThreadRef writer = pool_pimpl_->get_thread_ref(next_writer);
-      auto* writer_block = get_mcs_rw_block(
-        next_writer, writer.get_control_block()->mcs_block_current_);
-      ASSERT_ND(writer_block->is_writer());
-      ASSERT_ND(writer_block->is_waiting());
-      ASSERT_ND(mcs_rw_lock->nreaders() == 0);
-      writer_block->set_state_granted();
-  }
-  */
 }
 
 void ThreadPimpl::mcs_release_writer_lock(
@@ -1720,14 +1669,15 @@ retry:
     }
     // Must check successor_is_ready first
     if (!my_block->successor_is_ready() && (my_block->has_aborting_successor())) {
-      uint64_t loops = 0;
-      while (++loops < kLockAcquireRetryBackoff) {}
       goto retry;
     }
     ASSERT_ND(my_block->successor_is_ready());
     auto* sb = get_mcs_rw_block(my_block->successor_thread_id_, my_block->successor_block_index_);
     ASSERT_ND(sb->is_waiting());
-    // If sb is a reader, it will increment_readers_count itself
+    // If sb is a reader, must increment_readers_count before set_state_granted
+    if (sb->is_reader()) {
+      mcs_rw_lock->increment_readers_count();
+    }
     sb->set_state_granted();
   } else {
     ASSERT_ND(!my_block->successor_is_ready());
