@@ -35,6 +35,7 @@
 #include "foedus/storage/array/array_metadata.hpp"
 #include "foedus/storage/array/array_storage.hpp"
 #include "foedus/storage/hash/hash_id.hpp"
+#include "foedus/storage/hash/hash_metadata.hpp"
 #include "foedus/storage/hash/hash_storage.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
