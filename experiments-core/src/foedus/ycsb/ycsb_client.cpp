@@ -91,13 +91,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
   // figure out how many cores we have (basically by adding individual core counts up).
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
-  assorted::ZipfianRandom zrnd_key_high(total_thread_count, zipfian_theta_, total_thread_count);
-  // One zrnd per thread-partition
-  std::vector<assorted::ZipfianRandom> vec_zrnd_key_low;
-  for (uint32_t c = 0; c < total_thread_count; c++) {
-    auto cnt = get_local_key_counter(engine_, c)->key_counter_;
-    vec_zrnd_key_low.emplace_back(cnt, zipfian_theta_, c);
-  }
+
+  std::vector<YcsbKey> access_keys;
+  access_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -109,10 +105,24 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     uint16_t xct_type = rnd_xct_select_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_xct_select_.get_current_seed();
+    uint64_t scan_length_rnd_seed = rnd_scan_length_select_.get_current_seed();
+
+    // Get x different keys first
+    if (access_keys.size() == 0) {
+      for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
+        YcsbKey k = build_rmw_key();
+        while (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
+          k = build_rmw_key();
+        }
+        access_keys.push_back(k);
+      }
+    }
+    ASSERT_ND(access_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
 
     // abort-retry loop
     while (!is_stop_requested()) {
       rnd_xct_select_.set_current_seed(rnd_seed);
+      rnd_scan_length_select_.set_current_seed(scan_length_rnd_seed);
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
       ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
@@ -133,16 +143,24 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
             } else {
               (*low)++;
             }
+          } else {
+            break;
           }
         }
       } else {
         if (xct_type <= workload_.read_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_read(build_rus_key(total_thread_count));
+            ret = do_read(access_keys[reps]);
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
         } else if (xct_type <= workload_.update_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_update(build_rus_key(total_thread_count));
+            ret = do_update(access_keys[reps]);
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
         } else if (xct_type <= workload_.scan_percent_) {
 #ifdef YCSB_HASH_STORAGE
@@ -152,33 +170,41 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
             auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
             increment_total_scans();
-            ret = do_scan(build_rus_key(total_thread_count), nrecs);
+            ret = do_scan(access_keys[reps], nrecs);
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
 #endif
         } else {  // read-modify-write
-          for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            auto hi = zrnd_key_high.next();
-            auto lo = vec_zrnd_key_low[hi].next();
-            ret = do_rmw(build_key(hi, lo));
+          for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
+            ret = do_rmw(access_keys[i]);
+            if (ret != kErrorCodeOk) {
+              break;
+            }
           }
-          for (int32_t ar = 0; ar < workload_.rmw_additional_reads_; ar++) {
-            // Follow skewed accessed in RMW
-            auto hi = zrnd_key_high.next();
-            auto lo = vec_zrnd_key_low[hi].next();
-            ret = do_read(build_key(hi, lo));
+          if (ret == kErrorCodeOk) {
+            for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
+              ret = do_read(access_keys[workload_.reps_per_tx_ + i]);
+              if (ret != kErrorCodeOk) {
+                break;
+              }
+            }
           }
         }
       }
 
       // Done with data access, try to commit
       Epoch commit_epoch;
-      ret = xct_manager_->precommit_xct(context_, &commit_epoch);
       if (ret == kErrorCodeOk) {
-        ASSERT_ND(!context->is_running_xct());
-        break;
-      }
-
-      if (context->is_running_xct()) {
+        ret = xct_manager_->precommit_xct(context_, &commit_epoch);
+        if (ret == kErrorCodeOk) {
+          ASSERT_ND(!context->is_running_xct());
+          access_keys.clear();
+          break;
+        }
+      } else {
+        ASSERT_ND(context->is_running_xct());
         WRAP_ERROR_CODE(xct_manager_->abort_xct(context));
       }
 
