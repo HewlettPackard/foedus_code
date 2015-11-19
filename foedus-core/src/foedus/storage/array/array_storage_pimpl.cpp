@@ -380,7 +380,6 @@ inline ErrorCode ArrayStoragePimpl::get_record(
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    context,
     &context->get_current_xct(),
     get_id(),
     &record->owner_id_,
@@ -403,7 +402,6 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    context,
     &context->get_current_xct(),
     get_id(),
     &record->owner_id_,
@@ -528,7 +526,6 @@ ErrorCode ArrayStoragePimpl::increment_record(
   // To make use of it, we do have array increment log with primitive type as parameter.
   // FIXME(tzwang): no need to lock for this?
   CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    context,
     &context->get_current_xct(),
     get_id(),
     &record->owner_id_,

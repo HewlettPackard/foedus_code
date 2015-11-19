@@ -548,9 +548,7 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
 bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
-  ReadXctAccess* read_set = current_xct.get_read_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
-  uint32_t        read_set_size = current_xct.get_read_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
   precommit_xct_sort_access(context);

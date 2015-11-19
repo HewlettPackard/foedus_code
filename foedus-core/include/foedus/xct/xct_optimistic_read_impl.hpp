@@ -37,7 +37,6 @@ namespace xct {
  */
 template <typename HANDLER>
 inline ErrorCode optimistic_read_protocol(
-  thread::Thread* context,
   Xct* xct,
   storage::StorageId storage_id,
   RwLockableXctId* owner_id_address,
@@ -55,7 +54,7 @@ inline ErrorCode optimistic_read_protocol(
   // The Masstree paper additionally has another fence and version-check and then a retry if the
   // version differs. However, in our protocol such thing is anyway caught in commit phase.
   // Thus, we have only one fence here.
-  return xct->add_to_read_set_force(context, storage_id, observed, owner_id_address, NULL);
+  return xct->add_to_read_set_force(storage_id, observed, owner_id_address, NULL);
 }
 
 }  // namespace xct

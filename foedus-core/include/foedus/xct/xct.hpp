@@ -199,7 +199,6 @@ class Xct {
     uint8_t* page_hotness_address) ALWAYS_INLINE;
   /** This version always adds to read set regardless of isolation level. */
   ErrorCode           add_to_read_set_force(
-    thread::Thread* context,
     storage::StorageId storage_id,
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,
@@ -444,7 +443,6 @@ inline ErrorCode Xct::add_to_read_set(
 
   // See if I already took the S-lock
   ReadXctAccess* read = NULL;
-  xct::McsBlockIndex mcs_block = 0;
   read = get_read_access(owner_id_address);
   if (read && read->mcs_block_) {
     return kErrorCodeOk;
@@ -453,7 +451,6 @@ inline ErrorCode Xct::add_to_read_set(
   // Either no need to S-lock or didn't hold an S-lock before
   read = read_set_ + read_set_size_;
   CHECK_ERROR_CODE(add_to_read_set_force(
-    context,
     storage_id,
     observed_owner_id,
     owner_id_address,
@@ -468,7 +465,6 @@ inline ErrorCode Xct::add_to_read_set(
 
 // Unconditionally insert a new entry without taking lock.
 inline ErrorCode Xct::add_to_read_set_force(
-  thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
@@ -554,7 +550,6 @@ inline ErrorCode Xct::add_to_read_and_write_set(
     // in this method, we force to add a read set because it's critical to confirm that
     // the physical record we write to is still the one we found.
     CHECK_ERROR_CODE(add_to_read_set_force(
-      context,
       storage_id,
       observed_owner_id,
       owner_id_address,
