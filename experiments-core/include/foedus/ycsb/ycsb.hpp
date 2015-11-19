@@ -91,11 +91,8 @@ struct PerWorkerCounter {
   char padding_[assorted::kCachelineSize - sizeof(uint32_t)];
 };
 
-class YcsbKey {
- private:
+struct YcsbKey {
   assorted::FixedString<kKeyMaxLength> data_;
-
- public:
   YcsbKey() {}
   YcsbKey& build(uint32_t high_bits, uint32_t low_bits);
 

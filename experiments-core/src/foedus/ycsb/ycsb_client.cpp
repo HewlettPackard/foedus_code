@@ -110,14 +110,14 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     // Get x different keys first
     if (access_keys.size() == 0) {
       for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
-      retry:
-        YcsbKey &k = build_rmw_key();
-        if (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
-          goto retry;
+        YcsbKey k = build_rmw_key();
+        while (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
+          k = build_rmw_key();
         }
-        access_keys[i] = k;
+        access_keys.push_back(k);
       }
     }
+    ASSERT_ND(access_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
 
     // abort-retry loop
     while (!is_stop_requested()) {
