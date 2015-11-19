@@ -76,14 +76,6 @@ ErrorStack ycsb_client_task(const proc::ProcArguments& args) {
   return result;
 }
 
-#define BREAK_ON_FAILURE(ret) \
-{ \
-  if (ret != kErrorCodeOk) {  \
-    break;                    \
-  } \
-}
-
-
 ErrorStack YcsbClientTask::run(thread::Thread* context) {
   context_ = context;
   ASSERT_ND(context_);
@@ -119,10 +111,11 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     if (access_keys.size() == 0) {
       for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
       retry:
-        access_keys[i] = build_rmw_key();
-        if (std::find(access_keys.begin(), access_keys.end(), access_keys[i]) != access_keys.end()) {
+        YcsbKey &k = build_rmw_key();
+        if (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
           goto retry;
         }
+        access_keys[i] = k;
       }
     }
 
