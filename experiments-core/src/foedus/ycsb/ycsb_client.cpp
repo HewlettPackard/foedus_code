@@ -100,8 +100,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   // figure out how many cores we have (basically by adding individual core counts up).
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
 
-  std::vector<YcsbKey> rmw_keys;
-  rmw_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+  std::vector<YcsbKey> access_keys;
+  access_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -113,10 +113,23 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     uint16_t xct_type = rnd_xct_select_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_xct_select_.get_current_seed();
+    uint64_t scan_length_rnd_seed = rnd_scan_length_select_.get_current_seed();
+
+    // Get x different keys first
+    if (access_keys.size() == 0) {
+      for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
+      retry:
+        access_keys[i] = build_rmw_key();
+        if (std::find(access_keys.begin(), access_keys.end(), access_keys[i]) != access_keys.end()) {
+          goto retry;
+        }
+      }
+    }
 
     // abort-retry loop
     while (!is_stop_requested()) {
       rnd_xct_select_.set_current_seed(rnd_seed);
+      rnd_scan_length_select_.set_current_seed(scan_length_rnd_seed);
       WRAP_ERROR_CODE(xct_manager_->begin_xct(context, xct::kSerializable));
       ErrorCode ret = kErrorCodeOk;
       if (xct_type <= workload_.insert_percent_) {
@@ -144,14 +157,14 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       } else {
         if (xct_type <= workload_.read_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_read(build_rus_key(total_thread_count));
+            ret = do_read(access_keys[reps]);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
         } else if (xct_type <= workload_.update_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_update(build_rus_key(total_thread_count));
+            ret = do_update(access_keys[reps]);
             if (ret != kErrorCodeOk) {
               break;
             }
@@ -164,30 +177,22 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
             auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
             increment_total_scans();
-            ret = do_scan(build_rus_key(total_thread_count), nrecs);
+            ret = do_scan(access_keys[reps], nrecs);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
 #endif
         } else {  // read-modify-write
-          // Get x different keys first
-          for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
-          retry:
-            rmw_keys[i] = build_rmw_key();
-            if (std::find(rmw_keys.begin(), rmw_keys.end(), rmw_keys[i]) != rmw_keys.end()) {
-              goto retry;
-            }
-          }
           for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
-            ret = do_rmw(rmw_keys[i]);
+            ret = do_rmw(access_keys[i]);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
           if (ret == kErrorCodeOk) {
             for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
-              ret = do_read(rmw_keys[workload_.reps_per_tx_ + i]);
+              ret = do_read(access_keys[workload_.reps_per_tx_ + i]);
               if (ret != kErrorCodeOk) {
                 break;
               }
@@ -202,6 +207,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         ret = xct_manager_->precommit_xct(context_, &commit_epoch);
         if (ret == kErrorCodeOk) {
           ASSERT_ND(!context->is_running_xct());
+          access_keys.clear();
           break;
         }
       } else {
