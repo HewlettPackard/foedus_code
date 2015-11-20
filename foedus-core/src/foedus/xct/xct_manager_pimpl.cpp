@@ -551,13 +551,13 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   uint32_t        write_set_size = current_xct.get_write_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
-  precommit_xct_sort_access(context);
+  //precommit_xct_sort_access(context);
 
 #ifndef NDEBUG
   // Initially, write-sets must be ordered by the insertion order, and no X-locks taken.
   for (uint32_t i = 0; i < write_set_size; ++i) {
     ASSERT_ND(write_set[i].write_set_ordinal_ == i);
-    ASSERT_ND(write_set[i].mcs_block_ == 0);
+    //ASSERT_ND(write_set[i].mcs_block_ == 0);
   }
 #endif  // NDEBUG
 
@@ -599,7 +599,10 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
       // Fast forward to the last repeated read/write for the same record
       if (write_set_index < write_set_size - 1 &&
         write_entry->owner_id_address_ == write_set[write_set_index + 1].owner_id_address_) {
-        ASSERT_ND(write_entry->mcs_block_ == 0);  // haven't X-locked it yet
+        if (write_entry->mcs_block_) {
+          write_set[write_set_index + 1].mcs_block_ = write_entry->mcs_block_;
+          write_entry->mcs_block_ = 0;
+        }
         DVLOG(0) << *context << " Multiple write sets on record "
           << st->get_name(write_entry->storage_id_)
           << ":" << write_entry->owner_id_address_
@@ -620,8 +623,8 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
         continue;
       }
 
-      ASSERT_ND(write_entry->mcs_block_ == 0);
-      if (!precommit_xct_acquire_writer_lock(context, write_entry)) {
+      //ASSERT_ND(write_entry->mcs_block_ == 0);
+      if (!write_entry->mcs_block_ && !precommit_xct_acquire_writer_lock(context, write_entry)) {
         return false;
       }
       ASSERT_ND(write_entry->mcs_block_);

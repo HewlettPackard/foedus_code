@@ -212,7 +212,8 @@ class Xct {
     storage::StorageId storage_id,
     RwLockableXctId* owner_id_address,
     char* payload_address,
-    log::RecordLogType* log_entry) ALWAYS_INLINE;
+    log::RecordLogType* log_entry,
+    uint8_t* page_hotness_address) ALWAYS_INLINE;
 
   /**
    * @brief Add the given record to the write set of this transaction.
@@ -221,7 +222,8 @@ class Xct {
     thread::Thread* context,
     storage::StorageId storage_id,
     storage::Record* record,
-    log::RecordLogType* log_entry) ALWAYS_INLINE;
+    log::RecordLogType* log_entry,
+    uint8_t* page_hotness_address) ALWAYS_INLINE;
 
   /**
    * @brief Add a pair of read and write set of this transaction.
@@ -492,8 +494,10 @@ inline ErrorCode Xct::add_to_write_set(
   thread::Thread* context,
   storage::StorageId storage_id,
   storage::Record* record,
-  log::RecordLogType* log_entry) {
-  return add_to_write_set(context, storage_id, &record->owner_id_, record->payload_, log_entry);
+  log::RecordLogType* log_entry,
+  uint8_t* page_hotness_address) {
+  return add_to_write_set(
+    context, storage_id, &record->owner_id_, record->payload_, log_entry, page_hotness_address);
 }
 
 inline ErrorCode Xct::add_to_write_set(
@@ -501,7 +505,8 @@ inline ErrorCode Xct::add_to_write_set(
   storage::StorageId storage_id,
   RwLockableXctId* owner_id_address,
   char* payload_address,
-  log::RecordLogType* log_entry) {
+  log::RecordLogType* log_entry,
+  uint8_t* page_hotness_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(payload_address);
@@ -540,11 +545,11 @@ inline ErrorCode Xct::add_to_read_and_write_set(
     ASSERT_ND(!read || !read->mcs_block_);
   }
 #endif  // NDEBUG
-  {
-    WriteXctAccess* write = write_set_ + write_set_size_;
-    CHECK_ERROR_CODE(
-      add_to_write_set(context, storage_id, owner_id_address, payload_address, log_entry));
-    ASSERT_ND(write->mcs_block_ == 0);
+  WriteXctAccess* write = get_write_access(owner_id_address);
+  if (!write || !write->mcs_block_) {
+    write = write_set_ + write_set_size_;
+    CHECK_ERROR_CODE(add_to_write_set(
+      context, storage_id, owner_id_address, payload_address, log_entry, page_hotness_address));
 
     auto* read = read_set_ + read_set_size_;
     // in this method, we force to add a read set because it's critical to confirm that
@@ -562,7 +567,6 @@ inline ErrorCode Xct::add_to_read_and_write_set(
     ASSERT_ND(write->related_read_->related_write_ == write);
     ASSERT_ND(write->log_entry_ == log_entry);
     ASSERT_ND(write->owner_id_address_ == owner_id_address);
-    ASSERT_ND(write->mcs_block_ == 0);
   }
   ASSERT_ND(write_set_size_ > 0);
   return kErrorCodeOk;

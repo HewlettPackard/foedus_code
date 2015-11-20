@@ -51,7 +51,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
-
+//FIXME(tzwang): overwrite_record here doesn't add to read set, should we?
 // Defines ArrayStorage methods so that we can inline implementation calls
 uint16_t    ArrayStorage::get_payload_size() const  { return control_block_->meta_.payload_size_; }
 ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->meta_.array_size_; }
@@ -486,7 +486,8 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry);
+    log_entry,
+    NULL);
 }
 
 template <typename T>
@@ -505,7 +506,8 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry);
+    log_entry,
+    NULL);
 }
 
 template <typename T>
@@ -545,7 +547,8 @@ ErrorCode ArrayStoragePimpl::increment_record(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry);
+    log_entry,
+    NULL);
 }
 
 template <typename T>
@@ -567,7 +570,8 @@ ErrorCode ArrayStoragePimpl::increment_record_oneshot(
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry);
+    log_entry,
+    NULL);
 }
 
 inline ErrorCode ArrayStoragePimpl::lookup_for_read(

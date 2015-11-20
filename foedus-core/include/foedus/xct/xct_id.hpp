@@ -354,14 +354,6 @@ struct McsRwBlock {
     assorted::raw_atomic_fetch_and_bitwise_and<uint64_t>(
       reinterpret_cast<uint64_t *>(this), *reinterpret_cast<uint64_t *>(&tmp));
   }
-  /*
-  inline void set_successor_class_writer() ALWAYS_INLINE {
-    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
-    ASSERT_ND(s == kSuccessorClassNone);
-    assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
-      &self_.components_.successor_class_, kSuccessorClassWriter);
-  }
-  */
 };
 
 /**
