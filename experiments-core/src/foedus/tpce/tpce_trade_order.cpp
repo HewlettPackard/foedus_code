@@ -22,6 +22,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/storage/storage.hpp"
 #include "foedus/storage/storage_manager.hpp"
+#include "foedus/xct/xct_manager.hpp"
 
 namespace foedus {
 namespace tpce {
@@ -87,7 +88,8 @@ ErrorCode TpceClientTask::do_trade_order() {
     secondary_key,
     &tid,
     sizeof(tid)));
-  return kErrorCodeOk;
+  Epoch ep;
+  return engine_->get_xct_manager()->precommit_xct(context_, &ep);
 }
 
 }  // namespace tpce

@@ -147,6 +147,12 @@ typedef uint32_t SymbT;
  */
 const SymbT kMaxSymbT = 1U << 20;
 
+/**
+ * The spec says CUSTOMER_ACCOUNT's cardinality is always
+ * 5 * customers. Our implementation thus constructs
+ * Customer Account (CA_ID) as CID * 5 + [0,5).
+ */
+const IdentT kAccountsPerCustomer = 5;
 
 /**
  * Parameters to determine the size of TPC-E tables.
@@ -189,7 +195,7 @@ struct TpceScale {
   }
 
   uint64_t calculate_initial_trade_cardinality() const {
-    return initial_trade_days_ * 8ULL * 3600ULL * get_tpse();
+    return initial_trade_days_ * 8ULL * 36ULL * customers_ / 5U;
   }
 
   uint64_t get_security_cardinality() const {
@@ -225,13 +231,6 @@ struct TradeData {
   bool      lifo_;
 };
 
-/**
- * The spec says CUSTOMER_ACCOUNT's cardinality is always
- * 5 * customers. Our implementation thus constructs
- * Customer Account (CA_ID) as CID * 5 + [0,5).
- */
-const IdentT kAccountsPerCustomer = 5;
-
 inline IdentT to_cid_from_ca(IdentT ca) {
   return ca / kAccountsPerCustomer;
 }
@@ -257,7 +256,7 @@ inline SymbDtsKey to_symb_dts_key(SymbT symb_id, Datetime dts, PartitionT partit
   return ret;
 }
 inline SymbT to_symb_from_symb_dts_key(SymbDtsKey key) {
-  return static_cast<SymbT>(key >> 42);
+  return static_cast<SymbT>(key >> 44);
 }
 inline Datetime to_dts_from_symb_dts_key(SymbDtsKey key) {
   return static_cast<Datetime>(key >> 12);

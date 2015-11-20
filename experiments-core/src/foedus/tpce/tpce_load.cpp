@@ -297,85 +297,182 @@ ErrorStack TpceLoadTask::load_trades() {
     (partition_id_ + 1U == scale_.total_partitions_
       ? scale_.customers_
       : customer_from + customers_per_pertition);
+  const IdentT customer_count = customer_to - customer_from;
 
   // const SymbT max_symb_id = scale_.get_security_cardinality();
   const Datetime dts_to = get_current_datetime();
-  const Datetime dts_from = dts_to - scale_.initial_trade_days_ * 8U * 3600U;
-  uint64_t in_partition_count = 0;
+  const uint64_t in_partition_count
+    = scale_.calculate_initial_trade_cardinality() / scale_.total_partitions_;
+  ASSERT_ND(in_partition_count > 0);
+
+  // For faster data loading, we sort secondary key in a thread-private array
+  // then insert. We might want to consider batching, but not mandatory.
+  struct SecondaryKeyValue {
+    SymbDtsKey key_;
+    TradeT value_;
+    bool operator<(const SecondaryKeyValue& rhs) const { return key_ < rhs.key_; }
+  };
+  memory::AlignedMemory secondary_buffer;
+  const uint64_t secondary_size = sizeof(SecondaryKeyValue) * in_partition_count;
+  LOG(INFO) << "Data Loader-" << partition_id_ << " allocating "
+    << (secondary_size / 1000000.0) << " MBs for private sort buffer...";
+  secondary_buffer.alloc_onnode(secondary_size, 1U << 21, context_->get_numa_node());
+  if (secondary_buffer.is_null()) {
+    return ERROR_STACK_MSG(kErrorCodeOutofmemory, "We need more hugepages for secondary buffer.");
+  }
+
+  SecondaryKeyValue* secondary_array
+    = reinterpret_cast<SecondaryKeyValue*>(secondary_buffer.get_block());
   assorted::ZipfianRandom symbol_rnd(
     scale_.get_security_cardinality(),
     scale_.symbol_skew_,
     partition_id_);
-  for (IdentT cid = customer_from; cid < customer_to; ++cid) {
-    for (IdentT ordinal = 0; ordinal < kAccountsPerCustomer; ++ordinal) {
+  LOG(INFO) << "Data Loader-" << partition_id_ << " started loading TRADE.";
+
+  // insert to the main TRADE storage first. The key (TradeT) is nicely sorted here,
+  // no need for additional sorting.
+  debugging::StopWatch main_watch;
+  const uint64_t kPrimaryBatchSize = 64;
+  TradeData primary_array[kPrimaryBatchSize];
+  for (uint64_t batch = 0; batch * kPrimaryBatchSize < in_partition_count; ++batch) {
+    const uint64_t batch_from = batch * kPrimaryBatchSize;
+    const uint64_t batch_to
+      = std::min<uint64_t>((batch + 1ULL) * kPrimaryBatchSize, in_partition_count);
+    if (batch % (1U << 10) == 0) {
+      LOG(INFO) << "Data Loader-" << partition_id_ << " loading TRADE... "
+        << batch_from << "/" << in_partition_count;
+    }
+
+    for (uint64_t i = batch_from; i < batch_to; ++i) {
+      const Datetime dts = dts_to - in_partition_count + i;
+      const IdentT cid = (rnd_.next_uint32() % customer_count) + customer_from;
+      const IdentT ordinal = 0;  // always use the first account of the customer
       const IdentT ca = to_ca(cid, ordinal);
-      for (Datetime dts = dts_from; dts < dts_to; ++dts) {
-        const SymbT symb_id = 0;  // TODO(Hideaki) zipfian random [0, max_symb_id)
-        const SymbDtsKey secondary_key = to_symb_dts_key(symb_id, dts, partition_id_);
-        const TradeT tid = get_new_trade_id(scale_, partition_id_, in_partition_count);
-        DVLOG(3) << "tid=" << tid << ", secondary_key=" << secondary_key << ", ca=" << ca;
+      const SymbT symb_id = symbol_rnd.next();
+      const SymbDtsKey secondary_key = to_symb_dts_key(symb_id, dts, partition_id_);
+      const TradeT tid = get_new_trade_id(scale_, partition_id_, i);
+      DVLOG(3) << "tid=" << tid << ", secondary_key=" << secondary_key;
+      secondary_array[i].key_ = secondary_key;
+      secondary_array[i].value_ = tid;
 
-        // Load the trades and symb_dts_index.
-        TradeData record;
-        record.dts_ = dts;
-        record.id_ = tid;
-        uint32_t type_index = rnd_.next_uint32() % TradeTypeData::kCount;
-        const char* type_id = TradeTypeData::generate_type_id(type_index);
-        std::memcpy(record.tt_id_, type_id, sizeof(record.tt_id_));
-        record.symb_id_ = symbol_rnd.next();
-        ASSERT_ND(record.symb_id_ < scale_.get_security_cardinality());
-        record.ca_id_ = rnd_.next_uint64() % (scale_.customers_ * kAccountsPerCustomer);
-        record.tax_ = 0;
-        record.lifo_ = false;
-        record.trade_price_ = 0;
+      // Load the trades and symb_dts_index.
+      TradeData& record = primary_array[i - batch_from];
+      record.dts_ = dts;
+      record.id_ = tid;
+      uint32_t type_index = rnd_.next_uint32() % TradeTypeData::kCount;
+      const char* type_id = TradeTypeData::generate_type_id(type_index);
+      std::memcpy(record.tt_id_, type_id, sizeof(record.tt_id_));
+      record.symb_id_ = symb_id;
+      record.ca_id_ = ca;
+      record.tax_ = 0;
+      record.lifo_ = false;
+      record.trade_price_ = 0;
 
-        // Followings should be also random, but we hard code them for now.
-        std::memcpy(record.st_id_, "ACTV", sizeof(record.st_id_));
-        record.is_cash_ = true;
-        record.qty_ = 10;
-        record.bid_price_ = 10000;
-        std::memcpy(
-          record.exec_name_,
-          "01234567890123456789012345678901234567890123456789",
-          sizeof(record.exec_name_));
-        record.comm_ = 100;
-        record.chrg_ = 100;
+      // Followings should be also random, but we hard code them for now.
+      std::memcpy(record.st_id_, "ACTV", sizeof(record.st_id_));
+      record.is_cash_ = true;
+      record.qty_ = 10;
+      record.bid_price_ = 10000;
+      std::memcpy(
+        record.exec_name_,
+        "01234567890123456789012345678901234567890123456789",
+        sizeof(record.exec_name_));
+      record.comm_ = 100;
+      record.chrg_ = 100;
+    }
 
-        // Retry in case of race abort.
-        // We might want to consider batching, but not mandatory.
-        while (true) {
-          ErrorCode ret = trades.insert_record<TradeT>(context_, tid, &record, sizeof(record));
-          if (ret == kErrorCodeXctRaceAbort) {
-            LOG(INFO) << "oops, race abort during load 1. retry..";
-            continue;
+    // Retry in case of race abort.
+    while (true) {
+      WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+
+      bool has_error = false;
+      for (uint64_t i = batch_from; i < batch_to; ++i) {
+        const TradeData& record = primary_array[i - batch_from];
+        ErrorCode ret = trades.insert_record<TradeT>(context_, record.id_, &record, sizeof(record));
+        if (ret == kErrorCodeXctRaceAbort) {
+          LOG(WARNING) << "oops, race abort during load 1. retry..";
+          has_error = true;
+          if (context_->is_running_xct()) {
+            WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
           }
-          WRAP_ERROR_CODE(ret);
-
-          ret = symb_dts_index.insert_record_normalized(
-            context_,
-            secondary_key,
-            &tid,
-            sizeof(tid));
-          if (ret == kErrorCodeXctRaceAbort) {
-            LOG(INFO) << "oops, race abort during load 2. retry..";
-            continue;
-          }
-          WRAP_ERROR_CODE(ret);
-
-          Epoch commit_epoch;
-          ret = xct_manager_->precommit_xct(context_, &commit_epoch);
-          if (ret == kErrorCodeXctRaceAbort) {
-            LOG(INFO) << "oops, race abort during load 3. retry..";
-            continue;
-          }
-          WRAP_ERROR_CODE(ret);
           break;
         }
-
-        ++in_partition_count;  // count up only when it didn't abort.
+        WRAP_ERROR_CODE(ret);
       }
+
+      if (has_error) {
+        continue;
+      }
+      Epoch commit_epoch;
+      ErrorCode ret = xct_manager_->precommit_xct(context_, &commit_epoch);
+      if (ret == kErrorCodeXctRaceAbort) {
+        LOG(WARNING) << "oops, race abort during load 3. retry..";
+        continue;
+      }
+      WRAP_ERROR_CODE(ret);
+      break;
     }
   }
+
+  main_watch.stop();
+  LOG(INFO) << "Data Loader-" << partition_id_ << " inserted to main TRADE storage in "
+    << main_watch.elapsed_sec() << " sec."
+    << " now pre-sorting secondary keys before insertion...";
+  debugging::StopWatch sort_watch;
+  std::sort(secondary_array, secondary_array + in_partition_count);
+  sort_watch.stop();
+  LOG(INFO) << "Data Loader-" << partition_id_ << " pre-sorted TRADE secondary key in "
+    << main_watch.elapsed_sec() << " sec."
+    << " now inserting the secondary index...";
+
+  debugging::StopWatch index_watch;
+  // Batch insert them. These key/values are small.
+  const uint64_t kSecondaryBatchSize = 128;
+  for (uint64_t batch = 0; batch * kSecondaryBatchSize < in_partition_count; ++batch) {
+    const uint64_t batch_from = batch * kSecondaryBatchSize;
+    const uint64_t batch_to
+      = std::min<uint64_t>((batch + 1ULL) * kSecondaryBatchSize, in_partition_count);
+
+    // Retry in case of race abort.
+    while (true) {
+      WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+
+      bool has_error = false;
+      for (uint64_t i = batch_from; i < batch_to; ++i) {
+        const SecondaryKeyValue& kv = secondary_array[i];
+        ErrorCode ret = symb_dts_index.insert_record_normalized(
+          context_,
+          kv.key_,
+          &kv.value_,
+          sizeof(kv.value_));
+        if (ret == kErrorCodeXctRaceAbort) {
+          LOG(WARNING) << "oops, race abort during index-load 1. retry..";
+          has_error = true;
+          if (context_->is_running_xct()) {
+            WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+          }
+          break;
+        }
+        WRAP_ERROR_CODE(ret);
+      }
+      if (has_error) {
+        continue;
+      }
+
+      Epoch commit_epoch;
+      ErrorCode ret = xct_manager_->precommit_xct(context_, &commit_epoch);
+      if (ret == kErrorCodeXctRaceAbort) {
+        LOG(WARNING) << "oops, race abort during index-load 2. retry..";
+        continue;
+      }
+      WRAP_ERROR_CODE(ret);
+      break;
+    }
+  }
+
+  index_watch.stop();
+  LOG(INFO) << "Data Loader-" << partition_id_ << " inserted to TRADE's secondary index in"
+    << main_watch.elapsed_sec() << " sec.";
   return kRetOk;
 }
 

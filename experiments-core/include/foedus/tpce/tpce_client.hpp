@@ -205,11 +205,7 @@ class TpceClientTask {
     // We keep counting this up whether the transaction got aborted or
     // not. We only care uniqueness. Ok to have some holes.
     in_partition_trade_counter_ =
-      ((scale_.customers_ / scale_.total_partitions_) + 1U)
-      * scale_.initial_trade_days_
-      * 8U
-      * 3600U
-      * kAccountsPerCustomer;
+      scale_.calculate_initial_trade_cardinality() / scale_.total_partitions_;
   }
   TradeT get_artificial_new_trade_id() {
     TradeT tid = get_new_trade_id(scale_, worker_id_, in_partition_trade_counter_);
