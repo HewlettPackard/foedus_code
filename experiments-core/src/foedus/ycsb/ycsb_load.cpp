@@ -92,14 +92,19 @@ ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   const YcsbLoadTask::Inputs* inputs =
     reinterpret_cast<const YcsbLoadTask::Inputs*>(args.input_buffer_);
   return task.run(
-    context, inputs->load_node_, inputs->records_per_thread_, inputs->sort_load_keys_);
+    context,
+    inputs->load_node_,
+    inputs->records_per_thread_,
+    inputs->sort_load_keys_,
+    inputs->spread_);
 }
 
 ErrorStack YcsbLoadTask::run(
   thread::Thread* context,
   uint16_t node,
   uint64_t records_per_thread,
-  bool sort_load_keys) {
+  bool sort_load_keys,
+  bool spread) {
   Engine* engine = context->get_engine();
 #ifdef YCSB_HASH_STORAGE
   auto user_table = engine->get_storage_manager()->get_hash("ycsb_user_table");
@@ -136,6 +141,9 @@ ErrorStack YcsbLoadTask::run(
       }
     }
     ASSERT_ND(remaining_inserts == 0);
+    if (!spread) {  // do it on behalf of only one worker
+      break;
+    }
   }
 
   if (sort_load_keys) {
@@ -150,7 +158,6 @@ ErrorStack YcsbLoadTask::run(
   }
   COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   watch.stop();
-  ASSERT_ND(inserted == records_per_thread * options.thread_.thread_count_per_group_);
   LOG(INFO) << "[YCSB] Loaded " << inserted << " records in " << watch.elapsed_sec() << "s";
   return kRetOk;
 }
