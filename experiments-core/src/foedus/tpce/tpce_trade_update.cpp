@@ -82,9 +82,11 @@ ErrorCode TpceClientTask::do_trade_update() {
 
 #ifndef NDEBUG
     SymbDtsKey key = cursor.get_normalized_key();
-    ASSERT_ND(to_symb_from_symb_dts_key(key) == symbol);
-    ASSERT_ND(to_dts_from_symb_dts_key(key) >= in_start_trade_dts);
-    ASSERT_ND(to_dts_from_symb_dts_key(key) <= in_end_trade_dts);
+    SymbT extracted_symbol = to_symb_from_symb_dts_key(key);
+    Datetime extracted_dts = to_dts_from_symb_dts_key(key);
+    ASSERT_ND(extracted_symbol == symbol);
+    ASSERT_ND(extracted_dts >= in_start_trade_dts);
+    ASSERT_ND(extracted_dts <= in_end_trade_dts);
 #endif  // NDEBUG
 
     ASSERT_ND(cursor.get_payload_length() == sizeof(TradeT));
@@ -97,7 +99,7 @@ ErrorCode TpceClientTask::do_trade_update() {
 
   // Finally, query them in TRADE's primary storage
   for (uint32_t i = 0; i < fetched_rows; ++i) {
-    TradeT key = outputs[fetched_rows].id_;
+    TradeT key = outputs[i].id_;
     TradeData payload;
     uint16_t payload_capacity = sizeof(payload);
     CHECK_ERROR_CODE(trades.get_record<TradeT>(context_, key, &payload, &payload_capacity));

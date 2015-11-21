@@ -83,6 +83,9 @@ ErrorCode TpceClientTask::do_trade_order() {
   CHECK_ERROR_CODE(trades.insert_record<TradeT>(context_, tid, &record, sizeof(record)));
 
   SymbDtsKey secondary_key = to_symb_dts_key(record.symb_id_, now_dts, worker_id_);
+  ASSERT_ND(to_symb_from_symb_dts_key(secondary_key) == record.symb_id_);
+  ASSERT_ND(to_dts_from_symb_dts_key(secondary_key) == now_dts);
+  ASSERT_ND(to_uniquefier_from_symb_dts_key(secondary_key) == worker_id_);
   CHECK_ERROR_CODE(trades_index.insert_record_normalized(
     context_,
     secondary_key,

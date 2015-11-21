@@ -250,6 +250,9 @@ inline IdentT to_ca(IdentT cid, IdentT ordinal) {
 typedef uint64_t SymbDtsKey;
 
 inline SymbDtsKey to_symb_dts_key(SymbT symb_id, Datetime dts, PartitionT partition_id) {
+  ASSERT_ND(symb_id < (1ULL << 20));
+  ASSERT_ND(sizeof(dts) <= 4U);
+  ASSERT_ND(partition_id < (1U << 12));
   SymbDtsKey ret = static_cast<SymbDtsKey>(symb_id);
   ret = (ret << 32) | dts;
   ret = (ret << 12) | partition_id;
@@ -284,8 +287,15 @@ inline TradeT get_new_trade_id(
   const TpceScale& scale,
   PartitionT partition_id,
   uint64_t in_partition_count) {
+  ASSERT_ND(partition_id < scale.total_partitions_);
   TradeT tid = in_partition_count * scale.total_partitions_ + partition_id;
   return tid;
+}
+inline PartitionT get_partition_id_from_trade_id(
+  const TpceScale& scale,
+  TradeT tid) {
+  PartitionT partition_id = tid % scale.total_partitions_;
+  return partition_id;
 }
 
 /** TRADE_TYPE table, Section 2.2.5.9 */

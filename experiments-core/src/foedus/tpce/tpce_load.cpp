@@ -354,6 +354,9 @@ ErrorStack TpceLoadTask::load_trades() {
       DVLOG(3) << "tid=" << tid << ", secondary_key=" << secondary_key;
       secondary_array[i].key_ = secondary_key;
       secondary_array[i].value_ = tid;
+      ASSERT_ND(to_symb_from_symb_dts_key(secondary_key) == symb_id);
+      ASSERT_ND(to_dts_from_symb_dts_key(secondary_key) == dts);
+      ASSERT_ND(to_uniquefier_from_symb_dts_key(secondary_key) == partition_id_);
 
       // Load the trades and symb_dts_index.
       TradeData& record = primary_array[i - batch_from];
@@ -422,7 +425,7 @@ ErrorStack TpceLoadTask::load_trades() {
   std::sort(secondary_array, secondary_array + in_partition_count);
   sort_watch.stop();
   LOG(INFO) << "Data Loader-" << partition_id_ << " pre-sorted TRADE secondary key in "
-    << main_watch.elapsed_sec() << " sec."
+    << sort_watch.elapsed_sec() << " sec."
     << " now inserting the secondary index...";
 
   debugging::StopWatch index_watch;
@@ -440,6 +443,9 @@ ErrorStack TpceLoadTask::load_trades() {
       bool has_error = false;
       for (uint64_t i = batch_from; i < batch_to; ++i) {
         const SecondaryKeyValue& kv = secondary_array[i];
+        ASSERT_ND(kv.value_ >= get_new_trade_id(scale_, partition_id_, 0));
+        ASSERT_ND(kv.value_ < get_new_trade_id(scale_, partition_id_, in_partition_count));
+        ASSERT_ND(get_partition_id_from_trade_id(scale_, kv.value_) == partition_id_);
         ErrorCode ret = symb_dts_index.insert_record_normalized(
           context_,
           kv.key_,
@@ -472,7 +478,7 @@ ErrorStack TpceLoadTask::load_trades() {
 
   index_watch.stop();
   LOG(INFO) << "Data Loader-" << partition_id_ << " inserted to TRADE's secondary index in"
-    << main_watch.elapsed_sec() << " sec.";
+    << index_watch.elapsed_sec() << " sec.";
   return kRetOk;
 }
 
