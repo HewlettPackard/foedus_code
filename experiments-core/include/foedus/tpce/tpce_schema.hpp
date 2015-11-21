@@ -147,6 +147,12 @@ typedef uint32_t SymbT;
  */
 const SymbT kMaxSymbT = 1U << 20;
 
+/**
+ * The spec says CUSTOMER_ACCOUNT's cardinality is always
+ * 5 * customers. Our implementation thus constructs
+ * Customer Account (CA_ID) as CID * 5 + [0,5).
+ */
+const IdentT kAccountsPerCustomer = 5;
 
 /**
  * Parameters to determine the size of TPC-E tables.
@@ -189,7 +195,7 @@ struct TpceScale {
   }
 
   uint64_t calculate_initial_trade_cardinality() const {
-    return initial_trade_days_ * 8ULL * 3600ULL * get_tpse();
+    return initial_trade_days_ * 8ULL * 36ULL * customers_ / 5U;
   }
 
   uint64_t get_security_cardinality() const {
@@ -225,13 +231,6 @@ struct TradeData {
   bool      lifo_;
 };
 
-/**
- * The spec says CUSTOMER_ACCOUNT's cardinality is always
- * 5 * customers. Our implementation thus constructs
- * Customer Account (CA_ID) as CID * 5 + [0,5).
- */
-const IdentT kAccountsPerCustomer = 5;
-
 inline IdentT to_cid_from_ca(IdentT ca) {
   return ca / kAccountsPerCustomer;
 }
@@ -251,13 +250,16 @@ inline IdentT to_ca(IdentT cid, IdentT ordinal) {
 typedef uint64_t SymbDtsKey;
 
 inline SymbDtsKey to_symb_dts_key(SymbT symb_id, Datetime dts, PartitionT partition_id) {
+  ASSERT_ND(symb_id < (1ULL << 20));
+  ASSERT_ND(sizeof(dts) <= 4U);
+  ASSERT_ND(partition_id < (1U << 12));
   SymbDtsKey ret = static_cast<SymbDtsKey>(symb_id);
   ret = (ret << 32) | dts;
   ret = (ret << 12) | partition_id;
   return ret;
 }
 inline SymbT to_symb_from_symb_dts_key(SymbDtsKey key) {
-  return static_cast<SymbT>(key >> 42);
+  return static_cast<SymbT>(key >> 44);
 }
 inline Datetime to_dts_from_symb_dts_key(SymbDtsKey key) {
   return static_cast<Datetime>(key >> 12);
@@ -285,8 +287,15 @@ inline TradeT get_new_trade_id(
   const TpceScale& scale,
   PartitionT partition_id,
   uint64_t in_partition_count) {
+  ASSERT_ND(partition_id < scale.total_partitions_);
   TradeT tid = in_partition_count * scale.total_partitions_ + partition_id;
   return tid;
+}
+inline PartitionT get_partition_id_from_trade_id(
+  const TpceScale& scale,
+  TradeT tid) {
+  PartitionT partition_id = tid % scale.total_partitions_;
+  return partition_id;
 }
 
 /** TRADE_TYPE table, Section 2.2.5.9 */
