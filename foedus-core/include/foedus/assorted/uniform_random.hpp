@@ -72,7 +72,7 @@ class UniformRandom {
     return  (((uniform_within(0, A) | uniform_within(from, to)) + C) % (to - from + 1)) + from;
   }
 
-  uint64_t get_current_seed() {
+  uint64_t get_current_seed() const {
     return seed_;
   }
   void set_current_seed(uint64_t seed) {

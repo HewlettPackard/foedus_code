@@ -91,11 +91,8 @@ struct PerWorkerCounter {
   char padding_[assorted::kCachelineSize - sizeof(uint32_t)];
 };
 
-class YcsbKey {
- private:
+struct YcsbKey {
   assorted::FixedString<kKeyMaxLength> data_;
-
- public:
   YcsbKey() {}
   YcsbKey& build(uint32_t high_bits, uint32_t low_bits);
 
@@ -108,7 +105,14 @@ class YcsbKey {
   }
 
   bool operator<(const YcsbKey& other) const CXX11_NOEXCEPT {
-    return data_ < other.data_;
+    return compare(*this, other);
+  }
+  bool operator==(const YcsbKey& other) const CXX11_NOEXCEPT {
+    return data_ == other.data_;
+  }
+
+  static bool compare(const YcsbKey &k1, const YcsbKey &k2) ALWAYS_INLINE {
+    return k1.data_ < k2.data_;
   }
 };
 
@@ -202,13 +206,15 @@ class YcsbLoadTask {
     uint64_t load_node_;
     uint64_t records_per_thread_;
     bool sort_load_keys_;
+    bool spread_;
   };
   YcsbLoadTask() : rnd_(48357) {}
   ErrorStack run(
     thread::Thread* context,
     uint16_t node,
     uint64_t records_per_thread,
-    bool sort_load_keys);
+    bool sort_load_keys,
+    bool spread);
  private:
   assorted::UniformRandom rnd_;
 };
@@ -222,6 +228,7 @@ class YcsbClientTask {
     bool read_all_fields_;
     bool write_all_fields_;
     bool random_inserts_;
+    uint64_t initial_table_size_;
     PerWorkerCounter* local_key_counter_;
     Inputs() {}
   };
@@ -247,6 +254,7 @@ class YcsbClientTask {
       read_all_fields_(inputs.read_all_fields_),
       write_all_fields_(inputs.write_all_fields_),
       random_inserts_(inputs.random_inserts_),
+      initial_table_size_(inputs.initial_table_size_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
       zipfian_theta_(inputs.zipfian_theta_),
@@ -271,6 +279,7 @@ class YcsbClientTask {
   bool read_all_fields_;
   bool write_all_fields_;
   bool random_inserts_;
+  uint64_t initial_table_size_;
   Outputs* outputs_;
   PerWorkerCounter* local_key_counter_;
   double zipfian_theta_;
@@ -310,6 +319,19 @@ class YcsbClientTask {
     ASSERT_ND(cnt > 0);
     auto low = rnd_record_select_.uniform_within(0, cnt - 1);
     return key_arena_.build(high, low);
+  }
+
+  YcsbKey& build_rmw_key() {
+    auto key_seq = rnd_record_select_.uniform_within(0, initial_table_size_ - 1);
+    auto cnt = local_key_counter_->key_counter_;
+    if (cnt == 0) {
+      // Unbalanced load, see the only loader's counter
+      cnt = channel_->peek_local_key_counter(engine_, 0);
+    }
+    ASSERT_ND(cnt > 0);
+    auto hi = key_seq / cnt;
+    auto lo = key_seq % cnt;
+    return build_key(hi, lo);
   }
 
   uint64_t get_race_aborts() const { return outputs_->race_aborts_; }

@@ -110,6 +110,12 @@ const uint8_t kHashMaxLevels = 8;
 const uint16_t kHashDataPageHeaderSize  = 128;
 
 /**
+ * @brief Body data byte size in data page of hash storage.
+ * @ingroup HASH
+ */
+const uint16_t kHashDataPageDataSize  = kPageSize - kHashDataPageHeaderSize;
+
+/**
  * @brief Represents a full 64-bit hash value calculated from a key.
  * @ingroup HASH
  * @details
