@@ -117,7 +117,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         access_keys.push_back(k);
       }
     }
-    ASSERT_ND(access_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+    ASSERT_ND((int32_t)access_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
 
     // abort-retry loop
     while (!is_stop_requested()) {
