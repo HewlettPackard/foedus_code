@@ -290,11 +290,11 @@ struct McsRwBlock {
     return assorted::atomic_load_acquire<McsBlockIndex>(&successor_block_index_) != 0;
   }
   inline bool has_reader_successor() ALWAYS_INLINE {
-    auto s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
+    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
     return s == kSuccessorClassReader;
   }
   inline bool has_writer_successor() ALWAYS_INLINE {
-    auto s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
+    uint8_t s = assorted::atomic_load_acquire<uint8_t>(&self_.components_.successor_class_);
     return s == kSuccessorClassWriter;
   }
   inline bool has_aborting_successor() ALWAYS_INLINE {

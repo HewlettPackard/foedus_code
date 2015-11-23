@@ -431,7 +431,7 @@ class HashDataPage final {
    * Dynamic data part in this page, which consist of 1) key/payload part growing forward,
    * 2) unused part, and 3) Slot part growing backward.
    */
-  char            data_[kPageSize - kHashDataPageHeaderSize];
+  char            data_[kHashDataPageDataSize];
 };
 
 
