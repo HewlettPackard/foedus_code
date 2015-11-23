@@ -878,9 +878,9 @@ xct::McsBlockIndex Thread::mcs_try_acquire_writer_lock(
   return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, wait_for_result);
 }
 
-xct::McsBlockIndex Thread::mcs_try_acquire_writer_lock(
+xct::McsBlockIndex Thread::mcs_retry_acquire_writer_lock(
   xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index, bool wait_for_result) {
-  return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, block_index, wait_for_result);
+  return pimpl_->mcs_retry_acquire_writer_lock(mcs_rw_lock, block_index, wait_for_result);
 }
 
 xct::McsBlockIndex Thread::mcs_try_upgrade_reader_lock(
@@ -1518,23 +1518,19 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_
   return block_index;
 }
 
-void ThreadPimpl::mcs_try_abort_writer_lock(
+void ThreadPimpl::mcs_abort_writer_lock_no_pred(
   xct::McsRwLock* mcs_rw_lock,
   xct::McsRwBlock* block,
   uint32_t tail_int) {
   ASSERT_ND(!block->is_granted());
-  if (block->is_waiting_no_pred()) {
-    // Should be a writer requestor, waiting for readers to leave
-    ASSERT_ND(block->is_writer());
-    uint32_t group_tail_int = mcs_rw_lock->install_tail(0);
-    if (group_tail_int != tail_int) {
-      spin_until([block]{ return !block->successor_is_ready(); });
-      block->set_state_aborting();
-      block->set_group_tail_int(group_tail_int);
-      pass_group_tail_to_successor(block, tail_int);
-    }
-  } else {
-    ASSERT_ND(false);
+  ASSERT_ND(block->is_waiting_no_pred());
+  ASSERT_ND(block->is_writer());
+  uint32_t group_tail_int = mcs_rw_lock->install_tail(0);
+  if (group_tail_int != tail_int) {
+    spin_until([block]{ return !block->successor_is_ready(); });
+    block->set_state_aborting();
+    block->set_group_tail_int(group_tail_int);
+    pass_group_tail_to_successor(block, tail_int);
   }
 }
 
@@ -1547,7 +1543,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(
   my_block->pred_tail_int_ = lock->install_tail(my_tail_int);
 
   if (my_block->pred_tail_int_ == 0) {
-    return mcs_try_acquire_writer_lock(lock, block_index, wait_for_result);
+    return mcs_retry_acquire_writer_lock(lock, block_index, wait_for_result);
   } else {
     auto* pred_block = get_mcs_rw_block(my_block->pred_tail_int_);
     if (pred_block->is_writer() && pred_block->is_releasing()) {
@@ -1589,10 +1585,10 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(
       }
     }
   }
-  return mcs_try_acquire_writer_lock(lock, block_index, wait_for_result);
+  return mcs_retry_acquire_writer_lock(lock, block_index, wait_for_result);
 }
 
-xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(
+xct::McsBlockIndex ThreadPimpl::mcs_retry_acquire_writer_lock(
   xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result) {
   xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
   auto my_tail_int = xct::McsRwLock::to_tail_int(id_, block_index);
@@ -1617,7 +1613,9 @@ xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(
       goto acquired;
     }
     if (wait_for_result) {
-      mcs_try_abort_writer_lock(lock, my_block, my_tail_int);
+      // This is the only case where we can freely cancel - in all other cases we need
+      // to wait for pred's decision, no matter wait_for_result is true or not.
+      mcs_abort_writer_lock_no_pred(lock, my_block, my_tail_int);
     }
     return 0 ;
   } else {
