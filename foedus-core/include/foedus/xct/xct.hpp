@@ -460,7 +460,7 @@ inline ErrorCode Xct::add_to_read_set(
   ASSERT_ND(read->mcs_block_ == 0);
   if (page_hotness_address && storage::PageHeader::contains_hot_records(page_hotness_address)) {
     read->mcs_block_ =
-      context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock());
+      context->mcs_try_acquire_reader_lock(read->owner_id_address_->get_key_lock(), true);
   }
   return kErrorCodeOk;
 }
