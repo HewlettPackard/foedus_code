@@ -477,7 +477,7 @@ bool XctManagerPimpl::precommit_xct_acquire_writer_lock(
   thread::Thread* context,
   WriteXctAccess *write) {
   return write->mcs_block_ = context->mcs_try_acquire_writer_lock(
-    write->owner_id_address_->get_key_lock());
+    write->owner_id_address_->get_key_lock(), true);
 }
 
 void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {

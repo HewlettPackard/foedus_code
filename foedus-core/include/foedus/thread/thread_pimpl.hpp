@@ -290,9 +290,13 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
   xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
-  xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
+  xct::McsBlockIndex mcs_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
+  xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* lock, bool wait_for_result);
   xct::McsBlockIndex mcs_try_upgrade_reader_lock(
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
+  void mcs_try_abort_writer_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsRwBlock* block, uint32_t tail_int);
 
   /** Helper functions for try locks */
   inline void pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);

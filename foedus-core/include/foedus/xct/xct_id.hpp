@@ -203,7 +203,8 @@ struct McsRwBlock {
   } self_;
   thread::ThreadId successor_thread_id_;  // +2 => 4
   McsBlockIndex successor_block_index_;   // +4 => 8
-  uint64_t group_tail_int_;               // +8 => 16
+  uint32_t group_tail_int_;               // +8 => 16
+  uint32_t pred_tail_int_;
 
   inline void init_reader() ALWAYS_INLINE {
     self_.components_.state_ = kClassReader;
@@ -223,6 +224,7 @@ struct McsRwBlock {
     successor_thread_id_ = 0;
     successor_block_index_ = 0;
     group_tail_int_ = 0;
+    pred_tail_int_ = 0;
     assorted::memory_fence_release();
   }
   inline uint8_t read_state() ALWAYS_INLINE {
@@ -230,6 +232,9 @@ struct McsRwBlock {
   }
   inline bool is_waiting() ALWAYS_INLINE {
     return (read_state() & kStateMask) == kStateWaiting;
+  }
+  inline bool is_waiting_no_pred() ALWAYS_INLINE {
+    return is_waiting() && pred_tail_int_ == 0;
   }
   inline bool is_granted() ALWAYS_INLINE {
     return (read_state() & kStateMask) == kStateGranted;
@@ -263,11 +268,11 @@ struct McsRwBlock {
   }
   inline void set_group_tail_int(uint32_t tail_int) ALWAYS_INLINE {
     ASSERT_ND(tail_int);
-    assorted::atomic_store_release<uint64_t>(&group_tail_int_, tail_int);
+    assorted::atomic_store_release<uint32_t>(&group_tail_int_, tail_int);
     ASSERT_ND(get_group_tail_int());
   }
   inline uint64_t get_group_tail_int() ALWAYS_INLINE {
-    return assorted::atomic_load_acquire<uint64_t>(&group_tail_int_);
+    return assorted::atomic_load_acquire<uint32_t>(&group_tail_int_);
   }
   inline void set_successor_next_only(
     thread::ThreadId thread_id, McsBlockIndex block_index) ALWAYS_INLINE {
@@ -298,7 +303,7 @@ struct McsRwBlock {
   }
 
   inline bool group_tail_is_ready() ALWAYS_INLINE {
-    return assorted::atomic_load_acquire<uint64_t>(&group_tail_int_) != 0;
+    return assorted::atomic_load_acquire<uint32_t>(&group_tail_int_) != 0;
   }
   inline uint16_t make_waiting_with_reader_successor_state() ALWAYS_INLINE {
     uint8_t state = read_state();
