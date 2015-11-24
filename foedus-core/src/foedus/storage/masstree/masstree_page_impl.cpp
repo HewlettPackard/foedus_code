@@ -655,7 +655,10 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   // we have to lock them whether the record is deleted or not. all physical records.
   for (SlotIndex i = key_count - 1U; i < kBorderPageMaxSlots; --i) {  // SlotIndex is unsigned
     xct::RwLockableXctId* owner_id = get_owner_id(i);
-    out_blocks[i] = context->mcs_acquire_writer_lock(owner_id->get_key_lock());
+    // XXX(tzwang): make sure this retry is appropriate
+    do {
+      out_blocks[i] = context->mcs_try_acquire_writer_lock(owner_id->get_key_lock(), true);
+    } while (out_blocks[i] == 0);
     ASSERT_ND(owner_id->is_keylocked());
   }
 
