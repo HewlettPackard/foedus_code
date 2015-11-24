@@ -81,7 +81,7 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
     storage::masstree::KeySlice slice = storage::masstree::normalize_primitive<uint64_t>(rec);
     uint64_t data;
     uint16_t capacity = sizeof(data);
-    ErrorCode ret = masstree.get_record_normalized(context, slice, &data, &capacity);
+    ErrorCode ret = masstree.get_record_normalized(context, slice, &data, &capacity, true);
 /*
     if (ret != kErrorCodeOk || rec != data) {
       CHECK_ERROR(masstree.verify_single_thread(context));
@@ -154,7 +154,7 @@ ErrorStack verify_varlen_task(const proc::ProcArguments& args) {
 
     uint64_t data;
     uint16_t capacity = sizeof(data);
-    ErrorCode ret = masstree.get_record(context, buffer, len, &data, &capacity);
+    ErrorCode ret = masstree.get_record(context, buffer, len, &data, &capacity, true);
     EXPECT_EQ(kErrorCodeOk, ret) << i;
     EXPECT_EQ(rec, data) << i;
     EXPECT_EQ(sizeof(data), capacity) << i;

@@ -69,7 +69,8 @@ ErrorStack test_write_log(const proc::ProcArguments& args) {
     12345,
     &dummy_record,
     reinterpret_cast<char*>(&dummy_record),
-    reinterpret_cast<RecordLogType*>(filler));
+    reinterpret_cast<RecordLogType*>(filler),
+    NULL);
 
   EXPECT_EQ(committed_before, buffer.get_offset_committed());
   EXPECT_EQ(durable_before, buffer.get_offset_durable());
@@ -129,7 +130,8 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
     12345,
     &dummy_record,
     reinterpret_cast<char*>(&dummy_record),
-    reinterpret_cast<RecordLogType*>(filler));
+    reinterpret_cast<RecordLogType*>(filler),
+    NULL);
 
   buffer.assert_consistent();
   EXPECT_EQ(0, buffer.get_offset_committed());
@@ -158,7 +160,8 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
     12345,
     &dummy_record,
     reinterpret_cast<char*>(&dummy_record),
-    reinterpret_cast<RecordLogType*>(filler));
+    reinterpret_cast<RecordLogType*>(filler),
+    NULL);
   buffer.assert_consistent();
 
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));

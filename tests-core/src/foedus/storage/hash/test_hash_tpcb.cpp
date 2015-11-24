@@ -262,7 +262,7 @@ class RunTpcbTask {
       WRAP_ERROR_CODE(branches.increment_record(context, branch_id, &branch_balance_new, 0));
       branch_balance_old = branch_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(branches.get_record_primitive(context, branch_id, &branch_balance_old, 0));
+      WRAP_ERROR_CODE(branches.get_record_primitive(context, branch_id, &branch_balance_old, 0, false));
       branch_balance_new = branch_balance_old + amount;
       WRAP_ERROR_CODE(branches.overwrite_record_primitive(
         context,
@@ -272,7 +272,7 @@ class RunTpcbTask {
     } else {
       BranchData branch;
       uint16_t capacity = sizeof(branch);
-      WRAP_ERROR_CODE(branches.get_record(context, branch_id, &branch, &capacity));
+      WRAP_ERROR_CODE(branches.get_record(context, branch_id, &branch, &capacity, false));
       branch_balance_old = branch.branch_balance_;
       branch_balance_new = branch_balance_old + amount;
       WRAP_ERROR_CODE(branches.overwrite_record(
@@ -287,7 +287,7 @@ class RunTpcbTask {
     int64_t teller_balance_old = -1, teller_balance_new;
     uint64_t teller_branch_id = 0;
     if (use_increment) {
-      WRAP_ERROR_CODE(tellers.get_record_primitive(context, teller_id, &teller_branch_id, 0));
+      WRAP_ERROR_CODE(tellers.get_record_primitive(context, teller_id, &teller_branch_id, 0, false));
       teller_balance_new = amount;
       WRAP_ERROR_CODE(tellers.increment_record(
         context,
@@ -296,12 +296,13 @@ class RunTpcbTask {
         sizeof(uint64_t)));
       teller_balance_old = teller_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(tellers.get_record_primitive(context, teller_id, &teller_branch_id, 0));
+      WRAP_ERROR_CODE(tellers.get_record_primitive(context, teller_id, &teller_branch_id, 0, false));
       WRAP_ERROR_CODE(tellers.get_record_primitive(
         context,
         teller_id,
         &teller_balance_old,
-        sizeof(uint64_t)));
+        sizeof(uint64_t),
+        false));
       teller_balance_new = teller_balance_old + amount;
       WRAP_ERROR_CODE(tellers.overwrite_record_primitive(
         context,
@@ -311,7 +312,7 @@ class RunTpcbTask {
     } else {
       TellerData teller;
       uint16_t capacity = sizeof(teller);
-      WRAP_ERROR_CODE(tellers.get_record(context, teller_id, &teller, &capacity));
+      WRAP_ERROR_CODE(tellers.get_record(context, teller_id, &teller, &capacity, false));
       teller_branch_id = teller.branch_id_;
       teller_balance_old = teller.teller_balance_;
       teller_balance_new = teller_balance_old + amount;
@@ -328,7 +329,7 @@ class RunTpcbTask {
     int64_t account_balance_old = -1, account_balance_new;
     uint64_t account_branch_id = 0;
     if (use_increment) {
-      WRAP_ERROR_CODE(accounts.get_record_primitive(context, account_id, &account_branch_id, 0));
+      WRAP_ERROR_CODE(accounts.get_record_primitive(context, account_id, &account_branch_id, 0, false));
       account_balance_new = amount;
       WRAP_ERROR_CODE(accounts.increment_record(
         context,
@@ -337,12 +338,13 @@ class RunTpcbTask {
         sizeof(uint64_t)));
       account_balance_old = account_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(accounts.get_record_primitive(context, account_id, &account_branch_id, 0));
+      WRAP_ERROR_CODE(accounts.get_record_primitive(context, account_id, &account_branch_id, 0, false));
       WRAP_ERROR_CODE(accounts.get_record_primitive(
         context,
         account_id,
         &account_balance_old,
-        sizeof(uint64_t)));
+        sizeof(uint64_t),
+        false));
       account_balance_new = account_balance_old + amount;
       WRAP_ERROR_CODE(accounts.overwrite_record_primitive(
         context,
@@ -352,7 +354,7 @@ class RunTpcbTask {
     } else {
       AccountData account;
       uint16_t capacity = sizeof(account);
-      WRAP_ERROR_CODE(accounts.get_record(context, account_id, &account, &capacity));
+      WRAP_ERROR_CODE(accounts.get_record(context, account_id, &account, &capacity, false));
       account_branch_id = account.branch_id_;
       account_balance_old = account.account_balance_;
       account_balance_new = account_balance_old + amount;
@@ -466,20 +468,20 @@ ErrorStack verify_tpcb_task(const proc::ProcArguments& args) {
   for (uint64_t i = 0; i < kBranches; ++i) {
     BranchData data;
     uint16_t capacity = sizeof(data);
-    CHECK_ERROR(branches.get_record(context, i, &data, &capacity));
+    CHECK_ERROR(branches.get_record(context, i, &data, &capacity, true));
     EXPECT_EQ(expected_branch[i], data.branch_balance_) << "branch-" << i;
   }
   for (uint64_t i = 0; i < kBranches * kTellers; ++i) {
     TellerData data;
     uint16_t capacity = sizeof(data);
-    CHECK_ERROR(tellers.get_record(context, i, &data, &capacity));
+    CHECK_ERROR(tellers.get_record(context, i, &data, &capacity, true));
     EXPECT_EQ(i / kTellers, data.branch_id_) << i;
     EXPECT_EQ(expected_teller[i], data.teller_balance_) << "teller-" << i;
   }
   for (uint64_t i = 0; i < kBranches * kAccounts; ++i) {
     AccountData data;
     uint16_t capacity = sizeof(data);
-    CHECK_ERROR(accounts.get_record(context, i, &data, &capacity));
+    CHECK_ERROR(accounts.get_record(context, i, &data, &capacity, true));
     EXPECT_EQ(i / kAccounts, data.branch_id_) << i;
     EXPECT_EQ(expected_account[i], data.account_balance_) << "account-" << i;
   }

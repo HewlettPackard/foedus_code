@@ -65,7 +65,7 @@ ErrorStack query_task(const proc::ProcArguments& args) {
   char key[100];
   std::memset(key, 0, 100);
   uint16_t payload_capacity = 16;
-  ErrorCode result = masstree.get_record(context, key, 100, buf, &payload_capacity);
+  ErrorCode result = masstree.get_record(context, key, 100, buf, &payload_capacity, true);
   EXPECT_EQ(kErrorCodeStrKeyNotFound, result);
   Epoch commit_epoch;
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
@@ -255,7 +255,7 @@ ErrorStack insert_read_task(const proc::ProcArguments& args) {
   uint64_t data2;
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   uint16_t data_capacity = sizeof(data2);
-  WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, &data2, &data_capacity));
+  WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, &data2, &data_capacity, true));
   EXPECT_EQ(data, data2);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -302,7 +302,7 @@ ErrorStack overwrite_task(const proc::ProcArguments& args) {
 
   uint64_t data3;
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-  WRAP_ERROR_CODE(masstree.get_record_primitive_normalized<uint64_t>(context, key, &data3, 0));
+  WRAP_ERROR_CODE(masstree.get_record_primitive_normalized<uint64_t>(context, key, &data3, 0, true));
   EXPECT_EQ(data2, data3);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -359,9 +359,9 @@ ErrorStack next_layer_task(const proc::ProcArguments& args) {
   // now read both
   uint64_t data;
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key1, 16, &data, 0));
+  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key1, 16, &data, 0, true));
   EXPECT_EQ(data1, data);
-  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key2, 16, &data, 0));
+  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key2, 16, &data, 0, true));
   EXPECT_EQ(data2, data);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -523,14 +523,16 @@ ErrorStack expand_task(const proc::ProcArguments& args) {
         context,
         kKeyNormalized[i],
         retrieved,
-        &retrieved_capacity));
+        &retrieved_capacity,
+        true));
     } else {
       CHECK_ERROR(storage.get_record(
         context,
         kKey[i].data(),
         kKeyLen,
         retrieved,
-        &retrieved_capacity));
+        &retrieved_capacity,
+        true));
     }
     CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
 

@@ -90,7 +90,7 @@ ErrorStack insert_many_normalized_task(const proc::ProcArguments& args) {
       KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64());
       *reinterpret_cast<uint64_t*>(buf + 123) = key;
       uint16_t capacity = kBufSize;
-      WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, buf2, &capacity));
+      WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, buf2, &capacity, true));
       EXPECT_EQ(kBufSize, capacity);
       EXPECT_EQ(std::string(buf, kBufSize), std::string(buf2, kBufSize));
       if (i % 20 == 0) {
@@ -181,7 +181,7 @@ ErrorStack insert_many_normalized_mt_task(const proc::ProcArguments& args) {
       KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64()) * 8 + id;
       *reinterpret_cast<uint64_t*>(buf + 3) = key;
       uint16_t capacity = kBufSize;
-      WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, buf2, &capacity));
+      WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, buf2, &capacity, true));
       EXPECT_EQ(kBufSize, capacity);
       EXPECT_EQ(std::string(buf, kBufSize), std::string(buf2, kBufSize));
     }
@@ -302,7 +302,7 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
       *reinterpret_cast<uint64_t*>(buf + 123) = i;
       uint16_t capacity = kBufSize;
       std::string key = answers[i];
-      ErrorCode ret = masstree.get_record(context, key.data(), key.size(), buf2, &capacity);
+      ErrorCode ret = masstree.get_record(context, key.data(), key.size(), buf2, &capacity, true);
       EXPECT_EQ(kErrorCodeOk, ret) << i;
       if (kErrorCodeOk == ret) {
         EXPECT_EQ(kBufSize, capacity);

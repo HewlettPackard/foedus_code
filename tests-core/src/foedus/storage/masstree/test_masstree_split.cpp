@@ -68,7 +68,7 @@ ErrorStack split_border_task(const proc::ProcArguments& args) {
     uint64_t key = keys[rep];
     char data[500];
     uint16_t capacity = 500;
-    WRAP_ERROR_CODE(masstree.get_record(context, &key, sizeof(key), data, &capacity));
+    WRAP_ERROR_CODE(masstree.get_record(context, &key, sizeof(key), data, &capacity, true));
     EXPECT_EQ(200, capacity);
     EXPECT_EQ(answers[rep], std::string(data, 200));
   }
@@ -126,7 +126,7 @@ ErrorStack split_border_normalized_task(const proc::ProcArguments& args) {
     KeySlice key = keys[rep];
     char data[500];
     uint16_t capacity = 500;
-    WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, data, &capacity));
+    WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, data, &capacity, true));
     EXPECT_EQ(200, capacity);
     EXPECT_EQ(answers[rep], std::string(data, 200));
   }
@@ -185,7 +185,7 @@ ErrorStack split_in_next_layer_task(const proc::ProcArguments& args) {
   for (uint32_t rep = 0; rep < 32; ++rep) {
     char data[500];
     uint16_t capacity = 500;
-    WRAP_ERROR_CODE(masstree.get_record(context, keys[rep].data(), 16, data, &capacity));
+    WRAP_ERROR_CODE(masstree.get_record(context, keys[rep].data(), 16, data, &capacity, true));
     EXPECT_EQ(200, capacity);
     EXPECT_EQ(answers[rep], std::string(data, 200));
   }
@@ -253,7 +253,7 @@ ErrorStack split_intermediate_sequential_task(const proc::ProcArguments& args) {
     KeySlice key = normalize_primitive<uint64_t>(rep);
     char data[1000];
     uint16_t capacity = 1000;
-    WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, data, &capacity));
+    WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, data, &capacity, true));
     EXPECT_EQ(1000, capacity);
     char correct_data[1000];
     std::memset(correct_data, 0, 1000);

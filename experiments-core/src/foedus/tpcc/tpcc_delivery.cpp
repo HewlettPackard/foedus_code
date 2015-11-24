@@ -50,7 +50,8 @@ ErrorCode TpccClientTask::do_delivery(Wid wid) {
       context_,
       wdoid,
       &cid,
-      offsetof(OrderData, cid_)));
+      offsetof(OrderData, cid_),
+      false));
 
     // UPDATE ORDER SET O_CARRIER_ID=carrier_id WHERE wid/did/oid=..
     // Note that we don't have to update the secondary index

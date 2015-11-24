@@ -63,7 +63,7 @@ ErrorStack query_task(const proc::ProcArguments& args) {
   char key[100];
   std::memset(key, 0, 100);
   uint16_t payload_capacity = 16;
-  ErrorCode result = hash.get_record(context, key, 100, buf, &payload_capacity);
+  ErrorCode result = hash.get_record(context, key, 100, buf, &payload_capacity, true);
   if (result == kErrorCodeStrKeyNotFound) {
     std::cout << "Key not found!" << std::endl;
   } else if (result != kErrorCodeOk) {
@@ -141,7 +141,7 @@ ErrorStack insert_and_read_task(const proc::ProcArguments& args) {
   uint64_t data2;
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
   uint16_t data_capacity = sizeof(data2);
-  CHECK_ERROR(hash.get_record(context, &key, sizeof(key), &data2, &data_capacity));
+  CHECK_ERROR(hash.get_record(context, &key, sizeof(key), &data2, &data_capacity, true));
   EXPECT_EQ(data, data2);
   CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -186,7 +186,7 @@ ErrorStack overwrite_task(const proc::ProcArguments& args) {
 
   uint64_t data3;
   CHECK_ERROR(xct_manager->begin_xct(context, xct::kSerializable));
-  CHECK_ERROR(hash.get_record_primitive(context, key, &data3, 0));
+  CHECK_ERROR(hash.get_record_primitive(context, key, &data3, 0, true));
   EXPECT_EQ(data2, data3);
   CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -284,7 +284,7 @@ ErrorStack expand_task_impl(const proc::ProcArguments& args, bool update_case) {
   char retrieved[sizeof(data)];
   std::memset(retrieved, 42, sizeof(retrieved));
   uint16_t retrieved_capacity = sizeof(retrieved);
-  CHECK_ERROR(hash.get_record(context, &kKey, sizeof(kKey), retrieved, &retrieved_capacity));
+  CHECK_ERROR(hash.get_record(context, &kKey, sizeof(kKey), retrieved, &retrieved_capacity, true));
   CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
 
   EXPECT_EQ(kInitialLen + kRep * kExpandLen, retrieved_capacity);
