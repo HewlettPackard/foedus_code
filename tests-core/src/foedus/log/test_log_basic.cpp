@@ -65,12 +65,10 @@ ErrorStack test_write_log(const proc::ProcArguments& args) {
   // hacky. just to make this transaction read-write.
   xct::RwLockableXctId dummy_record;
   context->get_current_xct().add_to_write_set(
-    context,
     12345,
     &dummy_record,
     reinterpret_cast<char*>(&dummy_record),
-    reinterpret_cast<RecordLogType*>(filler),
-    NULL);
+    reinterpret_cast<RecordLogType*>(filler));
 
   EXPECT_EQ(committed_before, buffer.get_offset_committed());
   EXPECT_EQ(durable_before, buffer.get_offset_durable());
@@ -126,12 +124,10 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
 
   xct::RwLockableXctId dummy_record;
   context->get_current_xct().add_to_write_set(
-    context,
     12345,
     &dummy_record,
     reinterpret_cast<char*>(&dummy_record),
-    reinterpret_cast<RecordLogType*>(filler),
-    NULL);
+    reinterpret_cast<RecordLogType*>(filler));
 
   buffer.assert_consistent();
   EXPECT_EQ(0, buffer.get_offset_committed());
@@ -156,12 +152,10 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
 
   // hacky. just to make this transaction read-write.
   context->get_current_xct().add_to_write_set(
-    context,
     12345,
     &dummy_record,
     reinterpret_cast<char*>(&dummy_record),
-    reinterpret_cast<RecordLogType*>(filler),
-    NULL);
+    reinterpret_cast<RecordLogType*>(filler));
   buffer.assert_consistent();
 
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));

@@ -169,16 +169,19 @@ struct McsRwLock;
 struct McsRwBlock {
   /**
    * The state_ field in struct Components:
-   * Bit: |-7-6-|-------|--1-0--|
-   * For: |class|-empty-|-state-|
+   * Bit: |-7-6-|-------|-------3------|-2-1-0-|
+   * For: |class|-empty-|-grant ack'ed-|-state-|
    *
    * Grant state is only meaningful when request state is 1.
    */
-  static const uint8_t kStateMask            = 3U;
+  static const uint8_t kStateMask            = 7U;
   static const uint8_t kStateWaiting         = 0U;
   static const uint8_t kStateAborting        = 1U;
   static const uint8_t kStateGranted         = 2U;
   static const uint8_t kStateReleasing       = 3U;
+  static const uint8_t kStateAborted         = 4U;
+
+  static const uint8_t kGrantAcked           = 8U;
 
   static const uint8_t kClassMask            = 3U << 6;
   static const uint8_t kClassReader          = 1U << 6;
@@ -242,6 +245,9 @@ struct McsRwBlock {
   inline bool is_aborting() ALWAYS_INLINE {
     return (read_state() & kStateMask) == kStateAborting;
   }
+  inline bool is_aborted() {
+    return (read_state() & kStateMask) == kStateAborted;
+  }
   inline bool is_releasing() ALWAYS_INLINE {
     return (read_state() & kStateMask) == kStateReleasing;
   }
@@ -256,8 +262,18 @@ struct McsRwBlock {
     assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
       &self_.components_.state_, kStateGranted);
   }
+  inline bool grant_is_acked() {
+    return read_state() & kGrantAcked;
+  }
+  inline void ack_grant() {
+    ASSERT_ND(is_granted());
+    ASSERT_ND(!grant_is_acked());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
+      &self_.components_.state_, kGrantAcked);
+  }
   inline void set_state_releasing() ALWAYS_INLINE {
     ASSERT_ND(is_granted());
+    ASSERT_ND(is_writer());
     assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
       &self_.components_.state_, kStateReleasing);
   }
@@ -265,6 +281,12 @@ struct McsRwBlock {
     ASSERT_ND(is_waiting());
     assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
       &self_.components_.state_, kStateAborting);
+  }
+  inline void set_state_aborted() {
+    ASSERT_ND(is_aborting());
+    assorted::raw_atomic_fetch_and_bitwise_xor<uint8_t>(
+      &self_.components_.state_, kStateAborting | kStateAborted);
+    ASSERT_ND(is_aborted());
   }
   inline void set_group_tail_int(uint32_t tail_int) ALWAYS_INLINE {
     ASSERT_ND(tail_int);

@@ -1179,7 +1179,8 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     get_id(),
     observed,
     border->get_owner_id(index),
-    read_only ? border->header().hotness_address() : NULL));
+    border->header().hotness_address(),
+    read_only));
 
   // here, we do NOT have to do another optimistic-read protocol because we already took
   // the owner_id into read-set. If this read is corrupted, we will be aware of it at commit time.
@@ -1214,7 +1215,8 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
     get_id(),
     observed,
     border->get_owner_id(index),
-    read_only ? border->header().hotness_address() : NULL));
+    border->header().hotness_address(),
+    read_only));
   if (border->get_payload_length(index) < payload_offset + payload_count) {
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
@@ -1253,7 +1255,6 @@ ErrorCode MasstreeStoragePimpl::insert_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1282,7 +1283,6 @@ ErrorCode MasstreeStoragePimpl::delete_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1353,7 +1353,6 @@ ErrorCode MasstreeStoragePimpl::upsert_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1394,7 +1393,6 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     observed,
     border->get_owner_id(index),
@@ -1439,7 +1437,6 @@ ErrorCode MasstreeStoragePimpl::increment_general(
   border->header().stat_last_updater_node_ = context->get_numa_node();
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     observed,
     border->get_owner_id(index),

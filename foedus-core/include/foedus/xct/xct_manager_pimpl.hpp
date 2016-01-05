@@ -140,9 +140,9 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch);
 
   /** used from precommit_xct_lock() to track moved record */
-  bool        precommit_xct_lock_track_write(WriteXctAccess* entry);
+  bool        precommit_xct_lock_track_write(thread::Thread* context, WriteXctAccess* entry);
   /** used from verification methods to track moved record */
-  bool        precommit_xct_verify_track_read(ReadXctAccess* entry);
+  bool        precommit_xct_verify_track_read(thread::Thread* context, ReadXctAccess* entry);
   /**
    * @brief Phase 1 of precommit_xct()
    * @param[in] context thread context
@@ -187,9 +187,11 @@ class XctManagerPimpl final : public DefaultInitializable {
   /** unlocking all acquired locks, used when aborts. */
   void        precommit_xct_unlock_reads(thread::Thread* context);
   void        precommit_xct_unlock_writes(thread::Thread* context);
-  //xct::McsBlockIndex precommit_xct_upgrade_lock(thread::Thread* context, ReadXctAccess* read);
   bool        precommit_xct_acquire_writer_lock(thread::Thread* context, WriteXctAccess *write);
   void        precommit_xct_sort_access(thread::Thread* context);
+  bool        precommit_xct_try_acquire_writer_locks(thread::Thread* context);
+  bool        precommit_xct_request_writer_lock(
+    thread::Thread* context, WriteXctAccess* write, int tries);
 
   /**
    * @brief Main routine for epoch_chime_thread_.

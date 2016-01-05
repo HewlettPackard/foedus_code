@@ -141,11 +141,27 @@ void McsRwLockScope::move_to(storage::PageVersionLockScope* new_owner) {
 void McsRwLockScope::acquire() {
   if (is_valid()) {
     if (block_ == 0) {
-      if (as_reader_) {
-        block_ = context_->mcs_acquire_reader_lock(lock_);
-      } else {
-        block_ = context_->mcs_acquire_writer_lock(lock_);
+      // release all S-locks first, see the comments in masstree_page_impl.cpp
+      xct::ReadXctAccess* read_set = context_->get_current_xct().get_read_set();
+      uint32_t read_set_size = context_->get_current_xct().get_read_set_size();
+      for (uint32_t j = 0; j < read_set_size; ++j) {
+        auto* entry = read_set + j;
+        if (entry->mcs_block_) {
+          context_->mcs_release_reader_lock(
+            entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
+          entry->mcs_block_ = 0;
+        }
       }
+      if (as_reader_) {
+        do {
+          while (!context_->mcs_try_acquire_reader_lock(lock_, &block_)) {}
+        } while (!context_->mcs_retry_acquire_reader_lock(lock_, block_, true));
+      } else {
+        do {
+          while (!context_->mcs_try_acquire_writer_lock(lock_, &block_)) {}
+        } while (!context_->mcs_retry_acquire_writer_lock(lock_, block_, true));
+      }
+      ASSERT_ND(block_);
     }
   }
 }

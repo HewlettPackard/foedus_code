@@ -51,7 +51,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
-//FIXME(tzwang): overwrite_record here doesn't add to read set, should we?
+// FIXME(tzwang): overwrite_record here doesn't add to read set, should we?
 // Defines ArrayStorage methods so that we can inline implementation calls
 uint16_t    ArrayStorage::get_payload_size() const  { return control_block_->meta_.payload_size_; }
 ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->meta_.array_size_; }
@@ -427,7 +427,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(
-      context, get_id(), observed, &record->owner_id_, NULL));
+      context, get_id(), observed, &record->owner_id_, NULL, false));
   }
   *payload = record->payload_;
   return kErrorCodeOk;
@@ -447,7 +447,8 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
       get_id(),
       observed,
       &((*record)->owner_id_),
-      NULL));
+      NULL,
+      false));
   }
   return kErrorCodeOk;
 }
@@ -482,12 +483,10 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(get_id(), offset, payload, payload_offset, payload_count);
   return context->get_current_xct().add_to_write_set(
-    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry,
-    NULL);
+    log_entry);
 }
 
 template <typename T>
@@ -502,12 +501,10 @@ inline ErrorCode ArrayStoragePimpl::overwrite_record_primitive(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(get_id(), offset, payload, payload_offset);
   return context->get_current_xct().add_to_write_set(
-    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry,
-    NULL);
+    log_entry);
 }
 
 template <typename T>
@@ -543,12 +540,10 @@ ErrorCode ArrayStoragePimpl::increment_record(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate_primitive<T>(get_id(), offset, *value, payload_offset);
   return context->get_current_xct().add_to_write_set(
-    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry,
-    NULL);
+    log_entry);
 }
 
 template <typename T>
@@ -566,12 +561,10 @@ ErrorCode ArrayStoragePimpl::increment_record_oneshot(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate<T>(get_id(), offset, value, payload_offset);
   return context->get_current_xct().add_to_write_set(
-    context,
     get_id(),
     &record->owner_id_,
     record->payload_,
-    log_entry,
-    NULL);
+    log_entry);
 }
 
 inline ErrorCode ArrayStoragePimpl::lookup_for_read(
@@ -742,7 +735,8 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
           get_id(),
           observed,
           &record_batch[i]->owner_id_,
-          NULL));
+          NULL,
+          false));
       }
     }
     assorted::memory_fence_consume();
@@ -786,7 +780,8 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
           get_id(),
           observed,
           &record_batch[i]->owner_id_,
-          NULL));
+          NULL,
+          false));
       }
     }
     assorted::memory_fence_consume();
@@ -817,7 +812,8 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
         get_id(),
         observed,
         &record_batch[i]->owner_id_,
-        NULL));
+        NULL,
+        false));
     }
     assorted::memory_fence_consume();
   }

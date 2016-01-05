@@ -207,7 +207,8 @@ ErrorCode HashStoragePimpl::get_record(
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    read_only ? location.hotness_address_ : NULL));
+    location.hotness_address_,
+    read_only));
   *payload_capacity = payload_length;
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset, payload_length);
@@ -256,7 +257,8 @@ ErrorCode HashStoragePimpl::get_record_part(
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    read_only ? location.hotness_address_ : NULL));
+    location.hotness_address_,
+    read_only));
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset + payload_offset, payload_count);
   return kErrorCodeOk;
@@ -309,7 +311,8 @@ ErrorCode HashStoragePimpl::insert_record(
         get_id(),
         location.observed_,
         &location.slot_->tid_,
-        location.hotness_address_));
+        location.hotness_address_,
+        false));
       return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
     }
 
@@ -353,7 +356,6 @@ ErrorCode HashStoragePimpl::insert_record(
     payload_count);
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     location.observed_,
     &location.slot_->tid_,
@@ -391,7 +393,8 @@ ErrorCode HashStoragePimpl::delete_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_));
+      location.hotness_address_,
+      false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   }
 
@@ -401,7 +404,6 @@ ErrorCode HashStoragePimpl::delete_record(
   log_entry->populate(get_id(), key, key_length, get_bin_bits(), combo.hash_);
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     location.observed_,
     &location.slot_->tid_,
@@ -520,7 +522,6 @@ ErrorCode HashStoragePimpl::upsert_record(
   // In either case, this operation depends on the TID of the record,
   // so read_and_write_set.
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     location.observed_,
     &location.slot_->tid_,
@@ -561,7 +562,8 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_));
+      location.hotness_address_,
+      false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + payload_count) {
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
@@ -570,7 +572,8 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_));
+      location.hotness_address_,
+      false));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
 
@@ -588,7 +591,6 @@ ErrorCode HashStoragePimpl::overwrite_record(
     payload_count);
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     location.observed_,
     &location.slot_->tid_,
@@ -629,7 +631,8 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_));
+      location.hotness_address_,
+      false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + sizeof(PAYLOAD)) {
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
@@ -638,7 +641,8 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_));
+      location.hotness_address_,
+      false));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
 
@@ -662,7 +666,6 @@ ErrorCode HashStoragePimpl::increment_record(
     sizeof(PAYLOAD));
 
   return context->get_current_xct().add_to_read_and_write_set(
-    context,
     get_id(),
     location.observed_,
     &location.slot_->tid_,

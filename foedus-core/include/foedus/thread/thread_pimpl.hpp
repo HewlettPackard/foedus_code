@@ -289,12 +289,13 @@ class ThreadPimpl final : public DefaultInitializable {
   void               mcs_release_writer_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
-  xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock, bool wait_for_result);
-  xct::McsBlockIndex mcs_retry_acquire_reader_lock(
+  bool mcs_try_acquire_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index);
+  bool mcs_retry_acquire_reader_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  xct::McsBlockIndex mcs_retry_acquire_writer_lock(
+  bool mcs_retry_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* lock, bool wait_for_result);
+  bool mcs_try_acquire_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
   xct::McsBlockIndex mcs_try_upgrade_reader_lock(
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
   void mcs_abort_writer_lock_no_pred(
@@ -302,12 +303,7 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Helper functions for try locks */
   inline void pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
-  inline bool try_abort_as_group_leader(
-    xct::McsRwLock* lock,
-    xct::McsRwBlock* block,
-    uint32_t my_tail,
-    uint32_t old_tail,
-    xct::McsRwBlock* holder);
+  inline bool try_abort_as_group_leader(xct::McsRwBlock* expected_holder);
 
   /** Helper function for mcs_try_upgrade_reader_lock(). */
   bool mcs_post_upgrade_reader_lock(
