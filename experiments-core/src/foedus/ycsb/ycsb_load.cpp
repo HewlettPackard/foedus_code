@@ -127,14 +127,7 @@ ErrorStack YcsbLoadTask::run(
     YcsbKey key;
     while (true) {
       key.build(high, low++);
-      if (sort_load_keys) {
-        keys.push_back(key);
-      } else {
-        YcsbRecord r('a');
-        COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-        COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-        COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-      }
+      keys.push_back(key);
       inserted++;
       if (--remaining_inserts == 0) {
         break;
@@ -149,12 +142,34 @@ ErrorStack YcsbLoadTask::run(
   if (sort_load_keys) {
     ASSERT_ND(keys.size());
     std::sort(keys.begin(), keys.end());
-    for (auto &key : keys) {
-      YcsbRecord r('a');
-      COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-      COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-      COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-    }
+  }
+
+  for (auto &key : keys) {
+    YcsbRecord r('a');
+    bool succeeded = false;
+    // With the try-retry rw-lock insertions during loading phase might
+    // fail too due to conflict with page splits caused by other loading
+    // threads. The splitters will retry until success.
+    //
+    // Retry 100 times (might be large, but it's loading phase anyway).
+    // If we're super unlucky after 100 tries, sleep, retry 100 times again.
+    const int kLoadingBackoffUs = 200;
+    const int kLoadingInitialTries = 100;
+    do {
+      for (int t = 0; t < kLoadingInitialTries; ++t) {
+        COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+        COERCE_ERROR_CODE(
+          user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
+        auto ret = xct_manager->precommit_xct(context, &commit_epoch);
+        if (ret == kErrorCodeOk) {
+          succeeded = true;
+          break;
+        }
+        ASSERT_ND(ret == kErrorCodeXctRaceAbort);
+        // sleep for a random number of ms
+        std::this_thread::sleep_for(std::chrono::microseconds(kLoadingBackoffUs));
+      }
+    } while (!succeeded);
   }
   COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   watch.stop();
