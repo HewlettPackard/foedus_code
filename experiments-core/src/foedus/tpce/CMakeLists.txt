@@ -9,3 +9,6 @@ set(tpce_cpps
 )
 add_executable(tpce ${tpce_cpps})
 target_link_libraries(tpce ${EXPERIMENT_LIB} gflags-static)
+
+configure_file(run_hp840.sh run_hp840.sh COPYONLY)
+configure_file(run_dh.sh run_dh.sh COPYONLY)
