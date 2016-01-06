@@ -49,6 +49,11 @@ struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
    */
   uint32_t                partitioner_data_memory_mb_;
 
+  /**
+   * Page hotness >= this value will be considered hot (hybrid CC only).
+   */
+  uint64_t                hot_threshold_;
+
   EXTERNALIZABLE(StorageOptions);
 };
 }  // namespace storage

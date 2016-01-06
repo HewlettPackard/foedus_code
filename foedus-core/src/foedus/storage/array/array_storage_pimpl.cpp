@@ -427,7 +427,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
     xct::XctId observed(record->owner_id_.xct_id_);
     assorted::memory_fence_consume();
     CHECK_ERROR_CODE(current_xct.add_to_read_set(
-      context, get_id(), observed, &record->owner_id_, NULL, false));
+      context, get_id(), observed, &record->owner_id_, false));
   }
   *payload = record->payload_;
   return kErrorCodeOk;
@@ -447,7 +447,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
       get_id(),
       observed,
       &((*record)->owner_id_),
-      NULL,
       false));
   }
   return kErrorCodeOk;
@@ -735,7 +734,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
           get_id(),
           observed,
           &record_batch[i]->owner_id_,
-          NULL,
           false));
       }
     }
@@ -780,7 +778,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
           get_id(),
           observed,
           &record_batch[i]->owner_id_,
-          NULL,
           false));
       }
     }
@@ -812,7 +809,6 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
         get_id(),
         observed,
         &record_batch[i]->owner_id_,
-        NULL,
         false));
     }
     assorted::memory_fence_consume();

@@ -27,6 +27,18 @@
 namespace foedus {
 namespace xct {
 
+bool RwLockableXctId::is_hot(thread::Thread* context) const {
+  return foedus::storage::to_page(this)->get_header().contains_hot_records(context);
+}
+
+void RwLockableXctId::hotter() const {
+  foedus::storage::to_page(this)->get_header().increase_hotness();
+}
+
+void RwLockableXctId::colder() const {
+  foedus::storage::to_page(this)->get_header().decrease_hotness();
+}
+
 McsBlockIndex McsLock::acquire_lock(thread::Thread* context) {
   // not inlined. so, prefer calling it directly
   return context->mcs_acquire_lock(this);

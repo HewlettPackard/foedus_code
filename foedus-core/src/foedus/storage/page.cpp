@@ -21,6 +21,8 @@
 
 #include <ostream>
 
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -71,6 +73,10 @@ std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
   o << v.page_version_;
   o << "</PageHeader>";
   return o;
+}
+
+bool PageHeader::contains_hot_records(thread::Thread* context) {
+  return hotness_ >= context->get_engine()->get_options().storage_.hot_threshold_;
 }
 
 PageVersionLockScope::PageVersionLockScope(

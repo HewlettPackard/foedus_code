@@ -207,7 +207,6 @@ ErrorCode HashStoragePimpl::get_record(
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    location.hotness_address_,
     read_only));
   *payload_capacity = payload_length;
   uint16_t key_offset = location.slot_->get_aligned_key_length();
@@ -251,13 +250,11 @@ ErrorCode HashStoragePimpl::get_record_part(
     return kErrorCodeStrTooShortPayload;
   }
 
-  // Give hotness_address_ if read-only, otherwise give NULL so add_to_read_set won't take lock
   CHECK_ERROR_CODE(cur_xct.add_to_read_set(
     context,
     get_id(),
     location.observed_,
     &location.slot_->tid_,
-    location.hotness_address_,
     read_only));
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset + payload_offset, payload_count);
@@ -311,7 +308,6 @@ ErrorCode HashStoragePimpl::insert_record(
         get_id(),
         location.observed_,
         &location.slot_->tid_,
-        location.hotness_address_,
         false));
       return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
     }
@@ -360,8 +356,7 @@ ErrorCode HashStoragePimpl::insert_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    log_entry,
-    location.hotness_address_);
+    log_entry);
 }
 
 ErrorCode HashStoragePimpl::delete_record(
@@ -393,7 +388,6 @@ ErrorCode HashStoragePimpl::delete_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_,
       false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   }
@@ -408,8 +402,7 @@ ErrorCode HashStoragePimpl::delete_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    log_entry,
-    location.hotness_address_);
+    log_entry);
 }
 
 ErrorCode HashStoragePimpl::upsert_record(
@@ -526,8 +519,7 @@ ErrorCode HashStoragePimpl::upsert_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    log_common,
-    location.hotness_address_);
+    log_common);
 }
 
 ErrorCode HashStoragePimpl::overwrite_record(
@@ -562,7 +554,6 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_,
       false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + payload_count) {
@@ -572,7 +563,6 @@ ErrorCode HashStoragePimpl::overwrite_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_,
       false));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
@@ -595,8 +585,7 @@ ErrorCode HashStoragePimpl::overwrite_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    log_entry,
-    location.hotness_address_);
+    log_entry);
 }
 
 template <typename PAYLOAD>
@@ -631,7 +620,6 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_,
       false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + sizeof(PAYLOAD)) {
@@ -641,7 +629,6 @@ ErrorCode HashStoragePimpl::increment_record(
       get_id(),
       location.observed_,
       &location.slot_->tid_,
-      location.hotness_address_,
       false));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
@@ -670,8 +657,7 @@ ErrorCode HashStoragePimpl::increment_record(
     location.observed_,
     &location.slot_->tid_,
     location.record_,
-    log_entry,
-    location.hotness_address_);
+    log_entry);
 }
 
 ErrorCode HashStoragePimpl::get_root_page(
@@ -994,7 +980,6 @@ ErrorCode HashStoragePimpl::locate_record(
     uint16_t record_count = page->get_record_count();
     search_key_in_a_page(key, key_length, combo, page, record_count, result);
     if (result->record_) {
-      result->hotness_address_ = page->header().hotness_address();
       return kErrorCodeOk;  // found!
     }
 
@@ -1015,7 +1000,6 @@ ErrorCode HashStoragePimpl::locate_record(
         page = reinterpret_cast<HashDataPage*>(next);
       } else {
         // it's snapshot world. the result is final, we are done.
-        ASSERT_ND(!result->hotness_address_);
         return kErrorCodeOk;
       }
     } else {
@@ -1058,7 +1042,6 @@ ErrorCode HashStoragePimpl::locate_record(
             result));
           ASSERT_ND(result->slot_);
           ASSERT_ND(result->record_);
-          ASSERT_ND(!result->hotness_address_);
           return kErrorCodeOk;
         } else {
           // we have to take version set because someone might
@@ -1066,7 +1049,6 @@ ErrorCode HashStoragePimpl::locate_record(
           CHECK_ERROR_CODE(current_xct.add_to_page_version_set(
             &page->header().page_version_,
             page_status));
-          ASSERT_ND(!result->hotness_address_);
           return kErrorCodeOk;
         }
       } else {

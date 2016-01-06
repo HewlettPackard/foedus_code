@@ -195,7 +195,6 @@ class Xct {
     storage::StorageId storage_id,
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,
-    uint8_t* page_hotness_address,
     bool read_only) ALWAYS_INLINE;
   /** This version always adds to read set regardless of isolation level. */
   ErrorCode           add_to_read_set_force(
@@ -228,8 +227,7 @@ class Xct {
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,
     char* payload_address,
-    log::RecordLogType* log_entry,
-    uint8_t* page_hotness_address) ALWAYS_INLINE;
+    log::RecordLogType* log_entry) ALWAYS_INLINE;
 
   /**
    * @brief Add the given log to the lock-free write set of this transaction.
@@ -410,7 +408,6 @@ inline ErrorCode Xct::add_to_read_set(
   storage::StorageId storage_id,
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
-  uint8_t* page_hotness_address,
   bool read_only) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
@@ -430,14 +427,11 @@ inline ErrorCode Xct::add_to_read_set(
   if (!read) {
     read = read_set_ + read_set_size_;
     CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
-    read->page_hotness_address_ = page_hotness_address;
   }
   ASSERT_ND(read->mcs_block_ == 0);
   // TODO(tzwang): Array storage doesn't support page temperature yet;
   // the only use case now should be TPCE's trade type which isn't updated.
-  if (read_only &&
-    read->page_hotness_address_ &&
-    storage::PageHeader::contains_hot_records(page_hotness_address)) {
+  if (read_only && read->owner_id_address_->is_hot(context)) {
     while (!context->mcs_try_acquire_reader_lock(
       read->owner_id_address_->get_key_lock(), &read->mcs_block_)) {
     }
@@ -474,7 +468,6 @@ inline ErrorCode Xct::add_to_read_set_force(
   read_set_[read_set_size_].owner_id_address_ = owner_id_address;
   read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
   read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
-  read_set_[read_set_size_].page_hotness_address_ = NULL;
   ++read_set_size_;
   return kErrorCodeOk;
 }
@@ -518,8 +511,7 @@ inline ErrorCode Xct::add_to_read_and_write_set(
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
   char* payload_address,
-  log::RecordLogType* log_entry,
-  uint8_t* page_hotness_address) {
+  log::RecordLogType* log_entry) {
   ASSERT_ND(observed_owner_id.is_valid());
 #ifndef NDEBUG
   log::invoke_assert_valid(log_entry);
@@ -539,7 +531,6 @@ inline ErrorCode Xct::add_to_read_and_write_set(
     storage_id,
     observed_owner_id,
     owner_id_address));
-  read->page_hotness_address_ = page_hotness_address;
   ASSERT_ND(read->mcs_block_ == 0);
   ASSERT_ND(read->owner_id_address_ == owner_id_address);
   read->related_write_ = write;

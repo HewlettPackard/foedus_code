@@ -234,8 +234,6 @@ struct PageVersionLockScope {
  * get/set basic properties.
  */
 struct PageHeader CXX11_FINAL {
-  static const uint8_t kHotThreshold = 10;
-  static const uint8_t kInvalidHotness = 0xff;
   /**
    * @brief Page ID of this page.
    * @details
@@ -334,7 +332,6 @@ struct PageHeader CXX11_FINAL {
   PageType get_page_type() const { return static_cast<PageType>(page_type_); }
   uint8_t get_in_layer_level() const { return masstree_in_layer_level_; }
   void set_in_layer_level(uint8_t level) { masstree_in_layer_level_ = level; }
-  uint8_t* hotness_address() { return &hotness_; }
 
   inline void init_volatile(
     VolatilePagePointer page_id,
@@ -366,7 +363,7 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
-    hotness_ = kInvalidHotness;
+    hotness_ = 0;
     page_version_.reset();
   }
 
@@ -379,22 +376,22 @@ struct PageHeader CXX11_FINAL {
     key_count_ = key_count;
   }
 
-  static void increase_hotness(uint8_t* haddr) ALWAYS_INLINE {
-    (*haddr)++;
-  }
+  bool contains_hot_records(thread::Thread* context);
+
   /* FIXME(tzwang): one option here is to decrement the counter when a transaction
    * committed without taking shared lock on a record (not 100% accurate unless
    * we keep stats per record).
    */
-  static void decrease_htoness(uint8_t* haddr) ALWAYS_INLINE {
-    (*haddr)--;
+  void decrease_hotness() ALWAYS_INLINE {
+    --hotness_;
   }
-  static void reset_hotness(uint8_t* haddr) ALWAYS_INLINE {
-    *haddr = 0;
+  void increase_hotness() ALWAYS_INLINE {
+    ++hotness_;
   }
-  static bool contains_hot_records(uint8_t* haddr) ALWAYS_INLINE {
-    return *haddr >= kHotThreshold;
+  void reset_hotness() ALWAYS_INLINE {
+    hotness_ = 0;
   }
+
 };
 
 /**

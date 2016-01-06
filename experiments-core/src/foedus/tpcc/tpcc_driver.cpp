@@ -91,6 +91,8 @@ DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
 DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
+DEFINE_int32(hot_threshold, -1, "Threshold to determine hot/cold pages,"
+  " 0 (always hot, 2PL) - 255 (always cold, OCC).");
 
 #ifdef OLAP_MODE
 DEFINE_bool(dirty_read, false, "[Experimental] Whether to use dirty-read isolation level."
@@ -614,6 +616,14 @@ int driver_main(int argc, char **argv) {
     std::cout << "Will duplicate binaries and exec workers in child processes" << std::endl;
     options.soc_.soc_type_ = kChildLocalSpawned;
   }
+
+  if (FLAGS_hot_threshold > 255) {
+    std::cout << "Hot page threshold is too large: " << FLAGS_hot_threshold
+      << ". Choose a value between 0 and 63 (inclusive)." << std::endl;
+    return 1;
+  }
+  options.storage_.hot_threshold_ = FLAGS_hot_threshold;
+  std::cout << "Hot record threshold: " << options.storage_.hot_threshold_ << std::endl;
 
   TpccDriver::Result result;
   {

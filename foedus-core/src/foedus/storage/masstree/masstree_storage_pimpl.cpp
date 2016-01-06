@@ -1179,7 +1179,6 @@ ErrorCode MasstreeStoragePimpl::retrieve_general(
     get_id(),
     observed,
     border->get_owner_id(index),
-    border->header().hotness_address(),
     read_only));
 
   // here, we do NOT have to do another optimistic-read protocol because we already took
@@ -1215,7 +1214,6 @@ ErrorCode MasstreeStoragePimpl::retrieve_part_general(
     get_id(),
     observed,
     border->get_owner_id(index),
-    border->header().hotness_address(),
     read_only));
   if (border->get_payload_length(index) < payload_offset + payload_count) {
     LOG(WARNING) << "short record";  // probably this is a rare error. so warn.
@@ -1259,8 +1257,7 @@ ErrorCode MasstreeStoragePimpl::insert_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry,
-    border->header().hotness_address());
+    log_entry);
 }
 
 ErrorCode MasstreeStoragePimpl::delete_general(
@@ -1287,8 +1284,7 @@ ErrorCode MasstreeStoragePimpl::delete_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry,
-    border->header().hotness_address());
+    log_entry);
 }
 
 ErrorCode MasstreeStoragePimpl::upsert_general(
@@ -1357,8 +1353,7 @@ ErrorCode MasstreeStoragePimpl::upsert_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    common_log,
-    border->header().hotness_address());
+    common_log);
 }
 ErrorCode MasstreeStoragePimpl::overwrite_general(
   thread::Thread* context,
@@ -1397,8 +1392,7 @@ ErrorCode MasstreeStoragePimpl::overwrite_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry,
-    border->header().hotness_address());
+    log_entry);
 }
 
 template <typename PAYLOAD>
@@ -1441,8 +1435,7 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     observed,
     border->get_owner_id(index),
     border->get_record(index),
-    log_entry,
-    border->header().hotness_address());
+    log_entry);
 }
 
 inline xct::TrackMovedRecordResult MasstreeStoragePimpl::track_moved_record(

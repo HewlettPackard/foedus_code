@@ -612,7 +612,6 @@ ErrorCode SequentialCursor::next_batch_unsafe_volatiles(
               storage_.get_id(),
               owner_id->xct_id_,
               owner_id,
-              NULL,
               false));
           }
         }

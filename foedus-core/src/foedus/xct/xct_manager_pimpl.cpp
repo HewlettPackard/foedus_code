@@ -702,9 +702,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
       ASSERT_ND(access.mcs_block_ == 0);
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       // read clobbered, make it hotter
-      if (access.page_hotness_address_) {
-        storage::PageHeader::increase_hotness(access.page_hotness_address_);
-      }
+      access.owner_id_address_->hotter();
       return false;
     }
 
@@ -789,9 +787,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     } else {
       if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
         ASSERT_ND(access.mcs_block_ == 0);  // must be an optimistic read, without S-lock
-        if (access.page_hotness_address_) {
-          storage::PageHeader::increase_hotness(access.page_hotness_address_);
-        }
+        access.owner_id_address_->hotter();
         //DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
         return false;
       }

@@ -80,6 +80,8 @@ DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
 DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
+DEFINE_int32(hot_threshold, -1, "Threshold to determine hot/cold pages,"
+  " 0 (always hot, 2PL) - 255 (always cold, OCC).");
 
 // YCSB-specific options
 DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E/F.");
@@ -271,6 +273,14 @@ int driver_main(int argc, char **argv) {
     std::cout << "Will duplicate binaries and exec workers in child processes" << std::endl;
     options.soc_.soc_type_ = kChildLocalSpawned;
   }
+
+  if (FLAGS_hot_threshold > 255) {
+    std::cout << "Hot page threshold is too large: " << FLAGS_hot_threshold
+      << ". Choose a value between 0 and 63 (inclusive)." << std::endl;
+    return 1;
+  }
+  options.storage_.hot_threshold_ = FLAGS_hot_threshold;
+  std::cout << "Hot record threshold: " << options.storage_.hot_threshold_ << std::endl;
 
   // Get an engine, register procedures to run
   Engine engine(options);
