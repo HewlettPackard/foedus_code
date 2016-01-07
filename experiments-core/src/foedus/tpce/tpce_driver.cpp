@@ -74,7 +74,7 @@ DEFINE_int32(log_buffer_mb, 1024, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, true, "Whether to disable log writing.");
 DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 DEFINE_int32(hot_threshold, -1, "Threshold to determine hot/cold pages,"
-  " 0 (always hot, 2PL) - 255 (always cold, OCC).");
+  " 0 (always hot, 2PL) - 256 (always cold, OCC).");
 DEFINE_int64(customers, 1000, "The number of customers, or Scale Factor * tpsE."
   " The Scale Factor (SF) is the number of required customer rows per"
   " single tpsE. SF for Nominal Throughput is 500."
@@ -484,9 +484,9 @@ int driver_main(int argc, char **argv) {
     options.soc_.soc_type_ = kChildForked;
   }
 
-  if (FLAGS_hot_threshold > 255) {
+  if (FLAGS_hot_threshold > 256) {
     std::cout << "Hot page threshold is too large: " << FLAGS_hot_threshold
-      << ". Choose a value between 0 and 63 (inclusive)." << std::endl;
+      << ". Choose a value between 0 and 256 (inclusive)." << std::endl;
     return 1;
   }
   options.storage_.hot_threshold_ = FLAGS_hot_threshold;
