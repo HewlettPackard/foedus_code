@@ -803,7 +803,6 @@ struct RwLockableXctId {
   bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
   bool is_hot(thread::Thread* context) const;
   void hotter() const;
-  void colder() const;
 
   /** used only while page initialization */
   void    reset() ALWAYS_INLINE {

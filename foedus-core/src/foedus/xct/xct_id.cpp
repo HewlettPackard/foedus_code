@@ -32,11 +32,7 @@ bool RwLockableXctId::is_hot(thread::Thread* context) const {
 }
 
 void RwLockableXctId::hotter() const {
-  foedus::storage::to_page(this)->get_header().increase_hotness();
-}
-
-void RwLockableXctId::colder() const {
-  foedus::storage::to_page(this)->get_header().decrease_hotness();
+  foedus::storage::to_page(this)->get_header().hotness_.increment();
 }
 
 McsBlockIndex McsLock::acquire_lock(thread::Thread* context) {

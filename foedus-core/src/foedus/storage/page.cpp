@@ -76,7 +76,7 @@ std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
 }
 
 bool PageHeader::contains_hot_records(thread::Thread* context) {
-  return hotness_ >= context->get_engine()->get_options().storage_.hot_threshold_;
+  return hotness_.value_ >= context->get_engine()->get_options().storage_.hot_threshold_;
 }
 
 PageVersionLockScope::PageVersionLockScope(

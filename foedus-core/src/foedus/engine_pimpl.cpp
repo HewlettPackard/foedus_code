@@ -96,6 +96,8 @@ std::string EnginePimpl::describe_short() const {
 ErrorStack EnginePimpl::initialize_once() {
   if (is_master()) {
     CHECK_ERROR(check_valid_options());
+    // XXX(tzwang): is this a good place to call this?
+    assorted::ProbCounter::initialize(30);
   }
   // SOC manager is special. We must initialize it first.
   CHECK_ERROR(soc_manager_.initialize());

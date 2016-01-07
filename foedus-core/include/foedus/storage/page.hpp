@@ -26,6 +26,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/prob_counter.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -317,7 +318,7 @@ struct PageHeader CXX11_FINAL {
    *
    * Assuming 4-byte word size ($getconf WORD_BIT).
    */
-  uint8_t       hotness_;                    // +1 -> 24
+  assorted::ProbCounter hotness_;            // +1 -> 24
   /**
    * Used in several storage types as concurrency control mechanism for the page.
    */
@@ -346,7 +347,7 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = page_id.components.numa_node;
-    hotness_ = 0;
+    hotness_.reset();
     page_version_.reset();
   }
 
@@ -363,7 +364,7 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
-    hotness_ = 0;
+    hotness_.reset();
     page_version_.reset();
   }
 
@@ -377,21 +378,6 @@ struct PageHeader CXX11_FINAL {
   }
 
   bool contains_hot_records(thread::Thread* context);
-
-  /* FIXME(tzwang): one option here is to decrement the counter when a transaction
-   * committed without taking shared lock on a record (not 100% accurate unless
-   * we keep stats per record).
-   */
-  void decrease_hotness() ALWAYS_INLINE {
-    --hotness_;
-  }
-  void increase_hotness() ALWAYS_INLINE {
-    ++hotness_;
-  }
-  void reset_hotness() ALWAYS_INLINE {
-    hotness_ = 0;
-  }
-
 };
 
 /**
