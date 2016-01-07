@@ -68,6 +68,9 @@ struct ProbCounter {
     if (prob < deltas[value_]) {
       ++value_;
     }
+#ifndef NDEBUG
+    ASSERT_ND(value_ >= v);
+#endif
   }
 
   // XXX(tzwang): how should we actually implement decrement()? blind --? follow prob.?

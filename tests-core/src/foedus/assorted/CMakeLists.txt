@@ -63,3 +63,5 @@ add_foedus_test_individual(test_fixed_string "Construct;Append;AppendTruncateAss
 add_foedus_test_individual(test_mprotect "SmallPage;HugePage")
 
 add_foedus_test_individual(test_zipfian_random "OneMillion")
+
+add_foedus_test_individual(test_prob_counter "A30")
