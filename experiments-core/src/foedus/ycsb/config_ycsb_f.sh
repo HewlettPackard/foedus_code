@@ -3,6 +3,7 @@
 # $2 - rmw_additional_reads
 # $3 - reps_per_tx
 # $4 - initial_table_size
+# $5 - hcc_threshold
 
 workload=F
 max_scan_length=1000
@@ -15,5 +16,6 @@ zipfian_theta=$1
 rmw_additional_reads=$2
 reps_per_tx=$3
 initial_table_size=$4
+hot_threshold=$5
 ordered_inserts=0
 sort_load_keys=0
