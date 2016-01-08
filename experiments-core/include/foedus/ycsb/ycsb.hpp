@@ -228,6 +228,7 @@ class YcsbClientTask {
     bool read_all_fields_;
     bool write_all_fields_;
     bool random_inserts_;
+    bool sort_keys_;
     uint64_t initial_table_size_;
     PerWorkerCounter* local_key_counter_;
     Inputs() {}
@@ -254,6 +255,7 @@ class YcsbClientTask {
       read_all_fields_(inputs.read_all_fields_),
       write_all_fields_(inputs.write_all_fields_),
       random_inserts_(inputs.random_inserts_),
+      sort_keys_(inputs.sort_keys_),
       initial_table_size_(inputs.initial_table_size_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
@@ -279,6 +281,7 @@ class YcsbClientTask {
   bool read_all_fields_;
   bool write_all_fields_;
   bool random_inserts_;
+  bool sort_keys_;
   uint64_t initial_table_size_;
   Outputs* outputs_;
   PerWorkerCounter* local_key_counter_;

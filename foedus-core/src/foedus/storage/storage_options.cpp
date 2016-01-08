@@ -25,6 +25,7 @@ StorageOptions::StorageOptions() {
 ErrorStack StorageOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, max_storages_);
   EXTERNALIZE_LOAD_ELEMENT(element, partitioner_data_memory_mb_);
+  EXTERNALIZE_LOAD_ELEMENT(element, hot_threshold_);
   return kRetOk;
 }
 ErrorStack StorageOptions::save(tinyxml2::XMLElement* element) const {
@@ -35,6 +36,8 @@ ErrorStack StorageOptions::save(tinyxml2::XMLElement* element) const {
     "Size in MB of a shared memory buffer allocated for all partitioners during log gleaning."
     "Increase this value when you have a large number of storages that have large partitioning"
     " information (eg. long keys).");
+  EXTERNALIZE_SAVE_ELEMENT(element, hot_threshold_,
+    "Hot record threshold; for HCC only.");
   return kRetOk;
 }
 }  // namespace storage

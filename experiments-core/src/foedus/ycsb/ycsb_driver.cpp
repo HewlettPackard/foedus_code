@@ -109,6 +109,8 @@ DEFINE_bool(simple_int_keys, true, "Whether to use 8-byte interger key; ignores 
 // This is not in the spec; it makes masstree perform better.
 DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
 
+DEFINE_bool(sort_keys, true, "Whether to sort the keys used in workload F");
+
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0,    0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0,    0);     // Workload B - 95% read, 5% update
 YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0,    0);     // Workload C - 100% read
@@ -456,6 +458,7 @@ ErrorStack YcsbDriver::run() {
       inputs.read_all_fields_ = FLAGS_read_all_fields;
       inputs.write_all_fields_ = FLAGS_write_all_fields;
       inputs.random_inserts_ = FLAGS_random_inserts;
+      inputs.sort_keys_ = FLAGS_sort_keys;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
       if (initial_records_per_thread == 0) {
         if (node == 0 && ordinal == 0) {

@@ -187,7 +187,8 @@ class XctManagerPimpl final : public DefaultInitializable {
   /** unlocking all acquired locks, used when aborts. */
   void        precommit_xct_unlock_reads(thread::Thread* context);
   void        precommit_xct_unlock_writes(thread::Thread* context);
-  bool        precommit_xct_acquire_writer_lock(thread::Thread* context, WriteXctAccess *write);
+  void        precommit_xct_unlock_read(thread::Thread* context, ReadXctAccess* read);
+  void        precommit_xct_unlock_write(thread::Thread* context, WriteXctAccess* write);
   void        precommit_xct_sort_access(thread::Thread* context);
   bool        precommit_xct_try_acquire_writer_locks(thread::Thread* context);
   bool        precommit_xct_request_writer_lock(
@@ -210,8 +211,11 @@ class XctManagerPimpl final : public DefaultInitializable {
   void        resume_accepting_xct();
   void        wait_until_resume_accepting_xct(thread::Thread* context);
 
+  static const int              kLockRequestRetries = 10;
+
   Engine* const                 engine_;
   XctManagerControlBlock*       control_block_;
+  assorted::UniformRandom       lock_rnd_;
 
   /**
    * This thread keeps advancing the current_global_epoch_.

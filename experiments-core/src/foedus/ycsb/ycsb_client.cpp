@@ -118,6 +118,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       }
     }
     ASSERT_ND((int32_t)access_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+    if (sort_keys_) {
+      std::sort(access_keys.begin(), access_keys.end());
+    }
 
     // abort-retry loop
     while (!is_stop_requested()) {

@@ -492,7 +492,8 @@ bool XctManagerPimpl::precommit_xct_try_acquire_writer_locks(thread::Thread* con
       continue;
     }
 
-    if (!precommit_xct_request_writer_lock(context, write, 5)) {
+    if (!precommit_xct_request_writer_lock(
+      context, write, lock_rnd_.uniform_within(1, kLockRequestRetries))) {
       return false;
     }
     ASSERT_ND(write->mcs_block_);
@@ -594,6 +595,7 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   ASSERT_ND(current_xct.assert_related_read_write());
   // Loop over all writes and check lock acquire status
   int xlock_retries = 5;
+  int release_rounds = 5;  // how many rounds do we try to release already-holding locks (S or X)
 retry_acquires:
   bool all_acquired = true;
   for (uint32_t i = 0; i < write_set_size; ++i) {
@@ -605,11 +607,13 @@ retry_acquires:
     }
     ASSERT_ND(write->mcs_block_);
     auto* my_block = context->get_mcs_rw_blocks() + write->mcs_block_;
-    // Retry lining up if we were already told to abort or the record moved
-    if (my_block->is_aborted()) {
+    // Retry lining up if we were already told to abort or the record moved,
+    // or our deadlock handling mechanism released the lock (hoping to break a cycle)
+    if (my_block->is_aborted() || write->lock_status_ == kXctAccessLockReleased) {
       write->lock_status_ = kXctAccessLockReleased;
       // no need to retry, start with a new acquire, but we can reuse the mcs_block
-      if (!precommit_xct_request_writer_lock(context, write, 5)) {
+      if (!precommit_xct_request_writer_lock(
+        context, write, lock_rnd_.uniform_within(1, kLockRequestRetries))) {
         return false;
       }
     }
@@ -635,7 +639,8 @@ retry_acquires:
         ASSERT_ND(write->mcs_block_);
         ASSERT_ND(my_block == context->get_mcs_rw_blocks() + write->mcs_block_);
         // precommit_xct_lock_track_write should have already released the X-lock
-        if (!precommit_xct_request_writer_lock(context, write, 5)) {
+        if (!precommit_xct_request_writer_lock(
+          context, write, lock_rnd_.uniform_within(1, kLockRequestRetries))) {
           return false;
         }
         goto retry;
@@ -663,6 +668,33 @@ retry_acquires:
       // Give up, hoping to break a deadlock cycle
       return false;
     }
+    if (--release_rounds) {
+      bool unlocked = false;
+      // pick some locks to release
+      for (uint32_t i = 0; i < write_set_size; ++i) {
+        auto* entry = write_set + i;
+        if (entry->lock_status_ == kXctAccessLockAcquired &&
+          lock_rnd_.uniform_within(0, 1) == 1) {
+          precommit_xct_unlock_write(context, entry);
+          ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
+          unlocked = true;
+          break;
+        }
+      }
+      if (!unlocked) {
+        uint32_t read_set_size = context->get_current_xct().get_read_set_size();
+        ReadXctAccess* read_set = current_xct.get_read_set();
+        for (uint32_t i = 0; i < read_set_size; ++i) {
+          auto* entry = read_set + i;
+          if (entry->lock_status_ == kXctAccessLockAcquired &&
+            lock_rnd_.uniform_within(0, 1) == 1) {
+            precommit_xct_unlock_read(context, entry);
+            ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
+            break;
+          }
+        }
+      }
+    }
     goto retry_acquires;
   }
 
@@ -671,6 +703,7 @@ retry_acquires:
 #ifndef NDEBUG
   for (uint32_t i = 0; i < write_set_size; ++i) {
     ASSERT_ND(write_set[i].owner_id_address_->lock_.is_locked());
+    ASSERT_ND(write_set[i].lock_status_ == kXctAccessLockAcquired);
   }
 #endif  // NDEBUG
   return true;
@@ -789,12 +822,11 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
       ASSERT_ND(access.mcs_block_ == 0);
     }
 
-    if (access.mcs_block_) {
+    if (access.lock_status_ == kXctAccessLockAcquired) {
       // I S-locked the read
       ASSERT_ND(access.observed_owner_id_ == access.owner_id_address_->xct_id_);
     } else {
       if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
-        ASSERT_ND(access.mcs_block_ == 0);  // must be an optimistic read, without S-lock
         access.owner_id_address_->hotter();
         //DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
         return false;
@@ -802,7 +834,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
       if (access.owner_id_address_->is_keylocked()) {
         DVLOG(2) << *context
           << " read set contained a locked record. was it myself who locked it?";
-        ASSERT_ND(access.mcs_block_ == 0);
         // Is it myself who X-locked during precommit after read it without taking S-lock?
         // write set is sorted. so we can do binary search.
         // XXX(tzwang): there might be false positives when somebody else S-locked it but
@@ -971,6 +1002,20 @@ void XctManagerPimpl::precommit_xct_apply(
   DVLOG(1) << *context << " applied and unlocked write set";
 }
 
+void XctManagerPimpl::precommit_xct_unlock_write(thread::Thread* context, WriteXctAccess* write) {
+  ASSERT_ND(write->lock_status_ == kXctAccessLockAcquired);
+  ASSERT_ND(write->mcs_block_);
+  context->mcs_release_writer_lock(write->owner_id_address_->get_key_lock(), write->mcs_block_);
+  write->lock_status_ = kXctAccessLockReleased;
+}
+
+void XctManagerPimpl::precommit_xct_unlock_read(thread::Thread* context, ReadXctAccess* read) {
+  ASSERT_ND(read->lock_status_ == kXctAccessLockAcquired);
+  ASSERT_ND(read->mcs_block_);
+  context->mcs_release_reader_lock(read->owner_id_address_->get_key_lock(), read->mcs_block_);
+  read->lock_status_ = kXctAccessLockReleased;
+}
+
 void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
   WriteXctAccess* write_set = context->get_current_xct().get_write_set();
   uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
@@ -988,15 +1033,13 @@ void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
         entry->owner_id_address_->get_key_lock(),
         entry->mcs_block_,
         true)) {
-        context->mcs_release_writer_lock(
-          entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-        entry->lock_status_ = kXctAccessLockReleased;
+        entry->lock_status_ = kXctAccessLockAcquired;
+        precommit_xct_unlock_write(context, entry);
+        ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
       }
     } else if (entry->lock_status_ == kXctAccessLockAcquired) {
-      ASSERT_ND(entry->mcs_block_);
-      context->mcs_release_writer_lock(
-        entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-      entry->lock_status_ = kXctAccessLockReleased;
+      precommit_xct_unlock_write(context, entry);
+      ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
     }
   }
 
@@ -1010,9 +1053,8 @@ void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
   for (uint32_t i = 0; i < read_set_size; i++) {
     auto* entry = read_set + i;
     if (entry->lock_status_ == kXctAccessLockAcquired) {
-      ASSERT_ND(entry->mcs_block_);
-      context->mcs_release_reader_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-      entry->lock_status_ = kXctAccessLockReleased;
+      precommit_xct_unlock_read(context, entry);
+      ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
     }
   }
 
