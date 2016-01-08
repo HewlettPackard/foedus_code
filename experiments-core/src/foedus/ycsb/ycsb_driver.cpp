@@ -547,9 +547,18 @@ ErrorStack YcsbDriver::run() {
 
   channel->stop_flag_.store(true);
 
+  // Let's forcibly kill everything if it doesn't stop after 10x the experiment duration.
+  const uint64_t session_timeout_us = FLAGS_duration_micro * 10;
   for (uint32_t i = 0; i < sessions.size(); ++i) {
-    LOG(INFO) << "result[" << i << "]=" << sessions[i].get_result();
-    sessions[i].release();
+    bool ended = sessions[i].wait_for(session_timeout_us);
+    if (ended) {
+      LOG(INFO) << "result[" << i << "]=" << sessions[i].get_result();
+      sessions[i].release();
+    } else {
+      LOG(FATAL) << "Ouch! the experiment worker-" << i << " doesn't stop after "
+        << session_timeout_us << " microsec."
+        << " We will forcibly/dirtily stop the process(s).";
+    }
   }
   channel->uninitialize();
 

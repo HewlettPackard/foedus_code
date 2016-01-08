@@ -80,6 +80,28 @@ void ImpersonateSession::wait() const {
   }
 }
 
+bool ImpersonateSession::wait_for(uint64_t timeout_microsec) const {
+  if (!is_valid()) {
+    return false;
+  } else if (!is_running()) {
+    return true;
+  } else if (timeout_microsec == 0) {
+    // instant check. return immediately
+    return false;
+  }
+
+  ThreadControlBlock* block = thread_->get_control_block();
+  if (is_running()) {
+    uint64_t demand = block->task_complete_cond_.acquire_ticket();
+    if (!is_running()) {  // in case it completes between is_running above and acquire_ticket
+      return true;
+    }
+    block->task_complete_cond_.timedwait(demand, timeout_microsec);
+  }
+
+  return !is_running();
+}
+
 bool ImpersonateSession::is_running() const {
   ASSERT_ND(thread_->get_control_block()->current_ticket_ >= ticket_);
   if (thread_->get_control_block()->current_ticket_ != ticket_) {
