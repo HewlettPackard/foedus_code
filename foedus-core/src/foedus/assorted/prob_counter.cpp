@@ -15,12 +15,14 @@
  * HP designates this particular file as subject to the "Classpath" exception
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
+#include <glog/logging.h>
 #include "foedus/assorted/prob_counter.hpp"
 
 namespace foedus {
 namespace assorted {
-uint8_t ProbCounter::deltas[ProbCounter::ndeltas];
+uint64_t ProbCounter::deltas[ProbCounter::ndeltas];
 double ProbCounter::A = 30;
+uint64_t ProbCounter::max_rnd = 0;
 assorted::UniformRandom ProbCounter::rnd;
 bool ProbCounter::initialized = false;
 
@@ -28,9 +30,46 @@ void ProbCounter::initialize(double a, uint64_t seed) {
   A = a;
   ASSERT_ND(!initialized);
   rnd.set_current_seed(seed);
+
+  double mydeltas[ProbCounter::ndeltas];
+
+  // Calculate deltas in double type first, then we need to figure out a
+  // multiplier so that only one delta is 0 (because our rnd only generates ints).
+  //
+  // XXX(tzwang): values in mydeltas decrease, so if you want to put a "barrier"
+  // in the middle so that once the value is pass a certain threshold, it never
+  // gets incremented more, you can tune the value of multiplier, such that after
+  // times multiplier, the "barrier" delta value is 0. Note mydelta's type is
+  // double and it's value is always between 0 and 1. So it's only a matter of
+  // how many decimal points to leave and truncate (which happens when you put
+  // the values in "deltas" and use with the rng).
+  //
+  // For our setting in HCC (8-bit counter, A=30 same as Morris' paper),
+  // multiplier should be 10000. The minimum is 2, and max is 10000.
+  // So we set the last element in deltas to 0, such that the value will
+  // never pass 255 (max of uint8_t).
   for (uint16_t i = 0; i < ndeltas; ++i) {
-    deltas[i] = std::pow(A / (A + 1), i) * 100;
+    mydeltas[i] = std::pow(A / (A + 1), i);
   }
+
+  // find the multiplier
+  uint64_t multiplier = 1;
+  for (uint16_t i = 0; i < ndeltas; ++i) {
+    if ((uint64_t)(mydeltas[i] * multiplier)) {
+      continue;
+    } else {
+      if (multiplier * 10 > multiplier) {
+        multiplier *= 10;
+      } else {  // multiplier overflow, dude, how many deltas do you have...
+        LOG(FATAL) << "ProbCounter: multiplier overflow!";
+      }
+    }
+  }
+  for (uint16_t i = 0; i < ndeltas; ++i) {
+    deltas[i] = mydeltas[i] * multiplier;
+  }
+  deltas[ndeltas - 1] = 0;
+  max_rnd = multiplier;
   initialized = true;
 }
 

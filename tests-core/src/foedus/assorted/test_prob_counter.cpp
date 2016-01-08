@@ -29,14 +29,17 @@ TEST(ProbCounterTest, A30) {
   double A = 30;
   ProbCounter::initialize(A);
   for (uint16_t i = 0; i < ProbCounter::ndeltas; ++i) {
-    EXPECT_LE(ProbCounter::deltas[i], 100);
+    EXPECT_LE(ProbCounter::deltas[i], ProbCounter::max_rnd);
   }
   ProbCounter pc;
 
-  int n = 1000000;
+  int n = 180000;
   for (int i = 0; i < n; ++i) {
     auto v = pc.value_;
-    EXPECT_EQ(ProbCounter::deltas[v], (uint8_t)(std::pow(A / (A + 1), v) * 100));
+    if (ProbCounter::deltas[v]) {  // the last one is 0
+      EXPECT_EQ(
+        ProbCounter::deltas[v], (uint64_t)(std::pow(A / (A + 1), v) * ProbCounter::max_rnd));
+    }
     pc.increment();
     EXPECT_GE(pc.value_, v);
   }

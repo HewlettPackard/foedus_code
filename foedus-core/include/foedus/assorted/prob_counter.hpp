@@ -41,7 +41,8 @@ namespace assorted {
  */
 struct ProbCounter {
   static const uint16_t ndeltas = 1U << 8;
-  static uint8_t deltas[ndeltas];
+  static uint64_t deltas[ndeltas];
+  static uint64_t max_rnd;
   static double A;  // parameter a - controls max count and expected error
   static assorted::UniformRandom rnd;
   static bool initialized;
@@ -60,17 +61,11 @@ struct ProbCounter {
 
   inline void increment() {
     ASSERT_ND(initialized);
-#ifndef NDEBUG
-    auto v = value_;
-    ASSERT_ND(deltas[v] == (uint8_t)(std::pow(A / (A + 1), v) * 100));
-#endif
-    auto prob = rnd.uniform_within(0, 100);
+    ASSERT_ND(max_rnd);
+    auto prob = rnd.uniform_within(0, max_rnd);
     if (prob < deltas[value_]) {
       ++value_;
     }
-#ifndef NDEBUG
-    ASSERT_ND(value_ >= v);
-#endif
   }
 
   // XXX(tzwang): how should we actually implement decrement()? blind --? follow prob.?
