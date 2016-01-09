@@ -191,8 +191,7 @@ class XctManagerPimpl final : public DefaultInitializable {
   void        precommit_xct_unlock_write(thread::Thread* context, WriteXctAccess* write);
   void        precommit_xct_sort_access(thread::Thread* context);
   bool        precommit_xct_try_acquire_writer_locks(thread::Thread* context);
-  bool        precommit_xct_request_writer_lock(
-    thread::Thread* context, WriteXctAccess* write, int tries);
+  bool        precommit_xct_request_writer_lock(thread::Thread* context, WriteXctAccess* write);
 
   /**
    * @brief Main routine for epoch_chime_thread_.
@@ -211,7 +210,7 @@ class XctManagerPimpl final : public DefaultInitializable {
   void        resume_accepting_xct();
   void        wait_until_resume_accepting_xct(thread::Thread* context);
 
-  static const int              kLockRequestRetries = 10;
+  static const int              kLockRequestRetries = 5;
 
   Engine* const                 engine_;
   XctManagerControlBlock*       control_block_;
