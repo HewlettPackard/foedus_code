@@ -131,13 +131,13 @@ class XctManagerPimpl final : public DefaultInitializable {
    * If the transaction is read-only, commit-epoch (serialization point) is the largest epoch
    * number in the read set. We don't have to take two memory fences in this case.
    */
-  bool        precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch);
+  ErrorCode   precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch);
   /**
    * @brief precommit_xct() if the transaction is read-write
    * @details
    * See [TU2013] for the full protocol in this case.
    */
-  bool        precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch);
+  ErrorCode   precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch);
 
   /** used from precommit_xct_lock() to track moved record */
   bool        precommit_xct_lock_track_write(thread::Thread* context, WriteXctAccess* entry);
@@ -160,7 +160,7 @@ class XctManagerPimpl final : public DefaultInitializable {
    * @details
    * Verify the observed read set and set the commit epoch to the highest epoch it observed.
    */
-  bool        precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch);
+  ErrorCode   precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch);
   /**
    * @brief Phase 2 of precommit_xct() for read-write case
    * @param[in] context thread context

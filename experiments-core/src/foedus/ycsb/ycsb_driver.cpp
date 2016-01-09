@@ -505,6 +505,7 @@ ErrorStack YcsbDriver::run() {
       const YcsbClientTask::Outputs* output = outputs[i];
       result.processed_ += output->processed_;
       result.race_aborts_ += output->race_aborts_;
+      result.lock_aborts_ += output->lock_aborts_;
       result.unexpected_aborts_ += output->unexpected_aborts_;
       result.largereadset_aborts_ += output->largereadset_aborts_;
       result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
@@ -537,6 +538,7 @@ ErrorStack YcsbDriver::run() {
     result.workers_[i].id_ = i;
     result.workers_[i].processed_ = output->processed_;
     result.workers_[i].race_aborts_ = output->race_aborts_;
+    result.workers_[i].lock_aborts_ = output->lock_aborts_;
     result.workers_[i].unexpected_aborts_ = output->unexpected_aborts_;
     result.workers_[i].largereadset_aborts_ = output->largereadset_aborts_;
     result.workers_[i].insert_conflict_aborts_ = output->insert_conflict_aborts_;
@@ -546,6 +548,7 @@ ErrorStack YcsbDriver::run() {
     result.workers_[i].snapshot_cache_misses_ = output->snapshot_cache_misses_;
     result.processed_ += output->processed_;
     result.race_aborts_ += output->race_aborts_;
+    result.lock_aborts_ += output->lock_aborts_;
     result.unexpected_aborts_ += output->unexpected_aborts_;
     result.largereadset_aborts_ += output->largereadset_aborts_;
     result.insert_conflict_aborts_ += output->insert_conflict_aborts_;
@@ -608,6 +611,7 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::Result& v) {
     << "<processed_>" << v.processed_ << "</processed_>"
     << "<MTPS>" << ((v.processed_ / v.duration_sec_) / 1000000) << "</MTPS>"
     << "<race_aborts_>" << v.race_aborts_ << "</race_aborts_>"
+    << "<lock_aborts_>" << v.lock_aborts_ << "</lock_aborts_>"
     << "<largereadset_aborts_>" << v.largereadset_aborts_ << "</largereadset_aborts_>"
     << "<insert_conflict_aborts_>" << v.insert_conflict_aborts_ << "</insert_conflict_aborts_>"
     << "<total_scan_length_>" << v.total_scan_length_ << "</total_scan_length_>"
@@ -628,6 +632,7 @@ std::ostream& operator<<(std::ostream& o, const YcsbDriver::WorkerResult& v) {
   o << "  <worker_><id>" << v.id_ << "</id>"
     << "<txn>" << v.processed_ << "</txn>"
     << "<raceab>" << v.race_aborts_ << "</raceab>"
+    << "<lockab>" << v.lock_aborts_ << "</raceab>"
     << "<rsetab>" << v.largereadset_aborts_ << "</rsetab>"
     << "<insab>"  << v.insert_conflict_aborts_ << "</insab>"
     << "<scanlen>" << v.total_scan_length_ << "</scanlen>"

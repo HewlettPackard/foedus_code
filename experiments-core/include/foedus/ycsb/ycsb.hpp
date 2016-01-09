@@ -239,6 +239,7 @@ class YcsbClientTask {
     uint32_t id_;
     uint64_t processed_;
     uint64_t race_aborts_;
+    uint64_t lock_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t insert_conflict_aborts_;
     uint64_t total_scan_length_;
@@ -339,6 +340,8 @@ class YcsbClientTask {
 
   uint64_t get_race_aborts() const { return outputs_->race_aborts_; }
   uint64_t increment_race_aborts() { return ++outputs_->race_aborts_; }
+  uint64_t get_lock_aborts() const { return outputs_->lock_aborts_; }
+  uint64_t increment_lock_aborts() { return ++outputs_->lock_aborts_; }
   uint64_t get_unexpected_aborts() const { return outputs_->unexpected_aborts_; }
   uint64_t increment_unexpected_aborts() { return ++outputs_->unexpected_aborts_; }
   uint64_t get_largereadset_aborts() const { return outputs_->largereadset_aborts_; }
@@ -366,6 +369,7 @@ class YcsbDriver {
     uint32_t id_;
     uint64_t processed_;
     uint64_t race_aborts_;
+    uint64_t lock_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t insert_conflict_aborts_;
     uint64_t total_scan_length_;  // How many records did we scan in each do_scan()?
@@ -382,6 +386,7 @@ class YcsbDriver {
         worker_count_(0),
         processed_(0),
         race_aborts_(0),
+        lock_aborts_(0),
         largereadset_aborts_(0),
         insert_conflict_aborts_(0),
         total_scan_length_(0),
@@ -393,6 +398,7 @@ class YcsbDriver {
     uint32_t worker_count_;
     uint64_t processed_;
     uint64_t race_aborts_;
+    uint64_t lock_aborts_;
     uint64_t largereadset_aborts_;
     uint64_t insert_conflict_aborts_;
     uint64_t total_scan_length_;

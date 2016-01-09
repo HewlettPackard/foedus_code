@@ -344,36 +344,34 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   }
   ASSERT_ND(current_xct.assert_related_read_write());
 
-  bool success;
+  ErrorCode ret_code = kErrorCodeOk;
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
-    success = precommit_xct_readonly(context, commit_epoch);
+    ret_code = precommit_xct_readonly(context, commit_epoch);
   } else {
-    success = precommit_xct_readwrite(context, commit_epoch);
+    ret_code = precommit_xct_readwrite(context, commit_epoch);
   }
 
   ASSERT_ND(current_xct.assert_related_read_write());
-  if (success) {
+  if (ret_code == kErrorCodeOk) {
+#ifndef NDEBUG
     WriteXctAccess* write_set = context->get_current_xct().get_write_set();
     uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
     for (uint32_t i = 0; i < write_set_size; ++i) {
-      if (write_set[i].lock_status_ != kXctAccessLockReleased) {
-        LOG(FATAL) << "AAA";
-      }
       ASSERT_ND(write_set[i].lock_status_ == kXctAccessLockReleased);
     }
+#endif
     current_xct.deactivate();
-    return kErrorCodeOk;
   } else {
     precommit_xct_unlock_reads(context);
     precommit_xct_unlock_writes(context);
     current_xct.deactivate();
     //DLOG(WARNING) << *context << " Aborting because of contention";
     context->get_thread_log_buffer().discard_current_xct_log();
-    return kErrorCodeXctRaceAbort;
   }
+  return ret_code;
 }
-bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
+ErrorCode XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read_only";
   ASSERT_ND(context->get_thread_log_buffer().get_offset_committed() ==
       context->get_thread_log_buffer().get_offset_tail());
@@ -382,14 +380,15 @@ bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *com
   return precommit_xct_verify_readonly(context, commit_epoch);
 }
 
-bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
+ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read-write";
   XctId max_xct_id;
   max_xct_id.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
   bool success = precommit_xct_lock(context, &max_xct_id);  // Phase 1
-  // lock can fail only when physical records went too far away
+  // lock can fail only when physical records went too far away,
+  // or when the lock is too busy (can't queue or finally acquire after queued)
   if (!success) {
-    return false;
+    return kErrorCodeXctLockAbort;
   }
 
   // BEFORE the first fence, update the in commit epoch for epoch chime.
@@ -425,8 +424,9 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     } else {
       context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
     }
+    return kErrorCodeOk;
   }
-  return verified;
+  return kErrorCodeXctRaceAbort;
 }
 
 
@@ -509,18 +509,20 @@ bool XctManagerPimpl::precommit_xct_try_acquire_writer_locks(thread::Thread* con
 
 bool XctManagerPimpl::precommit_xct_request_writer_lock(
   thread::Thread* context, WriteXctAccess* write) {
-  int tries = lock_rnd_.uniform_within(1, kLockRequestRetries);
-  for (int i = 0; i < tries; ++i) {
+  //int tries = lock_rnd_.uniform_within(1, kLockRequestRetries);
+  //for (int i = 0; i < tries; ++i) {
     ASSERT_ND(write->lock_status_ == kXctAccessLockReleased);
     if (context->mcs_try_acquire_writer_lock(
       write->owner_id_address_->get_key_lock(), &write->mcs_block_)) {
       write->lock_status_ = kXctAccessLockRequested;
+      context->add_stat_lock_request_success();
       return true;
     }
-  }
+  //}
   // although acquire might have failed, we reserved a block
   ASSERT_ND(write->mcs_block_);
   ASSERT_ND(write->lock_status_ == kXctAccessLockReleased);
+  context->add_stat_lock_request_failure();
   return false;
 }
 
@@ -626,6 +628,7 @@ retry_acquires:
     if (context->mcs_retry_acquire_writer_lock(
       write->owner_id_address_->get_key_lock(), write->mcs_block_, false)) {
       write->lock_status_ = kXctAccessLockAcquired;
+      context->add_stat_lock_acquire_success();
       DVLOG(2) << *context << " Locked " << st->get_name(write->storage_id_)
         << ":" << write->owner_id_address_;
       // Have to line up with a new mcs block if the record moved and then retry
@@ -664,6 +667,7 @@ retry_acquires:
         }
       }
     } else {
+      context->add_stat_lock_acquire_failure();
       all_acquired = false;
     }
     ASSERT_ND(write->lock_status_ != kXctAccessLockReleased);
@@ -713,7 +717,8 @@ retry_acquires:
 
 const uint16_t kReadsetPrefetchBatch = 16;
 
-bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
+ErrorCode XctManagerPimpl::precommit_xct_verify_readonly(
+  thread::Thread* context, Epoch *commit_epoch) {
   Xct& current_xct = context->get_current_xct();
   ReadXctAccess*    read_set = current_xct.get_read_set();
   const uint32_t    read_set_size = current_xct.get_read_set_size();
@@ -735,7 +740,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
         << ", now_xid=" << access.owner_id_address_->xct_id_;
     if (UNLIKELY(access.owner_id_address_->needs_track_moved())) {
       if (!precommit_xct_verify_track_read(context, &access)) {
-        return false;
+        return kErrorCodeXctRaceAbort;
       }
     }
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
@@ -743,7 +748,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       // read clobbered, make it hotter
       access.owner_id_address_->hotter();
-      return false;
+      return kErrorCodeXctRaceAbort;
     }
 
     if (access.lock_status_ == kXctAccessLockAcquired) {
@@ -766,11 +771,11 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
 
   // Check Page Pointer/Version
   if (!precommit_xct_verify_pointer_set(context)) {
-    return false;
+    return kErrorCodeXctRaceAbort;
   } else if (!precommit_xct_verify_page_version_set(context)) {
-    return false;
+    return kErrorCodeXctRaceAbort;
   } else {
-    return true;
+    return kErrorCodeOk;
   }
 }
 

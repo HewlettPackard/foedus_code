@@ -165,7 +165,7 @@ ErrorStack YcsbLoadTask::run(
           succeeded = true;
           break;
         }
-        ASSERT_ND(ret == kErrorCodeXctRaceAbort);
+        ASSERT_ND(ret == kErrorCodeXctRaceAbort || ret == kErrorCodeXctLockAbort);
         // sleep for a random number of ms
         std::this_thread::sleep_for(std::chrono::microseconds(kLoadingBackoffUs));
       }

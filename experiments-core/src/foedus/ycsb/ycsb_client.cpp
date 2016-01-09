@@ -216,6 +216,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       if (ret == kErrorCodeXctRaceAbort) {
         increment_race_aborts();
         continue;
+      } else if (ret == kErrorCodeXctLockAbort) {
+        increment_lock_aborts();
+        continue;
       } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
         ret == kErrorCodeXctPointerSetOverflow ||
         ret == kErrorCodeXctReadSetOverflow ||
