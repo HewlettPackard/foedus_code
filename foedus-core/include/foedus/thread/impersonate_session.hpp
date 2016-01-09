@@ -107,6 +107,18 @@ struct ImpersonateSession CXX11_FINAL {
   void        wait() const;
 
   /**
+   * @brief Blocks until either the asynchronous session completes or the specified time elapses.
+   * @param[in] timeout_microsec timeout in microsec. 0 means an instant check without waiting.
+   * @return True when we observed completion.
+   * @details
+   * The behavior is undefined if is_valid()== false.
+   * It effectively calls wait_for(timeout) in order to conditionally wait for the result.
+   * This is analogous to std::future::wait_for().
+   * @pre is_valid()==true
+   */
+  bool        wait_for(uint64_t timeout_microsec) const;
+
+  /**
    * @brief Releases all resources and ownerships this session has acquired.
    * @details
    * This method is idempotent, you can call it in any state and many times.
