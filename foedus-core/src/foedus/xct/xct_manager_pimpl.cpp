@@ -509,8 +509,6 @@ bool XctManagerPimpl::precommit_xct_try_acquire_writer_locks(thread::Thread* con
 
 bool XctManagerPimpl::precommit_xct_request_writer_lock(
   thread::Thread* context, WriteXctAccess* write) {
-  // XXX: write->mcs_block_ != 0 doesn't mean we got the lock; it simply means we're
-  // in the queue (perhaps got lock, perhaps waiting).
   int tries = lock_rnd_.uniform_within(1, kLockRequestRetries);
   for (int i = 0; i < tries; ++i) {
     ASSERT_ND(write->lock_status_ == kXctAccessLockReleased);
