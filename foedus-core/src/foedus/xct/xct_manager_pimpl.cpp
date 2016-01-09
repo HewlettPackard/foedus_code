@@ -443,7 +443,6 @@ bool XctManagerPimpl::precommit_xct_lock_track_write(
   if (result.new_owner_address_ == nullptr) {
     // failed to track down even with the write set. this is a quite rare event.
     // in that case, retry the whole transaction.
-    precommit_xct_unlock_write(context, entry);
     DLOG(INFO) << "Failed to track moved record even with write set";
     return false;
   }
@@ -564,13 +563,13 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
 #endif  // NDEBUG
 }
 
+const int kLockRequestRetries = 1;
+
 bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
-
-  precommit_xct_sort_access(context);
 
 #ifndef NDEBUG
   // Initially, write-sets must be ordered by the insertion order, and no X-locks taken.
@@ -580,6 +579,8 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   }
 #endif  // NDEBUG
 
+  precommit_xct_sort_access(context);
+
   // we have to access the owner_id's pointed address. let's prefetch them in parallel
   for (uint32_t i = 0; i < write_set_size; ++i) {
     assorted::prefetch_cacheline(write_set[i].owner_id_address_);
@@ -588,14 +589,6 @@ bool XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct
   // Join the lock queues for each write-set entry
   if (!precommit_xct_try_acquire_writer_locks(context)) {
     return false;
-  }
-
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    if (i < write_set_size - 1 &&
-      write_set[i].owner_id_address_ == write_set[i+1].owner_id_address_) {
-      continue;
-    }
-    ASSERT_ND(write_set[i].mcs_block_);
   }
 
   storage::StorageManager* st = engine_->get_storage_manager();
@@ -613,16 +606,14 @@ retry_acquires:
     }
     ASSERT_ND(write->mcs_block_);
     auto* my_block = context->get_mcs_rw_blocks() + write->mcs_block_;
+  retry:
     // Retry lining up if we were already told to abort or the record moved,
     // or our deadlock handling mechanism released the lock (hoping to break a cycle)
-    if (my_block->is_aborted() || write->lock_status_ == kXctAccessLockReleased) {
-      write->lock_status_ = kXctAccessLockReleased;
-      // no need to retry, start with a new acquire, but we can reuse the mcs_block
+    if (write->lock_status_ == kXctAccessLockReleased) {
       if (!precommit_xct_request_writer_lock(context, write)) {
         return false;
       }
     }
-  retry:
     ASSERT_ND(write->lock_status_ == kXctAccessLockRequested);
     ASSERT_ND(write->mcs_block_);
     if (context->mcs_retry_acquire_writer_lock(
@@ -647,14 +638,12 @@ retry_acquires:
         ASSERT_ND(write->mcs_block_);
         ASSERT_ND(my_block == context->get_mcs_rw_blocks() + write->mcs_block_);
         // precommit_xct_lock_track_write should have already released the X-lock
-        if (!precommit_xct_request_writer_lock(context, write)) {
-          return false;
-        }
         goto retry;
       }
       ASSERT_ND(!write->owner_id_address_->is_moved());
       ASSERT_ND(!write->owner_id_address_->is_next_layer());
       ASSERT_ND(write->owner_id_address_->is_keylocked());
+      ASSERT_ND(write->lock_status_ == kXctAccessLockAcquired);
       max_xct_id->store_max(write->owner_id_address_->xct_id_);
 
       // If we have to abort, we should abort early to not waste time.
@@ -663,6 +652,7 @@ retry_acquires:
         ASSERT_ND(write->related_read_->owner_id_address_ == write->owner_id_address_);
         if (write->owner_id_address_->xct_id_ != write->related_read_->observed_owner_id_) {
           //DLOG(WARNING) << *context << " related read set changed. abort early";
+          ASSERT_ND(write->related_read_->lock_status_ != kXctAccessLockAcquired);
           return false;
         }
       }
@@ -674,33 +664,9 @@ retry_acquires:
   }
   if (!all_acquired) {
     if (--xlock_retries == 0) {
-      // Give up, hoping to break a deadlock cycle
       return false;
     }
-    bool unlock_read = lock_rnd_.uniform_within(0, 1);
-    bool unlocked = false;
-    if (unlock_read) {
-      uint32_t read_set_size = context->get_current_xct().get_read_set_size();
-      ReadXctAccess* read_set = current_xct.get_read_set();
-      for (uint32_t i = 0; i < read_set_size; ++i) {
-        auto* entry = read_set + i;
-        if (entry->lock_status_ == kXctAccessLockAcquired) {
-          precommit_xct_unlock_read(context, entry);
-          unlocked = true;
-          break;
-        }
-      }
-      if (!unlocked) {
-        for (uint32_t i = 0; i < write_set_size; ++i) {
-          auto* entry = write_set + i;
-          if (entry->lock_status_ == kXctAccessLockAcquired) {
-            precommit_xct_unlock_write(context, entry);
-            unlocked = true;
-            break;
-          }
-        }
-      }
-    }
+    precommit_xct_random_unlock(context);
     goto retry_acquires;
   }
 
@@ -713,6 +679,33 @@ retry_acquires:
   }
 #endif  // NDEBUG
   return true;
+}
+
+void XctManagerPimpl::precommit_xct_random_unlock(thread::Thread* context) {
+  bool unlock_read = lock_rnd_.uniform_within(0, 1);
+  bool unlocked = false;
+  if (unlock_read) {
+    uint32_t read_set_size = context->get_current_xct().get_read_set_size();
+    ReadXctAccess* read_set = context->get_current_xct().get_read_set();
+    for (uint32_t i = 0; i < read_set_size; ++i) {
+      auto* entry = read_set + i;
+      if (entry->lock_status_ == kXctAccessLockAcquired) {
+        precommit_xct_unlock_read(context, entry);
+        return;
+      }
+    }
+  }
+  if (!unlock_read || !unlocked) {
+    uint32_t write_set_size = context->get_current_xct().get_write_set_size();
+    WriteXctAccess* write_set = context->get_current_xct().get_write_set();
+    for (uint32_t i = 0; i < write_set_size; ++i) {
+      auto* entry = write_set + i;
+      if (entry->lock_status_ == kXctAccessLockAcquired) {
+        precommit_xct_unlock_write(context, entry);
+        return;
+      }
+    }
+  }
 }
 
 const uint16_t kReadsetPrefetchBatch = 16;
@@ -752,8 +745,7 @@ ErrorCode XctManagerPimpl::precommit_xct_verify_readonly(
     }
 
     if (access.lock_status_ == kXctAccessLockAcquired) {
-      context->mcs_release_reader_lock(access.owner_id_address_->get_key_lock(), access.mcs_block_);
-      access.lock_status_ = kXctAccessLockReleased;
+      precommit_xct_unlock_read(context, &access);
     }
 
     // Remembers the highest epoch observed.
@@ -803,8 +795,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
       continue;
     }
     storage::StorageManager* st = engine_->get_storage_manager();
-    const WriteXctAccess*   write_set = current_xct.get_write_set();
-    const uint32_t          write_set_size = current_xct.get_write_set_size();
     if (access.related_write_) {
       // we already checked this in lock()
       DVLOG(3) << *context << " skipped read-sets that are already checked";
@@ -845,6 +835,8 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
         // during my read, and I'm lucky enough that nobody else changed it, plus I'm lucky
         // again enough somebody else detected the temperature change and S-locked it.
         // I guess this should be rare, we'll see.
+        const WriteXctAccess*   write_set = current_xct.get_write_set();
+        const uint32_t          write_set_size = current_xct.get_write_set_size();
         WriteXctAccess dummy;
         dummy.owner_id_address_ = access.owner_id_address_;
         dummy.write_set_ordinal_ = 0;  // will catch the smallest possible of the address
@@ -1015,6 +1007,8 @@ void XctManagerPimpl::precommit_xct_unlock_write(thread::Thread* context, WriteX
 void XctManagerPimpl::precommit_xct_unlock_read(thread::Thread* context, ReadXctAccess* read) {
   ASSERT_ND(read->lock_status_ == kXctAccessLockAcquired);
   ASSERT_ND(read->mcs_block_);
+  ASSERT_ND((context->get_mcs_rw_blocks() + read->mcs_block_)->is_granted());
+  ASSERT_ND((context->get_mcs_rw_blocks() + read->mcs_block_)->grant_is_acked());
   context->mcs_release_reader_lock(read->owner_id_address_->get_key_lock(), read->mcs_block_);
   read->lock_status_ = kXctAccessLockReleased;
 }
@@ -1028,7 +1022,8 @@ void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
 
   for (uint32_t i = 0; i < write_set_size; i++) {
     auto* entry = write_set + i;
-    if (entry->lock_status_ == kXctAccessLockRequested) {
+    if (entry->lock_status_ == kXctAccessLockRequested ||
+      entry->lock_status_ == kXctAccessLockAcquired) {
       ASSERT_ND(entry->mcs_block_);
       // wait for the state to finalize, otherwise we'd risk attaching
       // after ourself when we retry later
@@ -1041,8 +1036,6 @@ void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
       } else {
         entry->lock_status_ = kXctAccessLockReleased;
       }
-    } else if (entry->lock_status_ == kXctAccessLockAcquired) {
-      precommit_xct_unlock_write(context, entry);
     }
     ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
   }
@@ -1056,7 +1049,8 @@ void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
   uint32_t        read_set_size = context->get_current_xct().get_read_set_size();
   for (uint32_t i = 0; i < read_set_size; i++) {
     auto* entry = read_set + i;
-    if (entry->lock_status_ == kXctAccessLockRequested) {
+    if (entry->lock_status_ == kXctAccessLockRequested ||
+      entry->lock_status_ == kXctAccessLockAcquired) {
       ASSERT_ND(entry->mcs_block_);
       if (context->mcs_retry_acquire_reader_lock(
         entry->owner_id_address_->get_key_lock(),
@@ -1067,10 +1061,8 @@ void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
       } else {
         entry->lock_status_ = kXctAccessLockReleased;
       }
-    } else if (entry->lock_status_ == kXctAccessLockAcquired) {
-      precommit_xct_unlock_read(context, entry);
-      ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
     }
+    ASSERT_ND(entry->lock_status_ == kXctAccessLockReleased);
   }
 
   assorted::memory_fence_release();

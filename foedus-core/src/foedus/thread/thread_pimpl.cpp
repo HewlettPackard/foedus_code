@@ -1496,6 +1496,9 @@ bool ThreadPimpl::mcs_retry_acquire_reader_lock(
   xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result) {
   ASSERT_ND(block_index);
   xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
+  if (my_block->grant_is_acked()) {
+    return true;
+  }
   if (wait_for_result) {
     spin_until([my_block]{ return my_block->is_waiting(); });
   } else if (my_block->is_waiting()) {
@@ -1516,9 +1519,6 @@ bool ThreadPimpl::mcs_retry_acquire_reader_lock(
   ASSERT_ND(false);
 
 acquired:
-  if (my_block->grant_is_acked()) {
-    return true;
-  }
   ASSERT_ND(lock->nreaders() >= 1);
   ASSERT_ND(my_block->is_granted());
   // Take care of readers joined when I was waiting
@@ -1636,6 +1636,9 @@ bool ThreadPimpl::mcs_retry_acquire_writer_lock(
   xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
   auto my_tail_int = xct::McsRwLock::to_tail_int(id_, block_index);
   ASSERT_ND(my_tail_int);
+  if (my_block->grant_is_acked()) {
+    return true;
+  }
   if (my_block->pred_tail_int_ == 0) {
     if (lock->nreaders() == 0) {
       // No readers, got lock: nreaders() here is accurate and won't increase any more
@@ -1694,9 +1697,6 @@ bool ThreadPimpl::mcs_retry_acquire_writer_lock(
   }
 
 acquired:
-  if (my_block->grant_is_acked()) {
-    return true;
-  }
   ASSERT_ND(lock->nreaders() == 0);
   if (my_block->has_writer_successor() || my_block->has_reader_successor()) {
     spin_until([my_block]{ return !my_block->successor_is_ready(); });

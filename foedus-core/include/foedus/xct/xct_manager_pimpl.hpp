@@ -175,6 +175,7 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        precommit_xct_verify_pointer_set(thread::Thread* context);
   /** Returns false if there is any page version conflict */
   bool        precommit_xct_verify_page_version_set(thread::Thread* context);
+  void        precommit_xct_random_unlock(thread::Thread* context);
   /**
    * @brief Phase 3 of precommit_xct()
    * @param[in] context thread context
@@ -209,8 +210,6 @@ class XctManagerPimpl final : public DefaultInitializable {
   /** Make sure you call this after pause_accepting_xct(). */
   void        resume_accepting_xct();
   void        wait_until_resume_accepting_xct(thread::Thread* context);
-
-  static const int              kLockRequestRetries = 1;
 
   Engine* const                 engine_;
   XctManagerControlBlock*       control_block_;
