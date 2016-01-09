@@ -284,6 +284,8 @@ int driver_main(int argc, char **argv) {
   options.storage_.hot_threshold_ = FLAGS_hot_threshold;
   std::cout << "Hot record threshold: " << options.storage_.hot_threshold_ << std::endl;
 
+  std::cout << "sort keys before accessing: " << FLAGS_sort_keys << std::endl;
+
   // Get an engine, register procedures to run
   Engine engine(options);
   proc::ProcAndName load_proc("ycsb_load_task", ycsb_load_task);
