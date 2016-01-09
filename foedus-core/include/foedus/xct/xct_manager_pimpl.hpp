@@ -210,7 +210,7 @@ class XctManagerPimpl final : public DefaultInitializable {
   void        resume_accepting_xct();
   void        wait_until_resume_accepting_xct(thread::Thread* context);
 
-  static const int              kLockRequestRetries = 5;
+  static const int              kLockRequestRetries = 1;
 
   Engine* const                 engine_;
   XctManagerControlBlock*       control_block_;

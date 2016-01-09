@@ -27,8 +27,10 @@ assorted::UniformRandom ProbCounter::rnd;
 bool ProbCounter::initialized = false;
 
 void ProbCounter::initialize(double a, uint64_t seed) {
+  if (initialized) {
+    return;
+  }
   A = a;
-  ASSERT_ND(!initialized);
   rnd.set_current_seed(seed);
 
   double mydeltas[ProbCounter::ndeltas];
