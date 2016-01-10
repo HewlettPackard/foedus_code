@@ -344,12 +344,12 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
   }
   ASSERT_ND(current_xct.assert_related_read_write());
 
-  bool success;
+  ErrorCode result;
   bool read_only = context->get_current_xct().is_read_only();
   if (read_only) {
-    success = precommit_xct_readonly(context, commit_epoch);
+    result = precommit_xct_readonly(context, commit_epoch);
   } else {
-    success = precommit_xct_readwrite(context, commit_epoch);
+    result = precommit_xct_readwrite(context, commit_epoch);
   }
 
   precommit_xct_unlock_reads(context);
@@ -357,24 +357,22 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
 
   ASSERT_ND(current_xct.assert_related_read_write());
   current_xct.deactivate();
-  if (success) {
-    return kErrorCodeOk;
-  } else {
+  if (result != kErrorCodeOk) {
     //DLOG(WARNING) << *context << " Aborting because of contention";
     context->get_thread_log_buffer().discard_current_xct_log();
-    return kErrorCodeXctRaceAbort;
   }
+  return result;
 }
-bool XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
+ErrorCode XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read_only";
   ASSERT_ND(context->get_thread_log_buffer().get_offset_committed() ==
       context->get_thread_log_buffer().get_offset_tail());
   *commit_epoch = Epoch();
   assorted::memory_fence_acquire();  // this is enough for read-only case
-  return precommit_xct_verify_readonly(context, commit_epoch);
+  return precommit_xct_verify_readonly(context, commit_epoch) ? kErrorCodeOk : kErrorCodeXctRaceAbort;
 }
 
-bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
+ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
   DVLOG(1) << *context << " Committing read-write";
   XctId max_xct_id;
   max_xct_id.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
@@ -382,7 +380,7 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
   // lock can fail only when physical records went too far away
   if (!success) {
     //DLOG(INFO) << *context << " Interesting. failed due to records moved far away or early abort";
-    return false;
+    return kErrorCodeXctLockAbort;
   }
 
   // BEFORE the first fence, update the in commit epoch for epoch chime.
@@ -418,8 +416,9 @@ bool XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *co
     } else {
       context->get_thread_log_buffer().publish_committed_log(*commit_epoch);
     }
+    return kErrorCodeOk;
   }
-  return verified;
+  return kErrorCodeXctRaceAbort;
 }
 
 
