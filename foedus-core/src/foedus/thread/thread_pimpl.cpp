@@ -874,8 +874,8 @@ void Thread::mcs_release_writer_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockI
 }
 
 bool Thread::mcs_try_acquire_reader_lock(
-  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index) {
-  return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index);
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
+  return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index, tries);
 }
 
 bool Thread::mcs_retry_acquire_reader_lock(
@@ -884,8 +884,8 @@ bool Thread::mcs_retry_acquire_reader_lock(
 }
 
 bool Thread::mcs_try_acquire_writer_lock(
-  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index) {
-  return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, out_block_index);
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
+  return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, out_block_index, tries);
 }
 
 bool Thread::mcs_retry_acquire_writer_lock(
@@ -1403,17 +1403,22 @@ const int kLockReaderUpgradeRetries = 2;
 const uint64_t kLockAcquireRetryBackoff = 1 << 2;  // wait for this many cycles before retrying
 
 bool ThreadPimpl::mcs_try_acquire_reader_lock(
-  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index) {
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
+retry:
   xct::McsBlockIndex block_index = 0;
   ASSERT_ND(out_block_index);
+  xct::McsRwBlock* my_block = NULL;
   if (*out_block_index) {
     block_index = *out_block_index;
+    my_block = mcs_rw_blocks_ + block_index;
+    ASSERT_ND(!my_block->is_waiting());
+    ASSERT_ND(!my_block->is_aborting());
   } else {
     block_index = *out_block_index = current_xct_.increment_mcs_block_current();
+    my_block = mcs_rw_blocks_ + block_index;
   }
   ASSERT_ND(block_index > 0);
   ASSERT_ND(block_index <= 0xFFFFU);
-  xct::McsRwBlock* my_block = mcs_rw_blocks_ + block_index;
   my_block->init_reader();
   ASSERT_ND(my_block->is_waiting());
   ASSERT_ND(my_block->is_reader());
@@ -1468,6 +1473,9 @@ bool ThreadPimpl::mcs_try_acquire_reader_lock(
             my_block->set_group_tail_int(group_tail);
             pass_group_tail_to_successor(my_block, my_tail_int);
             my_block->set_state_aborted();
+            if (--tries) {
+              goto retry;
+            }
             return false;  // leader can't rely on retry to give up
           }
         }
@@ -1507,18 +1515,15 @@ bool ThreadPimpl::mcs_retry_acquire_reader_lock(
 
   ASSERT_ND(!my_block->is_waiting());
   auto my_tail_int = xct::McsRwLock::to_tail_int(id_, block_index);
-  if (my_block->is_granted()) {
-    goto acquired;
-  } else if (my_block->is_aborting()) {
+  if (my_block->is_aborting()) {
     pass_group_tail_to_successor(my_block, my_tail_int);
     my_block->set_state_aborted();
     return false;
   } else if (my_block->is_aborted()) {
     return false;
   }
-  ASSERT_ND(false);
+  ASSERT_ND(my_block->is_granted());
 
-acquired:
   ASSERT_ND(lock->nreaders() >= 1);
   ASSERT_ND(my_block->is_granted());
   // Take care of readers joined when I was waiting
@@ -1569,7 +1574,8 @@ void ThreadPimpl::mcs_abort_writer_lock_no_pred(
 }
 
 bool ThreadPimpl::mcs_try_acquire_writer_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index) {
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries) {
+retry:
   xct::McsBlockIndex block_index = 0;
   ASSERT_ND(out_block_index);
   if (*out_block_index) {
@@ -1621,6 +1627,9 @@ bool ThreadPimpl::mcs_try_acquire_writer_lock(
             my_block->set_group_tail_int(group_tail);
             pass_group_tail_to_successor(my_block, my_tail_int);
             my_block->set_state_aborted();
+            if (--tries) {
+              goto retry;
+            }
             return false;  // leader can't rely on retry to give up
           }
         }
@@ -1637,6 +1646,7 @@ bool ThreadPimpl::mcs_retry_acquire_writer_lock(
   auto my_tail_int = xct::McsRwLock::to_tail_int(id_, block_index);
   ASSERT_ND(my_tail_int);
   if (my_block->grant_is_acked()) {
+    ASSERT_ND(my_block->is_granted());
     return true;
   }
   if (my_block->pred_tail_int_ == 0) {

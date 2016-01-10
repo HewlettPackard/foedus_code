@@ -36,6 +36,7 @@ Thread::Thread(
   stat_lock_request_successes_(0),
   stat_lock_acquire_failures_(0),
   stat_lock_acquire_successes_(0) {
+  lock_rnd_.set_current_seed(global_ordinal);
   pimpl_ = new ThreadPimpl(engine, this, id, global_ordinal);
 }
 Thread::~Thread() {

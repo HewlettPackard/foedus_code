@@ -394,11 +394,9 @@ inline ReadXctAccess* Xct::get_read_access(RwLockableXctId* owner_id_address) {
   // Return the one that's holding the S-lock (if any)
   for (uint32_t i = 0; i < read_set_size_; i++) {
     if (read_set_[i].owner_id_address_ == owner_id_address) {
-      auto* r = read_set_ + i;
-      if (r->lock_status_ == kXctAccessLockAcquired) {
-        return r;
-      } else if (r->mcs_block_) {
-        ret = r;
+      ret = read_set_ + i;
+      if (ret->mcs_block_) {
+        return ret;
       }
     }
   }
@@ -421,35 +419,29 @@ inline ErrorCode Xct::add_to_read_set(
   // See if I already took the S-lock
   ReadXctAccess* read = NULL;
   read = get_read_access(owner_id_address);
-  if (read && read->lock_status_ == kXctAccessLockAcquired) {
+  if (read && read->mcs_block_) {
     return kErrorCodeOk;
   }
 
   // Either no need to S-lock or didn't hold an S-lock before
-  if (!read) {
-    read = read_set_ + read_set_size_;
-    CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
-  }
-  // kXctAccessLockRequested is not allowed (only allowed for writes)
-  ASSERT_ND(read->lock_status_ == kXctAccessLockReleased);
+  read = read_set_ + read_set_size_;
+  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
+
+  ASSERT_ND(read->mcs_block_ == 0);
   if (read_only && read->owner_id_address_->is_hot(context)) {
-    while (!context->mcs_try_acquire_reader_lock(
-      read->owner_id_address_->get_key_lock(), &read->mcs_block_)) {
-    }
-    ASSERT_ND(read->mcs_block_);
-    // XXX(tzwang): retry several times here?
-    if (!context->mcs_retry_acquire_reader_lock(
-      read->owner_id_address_->get_key_lock(), read->mcs_block_, true)) {
-      ASSERT_ND(read->lock_status_ == kXctAccessLockReleased);
-    } else {
-      read->lock_status_ = kXctAccessLockAcquired;
-      // Now we locked it, update observed xct_id; the caller, however, must make
-      // sure to read the data after taking the lock, not before.
-      read->observed_owner_id_ = owner_id_address->xct_id_;
+    if (context->mcs_try_acquire_reader_lock(
+      read->owner_id_address_->get_key_lock(), &read->mcs_block_, 10)) {
+      ASSERT_ND(read->mcs_block_);
+      if (context->mcs_retry_acquire_reader_lock(
+        read->owner_id_address_->get_key_lock(), read->mcs_block_, true)) {
+        // Now we locked it, update observed xct_id; the caller, however, must make
+        // sure to read the data after taking the lock, not before.
+        read->observed_owner_id_ = owner_id_address->xct_id_;
+        return kErrorCodeOk;
+      }
     }
   }
-  ASSERT_ND(read->lock_status_ == kXctAccessLockReleased ||
-    read->lock_status_ == kXctAccessLockAcquired);
+  read->mcs_block_ = 0;
   return kErrorCodeOk;
 }
 
@@ -465,7 +457,6 @@ inline ErrorCode Xct::add_to_read_set_force(
   }
   // The caller should set mcs_block_ after this returns.
   read_set_[read_set_size_].mcs_block_ = 0;
-  read_set_[read_set_size_].lock_status_ = kXctAccessLockReleased;
   // if the next-layer bit is ON, the record is not logically a record, so why we are adding
   // it to read-set? we should have already either aborted or retried in this case.
   ASSERT_ND(!observed_owner_id.is_next_layer());
@@ -501,7 +492,6 @@ inline ErrorCode Xct::add_to_write_set(
   }
   WriteXctAccess* write = write_set_ + write_set_size_;
   write->mcs_block_ = 0;
-  write->lock_status_ = kXctAccessLockReleased;
   write->write_set_ordinal_ = write_set_size_;
   write->payload_address_ = payload_address;
   write->log_entry_ = log_entry;
@@ -528,7 +518,7 @@ inline ErrorCode Xct::add_to_read_and_write_set(
 #ifndef NDEBUG
   auto* r = get_read_access(owner_id_address);
   // only S-lock reads not intended for update later
-  ASSERT_ND(!(r && (r->mcs_block_ || r->lock_status_ != kXctAccessLockReleased)));
+  ASSERT_ND(!(r && r->mcs_block_));
 #endif
   auto* read = read_set_ + read_set_size_;
   // in this method, we force to add a read set because it's critical to confirm that

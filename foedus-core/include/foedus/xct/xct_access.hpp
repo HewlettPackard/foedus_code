@@ -78,10 +78,6 @@ struct PageVersionAccess {
   storage::PageVersionStatus observed_;
 };
 
-const uint8_t kXctAccessLockReleased  = 0x0;
-const uint8_t kXctAccessLockRequested = 0x1;
-const uint8_t kXctAccessLockAcquired = 0x2;
-
 /**
  * @brief Represents a record of read-access during a transaction.
  * @ingroup XCT
@@ -99,8 +95,6 @@ struct ReadXctAccess {
   storage::StorageId  storage_id_;
 
   McsBlockIndex         mcs_block_;
-
-  uint8_t               lock_status_;
 
   /** Pointer to the accessed record. */
   RwLockableXctId*      owner_id_address_;
@@ -134,8 +128,6 @@ struct WriteXctAccess {
   storage::StorageId    storage_id_;
 
   McsBlockIndex         mcs_block_;
-
-  uint8_t               lock_status_;
 
   /**
    * Indicates the ordinal among WriteXctAccess of this transaction.

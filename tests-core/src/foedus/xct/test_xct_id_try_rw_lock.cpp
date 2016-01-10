@@ -83,13 +83,13 @@ ErrorStack no_conflict_task(const proc::ProcArguments& args) {
   acquired_writes = acquired_reads = 0;
   if (id % 2 == 0) {
   retry1:
-    while (!context->mcs_try_acquire_reader_lock(keys[id].get_key_lock(), &block)) {}
+    while (!context->mcs_try_acquire_reader_lock(keys[id].get_key_lock(), &block, 10)) {}
     if (!context->mcs_retry_acquire_reader_lock(keys[id].get_key_lock(), block, true)) {
       goto retry1;
     }
   } else {
   retry2:
-    while (!context->mcs_try_acquire_writer_lock(keys[id].get_key_lock(), &block)) {}
+    while (!context->mcs_try_acquire_writer_lock(keys[id].get_key_lock(), &block, 10)) {}
     if (!context->mcs_retry_acquire_writer_lock(keys[id].get_key_lock(), block, true)) {
       goto retry2;
     }
@@ -128,13 +128,13 @@ ErrorStack random_task(const proc::ProcArguments& args) {
     uint32_t k = r.uniform_within(0, kKeys - 1);
     McsBlockIndex block = 0;
     if (id % 2 == 0) {
-      while (!context->mcs_try_acquire_reader_lock(keys[k].get_key_lock(), &block)) {}
+      while (!context->mcs_try_acquire_reader_lock(keys[k].get_key_lock(), &block, 10)) {}
       if (context->mcs_retry_acquire_reader_lock(keys[k].get_key_lock(), block, true)) {
         acquired_reads++;
         context->mcs_release_reader_lock(keys[k].get_key_lock(), block);
       }
     } else {
-      while (!context->mcs_try_acquire_writer_lock(keys[k].get_key_lock(), &block)) {}
+      while (!context->mcs_try_acquire_writer_lock(keys[k].get_key_lock(), &block, 10)) {}
       if (context->mcs_retry_acquire_writer_lock(keys[k].get_key_lock(), block, true)) {
         acquired_writes++;
         context->mcs_release_writer_lock(keys[k].get_key_lock(), block);

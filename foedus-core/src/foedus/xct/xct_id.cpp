@@ -162,11 +162,11 @@ void McsRwLockScope::acquire() {
       }
       if (as_reader_) {
         do {
-          while (!context_->mcs_try_acquire_reader_lock(lock_, &block_)) {}
+          while (!context_->mcs_try_acquire_reader_lock(lock_, &block_, 10)) {}
         } while (!context_->mcs_retry_acquire_reader_lock(lock_, block_, true));
       } else {
         do {
-          while (!context_->mcs_try_acquire_writer_lock(lock_, &block_)) {}
+          while (!context_->mcs_try_acquire_writer_lock(lock_, &block_, 10)) {}
         } while (!context_->mcs_retry_acquire_writer_lock(lock_, block_, true));
       }
       ASSERT_ND(block_);

@@ -21,6 +21,7 @@
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/uniform_random.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/page_resolver.hpp"
@@ -311,10 +312,11 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsBlockIndex block_index);
 
   bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index);
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
   bool mcs_retry_acquire_reader_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  bool mcs_try_acquire_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+  bool mcs_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
   bool mcs_retry_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
   xct::McsBlockIndex mcs_try_upgrade_reader_lock(
@@ -334,6 +336,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }
 
+  inline assorted::UniformRandom& get_lock_rnd() { return lock_rnd_; }
+
   friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
  private:
@@ -342,6 +346,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
   uint64_t        stat_lock_request_successes_;
   uint64_t        stat_lock_acquire_failures_;
   uint64_t        stat_lock_acquire_successes_;
+  assorted::UniformRandom lock_rnd_;
 };
 
 }  // namespace thread

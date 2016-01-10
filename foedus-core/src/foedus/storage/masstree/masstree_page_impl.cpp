@@ -680,7 +680,7 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
     xct::RwLockableXctId* owner_id = get_owner_id(i);
     out_blocks[i] = 0;
   retry:
-    while (!context->mcs_try_acquire_writer_lock(owner_id->get_key_lock(), out_blocks + i)) {}
+    while(!context->mcs_try_acquire_writer_lock(owner_id->get_key_lock(), out_blocks + i, 10)) {}
     if (!context->mcs_retry_acquire_writer_lock(owner_id->get_key_lock(), out_blocks[i], true)) {
       goto retry;
     }
