@@ -429,6 +429,7 @@ inline ErrorCode Xct::add_to_read_set(
 
   ASSERT_ND(read->mcs_block_ == 0);
   if (read_only && read->owner_id_address_->is_hot(context)) {
+#ifdef MCS_RW_GROUP_TRY_LOCK
     if (context->mcs_try_acquire_reader_lock(
       read->owner_id_address_->get_key_lock(), &read->mcs_block_, 10)) {
       ASSERT_ND(read->mcs_block_);
@@ -441,6 +442,9 @@ inline ErrorCode Xct::add_to_read_set(
         return kErrorCodeOk;
       }
     }
+#endif
+#ifdef MCS_RW_LOCK
+#endif
   }
   read->mcs_block_ = 0;
   return kErrorCodeOk;

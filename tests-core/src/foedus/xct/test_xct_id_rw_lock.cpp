@@ -71,6 +71,7 @@ void init() {
   signaled = false;
 }
 ErrorStack no_conflict_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
@@ -96,10 +97,12 @@ ErrorStack no_conflict_task(const proc::ProcArguments& args) {
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
   done[id] = true;
   ++done_count;
+#endif
   return foedus::kRetOk;
 }
 
 ErrorStack conflict_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
@@ -126,11 +129,13 @@ ErrorStack conflict_task(const proc::ProcArguments& args) {
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
   done[id] = true;
   ++done_count;
+#endif
   return foedus::kRetOk;
 }
 
 
 ErrorStack random_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
@@ -151,6 +156,7 @@ ErrorStack random_task(const proc::ProcArguments& args) {
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
   ++done_count;
   done[id] = true;
+#endif
   return foedus::kRetOk;
 }
 

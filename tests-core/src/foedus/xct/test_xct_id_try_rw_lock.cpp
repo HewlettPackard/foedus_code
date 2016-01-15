@@ -74,6 +74,7 @@ void init() {
   signaled = false;
 }
 ErrorStack no_conflict_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_GROUP_TRY_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
@@ -114,10 +115,12 @@ ErrorStack no_conflict_task(const proc::ProcArguments& args) {
   ++done_count;
   std::cout << "Acquired writes: " << acquired_writes << ", "
     << "Acquired reads: " << acquired_reads << std::endl;
+#endif
   return foedus::kRetOk;
 }
 
 ErrorStack random_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_GROUP_TRY_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
@@ -146,6 +149,7 @@ ErrorStack random_task(const proc::ProcArguments& args) {
   done[id] = true;
   std::cout << "Acquired writes: " << acquired_writes << ", "
     << "Acquired reads: " << acquired_reads << std::endl;
+#endif
   return foedus::kRetOk;
 }
 

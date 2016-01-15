@@ -679,11 +679,16 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   for (SlotIndex i = key_count - 1U; i < kBorderPageMaxSlots; --i) {  // SlotIndex is unsigned
     xct::RwLockableXctId* owner_id = get_owner_id(i);
     out_blocks[i] = 0;
+#ifdef MCS_RW_GROUP_TRY_LOCK
   retry:
     while(!context->mcs_try_acquire_writer_lock(owner_id->get_key_lock(), out_blocks + i, 10)) {}
     if (!context->mcs_retry_acquire_writer_lock(owner_id->get_key_lock(), out_blocks[i], true)) {
       goto retry;
     }
+#endif  // MCS_RW_GROUP_TRY_LOCK
+#ifdef MCS_RW_LOCK
+    out_blocks[i] = context->mcs_acquire_writer_lock(owner_id->get_key_lock());
+#endif  // MCS_RW_LOCK
     ASSERT_ND(owner_id->is_keylocked());
   }
 

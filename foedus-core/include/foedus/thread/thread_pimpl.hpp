@@ -280,44 +280,37 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
 
+#ifdef MCS_RW_LOCK
   xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
+  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
+#endif  // MCS_RW_LOCK
+
   void               mcs_release_reader_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
-
-  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
   void               mcs_release_writer_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
-  xct::McsRwBlock* mcs_initialize_writer_block(xct::McsBlockIndex* out_block_index);
-  xct::McsRwBlock* mcs_initialize_reader_block(xct::McsBlockIndex* out_block_index);
   bool mcs_try_acquire_reader_lock(
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
-
+  bool mcs_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
+#ifdef MCS_RW_GROUP_TRY_LOCK
   bool mcs_retry_acquire_reader_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
   bool mcs_retry_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
-  xct::McsBlockIndex mcs_try_upgrade_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
   void mcs_abort_writer_lock_no_pred(
     xct::McsRwLock* mcs_rw_lock, xct::McsRwBlock* block, uint32_t tail_int);
   void mcs_uncondition_try_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
   bool mcs_eager_try_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+#endif // MCS_RW_GROUP_TRY_LOCK
 
   /** Helper functions for try locks */
   inline void pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
   inline bool try_abort_as_group_leader(xct::McsRwBlock* expected_holder);
-
-  /** Helper function for mcs_try_upgrade_reader_lock(). */
-  bool mcs_post_upgrade_reader_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsRwBlock* block,
-    xct::McsRwBlock* dummy);
 
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
