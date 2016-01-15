@@ -70,7 +70,8 @@ ThreadPimpl::ThreadPimpl(
     task_input_memory_(nullptr),
     task_output_memory_(nullptr),
     mcs_blocks_(nullptr),
-    mcs_rw_blocks_(nullptr) {
+    mcs_rw_blocks_(nullptr),
+    canonical_address_(nullptr) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
@@ -899,6 +900,16 @@ xct::McsBlockIndex Thread::mcs_try_upgrade_reader_lock(
   return pimpl_->mcs_try_upgrade_reader_lock(mcs_rw_lock, block_index);
 }
 
+bool Thread::mcs_eager_try_acquire_writer_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index) {
+  return pimpl_->mcs_eager_try_acquire_writer_lock(lock, out_block_index);
+}
+
+void Thread::mcs_uncondition_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index) {
+  pimpl_->mcs_uncondition_try_acquire_writer_lock(lock, out_block_index);
+}
+
 void Thread::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
 }
@@ -1397,10 +1408,23 @@ inline bool ThreadPimpl::try_abort_as_group_leader(xct::McsRwBlock* expected_hol
   return false;
 }
 
-const int kLockReaderAcquireRetries = 8;
-const int kLockWriterAcquireRetries = 6;
 const int kLockReaderUpgradeRetries = 2;
 const uint64_t kLockAcquireRetryBackoff = 1 << 2;  // wait for this many cycles before retrying
+
+void ThreadPimpl::mcs_uncondition_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index) {
+retry:
+  while (!mcs_try_acquire_writer_lock(lock, out_block_index, 10)) {}
+  if (!mcs_retry_acquire_writer_lock(lock, *out_block_index, true)) {
+    goto retry;
+  }
+}
+
+bool ThreadPimpl::mcs_eager_try_acquire_writer_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index) {
+  while (!mcs_try_acquire_writer_lock(lock, out_block_index, 10)) {}
+  return  mcs_retry_acquire_writer_lock(lock, *out_block_index, true);
+}
 
 bool ThreadPimpl::mcs_try_acquire_reader_lock(
   xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {

@@ -289,8 +289,11 @@ class ThreadPimpl final : public DefaultInitializable {
   void               mcs_release_writer_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
+  xct::McsRwBlock* mcs_initialize_writer_block(xct::McsBlockIndex* out_block_index);
+  xct::McsRwBlock* mcs_initialize_reader_block(xct::McsBlockIndex* out_block_index);
   bool mcs_try_acquire_reader_lock(
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
+
   bool mcs_retry_acquire_reader_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
   bool mcs_retry_acquire_writer_lock(
@@ -301,6 +304,10 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
   void mcs_abort_writer_lock_no_pred(
     xct::McsRwLock* mcs_rw_lock, xct::McsRwBlock* block, uint32_t tail_int);
+  void mcs_uncondition_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+  bool mcs_eager_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
 
   /** Helper functions for try locks */
   inline void pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
@@ -400,6 +407,8 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   xct::McsBlock*          mcs_blocks_;
   xct::McsRwBlock*        mcs_rw_blocks_;
+
+  xct::RwLockableXctId*   canonical_address_;
 };
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(

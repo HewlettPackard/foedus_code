@@ -129,6 +129,8 @@ struct WriteXctAccess {
 
   McsBlockIndex         mcs_block_;
 
+  bool                  locked_;
+
   /**
    * Indicates the ordinal among WriteXctAccess of this transaction.
    * For example, first log record has 0, second 1,..

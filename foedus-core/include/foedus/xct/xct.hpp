@@ -437,6 +437,7 @@ inline ErrorCode Xct::add_to_read_set(
         // Now we locked it, update observed xct_id; the caller, however, must make
         // sure to read the data after taking the lock, not before.
         read->observed_owner_id_ = owner_id_address->xct_id_;
+        context->set_canonical_address(owner_id_address);
         return kErrorCodeOk;
       }
     }
@@ -498,6 +499,7 @@ inline ErrorCode Xct::add_to_write_set(
   write->storage_id_ = storage_id;
   write->owner_id_address_ = owner_id_address;
   write->related_read_ = CXX11_NULLPTR;
+  write->locked_ = false;
   ++write_set_size_;
   return kErrorCodeOk;
 }

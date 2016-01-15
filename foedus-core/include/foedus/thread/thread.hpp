@@ -321,6 +321,10 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
   xct::McsBlockIndex mcs_try_upgrade_reader_lock(
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index);
+  void mcs_uncondition_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+  bool mcs_eager_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
 
   /**
    * Ownerless versions of mcs_acquire/release_lock().
@@ -329,6 +333,9 @@ class Thread CXX11_FINAL : public virtual Initializable {
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
+
+  xct::RwLockableXctId* get_canonical_address();
+  void set_canonical_address(xct::RwLockableXctId* ca);
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch*        get_in_commit_epoch_address();
