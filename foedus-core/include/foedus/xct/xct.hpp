@@ -444,6 +444,12 @@ inline ErrorCode Xct::add_to_read_set(
     }
 #endif
 #ifdef MCS_RW_LOCK
+    if (context->mcs_try_acquire_reader_lock(
+      read->owner_id_address_->get_key_lock(), &read->mcs_block_, 0)) {
+      read->observed_owner_id_ = owner_id_address->xct_id_;
+      context->set_canonical_address(owner_id_address);
+      return kErrorCodeOk;
+    }
 #endif
   }
   read->mcs_block_ = 0;

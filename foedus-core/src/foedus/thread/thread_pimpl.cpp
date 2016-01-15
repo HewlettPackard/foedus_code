@@ -1192,7 +1192,7 @@ bool ThreadPimpl::mcs_try_acquire_reader_lock(
   if (ll.tail_) {
     block = get_mcs_rw_block(ll.tail_);
   }
-  if (lock_word == 0 || (block->is_granted() && block->is_reader())) {
+  if (ll.tail_ == 0 || (block->is_granted() && block->is_reader())) {
     xct::McsBlockIndex block_index = 0;
     if (*out_block_index) {
       block_index = *out_block_index;
