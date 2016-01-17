@@ -74,7 +74,6 @@ void init() {
   signaled = false;
 }
 ErrorStack no_conflict_task(const proc::ProcArguments& args) {
-#ifdef MCS_RW_GROUP_TRY_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
@@ -83,17 +82,27 @@ ErrorStack no_conflict_task(const proc::ProcArguments& args) {
   McsBlockIndex block = 0;
   acquired_writes = acquired_reads = 0;
   if (id % 2 == 0) {
+#ifdef MCS_RW_GROUP_TRY_LOCK
   retry1:
     while (!context->mcs_try_acquire_reader_lock(keys[id].get_key_lock(), &block, 10)) {}
     if (!context->mcs_retry_acquire_reader_lock(keys[id].get_key_lock(), block, true)) {
       goto retry1;
     }
+#endif
+#ifdef MCS_RW_LOCK
+    while (!context->mcs_try_acquire_reader_lock(keys[id].get_key_lock(), &block, 0)) {}
+#endif
   } else {
+#ifdef MCS_RW_GROUP_TRY_LOCK
   retry2:
     while (!context->mcs_try_acquire_writer_lock(keys[id].get_key_lock(), &block, 10)) {}
     if (!context->mcs_retry_acquire_writer_lock(keys[id].get_key_lock(), block, true)) {
       goto retry2;
     }
+#endif
+#ifdef MCS_RW_LOCK
+    while (!context->mcs_try_acquire_writer_lock(keys[id].get_key_lock(), &block, 0)) {}
+#endif
   }
   locked[id] = true;
   ++locked_count;
@@ -115,12 +124,10 @@ ErrorStack no_conflict_task(const proc::ProcArguments& args) {
   ++done_count;
   std::cout << "Acquired writes: " << acquired_writes << ", "
     << "Acquired reads: " << acquired_reads << std::endl;
-#endif
   return foedus::kRetOk;
 }
 
 ErrorStack random_task(const proc::ProcArguments& args) {
-#ifdef MCS_RW_GROUP_TRY_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
@@ -131,17 +138,33 @@ ErrorStack random_task(const proc::ProcArguments& args) {
     uint32_t k = r.uniform_within(0, kKeys - 1);
     McsBlockIndex block = 0;
     if (id % 2 == 0) {
+#ifdef MCS_RW_GROUP_TRY_LOCK
       while (!context->mcs_try_acquire_reader_lock(keys[k].get_key_lock(), &block, 10)) {}
       if (context->mcs_retry_acquire_reader_lock(keys[k].get_key_lock(), block, true)) {
         acquired_reads++;
         context->mcs_release_reader_lock(keys[k].get_key_lock(), block);
       }
+#endif
+#ifdef MCS_RW_LOCK
+      if (context->mcs_try_acquire_reader_lock(keys[k].get_key_lock(), &block, 0)) {
+        acquired_reads++;
+        context->mcs_release_reader_lock(keys[k].get_key_lock(), block);
+      }
+#endif
     } else {
+#ifdef MCS_RW_GROUP_TRY_LOCK
       while (!context->mcs_try_acquire_writer_lock(keys[k].get_key_lock(), &block, 10)) {}
       if (context->mcs_retry_acquire_writer_lock(keys[k].get_key_lock(), block, true)) {
         acquired_writes++;
         context->mcs_release_writer_lock(keys[k].get_key_lock(), block);
       }
+#endif
+#ifdef MCS_RW_LOCK
+      if (context->mcs_try_acquire_writer_lock(keys[k].get_key_lock(), &block, 0)) {
+        acquired_reads++;
+        context->mcs_release_writer_lock(keys[k].get_key_lock(), block);
+      }
+#endif
     }
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
@@ -149,7 +172,6 @@ ErrorStack random_task(const proc::ProcArguments& args) {
   done[id] = true;
   std::cout << "Acquired writes: " << acquired_writes << ", "
     << "Acquired reads: " << acquired_reads << std::endl;
-#endif
   return foedus::kRetOk;
 }
 

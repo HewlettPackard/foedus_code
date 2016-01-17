@@ -71,10 +71,10 @@ void init() {
   signaled = false;
 }
 ErrorStack no_conflict_task(const proc::ProcArguments& args) {
-#ifdef MCS_RW_LOCK
-  thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
+#ifdef MCS_RW_LOCK
+  thread::Thread* context = args.context_;
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
   McsBlockIndex block = 0;
@@ -95,17 +95,20 @@ ErrorStack no_conflict_task(const proc::ProcArguments& args) {
     context->mcs_release_writer_lock(keys[id].get_key_lock(), block);
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+#else
+  locked[id] = true;
+  ++locked_count;
+#endif
   done[id] = true;
   ++done_count;
-#endif
   return foedus::kRetOk;
 }
 
 ErrorStack conflict_task(const proc::ProcArguments& args) {
-#ifdef MCS_RW_LOCK
-  thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
+#ifdef MCS_RW_LOCK
+  thread::Thread* context = args.context_;
   int l = id < kThreads / 2 ? id : id - kThreads / 2;
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
@@ -127,18 +130,21 @@ ErrorStack conflict_task(const proc::ProcArguments& args) {
     context->mcs_release_writer_lock(keys[l].get_key_lock(), block);
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+#else
+  locked[id] = true;
+  ++locked_count;
+#endif
   done[id] = true;
   ++done_count;
-#endif
   return foedus::kRetOk;
 }
 
 
 ErrorStack random_task(const proc::ProcArguments& args) {
-#ifdef MCS_RW_LOCK
-  thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
+#ifdef MCS_RW_LOCK
+  thread::Thread* context = args.context_;
   assorted::UniformRandom r(id);
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
@@ -154,13 +160,17 @@ ErrorStack random_task(const proc::ProcArguments& args) {
     }
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+#else
+  locked[id] = true;
+  ++locked_count;
+#endif
   ++done_count;
   done[id] = true;
-#endif
   return foedus::kRetOk;
 }
 
 TEST(XctIdRwLockTest, NoConflict) {
+#ifdef MCS_RW_LOCK
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
@@ -214,9 +224,11 @@ TEST(XctIdRwLockTest, NoConflict) {
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
+#endif
 }
 
 TEST(XctIdRwLockTest, Conflict) {
+#ifdef MCS_RW_LOCK
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
@@ -286,9 +298,11 @@ TEST(XctIdRwLockTest, Conflict) {
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
+#endif
 }
 
 TEST(XctIdRwLockTest, Random) {
+#ifdef MCS_RW_LOCK
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
@@ -334,6 +348,7 @@ TEST(XctIdRwLockTest, Random) {
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
+#endif
 }
 
 }  // namespace xct
