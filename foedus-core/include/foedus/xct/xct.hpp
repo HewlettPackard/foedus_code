@@ -181,6 +181,8 @@ class Xct {
     storage::PageVersionStatus observed);
 
   ReadXctAccess*      get_read_access(RwLockableXctId* owner_id_address);
+  WriteXctAccess*     get_write_access(RwLockableXctId* owner_id_address);
+  void                recover_canonical_access(thread::Thread* context, RwLockableXctId* target);
 
   /**
    * @brief Add the given record to the read set of this transaction.

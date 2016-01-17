@@ -216,6 +216,38 @@ ReadXctAccess* Xct::get_read_access(RwLockableXctId* owner_id_address) {
   return ret;
 }
 
+WriteXctAccess* Xct::get_write_access(RwLockableXctId* owner_id_address) {
+  WriteXctAccess* ret = NULL;
+  // Return the one that's holding the S-lock (if any)
+  for (uint32_t i = 0; i < write_set_size_; i++) {
+    if (write_set_[i].owner_id_address_ == owner_id_address) {
+      ret = write_set_ + i;
+      if (ret->locked_) {
+        ASSERT_ND(ret->mcs_block_);
+        return ret;
+      }
+    }
+  }
+  return ret;
+}
+
+void Xct::recover_canonical_access(thread::Thread* context, RwLockableXctId* target) {
+  RwLockableXctId* new_canonical = NULL;
+  for (uint32_t i = 0; i < write_set_size_; ++i) {
+    auto* entry = write_set_ + i;
+    if (entry->locked_) {
+      if (entry->owner_id_address_ >= target) {
+        ASSERT_ND(entry->mcs_block_);
+        context->mcs_release_writer_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
+        entry->locked_ = false;
+      } else {
+        new_canonical = std::max(entry->owner_id_address_, new_canonical);
+      }
+    }
+  }
+  context->set_canonical_address(new_canonical);
+}
+
 ErrorCode Xct::add_to_read_set(
   thread::Thread* context,
   storage::StorageId storage_id,

@@ -566,12 +566,12 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
       }
     } else {
       bool retrying = false;
-      // Try to grab the lock first, release some locks > canonical address if failed
+      // Try to grab the lock first, release some locks violating canonical access if failed
     retry:
       if (!context->mcs_try_acquire_writer_lock(
         entry->owner_id_address_->get_key_lock(), &entry->mcs_block_, 1)) {
         // didn't get it, release some locks
-        precommit_xct_recover_canonical_access(context);
+        current_xct.recover_canonical_access(context, entry->owner_id_address_);
         if (!retrying) {
           retrying = true;
           goto retry;
@@ -717,7 +717,7 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
       if (!context->mcs_eager_try_acquire_writer_lock(
         entry->owner_id_address_->get_key_lock(), &entry->mcs_block_)) {
         // didn't get it, release some locks
-        precommit_xct_recover_canonical_access(context);
+        current_xct.recover_canonical_access(context, entry->owner_id_address_);
         if (!retrying) {
           retrying = true;
           goto retry;
@@ -767,19 +767,6 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
   return kErrorCodeOk;
 }
 #endif  // MCS_RW_GROUP_TRY_LOCK
-
-void XctManagerPimpl::precommit_xct_recover_canonical_access(thread::Thread* context) {
-  uint32_t write_set_size = context->get_current_xct().get_write_set_size();
-  WriteXctAccess* write_set = context->get_current_xct().get_write_set();
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    auto* entry = write_set + i;
-    if (entry->locked_ && entry->owner_id_address_ > context->get_canonical_address()) {
-      ASSERT_ND(entry->mcs_block_);
-      context->mcs_release_writer_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-      entry->locked_ = false;
-    }
-  }
-}
 
 void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
   WriteXctAccess* write_set = context->get_current_xct().get_write_set();
