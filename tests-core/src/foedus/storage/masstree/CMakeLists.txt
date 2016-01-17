@@ -3,8 +3,7 @@ set(test_masstree_basic_individuals
   CreateAndQuery
   CreateAndInsert
   CreateAndInsertAndRead
-  CreateAndInsertLongRetry
-  CreateAndInsertLongCoerce
+  CreateAndInsertLong
   Overwrite
   NextLayer
   CreateAndDrop
