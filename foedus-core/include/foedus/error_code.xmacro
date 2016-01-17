@@ -116,6 +116,7 @@ X(kErrorCodeXctUserAbort,           0x0A08, "XCTION : User explicitly aborted a 
 X(kErrorCodeXctNoMoreLocalWorkMemory, 0x0A09, "XCTION : Out of local work memory for the current transaction. Adjust XctOptions::local_work_memory_size_mb_.")
 X(kErrorCodeRecordTemperatureChange, 0x0AA0, "XCTION : Record page temperature changed.")
 X(kErrorCodeXctLockAbort,               0x0AA1, "XCTION : Lock acquire failed.")
+X(kErrorCodeLockCancelled,            0x0AA2, "XCTION : Lock acquire cancelled.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")
 

@@ -36,6 +36,10 @@
 
 //#define MCS_RW_GROUP_TRY_LOCK
 #define MCS_RW_LOCK
+//#define MCS_RW_TIMEOUT_LOCK
+#ifdef MCS_RW_TIMEOUT_LOCK
+#include "foedus/xct/mcs_rw_timeout.hpp"
+#endif
 
 /**
  * @file foedus/xct/xct_id.hpp

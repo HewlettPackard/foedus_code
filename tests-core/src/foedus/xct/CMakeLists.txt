@@ -4,3 +4,4 @@ add_foedus_test_individual(test_xct_id "Empty;SetAll;SetEpoch;SetOrdinal;SetThre
 add_foedus_test_individual(test_xct_id_lock "NoConflict;Conflict;Random")
 add_foedus_test_individual(test_xct_id_rw_lock "NoConflict;Conflict;Random")
 add_foedus_test_individual(test_xct_id_try_rw_lock "NoConflict;Random")
+add_foedus_test_individual(test_xct_id_rw_timeout_lock "Readonly")

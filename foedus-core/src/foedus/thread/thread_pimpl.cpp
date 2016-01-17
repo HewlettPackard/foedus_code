@@ -865,8 +865,26 @@ xct::McsBlockIndex Thread::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) 
 xct::McsBlockIndex Thread::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock) {
   return pimpl_->mcs_acquire_writer_lock(mcs_rw_lock);
 }
-
+bool Thread::mcs_try_acquire_writer_lock(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
+  return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, out_block_index, tries);
+}
+bool Thread::mcs_try_acquire_reader_lock(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
+  return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index, tries);
+}
 #endif  // MCS_RW_LOCK
+
+#ifdef MCS_RW_TIMEOUT_LOCK
+ErrorCode Thread::mcs_acquire_reader_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout) {
+  return pimpl_->mcs_acquire_reader_lock(lock, block_index, timeout);
+}
+ErrorCode Thread::mcs_acquire_writer_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout) {
+  return pimpl_->mcs_acquire_writer_lock(lock, block_index, timeout);
+}
+#endif  // MCS_RW_TIMEOUT_LOCK
 
 void Thread::mcs_release_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index) {
   pimpl_->mcs_release_reader_lock(mcs_rw_lock, block_index);
@@ -876,6 +894,7 @@ void Thread::mcs_release_writer_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockI
   pimpl_->mcs_release_writer_lock(mcs_rw_lock, block_index);
 }
 
+#ifdef MCS_RW_GROUP_TRY_LOCK
 bool Thread::mcs_try_acquire_writer_lock(
   xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
   return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, out_block_index, tries);
@@ -885,7 +904,6 @@ bool Thread::mcs_try_acquire_reader_lock(
   return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index, tries);
 }
 
-#ifdef MCS_RW_GROUP_TRY_LOCK
 bool Thread::mcs_retry_acquire_reader_lock(
   xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index, bool wait_for_result) {
   return pimpl_->mcs_retry_acquire_reader_lock(mcs_rw_lock, block_index, wait_for_result);
@@ -1843,6 +1861,21 @@ retry:
   }
 }
 #endif  // MCS_RW_GROUP_TRY_LOCK
+
+#ifdef MCS_RW_TIMEOUT_LOCK
+ErrorCode ThreadPimpl::mcs_acquire_reader_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout) {
+  return kErrorCodeOk;
+}
+void ThreadPimpl::mcs_release_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
+}
+ErrorCode ThreadPimpl::mcs_acquire_writer_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout) {
+}
+void ThreadPimpl::mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
+}
+#endif  // MCS_RW_TIMEOUT_LOCK
+
 static_assert(
   sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
   "ThreadControlBlock is too large.");

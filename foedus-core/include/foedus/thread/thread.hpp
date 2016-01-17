@@ -303,6 +303,10 @@ class Thread CXX11_FINAL : public virtual Initializable {
 #ifdef MCS_RW_LOCK
   xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
   xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
+  bool mcs_try_acquire_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
+  bool mcs_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
 #endif  // MCS_RW_LOCK
   xct::McsRwBlock* get_mcs_rw_blocks();
   void               mcs_release_reader_lock(
@@ -311,12 +315,19 @@ class Thread CXX11_FINAL : public virtual Initializable {
   void               mcs_release_writer_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
+
+#ifdef MCS_RW_TIMEOUT_LOCK
+  ErrorCode mcs_acquire_reader_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
+  ErrorCode mcs_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
+#endif  // MCS_RW_TIMEOUT_LOCK
+
+#ifdef MCS_RW_GROUP_TRY_LOCK
   bool mcs_try_acquire_reader_lock(
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
   bool mcs_try_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
-
-#ifdef MCS_RW_GROUP_TRY_LOCK
   bool mcs_retry_acquire_reader_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
   bool mcs_retry_acquire_writer_lock(
