@@ -538,7 +538,7 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
 
   ASSERT_ND(current_xct.assert_related_read_write());
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    int retries = 0;
+  retry_xlock:
     auto* entry = write_set + i;
     if (i < write_set_size - 1 &&
       entry->owner_id_address_ == write_set[i + 1].owner_id_address_) {
@@ -559,6 +559,9 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
         if (!precommit_xct_lock_track_write(context, entry)) {
           ASSERT_ND(!entry->locked_);
           return kErrorCodeXctRaceAbort;
+        } else {
+          ASSERT_ND(!entry->locked_);
+          goto retry_xlock;
         }
       }
     } else {
@@ -571,7 +574,6 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
         precommit_xct_recover_canonical_access(context);
         if (!retrying) {
           retrying = true;
-          retries++;
           goto retry;
         }
         return kErrorCodeXctLockAbort;  // abort and retry with retrospective set
@@ -579,6 +581,9 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
         if (!precommit_xct_lock_track_write(context, entry)) {
           ASSERT_ND(!entry->locked_);
           return kErrorCodeXctRaceAbort;
+        } else {
+          ASSERT_ND(!entry->locked_);
+          goto retry_xlock;
         }
       }
       entry->locked_ = true;
@@ -675,7 +680,7 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
 
   ASSERT_ND(current_xct.assert_related_read_write());
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    int retries = 0;
+  retry_xlock:
     auto* entry = write_set + i;
     if (i < write_set_size - 1 &&
       entry->owner_id_address_ == write_set[i + 1].owner_id_address_) {
@@ -700,6 +705,9 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
         if (!precommit_xct_lock_track_write(context, entry)) {
           ASSERT_ND(!entry->locked_);
           return kErrorCodeXctRaceAbort;
+        } else {
+          ASSERT_ND(!entry->locked_);
+          goto retry_xlock;
         }
       }
     } else {
@@ -712,7 +720,6 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
         precommit_xct_recover_canonical_access(context);
         if (!retrying) {
           retrying = true;
-          retries++;
           goto retry;
         }
         return kErrorCodeXctLockAbort;  // abort and retry with retrospective set
@@ -720,6 +727,9 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
         if (!precommit_xct_lock_track_write(context, entry)) {
           ASSERT_ND(!entry->locked_);
           return kErrorCodeXctRaceAbort;
+        } else {
+          ASSERT_ND(!entry->locked_);
+          goto retry_xlock;
         }
       }
       entry->locked_ = true;
