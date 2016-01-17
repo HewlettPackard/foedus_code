@@ -877,12 +877,12 @@ bool Thread::mcs_try_acquire_reader_lock(
 
 #ifdef MCS_RW_TIMEOUT_LOCK
 ErrorCode Thread::mcs_acquire_reader_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout) {
-  return pimpl_->mcs_acquire_reader_lock(lock, block_index, timeout);
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, uint32_t timeout) {
+  return pimpl_->mcs_acquire_reader_lock(lock, out_block_index, timeout);
 }
 ErrorCode Thread::mcs_acquire_writer_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout) {
-  return pimpl_->mcs_acquire_writer_lock(lock, block_index, timeout);
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, uint32_t timeout) {
+  return pimpl_->mcs_acquire_writer_lock(lock, out_block_index, timeout);
 }
 #endif  // MCS_RW_TIMEOUT_LOCK
 
@@ -1870,7 +1870,7 @@ ErrorCode ThreadPimpl::mcs_acquire_reader_lock(
 void ThreadPimpl::mcs_release_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
 }
 ErrorCode ThreadPimpl::mcs_acquire_writer_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout) {
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, uint32_t timeout) {
 }
 void ThreadPimpl::mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
 }
