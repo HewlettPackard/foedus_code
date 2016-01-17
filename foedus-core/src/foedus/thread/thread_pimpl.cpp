@@ -1193,7 +1193,8 @@ bool ThreadPimpl::mcs_try_acquire_writer_lock(
   auto* my_block = get_mcs_rw_block(id_, block_index);
   my_block->init_writer();
 
-  uint64_t expected = 0;
+  xct::McsRwLock tmp;
+  uint64_t expected = *reinterpret_cast<uint64_t*>(&tmp);
   uint64_t desired = xct::McsRwLock::to_tail_int(id_, block_index);
   my_block->unblock();
   return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
