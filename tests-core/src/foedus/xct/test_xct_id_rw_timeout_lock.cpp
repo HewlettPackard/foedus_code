@@ -72,6 +72,7 @@ void init() {
 
 // Everyone is reader, and tries to acquire the same lock
 ErrorStack read_only_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_TIMEOUT_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
@@ -91,11 +92,13 @@ ErrorStack read_only_task(const proc::ProcArguments& args) {
   ++done_count;
   locked[id] = true;
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+#endif
   return foedus::kRetOk;
 }
 
 // Only a single reader, acquire and release for 100 times
 ErrorStack single_reader_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_TIMEOUT_LOCK
   thread::Thread* context = args.context_;
   EXPECT_EQ(args.input_len_, sizeof(int));
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
@@ -112,6 +115,7 @@ ErrorStack single_reader_task(const proc::ProcArguments& args) {
     context->mcs_release_reader_lock(keys[0].get_key_lock(), block);
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+#endif
   return foedus::kRetOk;
 }
 TEST(XctIdRwTimeoutLockTest, ReadOnly) {
