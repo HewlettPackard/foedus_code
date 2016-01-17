@@ -25,6 +25,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/endianness.hpp"
@@ -87,6 +88,57 @@ enum IsolationLevel {
    */
   kSerializable,
 };
+
+/**
+ * @brief Represents a mode of lock.
+ * @ingroup XCT
+ */
+enum LockMode {
+  /**
+   * taken_mode_: Not taken the lock yet.
+   * preferred_mode_: Implies that we shouldn't take any lock on this entry in next run.
+   */
+  kNoLock = 0,
+  /**
+   * taken_mode_: we took a read-lock, \b not write-lock yet.
+   * preferred_mode_: Implies that we should take a read-lock on this entry in next run.
+   */
+  kReadLock,
+  /**
+   * taken_mode_: we took a write-lock.
+   * preferred_mode_: Implies that we should take a write-lock on this entry in next run.
+   */
+  kWriteLock,
+};
+
+/**
+ * @brief Universally ordered identifier of each lock
+ * @ingroup XCT
+ * @details
+ * This must follow a universally consistent order even across processes.
+ * So far we just use virtual addresses, assuming that virtual addresses in each process
+ * will follow the same order. In some case, it might be different!
+ *
+ * In future, we will put a bit more logic in the conversion functions below to address that.
+ * Low priority as it's very rare, tho.
+ * We attach the same shmem in fresh new processes in the same order
+ * and in the same machine.. most likely we get the same VA-mapping.
+ * // ASLR? Turn it off. I don't care security.
+ */
+typedef uintptr_t UniversalLockId;
+
+/**
+ * @brief Index in a lock-list, either RLL or CLL.
+ * @ingroup XCT
+ * @details
+ * The value zero is guaranteed to be invalid.
+ * So, lock lists using this type must reserve index-0 to be either a dummy entry or some
+ * sentinel entry. Thanks to this contract, it's easy to initialize structs holding this type.
+ * @see kLockListPositionNull
+ */
+typedef uint32_t LockListPosition;
+const LockListPosition kLockListPositionInvalid = 0;
+
 
 /** Index in thread-local MCS block. 0 means not locked. */
 typedef uint32_t McsBlockIndex;
@@ -1112,6 +1164,26 @@ struct TrackMovedRecordResult {
   char* new_payload_address_;
 };
 
+/**
+ * Always use this method rather than doing the conversion yourself.
+ * We might change the conversion logic later!
+ * @see UniversalLockId
+ */
+inline UniversalLockId to_universal_lock_id(const RwLockableXctId* lock) {
+  return reinterpret_cast<uintptr_t>(lock);
+}
+
+/**
+ * Always use this method rather than doing the conversion yourself.
+ * We might change the conversion logic later!
+ * @see UniversalLockId
+ */
+inline RwLockableXctId* from_universal_lock_id(
+  Engine* engine,
+  UniversalLockId universal_lock_id) {
+  ASSERT_ND(engine);  // This will be required when we switch to a more accurate conversion
+  return reinterpret_cast<RwLockableXctId*>(reinterpret_cast<void*>(universal_lock_id));
+}
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))

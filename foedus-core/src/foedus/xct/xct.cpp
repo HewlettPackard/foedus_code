@@ -19,10 +19,12 @@
 
 #include <glog/logging.h>
 
+#include <cstring>
 #include <ostream>
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
@@ -81,6 +83,13 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_cu
   local_work_memory_ = core_memory->get_local_work_memory();
   local_work_memory_size_ = core_memory->get_local_work_memory_size();
   local_work_memory_cur_ = 0;
+
+  current_lock_list_.init(
+    core_memory->get_current_lock_list_memory(),
+    core_memory->get_current_lock_list_capacity());
+  retrospective_lock_list_.init(
+    core_memory->get_retrospective_lock_list_memory(),
+    core_memory->get_retrospective_lock_list_capacity());
 }
 
 void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
@@ -131,6 +140,241 @@ std::ostream& operator<<(std::ostream& o, const Xct& v) {
   }
   o << "</Xct>";
   return o;
+}
+
+ErrorCode Xct::add_to_pointer_set(
+  const storage::VolatilePagePointer* pointer_address,
+  storage::VolatilePagePointer observed) {
+  ASSERT_ND(pointer_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  }
+
+  // TASK(Hideaki) even though pointer set should be small, we don't want sequential search
+  // everytime. but insertion sort requires shifting. mmm.
+  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
+    if (pointer_set_[i].address_ == pointer_address) {
+      pointer_set_[i].observed_ = observed;
+      return kErrorCodeOk;
+    }
+  }
+
+  if (UNLIKELY(pointer_set_size_ >= kMaxPointerSets)) {
+    return kErrorCodeXctPointerSetOverflow;
+  }
+
+  // no need for fence. the observed pointer itself is the only data to verify
+  pointer_set_[pointer_set_size_].address_ = pointer_address;
+  pointer_set_[pointer_set_size_].observed_ = observed;
+  ++pointer_set_size_;
+  return kErrorCodeOk;
+}
+
+void Xct::overwrite_to_pointer_set(
+  const storage::VolatilePagePointer* pointer_address,
+  storage::VolatilePagePointer observed) {
+  ASSERT_ND(pointer_address);
+  if (isolation_level_ != kSerializable) {
+    return;
+  }
+
+  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
+    if (pointer_set_[i].address_ == pointer_address) {
+      pointer_set_[i].observed_ = observed;
+      return;
+    }
+  }
+}
+
+ErrorCode Xct::add_to_page_version_set(
+  const storage::PageVersion* version_address,
+  storage::PageVersionStatus observed) {
+  ASSERT_ND(version_address);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  } else if (UNLIKELY(page_version_set_size_ >= kMaxPointerSets)) {
+    return kErrorCodeXctPageVersionSetOverflow;
+  }
+
+  page_version_set_[page_version_set_size_].address_ = version_address;
+  page_version_set_[page_version_set_size_].observed_ = observed;
+  ++page_version_set_size_;
+  return kErrorCodeOk;
+}
+
+ReadXctAccess* Xct::get_read_access(RwLockableXctId* owner_id_address) {
+  ReadXctAccess* ret = NULL;
+  // Return the one that's holding the S-lock (if any)
+  for (uint32_t i = 0; i < read_set_size_; i++) {
+    if (read_set_[i].owner_id_address_ == owner_id_address) {
+      ret = read_set_ + i;
+      if (ret->mcs_block_) {
+        return ret;
+      }
+    }
+  }
+  return ret;
+}
+
+ErrorCode Xct::add_to_read_set(
+  thread::Thread* context,
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  RwLockableXctId* owner_id_address,
+  bool read_only) {
+  ASSERT_ND(storage_id != 0);
+  ASSERT_ND(owner_id_address);
+  ASSERT_ND(observed_owner_id.is_valid());
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  }
+
+  // See if I already took the S-lock
+  ReadXctAccess* read = NULL;
+  read = get_read_access(owner_id_address);
+  if (read && read->mcs_block_) {
+    return kErrorCodeOk;
+  }
+
+  // Either no need to S-lock or didn't hold an S-lock before
+  read = read_set_ + read_set_size_;
+  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
+
+  ASSERT_ND(read->mcs_block_ == 0);
+  if (read_only && read->owner_id_address_->is_hot(context)) {
+#ifdef MCS_RW_GROUP_TRY_LOCK
+    if (context->mcs_try_acquire_reader_lock(
+      read->owner_id_address_->get_key_lock(), &read->mcs_block_, 10)) {
+      ASSERT_ND(read->mcs_block_);
+      if (context->mcs_retry_acquire_reader_lock(
+        read->owner_id_address_->get_key_lock(), read->mcs_block_, true)) {
+        // Now we locked it, update observed xct_id; the caller, however, must make
+        // sure to read the data after taking the lock, not before.
+        read->observed_owner_id_ = owner_id_address->xct_id_;
+        context->set_canonical_address(owner_id_address);
+        return kErrorCodeOk;
+      }
+    }
+#endif
+#ifdef MCS_RW_LOCK
+    if (context->mcs_try_acquire_reader_lock(
+      read->owner_id_address_->get_key_lock(), &read->mcs_block_, 0)) {
+      read->observed_owner_id_ = owner_id_address->xct_id_;
+      context->set_canonical_address(owner_id_address);
+      return kErrorCodeOk;
+    }
+#endif
+  }
+  read->mcs_block_ = 0;
+  return kErrorCodeOk;
+}
+
+ErrorCode Xct::add_to_read_set_force(
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  RwLockableXctId* owner_id_address) {
+  ASSERT_ND(storage_id != 0);
+  ASSERT_ND(owner_id_address);
+  if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
+    return kErrorCodeXctReadSetOverflow;
+  }
+  // The caller should set mcs_block_ after this returns.
+  read_set_[read_set_size_].mcs_block_ = 0;
+  // if the next-layer bit is ON, the record is not logically a record, so why we are adding
+  // it to read-set? we should have already either aborted or retried in this case.
+  ASSERT_ND(!observed_owner_id.is_next_layer());
+  read_set_[read_set_size_].storage_id_ = storage_id;
+  read_set_[read_set_size_].owner_id_address_ = owner_id_address;
+  read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
+  read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
+  ++read_set_size_;
+  return kErrorCodeOk;
+}
+
+
+ErrorCode Xct::add_to_write_set(
+  storage::StorageId storage_id,
+  RwLockableXctId* owner_id_address,
+  char* payload_address,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(storage_id != 0);
+  ASSERT_ND(owner_id_address);
+  ASSERT_ND(payload_address);
+  ASSERT_ND(log_entry);
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+  if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
+  }
+  WriteXctAccess* write = write_set_ + write_set_size_;
+  write->mcs_block_ = 0;
+  write->write_set_ordinal_ = write_set_size_;
+  write->payload_address_ = payload_address;
+  write->log_entry_ = log_entry;
+  write->storage_id_ = storage_id;
+  write->owner_id_address_ = owner_id_address;
+  write->related_read_ = CXX11_NULLPTR;
+  write->locked_ = false;
+  ++write_set_size_;
+  return kErrorCodeOk;
+}
+
+
+ErrorCode Xct::add_to_read_and_write_set(
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  RwLockableXctId* owner_id_address,
+  char* payload_address,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(observed_owner_id.is_valid());
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+  auto* write = write_set_ + write_set_size_;
+  CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
+
+#ifndef NDEBUG
+  auto* r = get_read_access(owner_id_address);
+  // only S-lock reads not intended for update later
+  ASSERT_ND(!(r && r->mcs_block_));
+#endif
+  auto* read = read_set_ + read_set_size_;
+  // in this method, we force to add a read set because it's critical to confirm that
+  // the physical record we write to is still the one we found.
+  CHECK_ERROR_CODE(add_to_read_set_force(
+    storage_id,
+    observed_owner_id,
+    owner_id_address));
+  ASSERT_ND(read->mcs_block_ == 0);
+  ASSERT_ND(read->owner_id_address_ == owner_id_address);
+  read->related_write_ = write;
+  write->related_read_ = read;
+  ASSERT_ND(read->related_write_->related_read_ == read);
+  ASSERT_ND(write->related_read_->related_write_ == write);
+  ASSERT_ND(write->log_entry_ == log_entry);
+  ASSERT_ND(write->owner_id_address_ == owner_id_address);
+  ASSERT_ND(write_set_size_ > 0);
+  return kErrorCodeOk;
+}
+
+ErrorCode Xct::add_to_lock_free_write_set(
+    storage::StorageId storage_id,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(storage_id != 0);
+  ASSERT_ND(log_entry);
+  if (UNLIKELY(lock_free_write_set_size_ >= max_lock_free_write_set_size_)) {
+    return kErrorCodeXctWriteSetOverflow;
+  }
+
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
+  lock_free_write_set_[lock_free_write_set_size_].storage_id_ = storage_id;
+  lock_free_write_set_[lock_free_write_set_size_].log_entry_ = log_entry;
+  ++lock_free_write_set_size_;
+  return kErrorCodeOk;
 }
 
 }  // namespace xct

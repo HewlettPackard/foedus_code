@@ -28,6 +28,7 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
+#include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_options.hpp"
@@ -45,6 +46,10 @@ NumaCoreMemory::NumaCoreMemory(
     free_volatile_pool_chunk_(nullptr),
     free_snapshot_pool_chunk_(nullptr),
     retired_volatile_pool_chunks_(nullptr),
+    current_lock_list_memory_(nullptr),
+    current_lock_list_capacity_(0),
+    retrospective_lock_list_memory_(nullptr),
+    retrospective_lock_list_capacity_(0),
     volatile_pool_(nullptr),
     snapshot_pool_(nullptr) {
   ASSERT_ND(thread::decompose_numa_node(core_id_) == node_memory->get_numa_node());
@@ -66,6 +71,12 @@ uint64_t NumaCoreMemory::calculate_local_small_memory_size(const EngineOptions& 
   memory_size += sizeof(xct::LockFreeWriteXctAccess)
     * xct_opt.max_lock_free_write_set_size_;
   memory_size += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
+
+  // In reality almost no chance we take as many locks as all read/write-sets,
+  // but let's simplify that. Not much memory anyways.
+  const uint64_t total_access_sets = xct_opt.max_read_set_size_ + xct_opt.max_write_set_size_;
+  memory_size += sizeof(xct::CurrentLockList) * total_access_sets;
+  memory_size += sizeof(xct::RetrospectiveLock) * total_access_sets;
   return memory_size;
 }
 
@@ -82,7 +93,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
   // allocate small_thread_local_memory_. it's a collection of small memories
   uint64_t memory_size = calculate_local_small_memory_size(engine_->get_options());
   if (memory_size > (1U << 21)) {
-    LOG(INFO) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
+    VLOG(1) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
       " not a big issue, but consumes one more TLB entry...";
   }
   CHECK_ERROR(node_memory_->allocate_numa_memory(memory_size, &small_thread_local_memory_));
@@ -106,6 +117,14 @@ ErrorStack NumaCoreMemory::initialize_once() {
   memory += sizeof(xct::LockFreeWriteXctAccess) * xct_opt.max_lock_free_write_set_size_;
   retired_volatile_pool_chunks_ = reinterpret_cast<PagePoolOffsetAndEpochChunk*>(memory);
   memory += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
+
+  const uint64_t total_access_sets = xct_opt.max_read_set_size_ + xct_opt.max_write_set_size_;
+  current_lock_list_memory_ = reinterpret_cast<xct::CurrentLock*>(memory);
+  current_lock_list_capacity_ = total_access_sets;
+  memory += sizeof(xct::CurrentLock) * total_access_sets;
+  retrospective_lock_list_memory_ = reinterpret_cast<xct::RetrospectiveLock*>(memory);
+  retrospective_lock_list_capacity_ = total_access_sets;
+  memory += sizeof(xct::RetrospectiveLock) * total_access_sets;
 
   memory += static_cast<uint64_t>(thread_per_group - core_local_ordinal_) << 12;
   ASSERT_ND(reinterpret_cast<char*>(small_thread_local_memory_.get_block())

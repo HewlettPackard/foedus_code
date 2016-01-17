@@ -82,6 +82,19 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   memory::PagePool* get_snapshot_pool() { return snapshot_pool_; }
   PagePoolOffsetAndEpochChunk* get_retired_volatile_pool_chunk(uint16_t node);
 
+  xct::CurrentLock* get_current_lock_list_memory() const {
+    return current_lock_list_memory_;
+  }
+  uint64_t get_current_lock_list_capacity() const {
+    return current_lock_list_capacity_;
+  }
+  xct::RetrospectiveLock* get_retrospective_lock_list_memory() const {
+    return retrospective_lock_list_memory_;
+  }
+  uint64_t get_retrospective_lock_list_capacity() const {
+    return retrospective_lock_list_capacity_;
+  }
+
   const SmallThreadLocalMemoryPieces& get_small_thread_local_memory_pieces() const {
     return small_thread_local_memory_pieces_;
   }
@@ -129,7 +142,9 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
    * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=512kb) * #-of-nodes
    *  : 512kb * #nodes
-   * In total within 4MB in most cases.
+   * \li (used in Xct) RetrospectiveLock(24b) * (32k+8k) : 960kb
+   * \li (used in Xct) CurrentLock(24b) * (32k+8k) : 960kb
+   * In total within a few MBs in most cases.
    * Depending on options (esp, #nodes, xct_.max_read_set_size and max_write_set_size), this might
    * become more than that, which is not ideal. Hopefully the numbers above are sufficient.
    */
@@ -164,6 +179,13 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * offsets to the volatile page pool upto a safe epoch (current global epoch - 2).
    */
   PagePoolOffsetAndEpochChunk*            retired_volatile_pool_chunks_;
+
+  /** Memory to hold thread's current lock list */
+  xct::CurrentLock*                       current_lock_list_memory_;
+  uint64_t                                current_lock_list_capacity_;
+  /** Memory to hold thread's retrospective lock list */
+  xct::RetrospectiveLock*                 retrospective_lock_list_memory_;
+  uint64_t                                retrospective_lock_list_capacity_;
 
   /** Pointer to this NUMA node's volatile page pool */
   PagePool*                               volatile_pool_;

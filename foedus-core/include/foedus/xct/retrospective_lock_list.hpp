@@ -20,17 +20,16 @@
 
 #include <stdint.h>
 
+#include <iosfwd>
+
 #include "foedus/assert_nd.hpp"
-#include "foedus/fwd.hpp"
+#include "foedus/compiler.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace xct {
-
-// TODO, add them to fwd.hpp
-struct RwLockableXctId;
 
 /**
  * @brief \b Retrospective \b Lock \b List (\b RLL) to avoid deadlocks.
@@ -107,87 +106,12 @@ struct RwLockableXctId;
  */
 
 /**
- * @brief Universally ordered identifier of each lock
- * @ingroup XCT
- * @details
- * TODO this should be in xct_id.hpp.
- * This must follow a universally consistent order even across processes.
- * So far we just use virtual addresses, assuming that virtual addresses in each process
- * will follow the same order. In some case, it might be different!
- *
- * In future, we will put a bit more logic in the conversion functions below to address that.
- * Low priority as it's very rare, tho.
- * We attach the same shmem in fresh new processes in the same order
- * and in the same machine.. most likely we get the same VA-mapping.
- * // ASLR? Turn it off. I don't care security.
- */
-typedef uintptr_t UniversalLockId;
-
-/**
- * @brief Index in a lock-list, either RLL or CLL.
- * @ingroup XCT
- * @details
- * TODO this should be in xct_id.hpp.
- * The value zero is guaranteed to be invalid.
- * So, lock lists using this type must reserve index-0 to be either a dummy entry or some
- * sentinel entry. Thanks to this contract, it's easy to initialize structs holding this type.
- * @see kLockListPositionNull
- */
-typedef uint32_t LockListPosition;
-const LockListPosition kLockListPositionInvalid = 0;
-
-/**
- * TODO this should be in xct_id.hpp.
- * Always use this method rather than doing the conversion yourself.
- * We might change the conversion logic later!
- * @see UniversalLockId
- */
-inline UniversalLockId to_universal_lock_id(const RwLockableXctId* lock) {
-  return reinterpret_cast<uintptr_t>(lock);
-}
-
-/**
- * TODO this should be in xct_id.hpp.
- * Always use this method rather than doing the conversion yourself.
- * We might change the conversion logic later!
- * @see UniversalLockId
- */
-inline RwLockableXctId* from_universal_lock_id(
-  Engine* engine,
-  UniversalLockId universal_lock_id) {
-  ASSERT_ND(engine);  // This will be required when we switch to a more accurate conversion
-  return reinterpret_cast<RwLockableXctId*>(reinterpret_cast<void*>(universal_lock_id));
-}
-
-/**
- * TODO this should be in xct_id.hpp.
- */
-enum LockMode {
-  /**
-   * taken_mode_: Not taken the lock yet.
-   * preferred_mode_: Implies that we shouldn't take any lock on this entry in next run.
-   */
-  kNoLock = 0,
-  /**
-   * taken_mode_: we took a read-lock, \b not write-lock yet.
-   * preferred_mode_: Implies that we should take a read-lock on this entry in next run.
-   */
-  kReadLock,
-  /**
-   * taken_mode_: we took a write-lock.
-   * preferred_mode_: Implies that we should take a write-lock on this entry in next run.
-   */
-  kWriteLock,
-};
-
-/**
  * @brief An entry in RLL, representing one lock to take.
  * @ingroup RLL
  * @details
  * This is a POD, and guaranteed to be init-ed/reset-ed by memzero and copied via memcpy.
  */
 struct RetrospectiveLock {
-
   /**
    * Used to order locks in canonical order.
    * So far universal_lock_id_ == reinterpret_cast<uintptr_t>(lock_).
@@ -205,9 +129,24 @@ struct RetrospectiveLock {
   /** Whick lock mode we have taken during the current run (of course initially kNoLock) */
   LockMode taken_mode_;
 
+  char     pad_[8U - sizeof(preferred_mode_) - sizeof(taken_mode_)];
+
+  void set(
+    UniversalLockId id,
+    RwLockableXctId* lock,
+    LockMode preferred_mode,
+    LockMode taken_mode) {
+    universal_lock_id_ = id;
+    lock_ = lock;
+    preferred_mode_ = preferred_mode;
+    taken_mode_ = taken_mode;
+  }
+
   bool operator<(const RetrospectiveLock& rhs) const {
     return universal_lock_id_ < rhs.universal_lock_id_;
   }
+
+  friend std::ostream& operator<<(std::ostream& o, const RetrospectiveLock& v);
 };
 
 /** for std::binary_search() etc without creating the object */
@@ -229,22 +168,19 @@ struct RetrospectiveLockLessThan {
  */
 class RetrospectiveLockList {
  public:
+  typedef RetrospectiveLock EntryType;
   RetrospectiveLockList();
   ~RetrospectiveLockList();
 
   void init(RetrospectiveLock* array, uint32_t capacity);
   void uninit();
-
-  void clear_entries() {
-    last_active_entry_ = kLockListPositionInvalid;
-    last_canonically_locked_entry_ = kLockListPositionInvalid;
-  }
+  void clear_entries();
 
   /**
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(RetrospectiveLock* lock) const;
+  LockListPosition binary_search(RwLockableXctId* lock) const;
 
   /**
    * Analogous to std::lower_bound() for the given lock.
@@ -272,6 +208,32 @@ class RetrospectiveLockList {
     RwLockableXctId* current_lock,
     LockMode current_lock_mode);
 
+  /**
+   * @brief Fill out this retrospetive lock list for the next run of the given transaction.
+   * @param[in] context the thread conveying the transaction. must be currently running a xct
+   * @param[in] read_lock_threshold we "recommend" a read lock in RLL for records whose page
+   * have this value or more in the temperature-stat. This value should be a bit lower than
+   * the threshold we trigger read-locks without RLL. Otherwise, the next run might often
+   * take a read-lock the RLL discarded due to a concurrent abort, which might violate canonical
+   * order.
+   * @details
+   * This method is invoked when a transaction aborts at precommit due to some conflict.
+   * Based on the current transaction's read/write-sets, this builds an RLL
+   * that contains locks we _probably_ should take next time in a canonical order.
+   * @note we should keep an eye on the CPU cost of this method. Hopefully negligible.
+   * We can speed up this method by merging RLL/CLL to read/write-set in xct so
+   * that we don't need another sorting.
+   */
+  void construct(thread::Thread* context, uint32_t read_lock_threshold);
+
+  const RetrospectiveLock* get_array() const { return array_; }
+  uint32_t get_capacity() const { return capacity_; }
+  LockListPosition get_last_active_entry() const { return last_active_entry_; }
+
+  friend std::ostream& operator<<(std::ostream& o, const RetrospectiveLockList& v);
+  void assert_sorted() const ALWAYS_INLINE;
+  void assert_sorted_impl() const;
+
  private:
   /**
    * Array of retrospective lock entries in the previous run.
@@ -297,6 +259,12 @@ class RetrospectiveLockList {
    * kLockListPositionInvalid if we haven't locked any in the current run.
    */
   LockListPosition last_canonically_locked_entry_;
+
+  LockListPosition issue_new_position() {
+    ++last_active_entry_;
+    ASSERT_ND(last_active_entry_ < capacity_);
+    return last_active_entry_;
+  }
 };
 
 
@@ -321,13 +289,23 @@ struct CurrentLock {
   /** Whick lock mode we have taken during the current run (of course initially kNoLock) */
   LockMode taken_mode_;
 
+  char     pad_[8U - sizeof(taken_mode_)];
+
   // want to have these.. but maitaining them is nasty after sort. let's revisit later
   // ReadXctAccess* read_set_;
   // WriteXctAccess* write_set_;
 
+  void set(UniversalLockId id, RwLockableXctId* lock, LockMode taken_mode) {
+    universal_lock_id_ = id;
+    lock_ = lock;
+    taken_mode_ = taken_mode;
+  }
+
   bool operator<(const CurrentLock& rhs) const {
     return universal_lock_id_ < rhs.universal_lock_id_;
   }
+
+  friend std::ostream& operator<<(std::ostream& o, const CurrentLock& v);
 };
 
 /** for std::binary_search() etc without creating the object */
@@ -357,21 +335,19 @@ struct CurrentLockLessThan {
  */
 class CurrentLockList {
  public:
+  typedef CurrentLock EntryType;
   CurrentLockList();
   ~CurrentLockList();
 
   void init(CurrentLock* array, uint32_t capacity);
   void uninit();
-
-  void clear_entries() {
-    last_active_entry_ = kLockListPositionInvalid;
-  }
+  void clear_entries();
 
   /**
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(CurrentLock* lock) const;
+  LockListPosition binary_search(RwLockableXctId* lock) const;
 
   /**
    * Adds an entry to this list, re-sorting part of the list if necessary to keep the sortedness.
@@ -406,6 +382,14 @@ class CurrentLockList {
     return id >= array_[last_active_entry_].universal_lock_id_;
   }
 
+  const CurrentLock* get_array() const { return array_; }
+  uint32_t get_capacity() const { return capacity_; }
+  LockListPosition get_last_active_entry() const { return last_active_entry_; }
+
+  friend std::ostream& operator<<(std::ostream& o, const CurrentLockList& v);
+  void assert_sorted() const ALWAYS_INLINE;
+  void assert_sorted_impl() const;
+
  private:
   /**
    * Array of lock entries in the current run.
@@ -429,7 +413,26 @@ class CurrentLockList {
    * Whether we are still in canonical lock mode.
    */
   bool in_canonical_mode_;
+
+  LockListPosition issue_new_position() {
+    ++last_active_entry_;
+    ASSERT_ND(last_active_entry_ < capacity_);
+    return last_active_entry_;
+  }
 };
+
+inline void RetrospectiveLockList::assert_sorted() const {
+  // In release mode, this code must be completely erased by compiler
+#ifndef  NDEBUG
+  assert_sorted_impl();
+#endif  // NDEBUG
+}
+
+inline void CurrentLockList::assert_sorted() const {
+#ifndef  NDEBUG
+  assert_sorted_impl();
+#endif  // NDEBUG
+}
 
 }  // namespace xct
 }  // namespace foedus
