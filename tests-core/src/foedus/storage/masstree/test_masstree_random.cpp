@@ -52,21 +52,29 @@ ErrorStack insert_many_normalized_task(const proc::ProcArguments& args) {
   char buf[kBufSize];
   std::memset(buf, 0, kBufSize);
   Epoch commit_epoch;
+  std::set<KeySlice> inserted;
   {
     assorted::UniformRandom uniform_random(123456L);
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     for (uint32_t i = 0; i < kCount; ++i) {
       KeySlice key = normalize_primitive<uint64_t>(uniform_random.next_uint64());
+      if (inserted.find(key) != inserted.end()) {
+        std::cout << "already inserted" << key << std::endl;
+        continue;
+      }
+      inserted.insert(key);
       *reinterpret_cast<uint64_t*>(buf + 123) = key;
-    retry:
-      WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       WRAP_ERROR_CODE(masstree.insert_record_normalized(context, key, buf, kBufSize));
-      auto ret = xct_manager->precommit_xct(context, &commit_epoch);
-      if (ret == kErrorCodeXctLockAbort) {
-        goto retry;
-      } else {
-        WRAP_ERROR_CODE(ret);
+      if (i % 50 == 0) {
+        WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+        WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+        std::cout << "inserting:" << i << "/" << kCount << std::endl;
+      }
+      if (i % 1000 == 0) {
+        CHECK_ERROR(masstree.verify_single_thread(context));
       }
     }
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
 
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -154,8 +162,6 @@ ErrorStack insert_many_normalized_mt_task(const proc::ProcArguments& args) {
         ErrorCode code = xct_manager->precommit_xct(context, &commit_epoch);
         if (code == kErrorCodeOk) {
           break;
-        } else if (code == kErrorCodeXctLockAbort) {
-          continue;
         } else {
           EXPECT_EQ(kErrorCodeXctRaceAbort, code) << id << ":" << i;
           if (code != kErrorCodeXctRaceAbort) {
@@ -248,28 +254,37 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
   char key_buf[kMaxLen];
   std::memset(buf, 0, kBufSize);
   Epoch commit_epoch;
+  std::set<std::string> inserted;
   std::set<uint32_t> skipped_i;
   std::string answers[kCount];
   {
     assorted::UniformRandom uniform_random(123456L);
+    WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
     for (uint32_t i = 0; i < kCount; ++i) {
       uint8_t len = 1 + uniform_random.next_uint32() % 24;
       for (uint32_t j = 0; j < len; ++j) {
         key_buf[j] = static_cast<char>(uniform_random.next_uint32());
       }
-    retry:
       std::string key(key_buf, len);
+      if (inserted.find(key) != inserted.end()) {
+        std::cout << "already inserted" << key << std::endl;
+        skipped_i.insert(i);
+        continue;
+      }
+      inserted.insert(key);
       answers[i] = key;
       *reinterpret_cast<uint64_t*>(buf + 123) = i;
-      WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       WRAP_ERROR_CODE(masstree.insert_record(context, key_buf, len, buf, kBufSize));
-      auto ret = xct_manager->precommit_xct(context, &commit_epoch);
-      if (ret == kErrorCodeXctLockAbort) {
-        goto retry;
-      } else {
-        WRAP_ERROR_CODE(ret);
+      if (i % 50 == 0) {
+        WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+        WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+        std::cout << "inserting:" << i << "/" << kCount << std::endl;
+      }
+      if (i % 1000 == 0) {
+        CHECK_ERROR(masstree.verify_single_thread(context));
       }
     }
+    WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
 
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -312,7 +327,7 @@ ErrorStack insert_many_task(const proc::ProcArguments& args) {
 
 TEST(MasstreeRandomTest, InsertMany) {
   EngineOptions options = get_tiny_options();
-  options.memory_.page_pool_size_mb_per_node_ = 256;
+  options.memory_.page_pool_size_mb_per_node_ = 64;
   options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   Engine engine(options);
   engine.get_proc_manager()->pre_register("insert_many_task", insert_many_task);
