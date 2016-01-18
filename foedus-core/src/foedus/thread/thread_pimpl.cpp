@@ -1903,7 +1903,7 @@ ErrorCode ThreadPimpl::mcs_acquire_reader_lock(
 check_pred:
   // consume me.pred, and prevent my pred to leave
   auto pred = my_block->xchg_pred_int(xct::McsRwBlock::kPredStateBusy);
-  ASSERT_ND(pred != xct::McsRwBlock::kPredStateBusy);  // must be a valid pred int
+  xct::McsRwBlock::assert_pred_is_normal(pred); // must be a valid pred int
   if (pred == 0) {
     // nobody there, got lock
     lock->increment_nreaders();
@@ -2007,7 +2007,7 @@ check_pred:
           // fix pred.next to point to null, if there isn't a new guy came already
           ASSERT_ND(pred_block == get_mcs_rw_block(pred));
           pred_block = get_mcs_rw_block(pred);
-          pred_block->cas_succ_weak(xct::McsRwBlock::kSuccStateLeaving, 0);
+          pred_block->cas_succ_weak(xct::McsRwBlock::kSuccStateSuccessorLeaving, 0);
         } else {
           // a new guy sneaked in, tell it to attach after pred.
           // Note that the new guy will see Leaving in me.next eventually,
