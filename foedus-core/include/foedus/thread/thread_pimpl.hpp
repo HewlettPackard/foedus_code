@@ -295,6 +295,7 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
   ErrorCode mcs_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
+  xct::McsRwBlock* mcs_init_block(xct::McsBlockIndex* out_block_index, bool writer);
 #endif  // MCS_RW_TIMEOUT_LOCK
 
   void               mcs_release_reader_lock(

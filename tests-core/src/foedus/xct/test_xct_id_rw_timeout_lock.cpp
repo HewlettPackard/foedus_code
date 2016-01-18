@@ -84,10 +84,17 @@ ErrorStack read_only_task(const proc::ProcArguments& args) {
     McsBlockIndex block = 0;
     uint32_t timeout = rnd.uniform_within(0, 1000000);  // 1 million cycles max
     auto result = context->mcs_acquire_reader_lock(keys[0].get_key_lock(), &block, timeout);
-    EXPECT_EQ(result, kErrorCodeOk);
-    EXPECT_GT(block, 0);
-    std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
-    context->mcs_release_reader_lock(keys[0].get_key_lock(), block);
+    // It is possible to fail, because of the timeout, even if we only have readers:
+    // e.g., suppose T1, T2, T3 came in order to acquire, T1 is waiting, and T2 and T3
+    // attached one after another in waiting state (the CAS to set WAITING | READER_SUCCESSOR
+    // all succeeded). T2 and T3 might time out, before T1 found itself is granted. Note we
+    // have different timeout durations for each acquire.
+    if (result == kErrorCodeOk) {
+      EXPECT_EQ(result, kErrorCodeOk);
+      EXPECT_GT(block, 0);
+      std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+      context->mcs_release_reader_lock(keys[0].get_key_lock(), block);
+    }
   }
   ++done_count;
   locked[id] = true;
@@ -100,7 +107,6 @@ ErrorStack read_only_task(const proc::ProcArguments& args) {
 ErrorStack single_reader_task(const proc::ProcArguments& args) {
 #ifdef MCS_RW_TIMEOUT_LOCK
   thread::Thread* context = args.context_;
-  EXPECT_EQ(args.input_len_, sizeof(int));
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
   const int kAcquires = 100;
