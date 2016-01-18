@@ -1205,37 +1205,41 @@ bool ThreadPimpl::mcs_try_acquire_writer_lock(
 
 bool ThreadPimpl::mcs_try_acquire_reader_lock(
   xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries) {
-  // take a look at the whole lock word, and cas if it's a reader or null
-  uint64_t lock_word = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
-  xct::McsRwLock ll;
-  memcpy(&ll, &lock_word, sizeof(ll));
-  xct::McsRwBlock* block = NULL;
-  if (ll.tail_) {
-    block = get_mcs_rw_block(ll.tail_);
-  }
-  if (ll.tail_ == 0 || (block->is_granted() && block->is_reader())) {
-    xct::McsBlockIndex block_index = 0;
-    if (*out_block_index) {
-      block_index = *out_block_index;
-    } else {
-      block_index = *out_block_index = current_xct_.increment_mcs_block_current();
+  while (true) {
+    // take a look at the whole lock word, and cas if it's a reader or null
+    uint64_t lock_word = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
+    xct::McsRwLock ll;
+    memcpy(&ll, &lock_word, sizeof(ll));
+    if (ll.next_writer_ != xct::McsRwLock::kNextWriterNone) {
+      return false;
     }
-    ll.increment_readers_count();
-    ll.tail_ = xct::McsRwLock::to_tail_int(id_, block_index);
-    uint64_t desired = *reinterpret_cast<uint64_t*>(&ll);
-    auto* my_block = get_mcs_rw_block(id_, block_index);
-    my_block->init_reader();
-
-    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-      reinterpret_cast<uint64_t*>(lock), &lock_word, desired)) {
-      if (block) {
-        block->set_successor_next_only(id_, block_index);
+    xct::McsRwBlock* block = NULL;
+    if (ll.tail_) {
+      block = get_mcs_rw_block(ll.tail_);
+    }
+    if (ll.tail_ == 0 || (block->is_granted() && block->is_reader())) {
+      xct::McsBlockIndex block_index = 0;
+      if (*out_block_index) {
+        block_index = *out_block_index;
+      } else {
+        block_index = *out_block_index = current_xct_.increment_mcs_block_current();
       }
-      my_block->unblock();
-      return true;
+      ll.increment_readers_count();
+      ll.tail_ = xct::McsRwLock::to_tail_int(id_, block_index);
+      uint64_t desired = *reinterpret_cast<uint64_t*>(&ll);
+      auto* my_block = get_mcs_rw_block(id_, block_index);
+      my_block->init_reader();
+
+      if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+        reinterpret_cast<uint64_t*>(lock), &lock_word, desired)) {
+        if (block) {
+          block->set_successor_next_only(id_, block_index);
+        }
+        my_block->unblock();
+        return true;
+      }
     }
   }
-  return false;
 }
 
 xct::McsBlockIndex ThreadPimpl::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
