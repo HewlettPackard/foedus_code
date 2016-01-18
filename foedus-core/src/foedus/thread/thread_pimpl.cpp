@@ -1950,7 +1950,7 @@ check_pred:
       if (pred != old_pred) {
         goto handle_pred;
       }
-      my_block->assert_pred_is_normal(pred);
+      xct::McsRwBlock::assert_pred_is_normal(pred);
 
       if (pred == 0) {
         // got the lock after all...
@@ -1977,9 +1977,10 @@ check_pred:
             goto handle_pred;  // or we could go back to check_pred to see if we can have the lock
           }
           // else we're done with pred, continue to handle successor.
-          // At this point, pred won't be able to change me.pred so it can't leave.
-          // If it tries to leave, it will spin on its next field to wait for it to
-          // become non-Leaving. I should set it to the new successor I got later.
+          // At this point, pred won't be able to change me.pred (which needs a to be CAS)
+          // so it can't leave. If it tries to leave, it will spin on its next field to wait
+          // for it to become non-Leaving (which was set by its xchg). I should set it to the
+          // new successor I got later.
         } else {
           // very similar situation when we first tried to grab the lock:
           // pred is a reader and the cas failed - reader is active, we got lock
@@ -1996,7 +1997,8 @@ check_pred:
       if (succ == xct::McsRwBlock::kSuccStateSuccessorLeaving) {
         // the successor is leaving, and have successfully CAS-ed its int back from me.next.
         // It will set me.next to a new successor, just wait and retry.
-        spin_until([my_block]{ return my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving; });
+        spin_until([my_block]{
+          return my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving; });
         goto handle_successor;
       } else if (succ == 0) {
         // no visible successor yet, try to fix the lock tail
@@ -2103,7 +2105,6 @@ retry:
     xct::McsRwBlock::assert_succ_is_normal(succ);
     auto* succ_block = get_mcs_rw_block(succ);
     if (!succ_block->cas_pred_weak(my_tail_int, 0)) {
-      // successor timed out, it must be a writer...
       if (succ_block->is_writer()) {
         spin_until([succ_block]{
           return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
@@ -2117,8 +2118,11 @@ retry:
 finish:
   if (lock->decrement_nreaders() == 1) {
     auto w = lock->get_next_writer();  // FIXME(tzwang): this is broken for now
-    if (w != xct::McsRwLock::kNextWriterNone && lock->nreaders() == 0 && lock->cas_next_writer_weak(w, 0)) {
+    if (w != xct::McsRwLock::kNextWriterNone &&
+      lock->nreaders() == 0 &&
+      lock->cas_next_writer_weak(w, xct::McsRwLock::kNextWriterNone)) {
       auto* writer_block = get_mcs_rw_block(w);
+      ASSERT_ND(lock->nreaders() == 0);
       writer_block->set_state_granted();
     }
   }
