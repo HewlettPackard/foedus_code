@@ -161,7 +161,7 @@ ErrorStack random_task(const proc::ProcArguments& args) {
 #endif
 #ifdef MCS_RW_LOCK
       if (context->mcs_try_acquire_writer_lock(keys[k].get_key_lock(), &block, 0)) {
-        acquired_reads++;
+        acquired_writes++;
         context->mcs_release_writer_lock(keys[k].get_key_lock(), block);
       }
 #endif
