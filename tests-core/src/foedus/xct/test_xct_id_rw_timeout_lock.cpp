@@ -153,6 +153,9 @@ TEST(XctIdRwTimeoutLockTest, ReadOnly) {
     }
 
     assorted::memory_fence_acquire();
+    for (int i = 0; i < kKeys; ++i) {
+      EXPECT_EQ(keys[i].get_key_lock()->nreaders(), 0);
+    }
     for (int i = 0; i < kThreads; ++i) {
       COERCE_ERROR(sessions[i].get_result());
       sessions[i].release();
@@ -175,6 +178,10 @@ TEST(XctIdRwTimeoutLockTest, SingleReader) {
     std::vector<thread::ImpersonateSession> sessions;
     thread::ImpersonateSession session;
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("single_reader_task"));
+    assorted::memory_fence_acquire();
+    for (int i = 0; i < kKeys; ++i) {
+      EXPECT_EQ(keys[i].get_key_lock()->nreaders(), 0);
+    }
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
