@@ -2187,6 +2187,7 @@ handle_pred:
       // pred already changed its next field; it might be leaving or releasing
       // When leaving or releasing, it must have learned that I'm leaving too through
       // failing the cas against me.pred, wait for it to give me a new pred then.
+      ASSERT_ND(my_block->get_pred_int() == xct::McsRwBlock::kPredStateLeaving);
       my_block->set_pred_int(xct::McsRwBlock::kPredStateWaitUpdate);
       spin_until([my_block]{
         return my_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate; });
@@ -2228,16 +2229,14 @@ handle_successor:
     }
   } else {
     auto* succ_block = get_mcs_rw_block(succ);
+    if (!succ_block->cas_pred_weak(my_tail_int, pred)) {
+      spin_until([succ_block]{
+        return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
+      succ_block->set_pred_int(pred);
+    }
     if (pred) {
       xct::McsRwBlock::assert_succ_is_normal(succ);
       auto* pred_block = get_mcs_rw_block(pred);
-      pred_block->set_succ_int(succ);
-
-      if (!succ_block->cas_pred_weak(my_tail_int, pred)) {
-        spin_until([succ_block]{
-          return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
-        succ_block->set_pred_int(pred);
-      }
       pred_block->set_succ_int(succ);
     }
   }
