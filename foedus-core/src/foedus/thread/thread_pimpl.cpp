@@ -1972,8 +1972,6 @@ check_pred:
               return my_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate; });
             ASSERT_ND(my_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate);
             if (my_block->get_pred_int() == xct::McsRwBlock::kPredStatePredReleased) {
-              spin_until([my_block]{
-                return my_block->get_pred_int() != xct::McsRwBlock::kPredStatePredReleased; });
               lock->increment_nreaders();
               my_block->set_state_granted();
               goto acquired;
@@ -2023,14 +2021,15 @@ check_pred:
           // state when it sees Leaving after xchg(pred.next).
           spin_until([my_block]{ return !my_block->successor_is_ready(); });
           auto* succ_block = get_mcs_rw_block(my_block->get_succ_int());
-          ASSERT_ND(succ_block->has_no_pred());
+          spin_until([succ_block]{
+            return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
           ASSERT_ND(pred_block == get_mcs_rw_block(pred));
           pred_block = get_mcs_rw_block(pred);
-          pred_block->set_succ_int(succ);  // do this before setting succ's pred
+          pred_block->set_succ_int(0);  // do this before setting succ's pred
+          ASSERT_ND(succ_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate);
           succ_block->set_pred_int(pred);
           // Now succ will resume its normal acquire procedure, we're done here.
         }
-        ASSERT_ND(my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving);
       } else {  // valid successor
         xct::McsRwBlock::assert_succ_is_normal(succ);
         ASSERT_ND(pred_block == get_mcs_rw_block(pred));
@@ -2039,21 +2038,16 @@ check_pred:
         ASSERT_ND(pred_next == xct::McsRwBlock::kSuccStateLeaving || // pred cancelling
           pred_next == xct::McsRwBlock::kSuccStateSuccessorLeaving ||  // still my mark
           pred_next == xct::McsRwBlock::kSuccStateReleasing);  // pred releasing-retrying
-        ASSERT_ND(pred_block->get_succ_int() == xct::McsRwBlock::kSuccStateSuccessorLeaving ||
-          pred_block->get_succ_int() == xct::McsRwBlock::kSuccStateReleasing);
-
-        pred_block->set_succ_int(succ);
 
         auto* succ_block = get_mcs_rw_block(succ);
         ASSERT_ND(my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving);
         if (!succ_block->cas_pred_weak(my_tail_int, pred)) {
-          spin_until([succ_block, my_tail_int]{  // my_tail_int necessary?
-            auto p = succ_block->get_pred_int();
-            return !(p == xct::McsRwBlock::kPredStateWaitUpdate);// || p == my_tail_int);
-          });
+          // successor is doing something, maybe leaving. Give it a new pred.
+          spin_until([succ_block]{
+            return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
           succ_block->set_pred_int(pred);
         } // else it's all good, we're done
-        ASSERT_ND(my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving);
+        pred_block->set_succ_int(succ);
       }
       return kErrorCodeLockCancelled;
     } else {  // pred is a reader and cas failed - got lock
@@ -2104,6 +2098,7 @@ retry:
     if (!succ_block->cas_pred_weak(my_tail_int, 0)) {
       spin_until([succ_block]{
         return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
+      succ_block->set_pred_int(xct::McsRwBlock::kPredStatePredReleased);
     } else if (succ_block->is_writer()) {
       lock->set_next_writer(succ >> 16);
     }

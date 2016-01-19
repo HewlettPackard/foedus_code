@@ -149,7 +149,8 @@ struct McsRwBlock {
   static inline void assert_pred_is_normal(uint32_t pred) {
     ASSERT_ND(pred != kPredStateBusy &&
       pred != kPredStateWaitUpdate &&
-      pred != kPredStateLeaving);
+      pred != kPredStateLeaving &&
+      pred != kPredStatePredReleased);
   }
   static inline void assert_succ_is_normal(uint32_t succ) {
     ASSERT_ND(succ != kSuccStateLeaving &&
@@ -179,10 +180,6 @@ struct McsRwBlock {
   inline void set_pred_int(uint32_t pred) {
     assorted::atomic_store_release<uint32_t>(&pred_int_, pred);
   }
-  inline bool has_no_pred() {
-    return get_pred_int() == 0;
-  }
-
   inline bool cas_state_weak(uint64_t expected, uint64_t desired) {
     return assorted::raw_atomic_compare_exchange_weak<uint64_t>(&self_.data_, &expected, desired);
   }
@@ -231,8 +228,11 @@ struct McsRwBlock {
     assorted::atomic_store_release<uint32_t>(&succ_int_, succ);
   }
   inline bool successor_is_ready() {
-    // Check block index only - thread ID could be 0
-    return assorted::atomic_load_acquire<uint32_t>(&succ_int_) != 0;
+    auto s = assorted::atomic_load_acquire<uint32_t>(&succ_int_);
+    return s != 0 &&
+      s != kSuccStateLeaving &&
+      s != kSuccStateSuccessorLeaving &&
+      s != kSuccStateReleasing;
   }
   inline bool state_has_reader_successor() {
     return read_successor_class() == kSuccessorClassReader;
