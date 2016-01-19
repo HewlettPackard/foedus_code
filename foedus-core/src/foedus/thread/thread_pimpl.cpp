@@ -2158,9 +2158,9 @@ check_pred:
       pred_next == xct::McsRwBlock::kSuccStateReleasing);  // pred is releasing. In this case I might get the lock if pred is the last reader or a writer
   }
 
-wait_for_lock:
   // just unlock me.pred and wait
-  ASSERT_ND(my_block->get_pred_int() == xct::McsRwBlock::kPredStateBusy);
+  ASSERT_ND(my_block->get_pred_int() == xct::McsRwBlock::kPredStateBusy || // first time timeout
+    my_block->get_pred_int() == xct::McsRwBlock::kPredStateLeaving); // second chance while cancelling
   my_block->set_pred_int(pred);
   if (my_block->timeout_granted(timeout)) {
     return kErrorCodeOk;
@@ -2177,7 +2177,9 @@ handle_pred:
     // the easy case, CAS out of next_writer, take care of the successor (if exists) and go
     if (!lock->cas_next_writer_weak(id_, xct::McsRwLock::kNextWriterNone)) {
       // someone changed next_writer to 0, maybe I'll get the lock...
-      goto wait_for_lock;
+      // unlock me.pred, note the assert_pred_is_normal after check_pred's xchg.
+      my_block->set_pred_int(0);
+      goto check_pred;
     }
     // else nobody picked me up, and no one will be able to after this point
     // (again pred is 0, no reader will put me on next_writer, either)
