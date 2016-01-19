@@ -77,8 +77,8 @@ struct McsRwLock {
   inline thread::ThreadId get_next_writer() {
     return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_);
   }
-  inline thread::ThreadId xchg_clear_next_writer() {
-    return assorted::raw_atomic_exchange<thread::ThreadId>(&next_writer_, kNextWriterNone);
+  inline thread::ThreadId xchg_next_writer(thread::ThreadId id) {
+    return assorted::raw_atomic_exchange<thread::ThreadId>(&next_writer_, id);
   }
   bool cas_next_writer_weak(thread::ThreadId expected, thread::ThreadId desired) {
     return assorted::raw_atomic_compare_exchange_weak<thread::ThreadId>(

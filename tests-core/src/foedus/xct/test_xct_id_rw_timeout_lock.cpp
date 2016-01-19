@@ -124,6 +124,27 @@ ErrorStack single_reader_task(const proc::ProcArguments& args) {
 #endif
   return foedus::kRetOk;
 }
+// A single write that acquires and releases the lock for 100 times
+ErrorStack single_writer_task(const proc::ProcArguments& args) {
+#ifdef MCS_RW_TIMEOUT_LOCK
+  thread::Thread* context = args.context_;
+  XctManager* xct_manager = context->get_engine()->get_xct_manager();
+  WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
+  const int kAcquires = 100;
+  assorted::UniformRandom rnd(1234567);
+  for (int i = 0; i < kAcquires; ++i) {
+    McsBlockIndex block = 0;
+    uint32_t timeout = rnd.uniform_within(0, 1000000);  // 1 million cycles max
+    auto result = context->mcs_acquire_writer_lock(keys[0].get_key_lock(), &block, timeout);
+    EXPECT_EQ(result, kErrorCodeOk);
+    EXPECT_GT(block, 0);
+    std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+    context->mcs_release_writer_lock(keys[0].get_key_lock(), block);
+  }
+  WRAP_ERROR_CODE(xct_manager->abort_xct(context));
+#endif
+  return foedus::kRetOk;
+}
 TEST(XctIdRwTimeoutLockTest, ReadOnly) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = kThreads;
@@ -178,6 +199,27 @@ TEST(XctIdRwTimeoutLockTest, SingleReader) {
     std::vector<thread::ImpersonateSession> sessions;
     thread::ImpersonateSession session;
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("single_reader_task"));
+    assorted::memory_fence_acquire();
+    for (int i = 0; i < kKeys; ++i) {
+      EXPECT_EQ(keys[i].get_key_lock()->nreaders(), 0);
+    }
+    COERCE_ERROR(engine.uninitialize());
+  }
+  cleanup_test(options);
+}
+
+TEST(XctIdRwTimeoutLockTest, SingleWriter) {
+  EngineOptions options = get_tiny_options();
+  options.thread_.thread_count_per_group_ = kThreads;
+  Engine engine(options);
+  engine.get_proc_manager()->pre_register("single_writer_task", single_writer_task);
+  COERCE_ERROR(engine.initialize());
+  {
+    UninitializeGuard guard(&engine);
+    init();
+    std::vector<thread::ImpersonateSession> sessions;
+    thread::ImpersonateSession session;
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("single_writer_task"));
     assorted::memory_fence_acquire();
     for (int i = 0; i < kKeys; ++i) {
       EXPECT_EQ(keys[i].get_key_lock()->nreaders(), 0);
