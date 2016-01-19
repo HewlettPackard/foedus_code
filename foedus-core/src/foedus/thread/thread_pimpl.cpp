@@ -1945,11 +1945,7 @@ check_pred:
       // Timed out, try to leave
     handle_pred:
       // update pred, which might have changed during my spin above
-      auto old_pred = pred;
       pred = my_block->xchg_pred_int(xct::McsRwBlock::kPredStateLeaving);
-      if (pred != old_pred) {
-        goto handle_pred;
-      }
       xct::McsRwBlock::assert_pred_is_normal(pred);
 
       if (pred == 0) {
