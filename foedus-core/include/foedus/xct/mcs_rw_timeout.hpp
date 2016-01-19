@@ -124,9 +124,10 @@ struct McsRwBlock {
   static const uint32_t kSuccessorClassWriter = 3U;
 
   /* States pred_int_ might carry */
-  static const uint32_t kPredStateBusy        = 0xFFFFFFFF;
-  static const uint32_t kPredStateWaitUpdate  = 0xFFFFFFFE;
-  static const uint32_t kPredStateLeaving     = 0xFFFFFFFD;
+  static const uint32_t kPredStateBusy         = 0xFFFFFFFF;
+  static const uint32_t kPredStateWaitUpdate   = 0xFFFFFFFE;
+  static const uint32_t kPredStateLeaving      = 0xFFFFFFFD;
+  static const uint32_t kPredStatePredReleased = 0xFFFFFFFC;
 
   /* States succ_int_ might carry */
   static const uint32_t kSuccStateLeaving          = 0xFFFFFFFF;
