@@ -63,13 +63,13 @@ ErrorStack populate_task(const proc::ProcArguments& args, bool two_layers) {
     if (first_try && two_layers) {
       // currently we don't track moved record to next layer. so we need to reserve records first.
       auto ret = xct_manager->abort_xct(context);
-      if (ret != kErrorCodeXctLockAbort) {
+      if (ret != kErrorCodeXctRaceAbort && ret != kErrorCodeXctLockAbort) {
         WRAP_ERROR_CODE(ret);
         first_try = false;
       }
     } else {
       auto ret = xct_manager->precommit_xct(context, &commit_epoch);
-      if (ret != kErrorCodeXctLockAbort) {
+      if (ret != kErrorCodeXctRaceAbort && ret != kErrorCodeXctLockAbort) {
         WRAP_ERROR_CODE(ret);
         break;
       }

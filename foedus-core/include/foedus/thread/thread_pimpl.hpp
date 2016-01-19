@@ -288,6 +288,8 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
   bool mcs_try_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
+  /** This one is to upgrade a read lock to a write lock */
+  bool mcs_try_acquire_writer_upgrade(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
 #endif  // MCS_RW_LOCK
 
 #ifdef MCS_RW_TIMEOUT_LOCK
@@ -324,6 +326,8 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Helper functions for try locks */
   inline void pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
   inline bool try_abort_as_group_leader(xct::McsRwBlock* expected_holder);
+
+  void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
 
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);

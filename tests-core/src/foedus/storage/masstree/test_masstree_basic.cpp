@@ -161,7 +161,7 @@ ErrorStack insert_task_long(const proc::ProcArguments& args) {
     }
 
     ret = xct_manager->precommit_xct(context, &commit_epoch);
-    if (ret == kErrorCodeXctLockAbort) {  // retry
+    if (ret == kErrorCodeXctRaceAbort || ret == kErrorCodeXctLockAbort) {  // retry
       remaining_inserts += 2;
       continue;
     } else {

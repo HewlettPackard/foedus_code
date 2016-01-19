@@ -94,10 +94,16 @@ struct ReadXctAccess {
   /** The storage we accessed. */
   storage::StorageId  storage_id_;
 
-  McsBlockIndex         mcs_block_;
+  /**
+   * \e If this read-set has a corresponding lock in CLL, the index.
+   * This might not be set (kLockListPositionInvalid) when this read-set is not locked (pure OCC).
+   * If non-zero, the pointed lock entry must have at least read-mode (maybe write-mode).
+   */
+  // LockListPosition    current_lock_position_;
+  // This is expensive to maintain as CLL is constantly growing. So far dropped.
 
   /** Pointer to the accessed record. */
-  RwLockableXctId*      owner_id_address_;
+  RwLockableXctId*    owner_id_address_;
 
   /**
    * An optional member that points to a write access related to this read.
@@ -127,9 +133,13 @@ struct WriteXctAccess {
   /** The storage we accessed. */
   storage::StorageId    storage_id_;
 
-  McsBlockIndex         mcs_block_;
-
-  bool                  locked_;
+  /**
+   * \e If this write-set has a corresponding lock in CLL, the index.
+   * This might not be set (kLockListPositionInvalid) when this write-set is not locked yet.
+   * If non-zero, the pointed lock entry must have at least write-mode.
+   */
+  // LockListPosition      current_lock_position_;
+  // This is expensive to maintain as CLL is constantly growing. So far dropped.
 
   /**
    * Indicates the ordinal among WriteXctAccess of this transaction.
@@ -143,7 +153,7 @@ struct WriteXctAccess {
   uint32_t              write_set_ordinal_;
 
   /** Pointer to the accessed record. */
-  RwLockableXctId*        owner_id_address_;
+  RwLockableXctId*      owner_id_address_;
 
   /** Pointer to the payload of the record. */
   char*                 payload_address_;

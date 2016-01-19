@@ -297,6 +297,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsBlockIndex head_block,
     uint16_t batch_size);
 
+
   /**
    * MCS reader-writer lock methods.
    */
@@ -307,6 +308,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
   bool mcs_try_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
+  /** This one is to upgrade a read lock to a write lock */
+  bool mcs_try_acquire_writer_upgrade(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
 #endif  // MCS_RW_LOCK
   xct::McsRwBlock* get_mcs_rw_blocks();
   void               mcs_release_reader_lock(
@@ -337,6 +340,12 @@ class Thread CXX11_FINAL : public virtual Initializable {
   bool mcs_eager_try_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
 #endif // MCS_RW_GROUP_TRY_LOCK
+
+  /**
+   * Release all locks in CLL of this thread whose addresses are canonically ordered
+   * before the parameter. This is used where we need to rule out the risk of deadlock.
+   */
+  void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
 
   /**
    * Ownerless versions of mcs_acquire/release_lock().

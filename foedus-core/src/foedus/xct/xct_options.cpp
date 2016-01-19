@@ -25,6 +25,7 @@ XctOptions::XctOptions() {
   max_lock_free_write_set_size_ = kDefaultMaxLockFreeWriteSetSize;
   local_work_memory_size_mb_ = kDefaultLocalWorkMemorySizeMb;
   epoch_advance_interval_ms_ = kDefaultEpochAdvanceIntervalMs;
+  enable_retrospective_lock_list_ = false;  // TODO(Hideaki) tentative!
 }
 
 ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
@@ -33,6 +34,7 @@ ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, max_lock_free_write_set_size_);
   EXTERNALIZE_LOAD_ELEMENT(element, local_work_memory_size_mb_);
   EXTERNALIZE_LOAD_ELEMENT(element, epoch_advance_interval_ms_);
+  EXTERNALIZE_LOAD_ELEMENT(element, enable_retrospective_lock_list_);
   return kRetOk;
 }
 
@@ -58,6 +60,8 @@ ErrorStack XctOptions::save(tinyxml2::XMLElement* element) const {
     " out savepoint file for each non-empty epoch. However, too infrequent epoch advancement\n"
     " would increase the latency of queries because transactions are not deemed as commit"
     " until the epoch advances.");
+  EXTERNALIZE_SAVE_ELEMENT(element, enable_retrospective_lock_list_,
+    "When enabled, we remember read/write-sets on abort and use it as RLL on next run.");
   return kRetOk;
 }
 

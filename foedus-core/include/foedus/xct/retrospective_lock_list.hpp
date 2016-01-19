@@ -160,7 +160,7 @@ struct RetrospectiveLockLessThan {
 };
 
 /**
- * @brief Sorted list of RetrospectiveLockList.
+ * @brief Sorted list of RetrospectiveLock.
  * @ingroup RLL
  * @details
  * This is \e NOT a POD because we need dynamic memory for the list.
@@ -187,7 +187,7 @@ class RetrospectiveLockList {
    * @return Index of the fist entry whose lock_ is not less than lock.
    * kLockListPositionInvalid if not such entry.
    */
-  // LockListPosition lower_bound(RetrospectiveLock* lock) const; currently not needed
+  LockListPosition lower_bound(RwLockableXctId* lock) const;
 
   /**
    * @brief Acquire retrospective locks before or at the given lock in canonical order.
@@ -229,6 +229,7 @@ class RetrospectiveLockList {
   const RetrospectiveLock* get_array() const { return array_; }
   uint32_t get_capacity() const { return capacity_; }
   LockListPosition get_last_active_entry() const { return last_active_entry_; }
+  bool is_empty() const { return last_active_entry_ == kLockListPositionInvalid; }
 
   friend std::ostream& operator<<(std::ostream& o, const RetrospectiveLockList& v);
   void assert_sorted() const ALWAYS_INLINE;
@@ -289,7 +290,12 @@ struct CurrentLock {
   /** Whick lock mode we have taken during the current run (of course initially kNoLock) */
   LockMode taken_mode_;
 
-  char     pad_[8U - sizeof(taken_mode_)];
+  /**
+   * 0 means the lock not taken. mcs_block_ == 0 iff taken_mode_ == kNolock.
+   */
+  McsBlockIndex mcs_block_;
+
+  char     pad_[8U - sizeof(taken_mode_) - sizeof(mcs_block_)];
 
   // want to have these.. but maitaining them is nasty after sort. let's revisit later
   // ReadXctAccess* read_set_;
@@ -299,7 +305,10 @@ struct CurrentLock {
     universal_lock_id_ = id;
     lock_ = lock;
     taken_mode_ = taken_mode;
+    mcs_block_ = 0;
   }
+
+  bool is_locked() const { return taken_mode_ != kNoLock; }
 
   bool operator<(const CurrentLock& rhs) const {
     return universal_lock_id_ < rhs.universal_lock_id_;
@@ -351,10 +360,15 @@ class CurrentLockList {
 
   /**
    * Adds an entry to this list, re-sorting part of the list if necessary to keep the sortedness.
+   * If there is an existing entry for the lock, it just returns its position.
+   * If not, this method creates a new entry with taken_mode=kNoLock.
    * @return the position of the newly added entry. kLockListPositionInvalid means the list
    * was full and couldn't add (which is very unlikely, tho).
+   * @note Do not frequently use this method. You should batch your insert when you can.
+   * This method is used when we couldn't batch/expect the new entry.
+   * @see batch_insert_write_placeholders()
    */
-  LockListPosition add_entry(RwLockableXctId* lock, LockMode taken_mode);
+  LockListPosition get_or_add_entry(RwLockableXctId* lock);
 
   /**
    * Analogous to std::lower_bound() for the given lock.
@@ -363,32 +377,44 @@ class CurrentLockList {
    */
   // LockListPosition lower_bound(RetrospectiveLock* lock) const; currently not needed
 
-  /**
-   * @return whether we can acquire the given lock in canonical mode.
-   */
-  bool is_in_canonical_mode(const RwLockableXctId* lock) const {
-    if (!in_canonical_mode_) {
-      // We already violated the order. no hope.
-      return false;
-    }
-    if (last_active_entry_ == kLockListPositionInvalid) {
-      // we don't have any, so trivially canonical
-      return true;
-    }
-    ASSERT_ND(last_active_entry_ < capacity_);
-
-    // Did we take any lock that is ordered before the lock?
-    UniversalLockId id = to_universal_lock_id(lock);
-    return id >= array_[last_active_entry_].universal_lock_id_;
-  }
-
   const CurrentLock* get_array() const { return array_; }
+  CurrentLock* get_array() { return array_; }
   uint32_t get_capacity() const { return capacity_; }
   LockListPosition get_last_active_entry() const { return last_active_entry_; }
+  bool is_empty() const { return last_active_entry_ == kLockListPositionInvalid; }
 
   friend std::ostream& operator<<(std::ostream& o, const CurrentLockList& v);
   void assert_sorted() const ALWAYS_INLINE;
   void assert_sorted_impl() const;
+
+  CurrentLock* begin() { return array_ + 1U; }
+  CurrentLock* end() { return array_ + 1U + last_active_entry_; }
+  const CurrentLock* cbegin() const { return array_ + 1U; }
+  const CurrentLock* cend() const { return array_ + 1U + last_active_entry_; }
+
+  /**
+   * @returns largest index of entries that are already locked.
+   * kLockListPositionInvalid if no entry is locked.
+   */
+  LockListPosition get_last_locked_entry() const {
+    for (LockListPosition pos = last_active_entry_; pos > kLockListPositionInvalid; --pos) {
+      if (array_[pos].is_locked()) {
+        return pos;
+      }
+    }
+    return kLockListPositionInvalid;
+  }
+
+  /**
+   * @brief Create entries for all write-sets in one-shot.
+   * @param[in] write_set write-sets to create placeholders for. Must be canonically sorted.
+   * @param[in] write_set_size count of entries in write_set
+   * @details
+   * During precommit, we must create an entry for every write-set.
+   * Rather than doing it one by one, this method creates placeholder entries for all of them.
+   * The placeholders are not locked yet (taken_mode_ == kNoLock).
+   */
+  void batch_insert_write_placeholders(WriteXctAccess* write_set, uint32_t write_set_size);
 
  private:
   /**
@@ -408,11 +434,6 @@ class CurrentLockList {
    * kLockListPositionInvalid if this list is empty.
    */
   LockListPosition last_active_entry_;
-
-  /**
-   * Whether we are still in canonical lock mode.
-   */
-  bool in_canonical_mode_;
 
   LockListPosition issue_new_position() {
     ++last_active_entry_;

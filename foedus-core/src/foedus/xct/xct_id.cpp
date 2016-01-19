@@ -149,6 +149,7 @@ void McsRwLockScope::move_to(storage::PageVersionLockScope* new_owner) {
 void McsRwLockScope::acquire() {
   if (is_valid()) {
     if (block_ == 0) {
+      /* TODO: This is an unconditional acquire for page, shouldn't have risk of deadlocks. right?
       // release all S-locks first, see the comments in masstree_page_impl.cpp
       xct::ReadXctAccess* read_set = context_->get_current_xct().get_read_set();
       uint32_t read_set_size = context_->get_current_xct().get_read_set_size();
@@ -160,6 +161,7 @@ void McsRwLockScope::acquire() {
           entry->mcs_block_ = 0;
         }
       }
+      */
 #ifdef MCS_RW_GROUP_TRY_LOCK
       if (as_reader_) {
         do {

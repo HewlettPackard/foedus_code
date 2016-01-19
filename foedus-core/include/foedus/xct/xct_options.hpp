@@ -97,6 +97,15 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * until the epoch advances.
    */
   uint32_t    epoch_advance_interval_ms_;
+
+  /**
+   * @brief Whether to use Retrospective Lock List (RLL) after aborts
+   * @details
+   * Default is true.
+   * When enabled, we remember read/write-sets on abort and use it as RLL on next run.
+   * @ref RLL
+   */
+  bool        enable_retrospective_lock_list_;
 };
 }  // namespace xct
 }  // namespace foedus

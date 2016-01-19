@@ -175,19 +175,18 @@ class XctManagerPimpl final : public DefaultInitializable {
   bool        precommit_xct_verify_pointer_set(thread::Thread* context);
   /** Returns false if there is any page version conflict */
   bool        precommit_xct_verify_page_version_set(thread::Thread* context);
-  void        precommit_xct_recover_canonical_access(thread::Thread* context);
   /**
    * @brief Phase 3 of precommit_xct()
    * @param[in] context thread context
    * @param[in] max_xct_id largest xct_id this transaction depends on, or max(all xct_id).
    * @param[in,out] commit_epoch commit epoch of this transaction. it's finalized in this function.
    * @details
-   * Assuming phase 1 and 2 are successfully completed, apply all changes and unlock locks.
+   * Assuming phase 1 and 2 are successfully completed, apply all changes.
+   * This method does NOT release locks yet. This is one difference from SILO.
    */
   void        precommit_xct_apply(thread::Thread* context, XctId max_xct_id, Epoch *commit_epoch);
-  /** unlocking all acquired locks, used when aborts. */
-  void        precommit_xct_unlock_reads(thread::Thread* context);
-  void        precommit_xct_unlock_writes(thread::Thread* context);
+  /** unlocking all acquired locks, used when commit/abort. */
+  void        release_all_current_locks(thread::Thread* context);
   bool        precommit_xct_acquire_writer_lock(thread::Thread* context, WriteXctAccess *write);
   void        precommit_xct_sort_access(thread::Thread* context);
   bool        precommit_xct_try_acquire_writer_locks(thread::Thread* context);

@@ -202,58 +202,12 @@ ErrorCode Xct::add_to_page_version_set(
   return kErrorCodeOk;
 }
 
-ReadXctAccess* Xct::get_read_access(RwLockableXctId* owner_id_address) {
-  ReadXctAccess* ret = NULL;
-  // Return the one that's holding the S-lock (if any)
-  for (uint32_t i = 0; i < read_set_size_; i++) {
-    if (read_set_[i].owner_id_address_ == owner_id_address) {
-      ret = read_set_ + i;
-      if (ret->mcs_block_) {
-        return ret;
-      }
-    }
-  }
-  return ret;
-}
-
-WriteXctAccess* Xct::get_write_access(RwLockableXctId* owner_id_address) {
-  WriteXctAccess* ret = NULL;
-  // Return the one that's holding the S-lock (if any)
-  for (uint32_t i = 0; i < write_set_size_; i++) {
-    if (write_set_[i].owner_id_address_ == owner_id_address) {
-      ret = write_set_ + i;
-      if (ret->locked_) {
-        ASSERT_ND(ret->mcs_block_);
-        return ret;
-      }
-    }
-  }
-  return ret;
-}
-
-void Xct::recover_canonical_access(thread::Thread* context, RwLockableXctId* target) {
-  RwLockableXctId* new_canonical = NULL;
-  for (uint32_t i = 0; i < write_set_size_; ++i) {
-    auto* entry = write_set_ + i;
-    if (entry->locked_) {
-      if (entry->owner_id_address_ >= target) {
-        ASSERT_ND(entry->mcs_block_);
-        context->mcs_release_writer_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-        entry->locked_ = false;
-      } else {
-        new_canonical = std::max(entry->owner_id_address_, new_canonical);
-      }
-    }
-  }
-  context->set_canonical_address(new_canonical);
-}
-
 ErrorCode Xct::add_to_read_set(
   thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
-  bool read_only) {
+  bool /*read_only*/) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(observed_owner_id.is_valid());
@@ -261,19 +215,32 @@ ErrorCode Xct::add_to_read_set(
     return kErrorCodeOk;
   }
 
-  // See if I already took the S-lock
-  ReadXctAccess* read = NULL;
-  read = get_read_access(owner_id_address);
-  if (read && read->mcs_block_) {
-    return kErrorCodeOk;
-  }
-
-  // Either no need to S-lock or didn't hold an S-lock before
-  read = read_set_ + read_set_size_;
   CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
 
-  ASSERT_ND(read->mcs_block_ == 0);
-  if (read_only && read->owner_id_address_->is_hot(context)) {
+  // We might take a pessimisitic lock for the record, which is our MOCC protocol.
+  // However, we might want to do this _before_ observing XctId. Otherwise there is a
+  // chance of aborts even with the lock. But then more code changes. Later, later...
+
+  const UniversalLockId lock_id = to_universal_lock_id(owner_id_address);
+  LockListPosition rll_pos = kLockListPositionInvalid;
+  bool lets_take_lock = false;
+  if (!retrospective_lock_list_.is_empty()) {
+    // RLL is set, which means the previous run aborted for race.
+    // binary-search for each read-set is not cheap, but in this case better than aborts.
+    // So, let's see if we should take the lock.
+    rll_pos = retrospective_lock_list_.binary_search(owner_id_address);
+    if (rll_pos != kLockListPositionInvalid) {
+      ASSERT_ND(retrospective_lock_list_.get_array()[rll_pos].universal_lock_id_ == lock_id);
+      DVLOG(1) << "RLL recommends to take lock on this record!";
+      lets_take_lock = true;
+    }
+  }
+
+  if (!lets_take_lock && owner_id_address->is_hot(context)) {
+    lets_take_lock = true;
+  }
+
+  if (lets_take_lock) {
 #ifdef MCS_RW_GROUP_TRY_LOCK
     if (context->mcs_try_acquire_reader_lock(
       read->owner_id_address_->get_key_lock(), &read->mcs_block_, 10)) {
@@ -289,15 +256,23 @@ ErrorCode Xct::add_to_read_set(
     }
 #endif
 #ifdef MCS_RW_LOCK
+    // TODO Implement
+    // First, if we have RLL, we should take all RLs ordered before this record.
+    if (rll_pos != kLockListPositionInvalid) {
+    } else {
+      // Then, this is a single read-lock to take.
+      // Even in this case, we must be careful on deadlock.
+      // Are we in canonical mode? if not, use try_acquire
+    }
+    /*
     if (context->mcs_try_acquire_reader_lock(
       read->owner_id_address_->get_key_lock(), &read->mcs_block_, 0)) {
       read->observed_owner_id_ = owner_id_address->xct_id_;
-      context->set_canonical_address(owner_id_address);
       return kErrorCodeOk;
     }
+    */
 #endif
   }
-  read->mcs_block_ = 0;
   return kErrorCodeOk;
 }
 
@@ -310,8 +285,6 @@ ErrorCode Xct::add_to_read_set_force(
   if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
-  // The caller should set mcs_block_ after this returns.
-  read_set_[read_set_size_].mcs_block_ = 0;
   // if the next-layer bit is ON, the record is not logically a record, so why we are adding
   // it to read-set? we should have already either aborted or retried in this case.
   ASSERT_ND(!observed_owner_id.is_next_layer());
@@ -340,14 +313,12 @@ ErrorCode Xct::add_to_write_set(
     return kErrorCodeXctWriteSetOverflow;
   }
   WriteXctAccess* write = write_set_ + write_set_size_;
-  write->mcs_block_ = 0;
   write->write_set_ordinal_ = write_set_size_;
   write->payload_address_ = payload_address;
   write->log_entry_ = log_entry;
   write->storage_id_ = storage_id;
   write->owner_id_address_ = owner_id_address;
   write->related_read_ = CXX11_NULLPTR;
-  write->locked_ = false;
   ++write_set_size_;
   return kErrorCodeOk;
 }
@@ -366,11 +337,6 @@ ErrorCode Xct::add_to_read_and_write_set(
   auto* write = write_set_ + write_set_size_;
   CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
 
-#ifndef NDEBUG
-  auto* r = get_read_access(owner_id_address);
-  // only S-lock reads not intended for update later
-  ASSERT_ND(!(r && r->mcs_block_));
-#endif
   auto* read = read_set_ + read_set_size_;
   // in this method, we force to add a read set because it's critical to confirm that
   // the physical record we write to is still the one we found.
@@ -378,7 +344,6 @@ ErrorCode Xct::add_to_read_and_write_set(
     storage_id,
     observed_owner_id,
     owner_id_address));
-  ASSERT_ND(read->mcs_block_ == 0);
   ASSERT_ND(read->owner_id_address_ == owner_id_address);
   read->related_write_ = write;
   write->related_read_ = read;

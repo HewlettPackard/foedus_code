@@ -75,7 +75,7 @@ uint64_t NumaCoreMemory::calculate_local_small_memory_size(const EngineOptions& 
   // In reality almost no chance we take as many locks as all read/write-sets,
   // but let's simplify that. Not much memory anyways.
   const uint64_t total_access_sets = xct_opt.max_read_set_size_ + xct_opt.max_write_set_size_;
-  memory_size += sizeof(xct::CurrentLockList) * total_access_sets;
+  memory_size += sizeof(xct::CurrentLock) * total_access_sets;
   memory_size += sizeof(xct::RetrospectiveLock) * total_access_sets;
   return memory_size;
 }

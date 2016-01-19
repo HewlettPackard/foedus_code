@@ -82,13 +82,16 @@ class Xct {
     lock_free_write_set_size_ = 0;
     *mcs_block_current_ = 0;
     local_work_memory_cur_ = 0;
+    current_lock_list_.clear_entries();
   }
 
   /**
    * Closes the transaction.
+   * @pre Before calling this method, all locks must be already released.
    */
   void                deactivate() {
     ASSERT_ND(active_);
+    ASSERT_ND(current_lock_list_.is_empty());
     active_ = false;
     *mcs_block_current_ = 0;
   }
@@ -180,10 +183,6 @@ class Xct {
     const storage::PageVersion* version_address,
     storage::PageVersionStatus observed);
 
-  ReadXctAccess*      get_read_access(RwLockableXctId* owner_id_address);
-  WriteXctAccess*     get_write_access(RwLockableXctId* owner_id_address);
-  void                recover_canonical_access(thread::Thread* context, RwLockableXctId* target);
-
   /**
    * @brief Add the given record to the read set of this transaction.
    * @details
@@ -263,6 +262,11 @@ class Xct {
     local_work_memory_cur_ = size + begin;
     *out = reinterpret_cast<char*>(local_work_memory_) + begin;
     return kErrorCodeOk;
+  }
+
+  xct::CurrentLockList*       get_current_lock_list() { return &current_lock_list_; }
+  xct::RetrospectiveLockList* get_retrospective_lock_list() {
+    return &retrospective_lock_list_;
   }
 
   /**

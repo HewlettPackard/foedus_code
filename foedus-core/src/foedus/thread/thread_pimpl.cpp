@@ -873,6 +873,10 @@ bool Thread::mcs_try_acquire_reader_lock(
   xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
   return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index, tries);
 }
+bool Thread::mcs_try_acquire_writer_upgrade(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index) {
+  return pimpl_->mcs_try_acquire_writer_upgrade(mcs_rw_lock, out_block_index);
+}
 #endif  // MCS_RW_LOCK
 
 #ifdef MCS_RW_TIMEOUT_LOCK
@@ -924,6 +928,10 @@ void Thread::mcs_uncondition_try_acquire_writer_lock(
   pimpl_->mcs_uncondition_try_acquire_writer_lock(lock, out_block_index);
 }
 #endif // MCS_RW_GROUP_TRY_LOCK
+
+void Thread::mcs_release_all_current_locks_after(xct::UniversalLockId address) {
+  pimpl_->mcs_release_all_current_locks_after(address);
+}
 
 void Thread::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
@@ -1183,7 +1191,7 @@ void ThreadPimpl::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
 ///
 ////////////////////////////////////////////////////////////////////////////////
 bool ThreadPimpl::mcs_try_acquire_writer_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries) {
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int /*tries*/) {
   xct::McsBlockIndex block_index = 0;
   if (*out_block_index) {
     block_index = *out_block_index;
@@ -1204,7 +1212,7 @@ bool ThreadPimpl::mcs_try_acquire_writer_lock(
 }
 
 bool ThreadPimpl::mcs_try_acquire_reader_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries) {
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int /*tries*/) {
   while (true) {
     // take a look at the whole lock word, and cas if it's a reader or null
     uint64_t lock_word = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
@@ -1239,6 +1247,36 @@ bool ThreadPimpl::mcs_try_acquire_reader_lock(
         return true;
       }
     }
+  }
+}
+
+bool ThreadPimpl::mcs_try_acquire_writer_upgrade(
+  xct::McsRwLock* lock,
+  xct::McsBlockIndex* out_block_index) {
+  // This try_upgrade is a bit special.
+  // It reuses the queue node we have already pushed to the tail.
+  // It is safe to do such a thing only when there are no other waiters/owners at all,
+  // so we CAS against the condition.
+  xct::McsBlockIndex cur_block_index = *out_block_index;
+  ASSERT_ND(cur_block_index);
+  xct::McsBlockIndex new_block_index = current_xct_.increment_mcs_block_current();
+  auto* my_block = get_mcs_rw_block(id_, new_block_index);
+  my_block->init_writer();
+
+  xct::McsRwLock tmp;
+  tmp.tail_ = xct::McsRwLock::to_tail_int(id_, cur_block_index);
+  tmp.readers_count_ = 1U;
+  uint64_t expected = *reinterpret_cast<uint64_t*>(&tmp);
+  xct::McsRwLock tmp2;
+  tmp2.tail_ = xct::McsRwLock::to_tail_int(id_, new_block_index);
+  uint64_t desired = *reinterpret_cast<uint64_t*>(&tmp2);
+  my_block->unblock();
+  if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+    reinterpret_cast<uint64_t*>(lock), &expected, desired)) {
+    *out_block_index = new_block_index;
+    return true;
+  } else {
+    return false;
   }
 }
 
@@ -1408,6 +1446,40 @@ void ThreadPimpl::mcs_release_writer_lock(
     successor_block->unblock();
   }
 }
+
+void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId address) {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  cll->assert_sorted();
+  uint32_t released_read_locks = 0;
+  uint32_t released_write_locks = 0;
+  uint32_t already_released_locks = 0;
+
+  for (xct::CurrentLock* entry = cll->begin(); entry != cll->end(); ++entry) {
+    if (entry->universal_lock_id_ <= address) {
+      continue;
+    }
+    if (entry->is_locked()) {
+      if (entry->taken_mode_ == xct::kReadLock) {
+        mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++released_read_locks;
+      } else {
+        ASSERT_ND(entry->taken_mode_ == xct::kWriteLock);
+        mcs_release_writer_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++released_write_locks;
+      }
+      entry->mcs_block_ = 0;
+      entry->taken_mode_ = xct::kNoLock;
+    } else {
+      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
+      ++already_released_locks;
+    }
+  }
+
+  DVLOG(1) << " Unlocked " << released_read_locks << " read locks and"
+    << " " << released_write_locks << " write locks. " << already_released_locks
+    << " were already unlocked";
+}
+
 #endif  // MCS_RW_LOCK
 
 #ifdef MCS_RW_GROUP_TRY_LOCK

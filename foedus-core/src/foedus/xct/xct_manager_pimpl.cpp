@@ -44,6 +44,7 @@
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/thread/thread_ref.hpp"
 #include "foedus/xct/in_commit_epoch_guard.hpp"
+#include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_manager.hpp"
@@ -310,7 +311,8 @@ ErrorCode XctManagerPimpl::begin_xct(thread::Thread* context, IsolationLevel iso
   if (UNLIKELY(control_block_->new_transaction_paused_.load())) {
     wait_until_resume_accepting_xct(context);
   }
-  DVLOG(1) << *context << " Began new transaction";
+  DVLOG(1) << *context << " Began new transaction."
+    << " RLL size=" << current_xct.get_retrospective_lock_list()->get_last_active_entry();
   current_xct.activate(isolation_level);
   ASSERT_ND(current_xct.get_mcs_block_current() == 0);
   ASSERT_ND(context->get_thread_log_buffer().get_offset_tail()
@@ -352,20 +354,25 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
     result = precommit_xct_readwrite(context, commit_epoch);
   }
 
-  precommit_xct_unlock_reads(context);
-  precommit_xct_unlock_writes(context);
+  if ((result == kErrorCodeXctRaceAbort || result == kErrorCodeXctLockAbort)
+    && engine_->get_options().xct_.enable_retrospective_lock_list_) {
+    const uint32_t hot_threashold = engine_->get_options().storage_.hot_threshold_;
+    const uint32_t conservative_threashold = (hot_threashold < 1U ? 0 : 1U);
+    current_xct.get_retrospective_lock_list()->construct(context, conservative_threashold);
+  } else {
+    current_xct.get_retrospective_lock_list()->clear_entries();
+  }
 
   ASSERT_ND(current_xct.assert_related_read_write());
-  current_xct.deactivate();
-  if (result == kErrorCodeOk) {
-    context->set_canonical_address(nullptr);
+  if (result != kErrorCodeOk) {
+    ErrorCode abort_ret = abort_xct(context);
+    ASSERT_ND(abort_ret == kErrorCodeOk);
+    DVLOG(1) << *context << " Aborting because of contention";
   } else {
-    if (result != kErrorCodeXctLockAbort) {
-      context->set_canonical_address(nullptr);
-    }
-    //DLOG(WARNING) << *context << " Aborting because of contention";
-    context->get_thread_log_buffer().discard_current_xct_log();
+    release_all_current_locks(context);
+    current_xct.deactivate();
   }
+  ASSERT_ND(current_xct.get_current_lock_list()->is_empty());
   return result;
 }
 ErrorCode XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch *commit_epoch) {
@@ -374,7 +381,11 @@ ErrorCode XctManagerPimpl::precommit_xct_readonly(thread::Thread* context, Epoch
       context->get_thread_log_buffer().get_offset_tail());
   *commit_epoch = Epoch();
   assorted::memory_fence_acquire();  // this is enough for read-only case
-  return precommit_xct_verify_readonly(context, commit_epoch) ? kErrorCodeOk : kErrorCodeXctRaceAbort;
+  if (precommit_xct_verify_readonly(context, commit_epoch)) {
+    return kErrorCodeOk;
+  } else {
+    return kErrorCodeXctRaceAbort;
+  }
 }
 
 ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoch *commit_epoch) {
@@ -426,7 +437,7 @@ ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoc
 
 
 bool XctManagerPimpl::precommit_xct_lock_track_write(
-  thread::Thread* context, WriteXctAccess* entry) {
+  thread::Thread* /*context*/, WriteXctAccess* entry) {
   ASSERT_ND(entry->owner_id_address_->needs_track_moved());
   storage::StorageManager* st = engine_->get_storage_manager();
   TrackMovedRecordResult result = st->track_moved_record(
@@ -445,15 +456,13 @@ bool XctManagerPimpl::precommit_xct_lock_track_write(
     ASSERT_ND(entry->related_read_->owner_id_address_ == entry->owner_id_address_);
     entry->related_read_->owner_id_address_ = result.new_owner_address_;
   }
-  context->mcs_release_writer_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-  entry->locked_ = false;
   entry->owner_id_address_ = result.new_owner_address_;
   entry->payload_address_ = result.new_payload_address_;
   return true;
 }
 
 bool XctManagerPimpl::precommit_xct_verify_track_read(
-  thread::Thread* context, ReadXctAccess* entry) {
+  thread::Thread* /*context*/, ReadXctAccess* entry) {
   ASSERT_ND(entry->owner_id_address_->needs_track_moved());
   ASSERT_ND(entry->related_write_ == nullptr);  // if there is, lock() should have updated it.
   storage::StorageManager* st = engine_->get_storage_manager();
@@ -466,13 +475,8 @@ bool XctManagerPimpl::precommit_xct_verify_track_read(
     // the record is now in next layer. in this case, retry the whole transaction.
     return false;
   }
-  if (entry->mcs_block_) {
-    ASSERT_ND(entry->owner_id_address_->lock_.is_locked());
-    context->mcs_release_reader_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-    entry->mcs_block_ = 0;
-  }
+
   entry->owner_id_address_ = result.new_owner_address_;
-  ASSERT_ND(entry->mcs_block_ == 0);
   return true;
 }
 
@@ -492,7 +496,6 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
       ASSERT_ND(entry->related_read_->related_write_);
       entry->related_read_->related_write_ = entry;
     }
-    ASSERT_ND(entry->mcs_block_ == 0);
     entry->write_set_ordinal_ = i;
   }
   ASSERT_ND(current_xct.assert_related_read_write());
@@ -525,81 +528,105 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
+  CurrentLockList* cll = current_xct.get_current_lock_list();
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
 #ifndef NDEBUG
-  // Initially, write-sets must be ordered by the insertion order, and no X-locks taken.
+  // Initially, write-sets must be ordered by the insertion order.
   for (uint32_t i = 0; i < write_set_size; ++i) {
     ASSERT_ND(write_set[i].write_set_ordinal_ == i);
-    ASSERT_ND(write_set[i].mcs_block_ == 0);
+    // Because of RLL, the write-set might or might not already have a corresponding lock
   }
 #endif  // NDEBUG
 
+moved_retry:
   precommit_xct_sort_access(context);
 
+  // TODO(Hideaki) Because of how the new locks work, I'm not sure the prefetch still helps.
+  // Previously it did, but not significant either, so let's disable for now and revisit this later.
   // we have to access the owner_id's pointed address. let's prefetch them in parallel
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    assorted::prefetch_cacheline(write_set[i].owner_id_address_);
-  }
+  // for (uint32_t i = 0; i < write_set_size; ++i) {
+  //   assorted::prefetch_cacheline(write_set[i].owner_id_address_);
+  // }
+
+  // Create entries in CLL for all write sets. At this point they are not locked yet.
+  cll->batch_insert_write_placeholders(write_set, write_set_size);
 
   ASSERT_ND(current_xct.assert_related_read_write());
+  // Note: one alterantive is to sequentailly iterate over write-set and CLL,
+  // both of which are sorted. It will be faster, but probably not that different
+  // unless we have a large number of locks. For now binary_search each time.
+  LockListPosition last_locked_pos = cll->get_last_locked_entry();
   for (uint32_t i = 0; i < write_set_size; ++i) {
-  retry_xlock:
-    auto* entry = write_set + i;
-    if (i < write_set_size - 1 &&
-      entry->owner_id_address_ == write_set[i + 1].owner_id_address_) {
+    WriteXctAccess* entry = write_set + i;
+    if (i > 0 && entry->owner_id_address_ == write_set[i - 1].owner_id_address_) {
+      // for multiple writes on one record, only the first one takes the lock
+      ASSERT_ND(entry->owner_id_address_->is_keylocked());
       continue;
     }
 
-    if (entry->locked_) {
-      continue;
-    }
-
-    if (entry->owner_id_address_ > context->get_canonical_address()) {
-      // Unconditionally get the lock
-      entry->mcs_block_ = context->mcs_acquire_writer_lock(
-        entry->owner_id_address_->get_key_lock());
-
-      entry->locked_ = true;
-      if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
-        if (!precommit_xct_lock_track_write(context, entry)) {
-          ASSERT_ND(!entry->locked_);
-          return kErrorCodeXctRaceAbort;
-        } else {
-          ASSERT_ND(!entry->locked_);
-          goto retry_xlock;
-        }
-      }
+    LockListPosition lock_pos = cll->binary_search(entry->owner_id_address_);
+    ASSERT_ND(lock_pos != kLockListPositionInvalid);  // we have put placeholders for all!
+    CurrentLock* lock_entry = cll->get_array() + lock_pos;
+    ASSERT_ND(lock_entry->lock_ == entry->owner_id_address_);
+    if (lock_entry->taken_mode_ == kWriteLock) {
+      DVLOG(1) << "Yay, already taken. Probably Thanks to RLL?";
     } else {
-      bool retrying = false;
-      // Try to grab the lock first, release some locks violating canonical access if failed
-    retry:
-      if (!context->mcs_try_acquire_writer_lock(
-        entry->owner_id_address_->get_key_lock(), &entry->mcs_block_, 1)) {
-        // didn't get it, release some locks
-        current_xct.recover_canonical_access(context, entry->owner_id_address_);
-        if (!retrying) {
-          retrying = true;
-          goto retry;
-        }
-        return kErrorCodeXctLockAbort;  // abort and retry with retrospective set
-      } else if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
-        if (!precommit_xct_lock_track_write(context, entry)) {
-          ASSERT_ND(!entry->locked_);
-          return kErrorCodeXctRaceAbort;
+      // Now we need to take or upgrade the lock. Are we in canonical mode?
+      auto* lock_addr = lock_entry->lock_->get_key_lock();
+      if (last_locked_pos == kLockListPositionInvalid || last_locked_pos < lock_pos) {
+        // yay, we are in canonical mode. we can unconditionally get the lock
+        ASSERT_ND(lock_entry->taken_mode_ == kNoLock);  // not a lock upgrade, either
+        lock_entry->mcs_block_ = context->mcs_acquire_writer_lock(lock_addr);
+        lock_entry->taken_mode_ = kWriteLock;
+        last_locked_pos = lock_pos;
+      } else {
+        // hmm, we violated canonical mode. has a risk of deadlock.
+        // Let's just try acquire the lock and immediately give up if it fails.
+        // The RLL will take care of the next run.
+        if (lock_entry->taken_mode_ == kReadLock) {
+          ASSERT_ND(lock_entry->mcs_block_);
+          if (!context->mcs_try_acquire_writer_upgrade(lock_addr, &lock_entry->mcs_block_)) {
+            DVLOG(0) << "Failed to try-upgrade S-lock to X. giving up";
+            return kErrorCodeXctRaceAbort;
+          } else {
+            DVLOG(1) << "Succeeded to try-upgrade S-lock to X.";
+            ASSERT_ND(lock_entry->mcs_block_);
+            lock_entry->taken_mode_ = kWriteLock;
+          }
         } else {
-          ASSERT_ND(!entry->locked_);
-          goto retry_xlock;
+          ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+          if (!context->mcs_try_acquire_writer_lock(lock_addr, &lock_entry->mcs_block_, 0)) {
+            DVLOG(0) << "Failed to try-acquire X-lock. giving up";
+            ASSERT_ND(lock_entry->mcs_block_ == 0);
+            return kErrorCodeXctRaceAbort;
+          } else {
+            lock_entry->taken_mode_ = kWriteLock;
+          }
         }
+
+        // TODO(Hideaki) release some of the lock we have taken to restore canonical mode.
+        // We haven't imlpemented this optimization yet.
+        return kErrorCodeXctRaceAbort;
       }
-      entry->locked_ = true;
+    }
+    if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
+      if (!precommit_xct_lock_track_write(context, entry)) {
+        DLOG(INFO) << "Failed to track moved record?? this must be very rare";
+        return kErrorCodeXctRaceAbort;
+      }
+      // Now we got a new record to lock. Just retry the whole protocol.
+      // We can do a bit more complicated thing to reduce aborts in this case,
+      // but this should be anyway rare. Rather, releasing some lock here
+      // needs a careful check if we are also reading from the record.
+      ASSERT_ND(entry->owner_id_address_ != lock_entry->lock_);
+      cll->get_or_add_entry(entry->owner_id_address_);  // just as a new entry in CLL. simpler.
+      goto moved_retry;
     }
 
-    ASSERT_ND(entry->locked_);
     ASSERT_ND(!entry->owner_id_address_->is_moved());
     ASSERT_ND(!entry->owner_id_address_->is_next_layer());
     ASSERT_ND(entry->owner_id_address_->is_keylocked());
-    context->set_canonical_address(entry->owner_id_address_);
     max_xct_id->store_max(entry->owner_id_address_->xct_id_);
 
     // If we have to abort, we should abort early to not waste time.
@@ -615,17 +642,10 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
   DVLOG(1) << *context << " locked write set";
 #ifndef NDEBUG
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    if (!write_set[i].mcs_block_) {
-      continue;
-    }
-    ASSERT_ND(write_set[i].locked_);
-    ASSERT_ND(write_set[i].owner_id_address_->lock_.is_locked());
-    auto* my_block = context->get_mcs_rw_blocks() + write_set[i].mcs_block_;
-    ASSERT_ND(my_block->is_granted());
+    ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
   }
 #endif  // NDEBUG
   return kErrorCodeOk;
-
 }
 #endif  // MCS_RW_LOCK
 #ifdef MCS_RW_GROUP_TRY_LOCK
@@ -774,28 +794,6 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
 }
 #endif  // MCS_RW_GROUP_TRY_LOCK
 
-void XctManagerPimpl::precommit_xct_unlock_writes(thread::Thread* context) {
-  WriteXctAccess* write_set = context->get_current_xct().get_write_set();
-  uint32_t        write_set_size = context->get_current_xct().get_write_set_size();
-
-  DVLOG(1) << *context << " unlocking without applying.. write_set_size=" << write_set_size;
-  assorted::memory_fence_release();
-
-  for (uint32_t i = 0; i < write_set_size; i++) {
-    auto* entry = write_set + i;
-    if (entry->locked_) {
-      ASSERT_ND(entry->mcs_block_);
-      // wait for the state to finalize, otherwise we'd risk attaching
-      // after ourself when we retry later
-      context->mcs_release_writer_lock(
-        entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-    }
-  }
-
-  assorted::memory_fence_release();
-  DVLOG(1) << *context << " unlocked write sets";
-}
-
 const uint16_t kReadsetPrefetchBatch = 16;
 
 bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epoch *commit_epoch) {
@@ -812,29 +810,29 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
       }
     }
 
-    // The owning transaction has changed.
-    // We don't check ordinal here because there is no change we are racing with ourselves.
     ReadXctAccess& access = read_set[i];
     DVLOG(2) << *context << "Verifying " << st->get_name(access.storage_id_)
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << access.owner_id_address_->xct_id_;
+
+    // Implementation Note: we do verify the versions whether we took a lock on this record or not.
+    // In a sentence, this is the simplest and most reliable while wasted cost is not that much.
+
+    // In a paragraph.. We could check whether it's locked, and in \e some case skip verification,
+    // but think of case 1) read A without read-lock, later take a write-lock on A due to RLL.
+    // also case 2) read A without read-lock, then read A again but this time with read-lock.
+    // Yes, we could rule these cases out by checking something for each read/write,
+    // but that's fragile. too much complexity for little. we just verify always. period.
     if (UNLIKELY(access.owner_id_address_->needs_track_moved())) {
       if (!precommit_xct_verify_track_read(context, &access)) {
-        ASSERT_ND(access.mcs_block_ == 0);
         return false;
       }
     }
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
-      ASSERT_ND(access.mcs_block_ == 0);
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       // read clobbered, make it hotter
       access.owner_id_address_->hotter();
       return false;
-    }
-
-    if (access.mcs_block_) {
-      context->mcs_release_reader_lock(access.owner_id_address_->get_key_lock(), access.mcs_block_);
-      access.mcs_block_ = 0;
     }
 
     // Remembers the highest epoch observed.
@@ -864,6 +862,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
   Xct& current_xct = context->get_current_xct();
   ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
+  CurrentLockList*        cll = current_xct.get_current_lock_list();
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // let's prefetch owner_id in parallel
     if (i % kReadsetPrefetchBatch == 0) {
@@ -879,13 +878,9 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     // Fast forward to the last one
     if (i < read_set_size - 1 &&
       access.owner_id_address_ == read_set[i + 1].owner_id_address_) {
-      // We should have already cleared it during xct_lock
-      ASSERT_ND(access.mcs_block_ == 0);
       continue;
     }
     storage::StorageManager* st = engine_->get_storage_manager();
-    const WriteXctAccess*   write_set = current_xct.get_write_set();
-    const uint32_t          write_set_size = current_xct.get_write_set_size();
     if (access.related_write_) {
       // we already checked this in lock()
       DVLOG(3) << *context << " skipped read-sets that are already checked";
@@ -895,52 +890,38 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     DVLOG(2) << *context << " Verifying " << st->get_name(access.storage_id_)
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << access.owner_id_address_->xct_id_;
+    // As noted in precommit_xct_verify_readonly, we verify read-set whether it's locked or not.
 
     // read-set has to also track moved records.
     // however, unlike write-set locks, we don't have to do retry-loop.
     // if the rare event (yet another concurrent split) happens, we just abort the transaction.
     if (UNLIKELY(access.owner_id_address_->needs_track_moved())) {
       if (!precommit_xct_verify_track_read(context, &access)) {
-        ASSERT_ND(access.mcs_block_ == 0);
         return false;
       }
-      ASSERT_ND(access.mcs_block_ == 0);
     }
 
-    if (access.mcs_block_) {
-      // I S-locked the read
-      ASSERT_ND(access.observed_owner_id_ == access.owner_id_address_->xct_id_);
-    } else {
-      if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
-        ASSERT_ND(access.mcs_block_ == 0);  // must be an optimistic read, without S-lock
-        access.owner_id_address_->hotter();
-        //DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
-        return false;
-      }
-      if (access.owner_id_address_->is_keylocked()) {
-        DVLOG(2) << *context
-          << " read set contained a locked record. was it myself who locked it?";
-        ASSERT_ND(access.mcs_block_ == 0);
-        // Is it myself who X-locked during precommit after read it without taking S-lock?
-        // write set is sorted. so we can do binary search.
-        // XXX(tzwang): there might be false positives when somebody else S-locked it but
-        // I didn't - maybe I'm a long running transactions and the temperature changed
-        // during my read, and I'm lucky enough that nobody else changed it, plus I'm lucky
-        // again enough somebody else detected the temperature change and S-locked it.
-        // I guess this should be rare, we'll see.
-        WriteXctAccess dummy;
-        dummy.owner_id_address_ = access.owner_id_address_;
-        dummy.write_set_ordinal_ = 0;  // will catch the smallest possible of the address
-        const WriteXctAccess* lower_it = std::lower_bound(
-          write_set,
-          write_set + write_set_size,
-          dummy,
-          WriteXctAccess::compare);
-        if (lower_it == write_set + write_set_size) {
-          //DLOG(WARNING) << *context << " no, not me. will abort";
-          return false;
-        }
+    if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
+      access.owner_id_address_->hotter();
+      DVLOG(1) << *context << " read set changed by other transaction. will abort";
+      return false;
+    }
+
+    // Hideaki: Umm, after several changes, I'm now not sure if we still need this check.
+    // As far as XID hasn't changed, do we care whether others locked it or not?
+    // Thanks to the separation of XID and Lock-word, I think this is now unnecessary.
+    // If it's our own lock, we haven't applied our changes yet, so safe. If it's other's lock,
+    // why do we care as far as XID hasn'nt changed? Everyone updates XID -> unlocks in this order.
+    // Anyways, we are in the course of a bigger change, so revisit it later.
+    if (access.owner_id_address_->is_keylocked()) {
+      DVLOG(2) << *context
+        << " read set contained a locked record. was it myself who locked it?";
+      LockListPosition my_lock_pos = cll->binary_search(access.owner_id_address_);
+      if (my_lock_pos != kLockListPositionInvalid && cll->get_array()[my_lock_pos].is_locked()) {
         DVLOG(2) << *context << " okay, myself. go on.";
+      } else {
+        DVLOG(1) << *context << " no, not me. will abort";
+        return false;
       }
     }
     max_xct_id->store_max(access.observed_owner_id_);
@@ -1005,7 +986,7 @@ void XctManagerPimpl::precommit_xct_apply(
   uint32_t        write_set_size = current_xct.get_write_set_size();
   LockFreeWriteXctAccess* lock_free_write_set = current_xct.get_lock_free_write_set();
   uint32_t                lock_free_write_set_size = current_xct.get_lock_free_write_set_size();
-  DVLOG(1) << *context << " applying and unlocking.. write_set_size=" << write_set_size
+  DVLOG(1) << *context << " applying.. write_set_size=" << write_set_size
     << ", lock_free_write_set_size=" << lock_free_write_set_size;
 
   current_xct.issue_next_id(max_xct_id, commit_epoch);
@@ -1019,12 +1000,10 @@ void XctManagerPimpl::precommit_xct_apply(
   DVLOG(1) << *context << " generated new xct id=" << new_xct_id;
   for (uint32_t i = 0; i < write_set_size; ++i) {
     WriteXctAccess& write = write_set[i];
-    DVLOG(2) << *context << " Applying/Unlocking "
+    DVLOG(2) << *context << " Applying "
       << engine_->get_storage_manager()->get_name(write.storage_id_)
       << ":" << write.owner_id_address_;
     ASSERT_ND(write.owner_id_address_->is_keylocked());
-    ASSERT_ND(write.mcs_block_ != 0 ||
-      write.owner_id_address_ == write_set[i + 1].owner_id_address_);
 
     // We must be careful on the memory order of unlock and data write.
     // We must write data first (invoke_apply), then unlock.
@@ -1054,9 +1033,7 @@ void XctManagerPimpl::precommit_xct_apply(
         << engine_->get_storage_manager()->get_name(write_set[i].storage_id_)
         << ":" << write_set[i].owner_id_address_ << ". Unlock at the last one of the write sets";
       // keep the lock for the next write set
-      ASSERT_ND(write.mcs_block_ == 0);
     } else {
-      ASSERT_ND(write.mcs_block_ != 0);
       // For this reason, we put memory_fence_release() between data and owner_id writes.
       assorted::memory_fence_release();
       if (write.owner_id_address_->xct_id_.is_deleted()) {
@@ -1071,11 +1048,8 @@ void XctManagerPimpl::precommit_xct_apply(
           write.log_entry_->header_.get_type() != log::kLogCodeMasstreeDelete);
         write.owner_id_address_->xct_id_ = new_xct_id;
       }
-      // also unlocks
-      ASSERT_ND(write.mcs_block_);
-      context->mcs_release_writer_lock(write.owner_id_address_->get_key_lock(), write.mcs_block_);
-      write.mcs_block_ = 0;
-      write.locked_ = false;
+      // This method does NOT unlock. we do it at the end, all locks together.
+      // This is another difference from SILO.
     }
   }
   // lock-free write-set doesn't have to worry about lock or ordering.
@@ -1089,31 +1063,51 @@ void XctManagerPimpl::precommit_xct_apply(
   DVLOG(1) << *context << " applied and unlocked write set";
 }
 
-void XctManagerPimpl::precommit_xct_unlock_reads(thread::Thread* context) {
-  ReadXctAccess*  read_set = context->get_current_xct().get_read_set();
-  uint32_t        read_set_size = context->get_current_xct().get_read_set_size();
-  for (uint32_t i = 0; i < read_set_size; i++) {
-    auto* entry = read_set + i;
-    if (entry->mcs_block_) {
-      context->mcs_release_reader_lock(entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-    }
-  }
-
-  assorted::memory_fence_release();
-  DVLOG(1) << *context << " unlocked read sets";
-}
-
 ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
   if (!current_xct.is_active()) {
     return kErrorCodeXctNoXct;
   }
   DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
-  precommit_xct_unlock_reads(context);
-  precommit_xct_unlock_writes(context);
+  release_all_current_locks(context);
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
   return kErrorCodeOk;
+}
+
+void XctManagerPimpl::release_all_current_locks(thread::Thread* context) {
+  CurrentLockList* cll = context->get_current_xct().get_current_lock_list();
+  DVLOG(1) << "Thread-" << *context
+    << " has " << cll->get_last_active_entry() << " locks that might need to be released";
+  cll->assert_sorted();
+  uint32_t released_read_locks = 0;
+  uint32_t released_write_locks = 0;
+  uint32_t already_released_locks = 0;
+
+  for (CurrentLock* entry = cll->begin(); entry != cll->end(); ++entry) {
+    if (entry->is_locked()) {
+      if (entry->taken_mode_ == kReadLock) {
+        context->mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++released_read_locks;
+      } else {
+        ASSERT_ND(entry->taken_mode_ == kWriteLock);
+        context->mcs_release_writer_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++released_write_locks;
+      }
+      entry->mcs_block_ = 0;
+      entry->taken_mode_ = kNoLock;
+    } else {
+      ASSERT_ND(entry->taken_mode_ == kNoLock);
+      ++already_released_locks;
+    }
+  }
+
+  ASSERT_ND(released_read_locks + released_write_locks + already_released_locks
+    == cll->get_last_active_entry());
+  cll->clear_entries();
+  DVLOG(1) << "Thread-" << *context << " unlocked " << released_read_locks << " read locks and"
+    << " " << released_write_locks << " write locks. " << already_released_locks
+    << " were already unlocked";
 }
 
 }  // namespace xct

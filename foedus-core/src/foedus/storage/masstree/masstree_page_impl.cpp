@@ -652,46 +652,23 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   SlotIndex key_count,
   xct::McsBlockIndex* out_blocks) {
   debugging::RdtscWatch watch;  // check how expensive this is
-  // If we're already holding some S-locks, we might deadlock with other transactions.
-  // So if we find we're failing the writer_acquire for a threshold number of times,
-  // we release all S-locks then retry. But, this requires us also check whether we're
-  // already holding an S-lock on the entry we're trying to X-lock, i.e., have to iterate
-  // through the read set upon every write-acquire unless we make the read-set a htab.
-  // For now just release all S-locks directly.
+  // If we're already holding some locks (S or X), we might deadlock with other transactions.
+  // During this system transaction, we want to do everything unconditionally.
+  // We thus release all locks whose addresses are larger than the first record of this page.
+  // We might not need to do this, but we can add the optimization later.
+  // split should be comparatively infrequent.
   //
   // TODO(tzwang): try the write-acquire first approach after we convert read-set to htab.
   // TODO(tzwang): add a counter here to count such cases; releasing all S-locks at
   // SMO ruins the tx's efforts to protect hot reads. Maybe re-acquire and validate
   // immediately after the SMO?
-  //
-  // we have to lock them whether the record is deleted or not. all physical records.
-  // release all S-locks
-  xct::ReadXctAccess* read_set = context->get_current_xct().get_read_set();
-  uint32_t read_set_size = context->get_current_xct().get_read_set_size();
-  for (uint32_t j = 0; j < read_set_size; ++j) {
-    auto* entry = read_set + j;
-    if (entry->mcs_block_) {
-      context->mcs_release_reader_lock(
-        entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-      entry->mcs_block_ = 0;
-    }
-  }
+
+  auto begin_address = xct::to_universal_lock_id(reinterpret_cast<xct::RwLockableXctId*>(this));
+  context->mcs_release_all_current_locks_after(begin_address);
+  // Now we can take all locks unconditionally. simple!
+
   for (SlotIndex i = key_count - 1U; i < kBorderPageMaxSlots; --i) {  // SlotIndex is unsigned
     xct::RwLockableXctId* owner_id = get_owner_id(i);
-    auto* write_entry = context->get_current_xct().get_write_access(owner_id);
-    // see if we've already locked it
-    if (write_entry) {
-      if (write_entry->locked_) {
-        out_blocks[i] = write_entry->mcs_block_;
-        // so in precommit it will know to acquire the lock again, but also in this way page spli
-        // forfeits the benefits of taking X-lock for hot records.
-        write_entry->locked_ = false;
-        continue;
-      }
-      out_blocks[i] = write_entry->mcs_block_;  // use the allocated block if possible
-    } else {
-      out_blocks[i] = 0;
-    }
 #ifdef MCS_RW_GROUP_TRY_LOCK
   retry:
     if (owner_id > context->get_canonical_address()) {
@@ -702,13 +679,7 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
     }
 #endif  // MCS_RW_GROUP_TRY_LOCK
 #ifdef MCS_RW_LOCK
-  retry:
-    if (owner_id > context->get_canonical_address()) {
-      out_blocks[i] = context->mcs_acquire_writer_lock(owner_id->get_key_lock());
-    } else if (!context->mcs_try_acquire_writer_lock(owner_id->get_key_lock(), out_blocks + i, 0)) {
-      context->get_current_xct().recover_canonical_access(context, owner_id);
-      goto retry;
-    }
+    out_blocks[i] = context->mcs_acquire_writer_lock(owner_id->get_key_lock());
 #endif  // MCS_RW_LOCK
     ASSERT_ND(owner_id->is_keylocked());
   }
