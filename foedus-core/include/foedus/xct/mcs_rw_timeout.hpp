@@ -72,7 +72,7 @@ struct McsRwLock {
     return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_) != kNextWriterNone;
   }
   inline void set_next_writer(thread::ThreadId thread_id) {
-    assorted::atomic_store_release<thread::ThreadId>(&next_writer_, thread_id);
+    xchg_next_writer(thread_id);  // sub-word access...
   }
   inline thread::ThreadId get_next_writer() {
     return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_);
@@ -224,14 +224,10 @@ struct McsRwBlock {
   }
   inline void set_state_granted() {
     ASSERT_ND(is_waiting());
-    assorted::atomic_store_release<uint32_t>(&self_.components_.state_, kStateGranted);
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(&self_.components_.state_, kStateGranted);
   }
   inline void set_succ_int(uint32_t succ) {
     assorted::atomic_store_release<uint32_t>(&succ_int_, succ);
-  }
-  inline void set_succssor(thread::ThreadId thread_id, McsBlockIndex block_index) {
-    assorted::atomic_store_release<uint32_t>(&succ_int_, 
-      (*reinterpret_cast<uint32_t*>(&thread_id)) << 16 | block_index);
   }
   inline bool successor_is_ready() {
     // Check block index only - thread ID could be 0
@@ -244,18 +240,23 @@ struct McsRwBlock {
     return read_successor_class() == kSuccessorClassWriter;
   }
   inline uint64_t make_waiting_with_reader_successor_state() {
-    return (uint64_t)(read_state() & ~kStateMask) | kSuccessorClassReader;
+    return (((uint64_t)(read_state() & ~kStateMask)) << 32) | (uint64_t)kSuccessorClassReader;
   }
   inline uint64_t make_waiting_with_no_successor_state() {
-    return (uint64_t)(read_state() & ~kStateMask) | kSuccessorClassWriter;
+    return (((uint64_t)(read_state() & ~kStateMask)) << 32) | (uint64_t)kSuccessorClassNone;
   }
   inline bool timeout_granted(uint32_t timeout) {
-    uint32_t cycles = 0;
-    do {
-      if (is_granted()) {
-        return true;
-      }
-    } while (++cycles < timeout);
+    if (timeout == 0) {
+      while (!is_granted()) {}
+      ASSERT_ND(is_granted());
+    } else {
+      uint32_t cycles = 0;
+      do {
+        if (is_granted()) {
+          return true;
+        }
+      } while (++cycles < timeout);
+    }
     return is_granted();
   }
 };
