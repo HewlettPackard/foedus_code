@@ -2212,20 +2212,20 @@ handle_successor:
       }
     } else {
       // continue with the new guy
-      spin_until([my_block]{
-        return my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving; });
+      spin_until([my_block]{ return !my_block->successor_is_ready(); });
       succ = my_block->get_succ_int();
       xct::McsRwBlock::assert_succ_is_normal(succ);
       auto* succ_block = get_mcs_rw_block(succ);
-      ASSERT_ND(succ_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate);
+      spin_until([succ_block]{
+        return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
       if (pred) {
         auto* pred_block = get_mcs_rw_block(pred);
-        pred_block->set_succ_int(succ);
+        pred_block->set_succ_int(0);
       }
+      ASSERT_ND(succ_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate);
       succ_block->set_pred_int(pred);
       // the successor will spin-wait for this and then set next_writer itself
     }
-    ASSERT_ND(my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving);
   } else {
     auto* succ_block = get_mcs_rw_block(succ);
     if (pred) {
@@ -2234,14 +2234,12 @@ handle_successor:
       pred_block->set_succ_int(succ);
 
       if (!succ_block->cas_pred_weak(my_tail_int, pred)) {
-        spin_until([succ_block, my_tail_int]{  // my_tail_int necessary?
-          auto p = succ_block->get_pred_int();
-          return !(p == xct::McsRwBlock::kPredStateWaitUpdate || p == my_tail_int);
-        });
+        spin_until([succ_block]{
+          return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
+        succ_block->set_pred_int(pred);
       }
-      // proceed to set succ.pred to pred
+      pred_block->set_succ_int(succ);
     }
-    succ_block->set_pred_int(pred);
   }
   return kErrorCodeLockCancelled;
 }
