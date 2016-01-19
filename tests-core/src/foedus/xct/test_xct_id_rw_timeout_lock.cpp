@@ -77,7 +77,7 @@ ErrorStack read_only_task(const proc::ProcArguments& args) {
   EXPECT_EQ(args.input_len_, sizeof(int));
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
-  const int kAcquires = 50;
+  const int kAcquires = 100;
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
   assorted::UniformRandom rnd(id);
   for (int i = 0; i < kAcquires; ++i) {
@@ -171,7 +171,7 @@ ErrorStack write_only_task(const proc::ProcArguments& args) {
   EXPECT_EQ(args.input_len_, sizeof(int));
   XctManager* xct_manager = context->get_engine()->get_xct_manager();
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, kSerializable));
-  const int kAcquires = 10;
+  const int kAcquires = 100;
   int id = *reinterpret_cast<const int*>(args.input_buffer_);
   assorted::UniformRandom rnd(id);
   for (int i = 0; i < kAcquires; ++i) {
