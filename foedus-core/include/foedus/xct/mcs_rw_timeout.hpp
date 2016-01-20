@@ -72,13 +72,13 @@ struct McsRwLock {
     return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_) != kNextWriterNone;
   }
   inline void set_next_writer(thread::ThreadId thread_id) {
-    assorted::atomic_store_release<thread::ThreadId>(&next_writer_, thread_id);
+    xchg_next_writer(thread_id);  // sub-word access...
   }
   inline thread::ThreadId get_next_writer() {
     return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_);
   }
-  inline thread::ThreadId xchg_clear_next_writer() {
-    return assorted::raw_atomic_exchange<thread::ThreadId>(&next_writer_, kNextWriterNone);
+  inline thread::ThreadId xchg_next_writer(thread::ThreadId id) {
+    return assorted::raw_atomic_exchange<thread::ThreadId>(&next_writer_, id);
   }
   bool cas_next_writer_weak(thread::ThreadId expected, thread::ThreadId desired) {
     return assorted::raw_atomic_compare_exchange_weak<thread::ThreadId>(
@@ -124,9 +124,10 @@ struct McsRwBlock {
   static const uint32_t kSuccessorClassWriter = 3U;
 
   /* States pred_int_ might carry */
-  static const uint32_t kPredStateBusy        = 0xFFFFFFFF;
-  static const uint32_t kPredStateWaitUpdate  = 0xFFFFFFFE;
-  static const uint32_t kPredStateLeaving     = 0xFFFFFFFD;
+  static const uint32_t kPredStateBusy         = 0xFFFFFFFF;
+  static const uint32_t kPredStateWaitUpdate   = 0xFFFFFFFE;
+  static const uint32_t kPredStateLeaving      = 0xFFFFFFFD;
+  static const uint32_t kPredStatePredReleased = 0xFFFFFFFC;
 
   /* States succ_int_ might carry */
   static const uint32_t kSuccStateLeaving          = 0xFFFFFFFF;
@@ -148,7 +149,8 @@ struct McsRwBlock {
   static inline void assert_pred_is_normal(uint32_t pred) {
     ASSERT_ND(pred != kPredStateBusy &&
       pred != kPredStateWaitUpdate &&
-      pred != kPredStateLeaving);
+      pred != kPredStateLeaving &&
+      pred != kPredStatePredReleased);
   }
   static inline void assert_succ_is_normal(uint32_t succ) {
     ASSERT_ND(succ != kSuccStateLeaving &&
@@ -178,10 +180,6 @@ struct McsRwBlock {
   inline void set_pred_int(uint32_t pred) {
     assorted::atomic_store_release<uint32_t>(&pred_int_, pred);
   }
-  inline bool has_no_pred() {
-    return get_pred_int() == 0;
-  }
-
   inline bool cas_state_weak(uint64_t expected, uint64_t desired) {
     return assorted::raw_atomic_compare_exchange_weak<uint64_t>(&self_.data_, &expected, desired);
   }
@@ -224,18 +222,17 @@ struct McsRwBlock {
   }
   inline void set_state_granted() {
     ASSERT_ND(is_waiting());
-    assorted::atomic_store_release<uint32_t>(&self_.components_.state_, kStateGranted);
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(&self_.components_.state_, kStateGranted);
   }
   inline void set_succ_int(uint32_t succ) {
     assorted::atomic_store_release<uint32_t>(&succ_int_, succ);
   }
-  inline void set_succssor(thread::ThreadId thread_id, McsBlockIndex block_index) {
-    assorted::atomic_store_release<uint32_t>(&succ_int_, 
-      (*reinterpret_cast<uint32_t*>(&thread_id)) << 16 | block_index);
-  }
   inline bool successor_is_ready() {
-    // Check block index only - thread ID could be 0
-    return assorted::atomic_load_acquire<uint32_t>(&succ_int_) != 0;
+    auto s = assorted::atomic_load_acquire<uint32_t>(&succ_int_);
+    return s != 0 &&
+      s != kSuccStateLeaving &&
+      s != kSuccStateSuccessorLeaving &&
+      s != kSuccStateReleasing;
   }
   inline bool state_has_reader_successor() {
     return read_successor_class() == kSuccessorClassReader;
@@ -244,18 +241,23 @@ struct McsRwBlock {
     return read_successor_class() == kSuccessorClassWriter;
   }
   inline uint64_t make_waiting_with_reader_successor_state() {
-    return (uint64_t)(read_state() & ~kStateMask) | kSuccessorClassReader;
+    return (((uint64_t)(read_state() & ~kStateMask)) << 32) | (uint64_t)kSuccessorClassReader;
   }
   inline uint64_t make_waiting_with_no_successor_state() {
-    return (uint64_t)(read_state() & ~kStateMask) | kSuccessorClassWriter;
+    return (((uint64_t)(read_state() & ~kStateMask)) << 32) | (uint64_t)kSuccessorClassNone;
   }
   inline bool timeout_granted(uint32_t timeout) {
-    uint32_t cycles = 0;
-    do {
-      if (is_granted()) {
-        return true;
-      }
-    } while (++cycles < timeout);
+    if (timeout == 0) {
+      while (!is_granted()) {}
+      ASSERT_ND(is_granted());
+    } else {
+      uint32_t cycles = 0;
+      do {
+        if (is_granted()) {
+          return true;
+        }
+      } while (++cycles < timeout);
+    }
     return is_granted();
   }
 };
