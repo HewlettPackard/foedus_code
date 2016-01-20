@@ -127,7 +127,6 @@ struct McsRwBlock {
   static const uint32_t kPredStateBusy         = 0xFFFFFFFF;
   static const uint32_t kPredStateWaitUpdate   = 0xFFFFFFFE;
   static const uint32_t kPredStateLeaving      = 0xFFFFFFFD;
-  static const uint32_t kPredStatePredReleased = 0xFFFFFFFC;
 
   /* States succ_int_ might carry */
   static const uint32_t kSuccStateLeaving          = 0xFFFFFFFF;
@@ -149,8 +148,7 @@ struct McsRwBlock {
   static inline void assert_pred_is_normal(uint32_t pred) {
     ASSERT_ND(pred != kPredStateBusy &&
       pred != kPredStateWaitUpdate &&
-      pred != kPredStateLeaving &&
-      pred != kPredStatePredReleased);
+      pred != kPredStateLeaving);
   }
   static inline void assert_succ_is_normal(uint32_t succ) {
     ASSERT_ND(succ != kSuccStateLeaving &&

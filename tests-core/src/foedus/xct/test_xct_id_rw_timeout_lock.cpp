@@ -48,9 +48,15 @@ bool  done[kThreads];
 bool  signaled;
 std::atomic<int> locked_count;
 std::atomic<int> done_count;
+assorted::UniformRandom spin_rnd;
 
 void sleep_enough() {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
+}
+
+void spin() {
+  int32_t rounds = spin_rnd.uniform_within(1, 1000);
+  while (--rounds) {}
 }
 
 void init() {
@@ -92,7 +98,7 @@ ErrorStack read_only_task(const proc::ProcArguments& args) {
     if (result == kErrorCodeOk) {
       EXPECT_EQ(result, kErrorCodeOk);
       EXPECT_GT(block, 0);
-      std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+      spin();
       context->mcs_release_reader_lock(keys[0].get_key_lock(), block);
     }
   }
@@ -117,7 +123,7 @@ ErrorStack single_reader_task(const proc::ProcArguments& args) {
     auto result = context->mcs_acquire_reader_lock(keys[0].get_key_lock(), &block, timeout);
     EXPECT_EQ(result, kErrorCodeOk);
     EXPECT_GT(block, 0);
-    std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+    spin();
     context->mcs_release_reader_lock(keys[0].get_key_lock(), block);
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
@@ -144,7 +150,7 @@ ErrorStack read_write_task(const proc::ProcArguments& args) {
       if (result == kErrorCodeOk) {
         EXPECT_EQ(result, kErrorCodeOk);
         EXPECT_GT(block, 0);
-        std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+        spin();
         context->mcs_release_reader_lock(keys[0].get_key_lock(), block);
       }
     } else {
@@ -153,7 +159,7 @@ ErrorStack read_write_task(const proc::ProcArguments& args) {
       if (result == kErrorCodeOk) {
         EXPECT_EQ(result, kErrorCodeOk);
         EXPECT_GT(block, 0);
-        std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+        spin();
         context->mcs_release_writer_lock(keys[0].get_key_lock(), block);
       }
     }
@@ -182,7 +188,7 @@ ErrorStack write_only_task(const proc::ProcArguments& args) {
     if (result == kErrorCodeOk) {
       EXPECT_EQ(result, kErrorCodeOk);
       EXPECT_GT(block, 0);
-      std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+      spin();
       context->mcs_release_writer_lock(keys[0].get_key_lock(), block);
     }
   }
@@ -206,7 +212,7 @@ ErrorStack single_writer_task(const proc::ProcArguments& args) {
     auto result = context->mcs_acquire_writer_lock(keys[0].get_key_lock(), &block, timeout);
     EXPECT_EQ(result, kErrorCodeOk);
     EXPECT_GT(block, 0);
-    std::this_thread::sleep_for(std::chrono::nanoseconds(rnd.uniform_within(0, 100)));
+    spin();
     context->mcs_release_writer_lock(keys[0].get_key_lock(), block);
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));
