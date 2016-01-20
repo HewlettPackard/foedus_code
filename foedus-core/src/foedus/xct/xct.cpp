@@ -207,7 +207,7 @@ ErrorCode Xct::add_to_read_set(
   storage::StorageId storage_id,
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
-  bool /*read_only*/) {
+  bool read_only) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(observed_owner_id.is_valid());
@@ -256,21 +256,23 @@ ErrorCode Xct::add_to_read_set(
     }
 #endif
 #ifdef MCS_RW_LOCK
-    // TODO Implement
-    // First, if we have RLL, we should take all RLs ordered before this record.
-    if (rll_pos != kLockListPositionInvalid) {
-    } else {
+    LockMode mode = read_only ? kReadLock : kWriteLock;
+    LockListPosition cll_pos = current_lock_list_.get_or_add_entry(owner_id_address, mode);
+    LockEntry* cll_entry = current_lock_list_.get_entry(cll_pos);
+    if (cll_entry->is_enough()) {
+      return kErrorCodeOk;  // already taken!
+    }
+
+    if (rll_pos == kLockListPositionInvalid) {
       // Then, this is a single read-lock to take.
-      // Even in this case, we must be careful on deadlock.
-      // Are we in canonical mode? if not, use try_acquire
+      CHECK_ERROR_CODE(current_lock_list_.try_or_acquire_single_lock(context, cll_pos));
+      // TODO(Hideaki) The above locks unconditionally in canonnical mode. Even in non-canonical,
+      // when it returns kErrorCodeXctRaceAbort AND we haven't taken any write-lock yet,
+      // we might still want a retry here.. but it has pros/cons. Revisit later.
+    } else {
+      // Then we should take all locks before this too.
+      CHECK_ERROR_CODE(current_lock_list_.try_or_acquire_multiple_locks(context, cll_pos));
     }
-    /*
-    if (context->mcs_try_acquire_reader_lock(
-      read->owner_id_address_->get_key_lock(), &read->mcs_block_, 0)) {
-      read->observed_owner_id_ = owner_id_address->xct_id_;
-      return kErrorCodeOk;
-    }
-    */
 #endif
   }
   return kErrorCodeOk;

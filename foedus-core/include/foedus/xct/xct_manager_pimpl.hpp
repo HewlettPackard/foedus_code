@@ -155,6 +155,16 @@ class XctManagerPimpl final : public DefaultInitializable {
    */
   ErrorCode   precommit_xct_lock(thread::Thread* context, XctId* max_xct_id);
   /**
+   * Subroutine of precommit_xct_lock to track \e most of moved records in write-set.
+   * We initially did it per-record while we take a lock, but then we need lots of
+   * redoing when the transaction is batch-loading a bunch of records that cause many splits.
+   * Thus, \e before we take X-locks and do final check, we invoke this method to
+   * do best-effort tracking in one shot.
+   * Note that there still is a chance that the record is moved after this method before
+   * we take lock. In that case we redo the process. It happens.
+   */
+  ErrorCode   precommit_xct_lock_batch_track_moved(thread::Thread* context);
+  /**
    * @brief Phase 2 of precommit_xct() for read-only case
    * @return true if verification succeeded. false if we need to abort.
    * @details

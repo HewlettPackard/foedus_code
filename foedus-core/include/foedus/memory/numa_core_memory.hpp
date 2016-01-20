@@ -82,13 +82,13 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   memory::PagePool* get_snapshot_pool() { return snapshot_pool_; }
   PagePoolOffsetAndEpochChunk* get_retired_volatile_pool_chunk(uint16_t node);
 
-  xct::CurrentLock* get_current_lock_list_memory() const {
+  xct::LockEntry* get_current_lock_list_memory() const {
     return current_lock_list_memory_;
   }
   uint64_t get_current_lock_list_capacity() const {
     return current_lock_list_capacity_;
   }
-  xct::RetrospectiveLock* get_retrospective_lock_list_memory() const {
+  xct::LockEntry* get_retrospective_lock_list_memory() const {
     return retrospective_lock_list_memory_;
   }
   uint64_t get_retrospective_lock_list_capacity() const {
@@ -181,10 +181,10 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   PagePoolOffsetAndEpochChunk*            retired_volatile_pool_chunks_;
 
   /** Memory to hold thread's current lock list */
-  xct::CurrentLock*                       current_lock_list_memory_;
+  xct::LockEntry*                       current_lock_list_memory_;
   uint64_t                                current_lock_list_capacity_;
   /** Memory to hold thread's retrospective lock list */
-  xct::RetrospectiveLock*                 retrospective_lock_list_memory_;
+  xct::LockEntry*                 retrospective_lock_list_memory_;
   uint64_t                                retrospective_lock_list_capacity_;
 
   /** Pointer to this NUMA node's volatile page pool */

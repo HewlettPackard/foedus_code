@@ -96,6 +96,8 @@ enum IsolationLevel {
 /**
  * @brief Represents a mode of lock.
  * @ingroup XCT
+ * @details
+ * The order is important. The larger lock mode includes the smaller.
  */
 enum LockMode {
   /**

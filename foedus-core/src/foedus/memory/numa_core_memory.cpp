@@ -75,8 +75,8 @@ uint64_t NumaCoreMemory::calculate_local_small_memory_size(const EngineOptions& 
   // In reality almost no chance we take as many locks as all read/write-sets,
   // but let's simplify that. Not much memory anyways.
   const uint64_t total_access_sets = xct_opt.max_read_set_size_ + xct_opt.max_write_set_size_;
-  memory_size += sizeof(xct::CurrentLock) * total_access_sets;
-  memory_size += sizeof(xct::RetrospectiveLock) * total_access_sets;
+  memory_size += sizeof(xct::LockEntry) * total_access_sets;
+  memory_size += sizeof(xct::LockEntry) * total_access_sets;
   return memory_size;
 }
 
@@ -119,12 +119,12 @@ ErrorStack NumaCoreMemory::initialize_once() {
   memory += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
 
   const uint64_t total_access_sets = xct_opt.max_read_set_size_ + xct_opt.max_write_set_size_;
-  current_lock_list_memory_ = reinterpret_cast<xct::CurrentLock*>(memory);
+  current_lock_list_memory_ = reinterpret_cast<xct::LockEntry*>(memory);
   current_lock_list_capacity_ = total_access_sets;
-  memory += sizeof(xct::CurrentLock) * total_access_sets;
-  retrospective_lock_list_memory_ = reinterpret_cast<xct::RetrospectiveLock*>(memory);
+  memory += sizeof(xct::LockEntry) * total_access_sets;
+  retrospective_lock_list_memory_ = reinterpret_cast<xct::LockEntry*>(memory);
   retrospective_lock_list_capacity_ = total_access_sets;
-  memory += sizeof(xct::RetrospectiveLock) * total_access_sets;
+  memory += sizeof(xct::LockEntry) * total_access_sets;
 
   memory += static_cast<uint64_t>(thread_per_group - core_local_ordinal_) << 12;
   ASSERT_ND(reinterpret_cast<char*>(small_thread_local_memory_.get_block())

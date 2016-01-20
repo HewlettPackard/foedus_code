@@ -24,10 +24,10 @@
  */
 namespace foedus {
 namespace xct {
-struct  CurrentLock;
 class   CurrentLockList;
 struct  InCommitEpochGuard;
 struct  LockableXctId;
+struct  LockEntry;
 struct  LockFreeWriteXctAccess;
 struct  McsBlock;
 struct  McsLock;
@@ -36,7 +36,6 @@ struct  McsRwBlock;
 struct  McsLockScope;
 struct  PointerAccess;
 struct  ReadXctAccess;
-struct  RetrospectiveLock;
 class   RetrospectiveLockList;
 struct  RwLockableXctId;
 struct  WriteXctAccess;

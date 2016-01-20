@@ -83,6 +83,12 @@ class Xct {
     *mcs_block_current_ = 0;
     local_work_memory_cur_ = 0;
     current_lock_list_.clear_entries();
+    if (!retrospective_lock_list_.is_empty()) {
+      // If we have RLL, we will highly likely lock all of them.
+      // So, let's make CLL entries for all of them at the beginning.
+      // This is both for simplicity and performance.
+      current_lock_list_.prepopulate_for_retrospective_lock_list(retrospective_lock_list_);
+    }
   }
 
   /**

@@ -523,6 +523,31 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
 }
 #endif
 
+ErrorCode XctManagerPimpl::precommit_xct_lock_batch_track_moved(thread::Thread* context) {
+  Xct& current_xct = context->get_current_xct();
+  WriteXctAccess* write_set = current_xct.get_write_set();
+  uint32_t        write_set_size = current_xct.get_write_set_size();
+  uint32_t moved_count = 0;
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    WriteXctAccess* entry = write_set + i;
+    auto* rec = entry->owner_id_address_;
+    if (UNLIKELY(rec->needs_track_moved())) {
+      if (!precommit_xct_lock_track_write(context, entry)) {
+        DLOG(INFO) << "Failed to track moved record?? this must be very rare";
+        return kErrorCodeXctRaceAbort;
+      }
+      ASSERT_ND(entry->owner_id_address_ != rec);
+      ++moved_count;
+    }
+  }
+  DVLOG(1) << "Tracked " << moved_count << " moved records in precommit_xct_lock.";
+  if (moved_count > 100U) {
+    LOG(INFO) << "Tracked " << moved_count << " moved records in precommit_xct_lock."
+      << " That's a lot. maybe this is a batch-loading transaction?";
+  }
+  return kErrorCodeOk;
+}
+
 #ifdef MCS_RW_LOCK
 ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
@@ -540,6 +565,7 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
 #endif  // NDEBUG
 
 moved_retry:
+  CHECK_ERROR_CODE(precommit_xct_lock_batch_track_moved(context));
   precommit_xct_sort_access(context);
 
   // TODO(Hideaki) Because of how the new locks work, I'm not sure the prefetch still helps.
@@ -556,7 +582,6 @@ moved_retry:
   // Note: one alterantive is to sequentailly iterate over write-set and CLL,
   // both of which are sorted. It will be faster, but probably not that different
   // unless we have a large number of locks. For now binary_search each time.
-  LockListPosition last_locked_pos = cll->get_last_locked_entry();
   for (uint32_t i = 0; i < write_set_size; ++i) {
     WriteXctAccess* entry = write_set + i;
     if (i > 0 && entry->owner_id_address_ == write_set[i - 1].owner_id_address_) {
@@ -567,60 +592,22 @@ moved_retry:
 
     LockListPosition lock_pos = cll->binary_search(entry->owner_id_address_);
     ASSERT_ND(lock_pos != kLockListPositionInvalid);  // we have put placeholders for all!
-    CurrentLock* lock_entry = cll->get_array() + lock_pos;
+    LockEntry* lock_entry = cll->get_array() + lock_pos;
     ASSERT_ND(lock_entry->lock_ == entry->owner_id_address_);
+    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
     if (lock_entry->taken_mode_ == kWriteLock) {
-      DVLOG(1) << "Yay, already taken. Probably Thanks to RLL?";
+      DVLOG(2) << "Yay, already taken. Probably Thanks to RLL?";
     } else {
-      // Now we need to take or upgrade the lock. Are we in canonical mode?
-      auto* lock_addr = lock_entry->lock_->get_key_lock();
-      if (last_locked_pos == kLockListPositionInvalid || last_locked_pos < lock_pos) {
-        // yay, we are in canonical mode. we can unconditionally get the lock
-        ASSERT_ND(lock_entry->taken_mode_ == kNoLock);  // not a lock upgrade, either
-        lock_entry->mcs_block_ = context->mcs_acquire_writer_lock(lock_addr);
-        lock_entry->taken_mode_ = kWriteLock;
-        last_locked_pos = lock_pos;
-      } else {
-        // hmm, we violated canonical mode. has a risk of deadlock.
-        // Let's just try acquire the lock and immediately give up if it fails.
-        // The RLL will take care of the next run.
-        if (lock_entry->taken_mode_ == kReadLock) {
-          ASSERT_ND(lock_entry->mcs_block_);
-          if (!context->mcs_try_acquire_writer_upgrade(lock_addr, &lock_entry->mcs_block_)) {
-            DVLOG(0) << "Failed to try-upgrade S-lock to X. giving up";
-            return kErrorCodeXctRaceAbort;
-          } else {
-            DVLOG(1) << "Succeeded to try-upgrade S-lock to X.";
-            ASSERT_ND(lock_entry->mcs_block_);
-            lock_entry->taken_mode_ = kWriteLock;
-          }
-        } else {
-          ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
-          if (!context->mcs_try_acquire_writer_lock(lock_addr, &lock_entry->mcs_block_, 0)) {
-            DVLOG(0) << "Failed to try-acquire X-lock. giving up";
-            ASSERT_ND(lock_entry->mcs_block_ == 0);
-            return kErrorCodeXctRaceAbort;
-          } else {
-            lock_entry->taken_mode_ = kWriteLock;
-          }
-        }
-
-        // TODO(Hideaki) release some of the lock we have taken to restore canonical mode.
-        // We haven't imlpemented this optimization yet.
-        return kErrorCodeXctRaceAbort;
-      }
+      // We need to take or upgrade the lock.
+      // This might return kErrorCodeXctRaceAbort when we are not in canonical mode and
+      // we could not immediately acquire the lock.
+      CHECK_ERROR_CODE(cll->try_or_acquire_single_lock(context, lock_pos));
     }
     if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
-      if (!precommit_xct_lock_track_write(context, entry)) {
-        DLOG(INFO) << "Failed to track moved record?? this must be very rare";
-        return kErrorCodeXctRaceAbort;
-      }
-      // Now we got a new record to lock. Just retry the whole protocol.
-      // We can do a bit more complicated thing to reduce aborts in this case,
-      // but this should be anyway rare. Rather, releasing some lock here
-      // needs a careful check if we are also reading from the record.
-      ASSERT_ND(entry->owner_id_address_ != lock_entry->lock_);
-      cll->get_or_add_entry(entry->owner_id_address_);  // just as a new entry in CLL. simpler.
+      // Because we invoked precommit_xct_lock_batch_track_moved beforehand,
+      // this happens only when a concurrent thread again split some of the overlapping page.
+      // Though rare, it happens. In that case redo the procedure.
+      DLOG(INFO) << "Someone has split the page and moved our record after we check. Retry..";
       goto moved_retry;
     }
 
@@ -1084,7 +1071,7 @@ void XctManagerPimpl::release_all_current_locks(thread::Thread* context) {
   uint32_t released_write_locks = 0;
   uint32_t already_released_locks = 0;
 
-  for (CurrentLock* entry = cll->begin(); entry != cll->end(); ++entry) {
+  for (LockEntry* entry = cll->begin(); entry != cll->end(); ++entry) {
     if (entry->is_locked()) {
       if (entry->taken_mode_ == kReadLock) {
         context->mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);

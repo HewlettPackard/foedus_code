@@ -1454,7 +1454,7 @@ void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId addre
   uint32_t released_write_locks = 0;
   uint32_t already_released_locks = 0;
 
-  for (xct::CurrentLock* entry = cll->begin(); entry != cll->end(); ++entry) {
+  for (xct::LockEntry* entry = cll->begin(); entry != cll->end(); ++entry) {
     if (entry->universal_lock_id_ <= address) {
       continue;
     }
