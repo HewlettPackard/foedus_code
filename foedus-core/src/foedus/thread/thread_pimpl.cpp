@@ -1254,7 +1254,7 @@ bool ThreadPimpl::mcs_try_acquire_writer_upgrade(
   xct::McsRwLock* lock,
   xct::McsBlockIndex* out_block_index) {
   // This try_upgrade is a bit special.
-  // It reuses the queue node we have already pushed to the tail.
+  // We create a new queue node, discarding the one we have already pushed to the tail.
   // It is safe to do such a thing only when there are no other waiters/owners at all,
   // so we CAS against the condition.
   xct::McsBlockIndex cur_block_index = *out_block_index;
@@ -1263,6 +1263,7 @@ bool ThreadPimpl::mcs_try_acquire_writer_upgrade(
   auto* my_block = get_mcs_rw_block(id_, new_block_index);
   my_block->init_writer();
 
+  // No writer, no other reader (1=myself), so surely no successor to my old queue node
   xct::McsRwLock tmp;
   tmp.tail_ = xct::McsRwLock::to_tail_int(id_, cur_block_index);
   tmp.readers_count_ = 1U;
