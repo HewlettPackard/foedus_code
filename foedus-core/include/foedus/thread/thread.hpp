@@ -320,10 +320,56 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsBlockIndex block_index);
 
 #ifdef MCS_RW_TIMEOUT_LOCK
+  /**
+   * External cancellable reader-writer MCS lock interfaces
+   * for transaction processing threads.
+   */
+
+  /**
+   * @brief Acquire reader/writer lock in one-shot with a timeout.
+   * @param[in] lock The MCS-RW-Timeout lock.
+   * @param[in,out] *block_index A pointer to the storage place of a MCS block index.
+   * @param[in] timeout Cycles (roughly) to spin before giving up.
+   * @return ErrorCode to indicate whether the acquire is successful (kErrorCodeOk)
+   * or not (kErrorCodeLockCancelled).
+   */
   ErrorCode mcs_acquire_reader_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
   ErrorCode mcs_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
+
+  /**
+   * @brief Acquire reader/writer lock unconditionally
+   * @param[in] lock The MCS-RW-Timeout lock.
+   * @param[in,out] *block_index A pointer to the storage place of a MCS block index.
+   */
+  ErrorCode mcs_acquire_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
+  ErrorCode mcs_acquire_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
+
+  /**
+   * @brief Try to acquire an MCS-RW-Timeout lock. Returns immediately if the lock is not
+   * acquired, but leaves the qnode so the caller can check back later.
+   * @param[in] lock The MCS-RW-Timeout lock.
+   * @param[in] *block_index Pointer to the local storage for a block index
+   * @return ErrorCode to indicate whether the lock is granted.
+   */
+  ErrorCode mcs_try_acquire_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
+  ErrorCode mcs_try_acquire_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
+
+  /**
+   * @brief Cancel an in-progress reader/writer lock acquire request made by
+   * mcs_try_acquire_reader/writer_lock.
+   * @param[in] lock The MCS-RW-Timeout lock.
+   * @param[in] block_index MCS block index returned by mcs_try_acquire_reader/writer_lock.
+   * @return ErrorCode to indicate whether the lock is cancelled or acquire after all.
+   */
+  ErrorCode mcs_cancel_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  ErrorCode mcs_cancel_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+
+  /**
+   * @brief Peek at the current lock acquire status. Returns immediately.
+   */
+  bool mcs_lock_granted(xct::McsBlockIndex block_index);
 #endif  // MCS_RW_TIMEOUT_LOCK
 
 #ifdef MCS_RW_GROUP_TRY_LOCK

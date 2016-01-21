@@ -293,11 +293,26 @@ class ThreadPimpl final : public DefaultInitializable {
 #endif  // MCS_RW_LOCK
 
 #ifdef MCS_RW_TIMEOUT_LOCK
+  xct::McsRwBlock* mcs_init_block(xct::McsBlockIndex* out_block_index, bool writer);
+
+  /** The one-shot all-mighty acquire methods with timeout */
   ErrorCode mcs_acquire_reader_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
   ErrorCode mcs_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
-  xct::McsRwBlock* mcs_init_block(xct::McsBlockIndex* out_block_index, bool writer);
+
+  /** Helper functions for cancelling a lock. Do **NOT** use these from the user
+   * side directly, use the ones defined in foedus::Thread instead. These two
+   * are only for mcs_acquire_reader/writer_lock to call when they timed out.
+   * If somehow you do need use this two from the user side, note the second
+   * argument is the whole lock tail int, not just your TLS block_index. */
+  ErrorCode mcs_cancel_writer_lock(xct::McsRwLock* lock, uint32_t my_tail_int);
+  ErrorCode mcs_cancel_reader_lock(xct::McsRwLock* lock, uint32_t my_tail_int);
+
+  /** Helper function for handling readers lined up behind a waiting reader who
+   * got the lock later. */
+  ErrorCode mcs_finish_acquire_reader_lock(
+    xct::McsRwLock* lock, xct::McsRwBlock* my_block, uint32_t my_tail_int);
 #endif  // MCS_RW_TIMEOUT_LOCK
 
   void               mcs_release_reader_lock(

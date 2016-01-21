@@ -133,6 +133,10 @@ struct McsRwBlock {
   static const uint32_t kSuccStateSuccessorLeaving = 0xFFFFFFFE;
   static const uint32_t kSuccStateReleasing        = 0xFFFFFFFD;
 
+  /* Special timeouts for instant return and unconditional acquire */
+  static const uint32_t kTimeoutNever = 0xFFFFFFFFU;
+  static const uint32_t kTimeoutZero  = 0U;
+
   // data_, pred_int_, and succ_int_ are all word-sized,
   // no need to worry about partial-word access.
   union Self {
@@ -245,7 +249,9 @@ struct McsRwBlock {
     return (((uint64_t)(read_state() & ~kStateMask)) << 32) | (uint64_t)kSuccessorClassNone;
   }
   inline bool timeout_granted(uint32_t timeout) {
-    if (timeout == 0) {
+    if (timeout == kTimeoutZero) {
+      return is_granted();
+    } else if (timeout == kTimeoutNever) {
       while (!is_granted()) {}
       ASSERT_ND(is_granted());
     } else {

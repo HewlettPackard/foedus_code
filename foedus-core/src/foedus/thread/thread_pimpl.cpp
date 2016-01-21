@@ -888,6 +888,32 @@ ErrorCode Thread::mcs_acquire_writer_lock(
   xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, uint32_t timeout) {
   return pimpl_->mcs_acquire_writer_lock(lock, out_block_index, timeout);
 }
+ErrorCode Thread::mcs_acquire_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index) {
+  return pimpl_->mcs_acquire_reader_lock(lock, block_index, xct::McsRwBlock::kTimeoutNever);
+}
+ErrorCode Thread::mcs_acquire_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index) {
+  return pimpl_->mcs_acquire_writer_lock(lock, block_index, xct::McsRwBlock::kTimeoutNever);
+}
+ErrorCode Thread::mcs_try_acquire_reader_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* block_index) {
+  return pimpl_->mcs_acquire_reader_lock(lock, block_index, xct::McsRwBlock::kTimeoutZero);
+}
+ErrorCode Thread::mcs_try_acquire_writer_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* block_index) {
+  return pimpl_->mcs_acquire_writer_lock(lock, block_index, xct::McsRwBlock::kTimeoutZero);
+}
+ErrorCode Thread::mcs_cancel_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
+  return pimpl_->mcs_cancel_reader_lock(
+    lock, xct::McsRwLock::to_tail_int(pimpl_->id_, block_index));
+}
+ErrorCode Thread::mcs_cancel_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
+  return pimpl_->mcs_cancel_writer_lock(
+    lock, xct::McsRwLock::to_tail_int(pimpl_->id_, block_index));
+}
+bool Thread::mcs_lock_granted(xct::McsBlockIndex block_index) {
+  auto* my_block = pimpl_->mcs_rw_blocks_ + block_index;
+  return my_block->is_granted();
+}
 #endif  // MCS_RW_TIMEOUT_LOCK
 
 void Thread::mcs_release_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index) {
@@ -1981,7 +2007,7 @@ check_pred:
     // nobody or only readers there, got lock
     lock->increment_nreaders();
     my_block->set_state_granted();
-    goto acquired;
+    return mcs_finish_acquire_reader_lock(lock, my_block, my_tail_int);
   } else {
     auto* pred_block = get_mcs_rw_block(pred);
     uint64_t expected = pred_block->make_waiting_with_no_successor_state();
@@ -2000,7 +2026,7 @@ check_pred:
         spin_until([my_block]{ return my_block->get_pred_int() != 0; });
         lock->increment_nreaders();
         my_block->set_state_granted();
-        goto acquired;
+        return mcs_finish_acquire_reader_lock(lock, my_block, my_tail_int);
       }
 
       ASSERT_ND(pred_next == 0);
@@ -2009,129 +2035,136 @@ check_pred:
       ASSERT_ND(my_block->get_pred_int() == xct::McsRwBlock::kPredStateBusy);
       my_block->set_pred_int(pred);
       if (my_block->timeout_granted(timeout)) {
-        goto acquired;
+        return mcs_finish_acquire_reader_lock(lock, my_block, my_tail_int);
       }
-
-      // Timed out, try to leave
-    handle_pred:
-      // update pred, which might have changed during my spin above
-      pred = my_block->xchg_pred_int(xct::McsRwBlock::kPredStateLeaving);
-      xct::McsRwBlock::assert_pred_is_normal(pred);
-
-      if (pred == 0) {
-        // got the lock after all...
-        lock->increment_nreaders();
-        my_block->set_state_granted();
-        goto acquired;
-      } else {
-        pred_block = get_mcs_rw_block(pred);
-        expected = pred_block->make_waiting_with_reader_successor_state();
-        desired = pred_block->make_waiting_with_no_successor_state();
-        // recover pred's state to no_successor if it's a reader
-        if (pred_block->is_writer() ||
-          !pred_block->state_has_reader_successor() ||
-          pred_block->cas_state_weak(expected, desired)) {
-          // tell pred about my leaving
-          expected = my_tail_int;
-          desired = xct::McsRwBlock::kSuccStateSuccessorLeaving;
-          if (!pred_block->cas_succ_weak(expected, desired)) {
-            // so pred didn't have me on its next field, but I succeeded the
-            // state cas above, so it must just decided to leave. Wait for
-            // it to give me a new pred.
-            ASSERT_ND(my_block->get_pred_int() == xct::McsRwBlock::kPredStateLeaving);
-            my_block->set_pred_int(xct::McsRwBlock::kPredStateWaitUpdate);
-            spin_until([my_block]{
-              return my_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate; });
-            ASSERT_ND(my_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate);
-            if (my_block->get_pred_int() == 0) {
-              lock->increment_nreaders();
-              my_block->set_state_granted();
-              goto acquired;
-            }
-            goto handle_pred;  // or we could go back to check_pred to see if we can have the lock
-          }
-          // else we're done with pred, continue to handle successor.
-          // At this point, pred won't be able to change me.pred (which needs a to be CAS)
-          // so it can't leave. If it tries to leave, it will spin on its next field to wait
-          // for it to become non-Leaving (which was set by its xchg). I should set it to the
-          // new successor I got later.
-        } else {
-          // very similar situation when we first tried to grab the lock:
-          // pred is a reader and the cas failed - reader is active, we got lock
-          // unlock me.pred, the just-acquired reader pred needs to see this state
-          // after all we succeeded the initial CAS to register on the then-waiting
-          // pred, so we should wait for it to wake me up
-          my_block->set_pred_int(xct::McsRwBlock::kPredStateWaitUpdate);
-          spin_until([my_block]{ return !my_block->is_granted(); });
-          goto acquired;
-        }
-      }
-
-    handle_successor:
-      // mark my leaving status
-      auto succ = my_block->xchg_succ_int(xct::McsRwBlock::kSuccStateLeaving);
-      if (succ == xct::McsRwBlock::kSuccStateSuccessorLeaving) {
-        // the successor is leaving, and have successfully CAS-ed its int back from me.next.
-        // It will set me.next to a new successor, just wait and retry.
-        spin_until([my_block]{
-          return my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving; });
-        goto handle_successor;
-      } else if (succ == 0) {
-        // no visible successor yet, try to fix the lock tail
-        xct::McsRwBlock::assert_pred_is_normal(pred);
-        ASSERT_ND(pred_block->get_succ_int() == xct::McsRwBlock::kSuccStateSuccessorLeaving);
-        if (lock->cas_tail_weak(my_tail_int, pred)) {
-          // fix pred.next to point to null, if there isn't a new guy came already
-          ASSERT_ND(pred_block == get_mcs_rw_block(pred));
-          pred_block = get_mcs_rw_block(pred);
-          pred_block->cas_succ_weak(xct::McsRwBlock::kSuccStateSuccessorLeaving, 0);
-        } else {
-          // a new guy sneaked in, tell it to attach after pred.
-          // Note that the new guy will see Leaving in me.next eventually,
-          // because the succ value returned here is 0. Also recall that an
-          // acquiring reader/writer will wait for a new pred under the WaitUpdate
-          // state when it sees Leaving after xchg(pred.next).
-          spin_until([my_block]{ return !my_block->successor_is_ready(); });
-          auto* succ_block = get_mcs_rw_block(my_block->get_succ_int());
-          spin_until([succ_block]{
-            return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
-          ASSERT_ND(pred_block == get_mcs_rw_block(pred));
-          pred_block = get_mcs_rw_block(pred);
-          pred_block->set_succ_int(0);  // do this before setting succ's pred
-          ASSERT_ND(succ_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate);
-          succ_block->set_pred_int(pred);
-          // Now succ will resume its normal acquire procedure, we're done here.
-        }
-      } else {  // valid successor
-        xct::McsRwBlock::assert_succ_is_normal(succ);
-        ASSERT_ND(pred_block == get_mcs_rw_block(pred));
-        pred_block = get_mcs_rw_block(pred);
-        auto pred_next = pred_block->get_succ_int();
-        ASSERT_ND(pred_next == xct::McsRwBlock::kSuccStateLeaving || // pred cancelling
-          pred_next == xct::McsRwBlock::kSuccStateSuccessorLeaving ||  // still my mark
-          pred_next == xct::McsRwBlock::kSuccStateReleasing);  // pred releasing-retrying
-
-        auto* succ_block = get_mcs_rw_block(succ);
-        ASSERT_ND(my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving);
-        if (!succ_block->cas_pred_weak(my_tail_int, pred)) {
-          // successor is doing something, maybe leaving. Give it a new pred.
-          spin_until([succ_block]{
-            return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
-          succ_block->set_pred_int(pred);
-        } // else it's all good, we're done
-        pred_block->set_succ_int(succ);
-      }
-      return kErrorCodeLockCancelled;
-    } else {  // pred is a reader and cas failed - got lock
+      return mcs_cancel_reader_lock(lock, my_tail_int);
+    } else {
       ASSERT_ND(pred_block->is_reader());
       lock->increment_nreaders();
       my_block->set_pred_int(pred);  // unlock pred_int, so releasing reader pred knows it can go
       pred_block->set_succ_int(my_tail_int);
       my_block->set_state_granted();
+      return mcs_finish_acquire_reader_lock(lock, my_block, my_tail_int);
+    }
+  }
+}
+
+ErrorCode ThreadPimpl::mcs_cancel_reader_lock(xct::McsRwLock* lock, uint32_t my_tail_int) {
+  auto* my_block = get_mcs_rw_block(my_tail_int);
+  xct::McsRwBlock* pred_block = NULL;
+handle_pred:
+  // update pred, which might have changed during my spin above
+  auto pred = my_block->xchg_pred_int(xct::McsRwBlock::kPredStateLeaving);
+  xct::McsRwBlock::assert_pred_is_normal(pred);
+
+  if (pred == 0) {
+    // got the lock after all...
+    lock->increment_nreaders();
+    my_block->set_state_granted();
+    return mcs_finish_acquire_reader_lock(lock, my_block, my_tail_int);
+  } else {
+    pred_block = get_mcs_rw_block(pred);
+    auto expected = pred_block->make_waiting_with_reader_successor_state();
+    auto desired = pred_block->make_waiting_with_no_successor_state();
+    // recover pred's state to no_successor if it's a reader
+    if (pred_block->is_writer() ||
+      !pred_block->state_has_reader_successor() ||
+      pred_block->cas_state_weak(expected, desired)) {
+      // tell pred about my leaving
+      expected = my_tail_int;
+      desired = xct::McsRwBlock::kSuccStateSuccessorLeaving;
+      if (!pred_block->cas_succ_weak(expected, desired)) {
+        // so pred didn't have me on its next field, but I succeeded the
+        // state cas above, so it must just decided to leave. Wait for
+        // it to give me a new pred.
+        ASSERT_ND(my_block->get_pred_int() == xct::McsRwBlock::kPredStateLeaving);
+        my_block->set_pred_int(xct::McsRwBlock::kPredStateWaitUpdate);
+        spin_until([my_block]{
+          return my_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate; });
+        ASSERT_ND(my_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate);
+        if (my_block->get_pred_int() == 0) {
+          lock->increment_nreaders();
+          my_block->set_state_granted();
+          return mcs_finish_acquire_reader_lock(lock, my_block, my_tail_int);
+        }
+        goto handle_pred;  // or we could go back to check_pred to see if we can have the lock
+      }
+      // else we're done with pred, continue to handle successor.
+      // At this point, pred won't be able to change me.pred (which needs a to be CAS)
+      // so it can't leave. If it tries to leave, it will spin on its next field to wait
+      // for it to become non-Leaving (which was set by its xchg). I should set it to the
+      // new successor I got later.
+    } else {
+      // very similar situation when we first tried to grab the lock:
+      // pred is a reader and the cas failed - reader is active, we got lock
+      // unlock me.pred, the just-acquired reader pred needs to see this state
+      // after all we succeeded the initial CAS to register on the then-waiting
+      // pred, so we should wait for it to wake me up
+      my_block->set_pred_int(xct::McsRwBlock::kPredStateWaitUpdate);
+      spin_until([my_block]{ return !my_block->is_granted(); });
+      return mcs_finish_acquire_reader_lock(lock, my_block, my_tail_int);
     }
   }
 
-acquired:
+handle_successor:
+  // mark my leaving status
+  auto succ = my_block->xchg_succ_int(xct::McsRwBlock::kSuccStateLeaving);
+  if (succ == xct::McsRwBlock::kSuccStateSuccessorLeaving) {
+    // the successor is leaving, and have successfully CAS-ed its int back from me.next.
+    // It will set me.next to a new successor, just wait and retry.
+    spin_until([my_block]{
+      return my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving; });
+    goto handle_successor;
+  } else if (succ == 0) {
+    // no visible successor yet, try to fix the lock tail
+    xct::McsRwBlock::assert_pred_is_normal(pred);
+    ASSERT_ND(pred_block);
+    ASSERT_ND(pred_block->get_succ_int() == xct::McsRwBlock::kSuccStateSuccessorLeaving);
+    if (lock->cas_tail_weak(my_tail_int, pred)) {
+      // fix pred.next to point to null, if there isn't a new guy came already
+      ASSERT_ND(pred_block == get_mcs_rw_block(pred));
+      pred_block = get_mcs_rw_block(pred);
+      pred_block->cas_succ_weak(xct::McsRwBlock::kSuccStateSuccessorLeaving, 0);
+    } else {
+      // a new guy sneaked in, tell it to attach after pred.
+      // Note that the new guy will see Leaving in me.next eventually,
+      // because the succ value returned here is 0. Also recall that an
+      // acquiring reader/writer will wait for a new pred under the WaitUpdate
+      // state when it sees Leaving after xchg(pred.next).
+      spin_until([my_block]{ return !my_block->successor_is_ready(); });
+      auto* succ_block = get_mcs_rw_block(my_block->get_succ_int());
+      spin_until([succ_block]{
+        return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
+      ASSERT_ND(pred_block == get_mcs_rw_block(pred));
+      pred_block = get_mcs_rw_block(pred);
+      pred_block->set_succ_int(0);  // do this before setting succ's pred
+      ASSERT_ND(succ_block->get_pred_int() == xct::McsRwBlock::kPredStateWaitUpdate);
+      succ_block->set_pred_int(pred);
+      // Now succ will resume its normal acquire procedure, we're done here.
+    }
+  } else {  // valid successor
+    xct::McsRwBlock::assert_succ_is_normal(succ);
+    ASSERT_ND(pred_block == get_mcs_rw_block(pred));
+    auto pred_next = pred_block->get_succ_int();
+    ASSERT_ND(pred_next == xct::McsRwBlock::kSuccStateLeaving || // pred cancelling
+      pred_next == xct::McsRwBlock::kSuccStateSuccessorLeaving ||  // still my mark
+      pred_next == xct::McsRwBlock::kSuccStateReleasing);  // pred releasing-retrying
+
+    auto* succ_block = get_mcs_rw_block(succ);
+    ASSERT_ND(my_block->get_succ_int() == xct::McsRwBlock::kSuccStateLeaving);
+    if (!succ_block->cas_pred_weak(my_tail_int, pred)) {
+      // successor is doing something, maybe leaving. Give it a new pred.
+      spin_until([succ_block]{
+        return succ_block->get_pred_int() != xct::McsRwBlock::kPredStateWaitUpdate; });
+      succ_block->set_pred_int(pred);
+    } // else it's all good, we're done
+    pred_block->set_succ_int(succ);
+  }
+  return kErrorCodeLockCancelled;
+}
+
+ErrorCode ThreadPimpl::mcs_finish_acquire_reader_lock(
+  xct::McsRwLock* lock, xct::McsRwBlock* my_block, uint32_t my_tail_int) {
   ASSERT_ND(my_block->get_succ_int() != xct::McsRwBlock::kSuccStateLeaving);
   ASSERT_ND(my_block->is_granted());
   if (my_block->state_has_reader_successor()) {
@@ -2147,6 +2180,7 @@ acquired:
   }
   return kErrorCodeOk;
 }
+
 void ThreadPimpl::mcs_release_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
   auto my_tail_int = xct::McsRwLock::to_tail_int(id_, block_index);
   auto* my_block = get_mcs_rw_block(my_tail_int);
@@ -2195,6 +2229,7 @@ finish:
     }
   }
 }
+
 ErrorCode ThreadPimpl::mcs_acquire_writer_lock(
   xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, uint32_t timeout) {
   auto* my_block = mcs_init_block(out_block_index, true);
@@ -2258,11 +2293,16 @@ attach:
     return kErrorCodeOk;
   }
 
+  return mcs_cancel_writer_lock(lock, my_tail_int);
+}
+
+ErrorCode ThreadPimpl::mcs_cancel_writer_lock(xct::McsRwLock* lock, uint32_t my_tail_int) {
+  auto* my_block = get_mcs_rw_block(my_tail_int);
   // give up - first check pred, it might have changed during my spin above
   // but, once pred is 0, it's always 0, although we don't take advantage of
   // this fact yet.
 handle_pred:
-  pred = my_block->xchg_pred_int(xct::McsRwBlock::kPredStateLeaving);
+  auto pred = my_block->xchg_pred_int(xct::McsRwBlock::kPredStateLeaving);
   xct::McsRwBlock::assert_pred_is_normal(pred);
   if (pred == 0) { // guaranteed to have set next_writer before, although it might be none now
     // the easy case, CAS out of next_writer, take care of the successor (if exists) and go
@@ -2347,6 +2387,7 @@ handle_successor:
   }
   return kErrorCodeLockCancelled;
 }
+
 void ThreadPimpl::mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
   auto my_tail_int = xct::McsRwLock::to_tail_int(id_, block_index);
   auto* my_block = get_mcs_rw_block(my_tail_int);
