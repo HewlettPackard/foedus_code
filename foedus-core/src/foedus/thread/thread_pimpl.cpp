@@ -2336,8 +2336,7 @@ handle_successor:
       auto* pred_block = get_mcs_rw_block(pred);
       pred_block->set_succ_int(succ);
     } else {
-      // pred is 0, success is writer, it actually gets the lock then
-      if (succ_block->is_writer()) {
+      if (succ_block->is_writer() && lock->nreaders() == 0) {
         ASSERT_ND(!lock->has_next_writer());
         lock->set_next_writer(succ >> 16);
         if (lock->xchg_next_writer(xct::McsRwLock::kNextWriterNone) == (succ >> 16)) {
