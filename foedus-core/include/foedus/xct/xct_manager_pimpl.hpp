@@ -198,9 +198,7 @@ class XctManagerPimpl final : public DefaultInitializable {
    */
   void        precommit_xct_apply(thread::Thread* context, XctId max_xct_id, Epoch *commit_epoch);
   /** unlocking all acquired locks, used when commit/abort. */
-  void        release_all_current_locks(thread::Thread* context) {
-    release_all_current_locks_after(context, kLockListPositionInvalid);
-  }
+  void        release_and_clear_all_current_locks(thread::Thread* context);
   /**
    * unlock all acquire locks, but skips the first skip entries.
    * Thus, skip=0 means releasing all locks.

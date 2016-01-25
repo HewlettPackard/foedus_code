@@ -369,7 +369,7 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
     ASSERT_ND(abort_ret == kErrorCodeOk);
     DVLOG(1) << *context << " Aborting because of contention";
   } else {
-    release_all_current_locks(context);
+    release_and_clear_all_current_locks(context);
     current_xct.deactivate();
   }
   ASSERT_ND(current_xct.get_current_lock_list()->is_empty());
@@ -1075,10 +1075,16 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
     return kErrorCodeXctNoXct;
   }
   DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
-  release_all_current_locks(context);
+  release_and_clear_all_current_locks(context);
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
   return kErrorCodeOk;
+}
+
+void XctManagerPimpl::release_and_clear_all_current_locks(thread::Thread* context) {
+  release_all_current_locks_after(context, kLockListPositionInvalid);
+  CurrentLockList* cll = context->get_current_xct().get_current_lock_list();
+  cll->clear_entries();
 }
 
 void XctManagerPimpl::release_all_current_locks_after(
@@ -1116,7 +1122,6 @@ void XctManagerPimpl::release_all_current_locks_after(
 
   ASSERT_ND(released_read_locks + released_write_locks + already_released_locks + skip
     == cll->get_last_active_entry());
-  cll->clear_entries();
   DVLOG(1) << "Thread-" << *context << " unlocked " << released_read_locks << " read locks and"
     << " " << released_write_locks << " write locks. " << already_released_locks
     << " were already unlocked, skipeed " << skip << " locks at the beginning";
