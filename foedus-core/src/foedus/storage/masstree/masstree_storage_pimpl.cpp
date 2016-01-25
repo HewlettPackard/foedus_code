@@ -410,7 +410,8 @@ ErrorCode MasstreeStoragePimpl::locate_record(
     } else {
       *out_page = border;
       *record_index = index;
-      *observed = border->get_owner_id(index)->xct_id_;
+      *observed = border->get_owner_id(index)->xct_id_.spin_while_being_written();
+      ASSERT_ND(!observed->is_being_written());
       assorted::memory_fence_consume();
       return kErrorCodeOk;
     }
@@ -445,7 +446,8 @@ ErrorCode MasstreeStoragePimpl::locate_record_normalized(
   ASSERT_ND(!border->does_point_to_layer(index));
   *out_page = border;
   *record_index = index;
-  *observed = border->get_owner_id(index)->xct_id_;
+  *observed = border->get_owner_id(index)->xct_id_.spin_while_being_written();
+  ASSERT_ND(!observed->is_being_written());
   assorted::memory_fence_consume();
   return kErrorCodeOk;
 }
@@ -772,7 +774,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         }
         *out_page = border;
         *record_index = match.index_;
-        *observed = border->get_owner_id(match.index_)->xct_id_;
+        *observed = border->get_owner_id(match.index_)->xct_id_.spin_while_being_written();
+        ASSERT_ND(!observed->is_being_written());
         if (observed->is_next_layer()) {
           // because the search is optimistic, we might now see a XctId with next-layer bit on.
           // in this case, we retry.
@@ -930,7 +933,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       scope.release();
       *out_page = border;
       *record_index = index;
-      *observed = border->get_owner_id(index)->xct_id_;
+      *observed = border->get_owner_id(index)->xct_id_.spin_while_being_written();
+      ASSERT_ND(!observed->is_being_written());
       assorted::memory_fence_consume();
       return kErrorCodeOk;
     }

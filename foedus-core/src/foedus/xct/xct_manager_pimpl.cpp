@@ -422,7 +422,7 @@ ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoc
   }
 #endif  // NDEBUG
   if (verified) {
-    precommit_xct_apply(context, max_xct_id, commit_epoch);  // phase 3. this also unlocks
+    precommit_xct_apply(context, max_xct_id, commit_epoch);  // phase 3. this does NOT unlock
     // announce log AFTER (with fence) apply, because apply sets xct_order in the logs.
     assorted::memory_fence_release();
     if (engine_->get_options().log_.emulation_.null_device_) {

@@ -1075,6 +1075,8 @@ void HashStoragePimpl::search_key_in_a_page(
     key_length,
     record_count,
     &observed);
+  ASSERT_ND(!observed.is_being_written());
+
   if (index < record_count) {
     // found! in this case we don't need to check it again. we are already sure
     // this record contains the exact key. Though it might be logically deleted.

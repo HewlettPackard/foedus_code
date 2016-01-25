@@ -211,6 +211,7 @@ ErrorCode Xct::add_to_read_set(
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(observed_owner_id.is_valid());
+  ASSERT_ND(!observed_owner_id.is_being_written());
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
   }
@@ -284,6 +285,7 @@ ErrorCode Xct::add_to_read_set_force(
   RwLockableXctId* owner_id_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
+  ASSERT_ND(!observed_owner_id.is_being_written());
   if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }

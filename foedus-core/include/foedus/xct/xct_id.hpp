@@ -917,6 +917,12 @@ struct XctId {
 
   void    set_being_written() ALWAYS_INLINE { data_ |= kXctIdBeingWrittenBit; }
   void    set_write_complete() ALWAYS_INLINE { data_ &= (~kXctIdBeingWrittenBit); }
+  /**
+   * Returns a version of this Xid whose being_written flag is off.
+   * This internally spins until the bit becomes false, so use it only where deadlock
+   * is not possible.
+   */
+  XctId   spin_while_being_written() const ALWAYS_INLINE;
   void    set_deleted() ALWAYS_INLINE { data_ |= kXctIdDeletedBit; }
   void    set_notdeleted() ALWAYS_INLINE { data_ &= (~kXctIdDeletedBit); }
   void    set_moved() ALWAYS_INLINE { data_ |= kXctIdMovedBit; }
@@ -1169,6 +1175,19 @@ struct TrackMovedRecordResult {
   RwLockableXctId* new_owner_address_;
   char* new_payload_address_;
 };
+
+inline XctId XctId::spin_while_being_written() const {
+  uint64_t copied_data = data_;
+  if (UNLIKELY(copied_data & kXctIdBeingWrittenBit)) {
+    while (copied_data & kXctIdBeingWrittenBit) {
+      copied_data = data_;
+    }
+  }
+  XctId ret;
+  ret.data_ = copied_data;
+  return ret;
+}
+
 
 /**
  * Always use this method rather than doing the conversion yourself.

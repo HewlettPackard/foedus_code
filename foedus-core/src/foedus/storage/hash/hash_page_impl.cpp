@@ -128,7 +128,7 @@ DataPageSlotIndex HashDataPage::search_key(
     if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length) {
       continue;
     }
-    xct::XctId xid = s.tid_.xct_id_;
+    xct::XctId xid = s.tid_.xct_id_.spin_while_being_written();
     if (xid.is_moved()) {
       // not so rare. this happens.
       DVLOG(1) << "Hash matched, but the record was moved";

@@ -47,7 +47,7 @@ inline ErrorCode optimistic_read_protocol(
     return kErrorCodeOk;
   }
 
-  XctId observed(owner_id_address->xct_id_);
+  XctId observed = owner_id_address->xct_id_.spin_while_being_written();
   assorted::memory_fence_consume();
   CHECK_ERROR_CODE(handler(observed));
 
