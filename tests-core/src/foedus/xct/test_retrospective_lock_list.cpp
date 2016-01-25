@@ -270,7 +270,6 @@ TEST(RllTest, CllBatchInsertMerge) {
   EXPECT_EQ(6U, it.cll_pos_);
   EXPECT_EQ(4U, it.write_cur_pos_);
   EXPECT_EQ(4U, it.write_next_pos_);
-
 }
 
 }  // namespace xct
