@@ -1036,7 +1036,7 @@ struct RwLockableXctId {
   bool needs_track_moved() const ALWAYS_INLINE { return xct_id_.needs_track_moved(); }
   bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
   bool is_hot(thread::Thread* context) const;
-  void hotter() const;
+  void hotter(thread::Thread* context) const;
 
   /** used only while page initialization */
   void    reset() ALWAYS_INLINE {

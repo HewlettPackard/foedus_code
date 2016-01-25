@@ -837,7 +837,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       // read clobbered, make it hotter
-      access.owner_id_address_->hotter();
+      access.owner_id_address_->hotter(context);
       return false;
     }
 
@@ -908,7 +908,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     }
 
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
-      access.owner_id_address_->hotter();
+      access.owner_id_address_->hotter(context);
       DVLOG(1) << *context << " read set changed by other transaction. will abort";
       return false;
     }

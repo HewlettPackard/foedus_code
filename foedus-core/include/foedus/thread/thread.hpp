@@ -416,6 +416,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
  private:
   ThreadPimpl*    pimpl_;
+
+  // The following should be in pimpl. later.
   uint64_t        stat_lock_request_failures_;
   uint64_t        stat_lock_request_successes_;
   uint64_t        stat_lock_acquire_failures_;

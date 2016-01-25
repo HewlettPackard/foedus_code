@@ -17,12 +17,8 @@
  */
 #ifndef FOEDUS_ASSORTED_PROB_COUNTER_HPP_
 #define FOEDUS_ASSORTED_PROB_COUNTER_HPP_
-#endif
-
-#include <cmath>
 
 #include "foedus/assert_nd.hpp"
-#include "foedus/cxx11.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 
 namespace foedus {
@@ -34,24 +30,17 @@ namespace assorted {
  * [Morris 1987] Robert Morris, Counting large numbers of events in small registers,
  * Commun. ACM 21, 10 (October 1978), 840-842.
  *
- * To avoid re-calculating the deltas each time, before the system starts to
- * process transactions, somewhere the user should call initialize().
- *
+ * Unlike the paper, we do much simpler thing. We just compare with power of two,
+ * so that we don't need exp/log. No information stored in static/global whatever.
  * @ingroup ASSORTED
  */
 struct ProbCounter {
-  static const uint16_t ndeltas = 1U << 8;
-  static uint64_t deltas[ndeltas];
-  static uint64_t max_rnd;
-  static double A;  // parameter a - controls max count and expected error
-  static assorted::UniformRandom rnd;
-  static bool initialized;
-
-  // Keep it single member so sizeof(ProbCounter) == sizeof(uint8_t)
+  /**
+   * Log arithmic counter of aborts.
+   * There were \b about 2^value_ aborts.
+   * Keep it single member so sizeof(ProbCounter) == sizeof(uint8_t).
+   */
   uint8_t value_;
-
-  // Not protected, make sure only one guy calls this only once in the entire run
-  static void initialize(double a, uint64_t seed = 673577);
 
   ProbCounter() : value_(0) {
     ASSERT_ND(sizeof(uint8_t) == sizeof(ProbCounter));
@@ -59,11 +48,23 @@ struct ProbCounter {
 
   inline void reset() { value_ = 0; }
 
-  inline void increment() {
-    ASSERT_ND(initialized);
-    ASSERT_ND(max_rnd);
-    auto prob = rnd.uniform_within(0, max_rnd);
-    if (prob < deltas[value_]) {
+  inline void increment(UniformRandom* rnd) {
+    // We increment the value_ for exponentially smaller probability.
+    // value_==0: always
+    // value_==1: 50% chance
+    // value_==2: 25% chance... etc
+    // We can implement this by simple bit-shifts.
+    if (value_ == 0) {
+      ++value_;
+      return;
+    }
+
+    // Extract middle 24-bits, which is typically done in hashing. This is kinda hashing too.
+    // This also means the following makes sense only for value_<=24. Should be a reasonable assmp.
+    const uint32_t int_val = rnd->next_uint32();
+    const uint32_t int24_val = (int_val >> 4) & 0xFFFFFFU;
+    const uint32_t threshold = 1U << (24 - value_);
+    if (int24_val < threshold) {
       ++value_;
     }
   }
@@ -75,3 +76,5 @@ struct ProbCounter {
 };
 }  // namespace assorted
 }  // namespace foedus
+
+#endif  // FOEDUS_ASSORTED_PROB_COUNTER_HPP_

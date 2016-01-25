@@ -26,23 +26,15 @@ namespace assorted {
 DEFINE_TEST_CASE_PACKAGE(ProbCounterTest, foedus.assorted);
 
 TEST(ProbCounterTest, A30) {
-  double A = 30;
-  ProbCounter::initialize(A);
-  for (uint16_t i = 0; i < ProbCounter::ndeltas; ++i) {
-    EXPECT_LE(ProbCounter::deltas[i], ProbCounter::max_rnd);
-  }
+  // Unless we are suuuper lucky/unlucky, it should be within 2^2 or 3.
+  UniformRandom rnd(12345U);
+  int n = 1U << 16;
   ProbCounter pc;
-
-  int n = 180000;
   for (int i = 0; i < n; ++i) {
-    auto v = pc.value_;
-    if (ProbCounter::deltas[v]) {  // the last one is 0
-      EXPECT_EQ(
-        ProbCounter::deltas[v], (uint64_t)(std::pow(A / (A + 1), v) * ProbCounter::max_rnd));
-    }
-    pc.increment();
-    EXPECT_GE(pc.value_, v);
+    pc.increment(&rnd);
   }
+  EXPECT_GE(pc.value_, 13U);
+  EXPECT_LE(pc.value_, 19U);
 }
 
 }  // namespace assorted

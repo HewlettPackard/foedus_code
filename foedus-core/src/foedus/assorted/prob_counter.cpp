@@ -15,9 +15,8 @@
  * HP designates this particular file as subject to the "Classpath" exception
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
-#include <glog/logging.h>
 #include "foedus/assorted/prob_counter.hpp"
-
+/* So far we do much simpler thing.
 namespace foedus {
 namespace assorted {
 uint64_t ProbCounter::deltas[ProbCounter::ndeltas];
@@ -77,3 +76,4 @@ void ProbCounter::initialize(double a, uint64_t seed) {
 
 }  // namespace assorted
 }  // namespace foedus
+*/
