@@ -54,10 +54,6 @@ struct ProbCounter {
     // value_==1: 50% chance
     // value_==2: 25% chance... etc
     // We can implement this by simple bit-shifts.
-    if (value_ == 0) {
-      ++value_;
-      return;
-    }
 
     // Extract middle 24-bits, which is typically done in hashing. This is kinda hashing too.
     // This also means the following makes sense only for value_<=24. Should be a reasonable assmp.
