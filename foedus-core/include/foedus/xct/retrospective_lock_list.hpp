@@ -413,6 +413,12 @@ class CurrentLockList {
    */
   ErrorCode try_or_acquire_multiple_locks(thread::Thread* context, LockListPosition upto_pos);
 
+  /** subroutine used from try_or_acquire_single_lock/try_or_acquire_multiple_locks */
+  ErrorCode try_or_acquire_single_lock_impl(
+    thread::Thread* context,
+    LockListPosition pos,
+    LockListPosition* last_locked_pos);
+
  private:
   /**
    * Array of lock entries in the current run.
@@ -437,12 +443,6 @@ class CurrentLockList {
     ASSERT_ND(last_active_entry_ < capacity_);
     return last_active_entry_;
   }
-
-  /** subroutine used from try_or_acquire_single_lock/try_or_acquire_multiple_locks */
-  ErrorCode try_or_acquire_single_lock_impl(
-    thread::Thread* context,
-    LockListPosition pos,
-    LockListPosition* last_locked_pos);
 };
 
 inline void RetrospectiveLockList::assert_sorted() const {

@@ -554,6 +554,8 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
   WriteXctAccess* write_set = current_xct.get_write_set();
   uint32_t        write_set_size = current_xct.get_write_set_size();
   CurrentLockList* cll = current_xct.get_current_lock_list();
+  const bool force_canonical
+    = context->get_engine()->get_options().xct_.force_canonical_xlocks_in_precommit_;
   DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
 
 #ifndef NDEBUG
@@ -582,15 +584,18 @@ moved_retry:
   // Note: one alterantive is to sequentailly iterate over write-set and CLL,
   // both of which are sorted. It will be faster, but probably not that different
   // unless we have a large number of locks. For now binary_search each time.
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    WriteXctAccess* entry = write_set + i;
-    if (i > 0 && entry->owner_id_address_ == write_set[i - 1].owner_id_address_) {
-      // for multiple writes on one record, only the first one takes the lock
-      ASSERT_ND(entry->owner_id_address_->is_keylocked());
-      continue;
-    }
 
-    LockListPosition lock_pos = cll->binary_search(entry->owner_id_address_);
+  // Both write-set and CLL are sorted in canonical order. Simply iterate over in order.
+  // This is way faster than invoking cll->binary_search() for each write-set entry.
+  // Remember one thing, tho: write-set might have multiple entries for one record!
+  LockListPosition last_locked_pos = cll->get_last_locked_entry();
+  for (CurrentLockListIteratorForWriteSet it(write_set, cll, write_set_size);
+        it.is_valid();
+        it.next_writes()) {
+    // for multiple writes on one record, only the first one (write_cur_pos_) takes the lock
+    WriteXctAccess* entry = write_set + it.write_cur_pos_;
+
+    LockListPosition lock_pos = it.cll_pos_;
     ASSERT_ND(lock_pos != kLockListPositionInvalid);  // we have put placeholders for all!
     LockEntry* lock_entry = cll->get_array() + lock_pos;
     ASSERT_ND(lock_entry->lock_ == entry->owner_id_address_);
@@ -601,8 +606,17 @@ moved_retry:
       // We need to take or upgrade the lock.
       // This might return kErrorCodeXctRaceAbort when we are not in canonical mode and
       // we could not immediately acquire the lock.
-      CHECK_ERROR_CODE(cll->try_or_acquire_single_lock(context, lock_pos));
+      if (force_canonical &&
+        (last_locked_pos != kLockListPositionInvalid && last_locked_pos >= lock_pos)) {
+        // We are not in canonical mode. Let's aggressively restore canonical mode.
+        DVLOG(0) << "Aggressively releasing locks to restore canonical mode in precommit";
+        release_all_current_locks_after(context, lock_pos - 1U);
+        last_locked_pos = cll->get_last_locked_entry();
+        ASSERT_ND(last_locked_pos == kLockListPositionInvalid || last_locked_pos < lock_pos);
+      }
+      CHECK_ERROR_CODE(cll->try_or_acquire_single_lock_impl(context, lock_pos, &last_locked_pos));
     }
+
     if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
       // Because we invoked precommit_xct_lock_batch_track_moved beforehand,
       // this happens only when a concurrent thread again split some of the overlapping page.
@@ -618,10 +632,15 @@ moved_retry:
 
     // If we have to abort, we should abort early to not waste time.
     // Thus, we check related read sets right here.
-    if (entry->related_read_) {
-      ASSERT_ND(entry->related_read_->owner_id_address_ == entry->owner_id_address_);
-      if (entry->owner_id_address_->xct_id_ != entry->related_read_->observed_owner_id_) {
-        return kErrorCodeXctRaceAbort;
+    // For other writes of the same record, too.
+    for (uint32_t rec = it.write_cur_pos_; rec < it.write_next_pos_; ++rec) {
+      WriteXctAccess* r = write_set + rec;
+      ASSERT_ND(entry->owner_id_address_ == r->owner_id_address_);
+      if (r->related_read_) {
+        ASSERT_ND(r->related_read_->owner_id_address_ == r->owner_id_address_);
+        if (r->owner_id_address_->xct_id_ != r->related_read_->observed_owner_id_) {
+          return kErrorCodeXctRaceAbort;
+        }
       }
     }
   }
@@ -1062,16 +1081,22 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   return kErrorCodeOk;
 }
 
-void XctManagerPimpl::release_all_current_locks(thread::Thread* context) {
+void XctManagerPimpl::release_all_current_locks_after(
+  thread::Thread* context,
+  LockListPosition skip) {
   CurrentLockList* cll = context->get_current_xct().get_current_lock_list();
   DVLOG(1) << "Thread-" << *context
-    << " has " << cll->get_last_active_entry() << " locks that might need to be released";
+    << " releasing locks " << (skip + 1U) << "-"<< cll->get_last_active_entry();
   cll->assert_sorted();
+  if (cll->get_last_active_entry() == kLockListPositionInvalid
+    || skip >= cll->get_last_active_entry()) {
+    return;
+  }
   uint32_t released_read_locks = 0;
   uint32_t released_write_locks = 0;
   uint32_t already_released_locks = 0;
 
-  for (LockEntry* entry = cll->begin(); entry != cll->end(); ++entry) {
+  for (LockEntry* entry = cll->get_entry(skip + 1U); entry != cll->end(); ++entry) {
     if (entry->is_locked()) {
       if (entry->taken_mode_ == kReadLock) {
         context->mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
@@ -1089,12 +1114,12 @@ void XctManagerPimpl::release_all_current_locks(thread::Thread* context) {
     }
   }
 
-  ASSERT_ND(released_read_locks + released_write_locks + already_released_locks
+  ASSERT_ND(released_read_locks + released_write_locks + already_released_locks + skip
     == cll->get_last_active_entry());
   cll->clear_entries();
   DVLOG(1) << "Thread-" << *context << " unlocked " << released_read_locks << " read locks and"
     << " " << released_write_locks << " write locks. " << already_released_locks
-    << " were already unlocked";
+    << " were already unlocked, skipeed " << skip << " locks at the beginning";
 }
 
 }  // namespace xct

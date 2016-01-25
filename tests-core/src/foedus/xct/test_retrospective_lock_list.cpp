@@ -26,6 +26,7 @@
 #include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
+#include "foedus/xct/xct_manager_pimpl.hpp"  // For CurrentLockListIteratorForWriteSet
 
 namespace foedus {
 namespace xct {
@@ -153,6 +154,35 @@ TEST(RllTest, CllBatchInsertFromEmpty) {
   EXPECT_EQ(3U, list.binary_search(dummy_locks[9]));
   EXPECT_EQ(4U, list.lower_bound(dummy_locks[10]));
   EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[10]));
+
+  // Also test CurrentLockListIteratorForWriteSet
+  CurrentLockListIteratorForWriteSet it(write_set, &list, kWriteSetSize);
+  // 3
+  EXPECT_TRUE(it.is_valid());
+  EXPECT_EQ(1U, it.cll_pos_);
+  EXPECT_EQ(0U, it.write_cur_pos_);
+  EXPECT_EQ(1U, it.write_next_pos_);
+
+  // 5,5
+  it.next_writes();
+  EXPECT_TRUE(it.is_valid());
+  EXPECT_EQ(2U, it.cll_pos_);
+  EXPECT_EQ(1U, it.write_cur_pos_);
+  EXPECT_EQ(3U, it.write_next_pos_);
+
+  // 9
+  it.next_writes();
+  EXPECT_TRUE(it.is_valid());
+  EXPECT_EQ(3U, it.cll_pos_);
+  EXPECT_EQ(3U, it.write_cur_pos_);
+  EXPECT_EQ(4U, it.write_next_pos_);
+
+  // Done
+  it.next_writes();
+  EXPECT_FALSE(it.is_valid());
+  EXPECT_EQ(4U, it.cll_pos_);
+  EXPECT_EQ(4U, it.write_cur_pos_);
+  EXPECT_EQ(4U, it.write_next_pos_);
 }
 
 TEST(RllTest, CllBatchInsertMerge) {
@@ -211,6 +241,36 @@ TEST(RllTest, CllBatchInsertMerge) {
   EXPECT_EQ(5U, list.binary_search(dummy_locks[9]));
   EXPECT_EQ(6U, list.lower_bound(dummy_locks[10]));
   EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[10]));
+
+  // Also test CurrentLockListIteratorForWriteSet
+  CurrentLockListIteratorForWriteSet it(write_set, &list, kWriteSetSize);
+  // 3 (skips "2")
+  EXPECT_TRUE(it.is_valid());
+  EXPECT_EQ(2U, it.cll_pos_);
+  EXPECT_EQ(0U, it.write_cur_pos_);
+  EXPECT_EQ(1U, it.write_next_pos_);
+
+  // 5,5
+  it.next_writes();
+  EXPECT_TRUE(it.is_valid());
+  EXPECT_EQ(3U, it.cll_pos_);
+  EXPECT_EQ(1U, it.write_cur_pos_);
+  EXPECT_EQ(3U, it.write_next_pos_);
+
+  // 9 (skips "6")
+  it.next_writes();
+  EXPECT_TRUE(it.is_valid());
+  EXPECT_EQ(5U, it.cll_pos_);
+  EXPECT_EQ(3U, it.write_cur_pos_);
+  EXPECT_EQ(4U, it.write_next_pos_);
+
+  // Done
+  it.next_writes();
+  EXPECT_FALSE(it.is_valid());
+  EXPECT_EQ(6U, it.cll_pos_);
+  EXPECT_EQ(4U, it.write_cur_pos_);
+  EXPECT_EQ(4U, it.write_next_pos_);
+
 }
 
 }  // namespace xct

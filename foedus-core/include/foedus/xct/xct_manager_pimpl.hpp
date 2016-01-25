@@ -29,6 +29,8 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/stoppable_thread_impl.hpp"
 #include "foedus/xct/fwd.hpp"
+#include "foedus/xct/retrospective_lock_list.hpp"  // to inline CurrentLockListIteratorForWriteSet
+#include "foedus/xct/xct_access.hpp"               // same above. iterator must be fast...
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
@@ -196,7 +198,14 @@ class XctManagerPimpl final : public DefaultInitializable {
    */
   void        precommit_xct_apply(thread::Thread* context, XctId max_xct_id, Epoch *commit_epoch);
   /** unlocking all acquired locks, used when commit/abort. */
-  void        release_all_current_locks(thread::Thread* context);
+  void        release_all_current_locks(thread::Thread* context) {
+    release_all_current_locks_after(context, kLockListPositionInvalid);
+  }
+  /**
+   * unlock all acquire locks, but skips the first skip entries.
+   * Thus, skip=0 means releasing all locks.
+   */
+  void        release_all_current_locks_after(thread::Thread* context, LockListPosition skip);
   bool        precommit_xct_acquire_writer_lock(thread::Thread* context, WriteXctAccess *write);
   void        precommit_xct_sort_access(thread::Thread* context);
   bool        precommit_xct_try_acquire_writer_locks(thread::Thread* context);
@@ -228,6 +237,99 @@ class XctManagerPimpl final : public DefaultInitializable {
    */
   std::thread epoch_chime_thread_;
 };
+
+
+/**
+ * @brief An iterator over CurrentLockList to find entries along with sorted write-set.
+ * @ingroup RLL
+ * @details
+ * This is used from precommit_xct_lock() to iterate over CurrentLockList.
+ * Separated as an iterator object by itself for readability and testability.
+ * @note This object itself is thread-private. No concurrency control needed.
+ */
+struct CurrentLockListIteratorForWriteSet {
+  /**
+   * @pre write_set must be sorted and CLL must contain all entries for write-sets.
+   * In other words, you must call
+   * precommit_xct_sort_access() and batch_insert_write_placeholders() beforehand.
+   */
+  CurrentLockListIteratorForWriteSet(
+    const WriteXctAccess* write_set,
+    const CurrentLockList* cll,
+    uint32_t write_set_size);
+
+  /**
+   * Look for next record's write-set(s).
+   * @pre is_valid(). otherwise undefined behavior
+   */
+  void next_writes();
+  bool is_valid() const { return write_cur_pos_ < write_next_pos_; }
+
+  const WriteXctAccess* const   write_set_;
+  const CurrentLockList* const  cll_;
+  const uint32_t    write_set_size_;
+
+  /**
+   * inclusive beginning of write-sets of the current record in write-set.
+   */
+  uint32_t          write_cur_pos_;
+  /**
+   * exclusive end of write-sets of the current record in write-set.
+   */
+  uint32_t          write_next_pos_;
+  /** CLL entry that corresponds to the current record in write-set. */
+  LockListPosition  cll_pos_;
+};
+
+inline CurrentLockListIteratorForWriteSet::CurrentLockListIteratorForWriteSet(
+  const WriteXctAccess* write_set,
+  const CurrentLockList* cll,
+  uint32_t write_set_size)
+  : write_set_(write_set),
+  cll_(cll),
+  write_set_size_(write_set_size)  {
+  write_cur_pos_ = 0;
+  write_next_pos_ = 0;
+  cll_pos_ = kLockListPositionInvalid;
+  cll_->assert_sorted();
+
+  next_writes();  // set to initial record.
+}
+
+inline void CurrentLockListIteratorForWriteSet::next_writes() {
+  write_cur_pos_ = write_next_pos_;
+  ++cll_pos_;
+  if (write_cur_pos_ >= write_set_size_) {
+    return;
+  }
+  const WriteXctAccess* write = write_set_ + write_cur_pos_;
+  const UniversalLockId write_id = to_universal_lock_id(write->owner_id_address_);
+
+  // CLL must contain all entries in write-set. We are reading in-order.
+  // So, we must find a valid CLL entry that is == write_id
+  const LockEntry* l = cll_->get_entry(cll_pos_);
+  while(l->universal_lock_id_ < write_id) {
+    ASSERT_ND(cll_pos_ < cll_->get_last_active_entry());
+    ++cll_pos_;
+    l = cll_->get_entry(cll_pos_);
+  }
+
+  ASSERT_ND(l->universal_lock_id_ == write_id);
+  ASSERT_ND(write_next_pos_ < write_set_size_);
+  while (true) {
+    ++write_next_pos_;
+    if (write_next_pos_ == write_set_size_) {
+      break;
+    }
+    const WriteXctAccess* next_write = write_set_ + write_next_pos_;
+    const UniversalLockId next_write_id = to_universal_lock_id(next_write->owner_id_address_);
+    ASSERT_ND(write_id <= next_write_id);
+    if (write_id < next_write_id) {
+      break;
+    }
+  }
+}
+
 static_assert(
   sizeof(XctManagerControlBlock) <= soc::GlobalMemoryAnchors::kXctManagerMemorySize,
   "XctManagerControlBlock is too large.");

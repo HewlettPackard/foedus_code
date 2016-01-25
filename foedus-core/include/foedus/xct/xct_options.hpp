@@ -106,6 +106,26 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * @ref RLL
    */
   bool        enable_retrospective_lock_list_;
+
+  /**
+   * @brief Whether precommit always releases all locks that violate canonical mode before
+   * taking X-locks.
+   * @details
+   * Default is (so far) true.
+   * This option has pros and cons. We need to keep an eye on which is better.
+   * When true, precommit_lock function releases all locks (S or X) that are after any of
+   * X-locks we are going to take. In worst case, a subtle page split, which slightly violates
+   * canonical order, triggers releaseing a large number of X-locks that need to be taken again
+   * and a large number of S-locks that would have reduced the chance of abort. Wasted effort!
+   *
+   * However, on the other hand, this allows us to take all X-locks unconditionally without any
+   * fear of deadlocks or false conflicts. Otherwise we have to \e try some X-locks conditionally
+   * and abort if couldn't immediately acquire the lock. In some cases, this would avoid unnecessary
+   * RaceAbort. So... really not sure which is better. The default value is so far true
+   * because the policy is simpler.
+   * @ref RLL
+   */
+  bool        force_canonical_xlocks_in_precommit_;
 };
 }  // namespace xct
 }  // namespace foedus

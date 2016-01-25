@@ -26,6 +26,7 @@ XctOptions::XctOptions() {
   local_work_memory_size_mb_ = kDefaultLocalWorkMemorySizeMb;
   epoch_advance_interval_ms_ = kDefaultEpochAdvanceIntervalMs;
   enable_retrospective_lock_list_ = false;  // TODO(Hideaki) tentative!
+  force_canonical_xlocks_in_precommit_ = true;  // TODO(Hideaki) tentative!
 }
 
 ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
@@ -35,6 +36,7 @@ ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, local_work_memory_size_mb_);
   EXTERNALIZE_LOAD_ELEMENT(element, epoch_advance_interval_ms_);
   EXTERNALIZE_LOAD_ELEMENT(element, enable_retrospective_lock_list_);
+  EXTERNALIZE_LOAD_ELEMENT(element, force_canonical_xlocks_in_precommit_);
   return kRetOk;
 }
 
@@ -62,6 +64,9 @@ ErrorStack XctOptions::save(tinyxml2::XMLElement* element) const {
     " until the epoch advances.");
   EXTERNALIZE_SAVE_ELEMENT(element, enable_retrospective_lock_list_,
     "When enabled, we remember read/write-sets on abort and use it as RLL on next run.");
+  EXTERNALIZE_SAVE_ELEMENT(element, force_canonical_xlocks_in_precommit_,
+    "Whether precommit always releases all locks that violate canonical mode before"
+    " taking X-locks.");
   return kRetOk;
 }
 
