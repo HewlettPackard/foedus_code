@@ -820,6 +820,14 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     DVLOG(2) << *context << "Verifying " << st->get_name(access.storage_id_)
       << ":" << access.owner_id_address_ << ". observed_xid=" << access.observed_owner_id_
         << ", now_xid=" << access.owner_id_address_->xct_id_;
+    if (UNLIKELY(access.observed_owner_id_.is_being_written())) {
+      // safety net. observing this case.
+      // hm, this should be checked and retried during transaction.
+      // probably there still is some code to forget that.
+      // At least safe to abort here, so keep it this way for now.
+      DLOG(WARNING) << *context << "?? this should have been checked. being_written! will abort";
+      return false;
+    }
 
     // Implementation Note: we do verify the versions whether we took a lock on this record or not.
     // In a sentence, this is the simplest and most reliable while wasted cost is not that much.
@@ -881,11 +889,18 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     // The owning transaction has changed.
     // We don't check ordinal here because there is no change we are racing with ourselves.
     ReadXctAccess& access = read_set[i];
+    if (UNLIKELY(access.observed_owner_id_.is_being_written())) {
+      // same as above.
+      DLOG(WARNING) << *context << "?? this should have been checked. being_written! will abort";
+      return false;
+    }
+    /* umm? why is this safe? we need to guarantee observed_owner_ids are same. disabled.
     // Fast forward to the last one
     if (i < read_set_size - 1 &&
       access.owner_id_address_ == read_set[i + 1].owner_id_address_) {
       continue;
     }
+    */
     storage::StorageManager* st = engine_->get_storage_manager();
     if (access.related_write_) {
       // we already checked this in lock()
