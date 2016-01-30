@@ -1055,6 +1055,7 @@ void XctManagerPimpl::precommit_xct_apply(
         << ":" << write_set[i].owner_id_address_ << ". Unlock at the last one of the write sets";
       // keep the lock for the next write set
     } else {
+      write.owner_id_address_->xct_id_.set_write_complete();
       // For this reason, we put memory_fence_release() between data and owner_id writes.
       assorted::memory_fence_release();
       if (write.owner_id_address_->xct_id_.is_deleted()) {

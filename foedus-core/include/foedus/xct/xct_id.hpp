@@ -934,7 +934,8 @@ struct XctId {
   // we never revert it, which simplifies a concurrency control.
   // void    set_not_next_layer() ALWAYS_INLINE { data_ &= (~kXctIdNextLayerBit); }
 
-  bool    is_being_written() const ALWAYS_INLINE { return (data_ & kXctIdBeingWrittenBit) != 0; }
+  bool    is_being_written() const ALWAYS_INLINE {
+    return (assorted::atomic_load_acquire<uint64_t>(&data_) & kXctIdBeingWrittenBit) != 0; }
   bool    is_deleted() const ALWAYS_INLINE { return (data_ & kXctIdDeletedBit) != 0; }
   bool    is_moved() const ALWAYS_INLINE { return (data_ & kXctIdMovedBit) != 0; }
   bool    is_next_layer() const ALWAYS_INLINE { return (data_ & kXctIdNextLayerBit) != 0; }
@@ -1177,10 +1178,10 @@ struct TrackMovedRecordResult {
 };
 
 inline XctId XctId::spin_while_being_written() const {
-  uint64_t copied_data = data_;
+  uint64_t copied_data = assorted::atomic_load_acquire<uint64_t>(&data_);
   if (UNLIKELY(copied_data & kXctIdBeingWrittenBit)) {
     while (copied_data & kXctIdBeingWrittenBit) {
-      copied_data = data_;
+      copied_data = assorted::atomic_load_acquire<uint64_t>(&data_);
     }
   }
   XctId ret;
