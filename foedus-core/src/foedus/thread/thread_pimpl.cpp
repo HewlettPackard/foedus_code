@@ -859,23 +859,40 @@ void Thread::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_i
 }
 
 #ifdef MCS_RW_LOCK
-xct::McsBlockIndex Thread::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
-  return pimpl_->mcs_acquire_reader_lock(mcs_rw_lock);
+xct::McsBlockIndex Thread::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock, int32_t timeout) {
+  xct::McsBlockIndex block_index = 0;
+  bool result = pimpl_->mcs_acquire_reader_lock(mcs_rw_lock, &block_index, timeout);
+  ASSERT_ND(result);
+  return block_index;
 }
-xct::McsBlockIndex Thread::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock) {
-  return pimpl_->mcs_acquire_writer_lock(mcs_rw_lock);
+xct::McsBlockIndex Thread::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock, int32_t timeout) {
+  xct::McsBlockIndex block_index = 0;
+  bool result = pimpl_->mcs_acquire_writer_lock(mcs_rw_lock, &block_index, timeout);
+  ASSERT_ND(result);
+  return block_index;
 }
 bool Thread::mcs_try_acquire_writer_lock(
-  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
-  return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, out_block_index, tries);
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index) {
+  return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, out_block_index);
 }
 bool Thread::mcs_try_acquire_reader_lock(
-  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries) {
-  return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index, tries);
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index) {
+  return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index);
+}
+bool Thread::mcs_try_acquire_writer_lock(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout) {
+  return pimpl_->mcs_try_acquire_writer_lock(mcs_rw_lock, out_block_index, timeout);
+}
+bool Thread::mcs_try_acquire_reader_lock(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout) {
+  return pimpl_->mcs_try_acquire_reader_lock(mcs_rw_lock, out_block_index, timeout);
 }
 bool Thread::mcs_try_acquire_writer_upgrade(
   xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index) {
   return pimpl_->mcs_try_acquire_writer_upgrade(mcs_rw_lock, out_block_index);
+}
+bool Thread::mcs_lock_granted(xct::McsRwLock* lock, xct::McsBlockIndex block_index, int32_t timeout) {
+  return pimpl_->mcs_lock_granted(lock, block_index, timeout);
 }
 #endif  // MCS_RW_LOCK
 
@@ -1217,7 +1234,15 @@ void ThreadPimpl::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
 ///
 ////////////////////////////////////////////////////////////////////////////////
 bool ThreadPimpl::mcs_try_acquire_writer_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int /*tries*/) {
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int32_t timeout) {
+  return mcs_acquire_writer_lock(lock, out_block_index, timeout);
+}
+bool ThreadPimpl::mcs_try_acquire_reader_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int32_t timeout) {
+  return mcs_acquire_reader_lock(lock, out_block_index, timeout);
+}
+bool ThreadPimpl::mcs_try_acquire_writer_lock(
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index) {
   xct::McsBlockIndex block_index = 0;
   if (*out_block_index) {
     block_index = *out_block_index;
@@ -1238,7 +1263,7 @@ bool ThreadPimpl::mcs_try_acquire_writer_lock(
 }
 
 bool ThreadPimpl::mcs_try_acquire_reader_lock(
-  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int /*tries*/) {
+  xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index) {
   while (true) {
     // take a look at the whole lock word, and cas if it's a reader or null
     uint64_t lock_word = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
@@ -1307,9 +1332,15 @@ bool ThreadPimpl::mcs_try_acquire_writer_upgrade(
   }
 }
 
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
+bool ThreadPimpl::mcs_acquire_reader_lock(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout) {
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
-  xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
+  xct::McsBlockIndex block_index = 0;
+  if (*out_block_index) {
+    block_index = *out_block_index;
+  } else {
+    block_index = *out_block_index = current_xct_.increment_mcs_block_current();
+  }
   ASSERT_ND(block_index > 0);
   // TODO(tzwang): make this a static_size_check...
   ASSERT_ND(sizeof(xct::McsRwBlock) == sizeof(xct::McsBlock));
@@ -1342,7 +1373,9 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_l
       // Predecessor is a writer or a waiting reader. The successor class field and the
       // blocked state in pred_block are separated, so we can blindly set_successor().
       pred_block->set_successor_next_only(id_, block_index);
-      spin_until([my_block]{ return my_block->is_blocked(); });
+      if (!my_block->timeout_granted(timeout)) {
+        return false;
+      }
     } else {
       // Join the active, reader predecessor
       ASSERT_ND(!pred_block->is_blocked());
@@ -1351,7 +1384,14 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_l
       my_block->unblock();
     }
   }
+  mcs_finalize_acquire_reader_lock(mcs_rw_lock, my_block);
+  ASSERT_ND(my_block->is_finalized());
+  return true;
+}
 
+void ThreadPimpl::mcs_finalize_acquire_reader_lock(
+  xct::McsRwLock* mcs_rw_lock, xct::McsRwBlock* my_block) {
+  ASSERT_ND(!my_block->is_finalized());
   if (my_block->has_reader_successor()) {
     spin_until([my_block]{ return !my_block->successor_is_ready(); });
     // Unblock the reader successor
@@ -1361,7 +1401,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_l
     mcs_rw_lock->increment_readers_count();
     successor_block->unblock();
   }
-  return block_index;
+  my_block->set_finalized();
 }
 
 void ThreadPimpl::mcs_release_reader_lock(
@@ -1370,6 +1410,7 @@ void ThreadPimpl::mcs_release_reader_lock(
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
   xct::McsRwBlock* my_block = get_mcs_rw_block(id_, block_index);
+  ASSERT_ND(my_block->is_finalized());
   // Make sure there is really no successor or wait for it
   uint32_t* tail_address = &mcs_rw_lock->tail_;
   uint32_t expected = xct::McsRwLock::to_tail_int(id_, block_index);
@@ -1409,9 +1450,15 @@ void ThreadPimpl::mcs_release_reader_lock(
   }
 }
 
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock) {
+bool ThreadPimpl::mcs_acquire_writer_lock(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout) {
+  xct::McsBlockIndex block_index = 0;
+  if (*out_block_index) {
+    block_index = *out_block_index;
+  } else {
+    block_index = *out_block_index = current_xct_.increment_mcs_block_current();
+  }
   ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
-  xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
   ASSERT_ND(block_index > 0);
   // TODO(tzwang): make this a static_size_check...
   ASSERT_ND(sizeof(xct::McsRwBlock) == sizeof(xct::McsBlock));
@@ -1436,7 +1483,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_l
         xct::McsRwLock::kNextWriterNone);
       if (old_next_writer == id_) {
         my_block->unblock();
-        return block_index;
+        return true;
       }
     }
   } else {
@@ -1445,8 +1492,7 @@ xct::McsBlockIndex ThreadPimpl::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_l
     pred_block->set_successor_class_writer();
     pred_block->set_successor_next_only(id_, block_index);
   }
-  spin_until([my_block]{ return my_block->is_blocked(); });
-  return block_index;
+  return my_block->timeout_granted(timeout);
 }
 
 void ThreadPimpl::mcs_release_writer_lock(
@@ -1474,12 +1520,24 @@ void ThreadPimpl::mcs_release_writer_lock(
   }
 }
 
+bool ThreadPimpl::mcs_lock_granted(
+  xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index, int32_t timeout) {
+  xct::McsRwBlock* block = get_mcs_rw_block(id_, block_index);
+  bool acquired = block->timeout_granted(timeout);
+  if (acquired && block->is_reader() && !block->is_finalized()) {
+    mcs_finalize_acquire_reader_lock(mcs_rw_lock, block);
+    ASSERT_ND(block->is_finalized());
+  }
+  return acquired;
+}
+
 void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId address) {
   xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
   cll->assert_sorted();
   uint32_t released_read_locks = 0;
   uint32_t released_write_locks = 0;
   uint32_t already_released_locks = 0;
+  uint32_t semi_acquired_locks = 0;
 
   for (xct::LockEntry* entry = cll->begin(); entry != cll->end(); ++entry) {
     if (entry->universal_lock_id_ <= address) {
@@ -1496,9 +1554,33 @@ void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId addre
       }
       entry->mcs_block_ = 0;
       entry->taken_mode_ = xct::kNoLock;
+    } else if (entry->mcs_block_) {
+      ++semi_acquired_locks;
     } else {
       ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
       ++already_released_locks;
+    }
+  }
+
+  while (semi_acquired_locks) {
+    for (xct::LockEntry* entry = cll->begin(); entry != cll->end(); ++entry) {
+      if (entry->universal_lock_id_ <= address) {
+        continue;
+      }
+      ASSERT_ND(!entry->is_locked());
+      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
+      if (entry->mcs_block_) {
+        if (mcs_lock_granted(entry->lock_->get_key_lock(), entry->mcs_block_, 10)) {
+          auto *block = get_mcs_rw_block(id_, entry->mcs_block_);
+          if (block->is_reader()) {
+            mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+          } else {
+            mcs_release_writer_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+          }
+          entry->mcs_block_ = 0;
+          --semi_acquired_locks;
+        }
+      }
     }
   }
 

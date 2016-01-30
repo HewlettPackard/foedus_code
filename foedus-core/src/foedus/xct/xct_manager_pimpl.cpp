@@ -1117,6 +1117,7 @@ void XctManagerPimpl::release_all_current_locks_after(
   uint32_t released_read_locks = 0;
   uint32_t released_write_locks = 0;
   uint32_t already_released_locks = 0;
+  uint32_t semi_acquired_locks = 0;
 
   for (LockEntry* entry = cll->get_entry(skip + 1U); entry != cll->end(); ++entry) {
     if (entry->is_locked()) {
@@ -1130,14 +1131,35 @@ void XctManagerPimpl::release_all_current_locks_after(
       }
       entry->mcs_block_ = 0;
       entry->taken_mode_ = kNoLock;
+    } else if (entry->mcs_block_) {
+      ASSERT_ND(entry->taken_mode_ == kNoLock);
+      ++semi_acquired_locks;
     } else {
       ASSERT_ND(entry->taken_mode_ == kNoLock);
       ++already_released_locks;
     }
   }
-
-  ASSERT_ND(released_read_locks + released_write_locks + already_released_locks + skip
-    == cll->get_last_active_entry());
+  uint32_t to_release = semi_acquired_locks;
+  while (to_release) {
+    for (LockEntry* entry = cll->get_entry(skip + 1U); entry != cll->end(); ++entry) {
+      ASSERT_ND(entry->taken_mode_ == kNoLock);
+      if (entry->mcs_block_) {
+        ASSERT_ND(entry->taken_mode_ == kNoLock);
+        if (context->mcs_lock_granted(entry->lock_->get_key_lock(), entry->mcs_block_, 10000)) {
+          auto *block = context->get_mcs_rw_blocks() + entry->mcs_block_;
+          if (block->is_reader()) {
+            context->mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+          } else {
+            context->mcs_release_writer_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
+          }
+          entry->mcs_block_ = 0;
+          --to_release;
+        }
+      }
+    }
+  }
+  ASSERT_ND(released_read_locks + released_write_locks + already_released_locks + skip +
+    semi_acquired_locks == cll->get_last_active_entry());
   DVLOG(1) << "Thread-" << *context << " unlocked " << released_read_locks << " read locks and"
     << " " << released_write_locks << " write locks. " << already_released_locks
     << " were already unlocked, skipeed " << skip << " locks at the beginning";

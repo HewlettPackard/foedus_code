@@ -302,14 +302,25 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * MCS reader-writer lock methods.
    */
 #ifdef MCS_RW_LOCK
-  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
-  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
+  xct::McsBlockIndex mcs_acquire_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, int32_t timeout = xct::McsRwBlock::kTimeoutNever);
+  xct::McsBlockIndex mcs_acquire_writer_lock(
+    xct::McsRwLock* mcs_rw_lock, int32_t timeout = xct::McsRwBlock::kTimeoutNever);
+
   bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
   bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
+
+  bool mcs_try_acquire_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index);
+  bool mcs_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+
   /** This one is to upgrade a read lock to a write lock */
   bool mcs_try_acquire_writer_upgrade(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+
+  bool mcs_lock_granted(xct::McsRwLock* lock, xct::McsBlockIndex block_index, int32_t timeout = 0);
 #endif  // MCS_RW_LOCK
   xct::McsRwBlock* get_mcs_rw_blocks();
   void               mcs_release_reader_lock(
@@ -337,6 +348,10 @@ class Thread CXX11_FINAL : public virtual Initializable {
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
   ErrorCode mcs_acquire_writer_lock(
     xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
+
+  /** The unconditional versions */
+  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* lock);
+  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* lock);
 
   /**
    * @brief Acquire reader/writer lock unconditionally

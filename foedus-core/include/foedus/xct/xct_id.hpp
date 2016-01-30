@@ -455,9 +455,13 @@ struct McsRwBlock {
   static const uint8_t kStateBlockedFlag     = 1U << 7U;  // MSB binary = 1
   static const uint8_t kStateBlockedMask     = 1U << 7U;
 
+  static const uint8_t kStateFinalizedMask   = 4U;
+
   static const uint8_t kSuccessorClassReader = 1U;
   static const uint8_t kSuccessorClassWriter = 2U;
   static const uint8_t kSuccessorClassNone   = 3U;        // LSB binary 11
+
+  static const int32_t kTimeoutNever         = 0xFFFFFFFF;
 
   union Self {
     uint16_t data_;                       // +2 => 2
@@ -465,6 +469,7 @@ struct McsRwBlock {
       uint8_t successor_class_;
       // state_ covers:
       // Bit 0-1: my **own** class (am I a reader or writer?)
+      // Bit 2: whether we have checked the successor ("finalized", for readers only)
       // Bit 7: blocked (am I waiting for the lock or acquired?)
       uint8_t state_;
     } components_;
@@ -493,31 +498,52 @@ struct McsRwBlock {
   inline bool is_reader() ALWAYS_INLINE {
     return (self_.components_.state_ & kStateClassMask) == kStateClassReaderFlag;
   }
-
+  inline uint8_t read_state() {
+    return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_);
+  }
   inline void unblock() ALWAYS_INLINE {
-    ASSERT_ND(
-      assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedFlag);
+    ASSERT_ND(read_state() & kStateBlockedFlag);
     assorted::raw_atomic_fetch_and_bitwise_and<uint8_t>(
       &self_.components_.state_,
       static_cast<uint8_t>(~kStateBlockedMask));
-    ASSERT_ND(
-      !(assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask));
   }
   inline bool is_blocked() ALWAYS_INLINE {
-    return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask;
+    return read_state() & kStateBlockedMask;
   }
   inline bool is_granted() {
     return !is_blocked();
   }
-
+  inline void set_finalized() {
+    ASSERT_ND(is_reader());
+    ASSERT_ND(!is_finalized());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
+      &self_.components_.state_, kStateFinalizedMask);
+    ASSERT_ND(is_finalized());
+  }
+  inline bool is_finalized() {
+    ASSERT_ND(is_reader());
+    return read_state() & kStateFinalizedMask;
+  }
+  inline bool timeout_granted(int32_t timeout) {
+    if (timeout == kTimeoutNever) {
+      while (!is_granted()) {}
+      return true;
+    } else {
+      while (--timeout) {
+        if (is_granted()) {
+          return true;
+        }
+      }
+      return is_granted();
+    }
+  }
   inline void set_successor_class_writer() {
     // In case the caller is a reader appending after a writer or waiting reader,
     // the requester should have already set the successor class to "reader" through by CASing
     // self_.data_ from [no-successor, blocked] to [reader successor, blocked].
     ASSERT_ND(self_.components_.successor_class_ == kSuccessorClassNone);
-    assorted::atomic_store_release<uint8_t>(
-      &self_.components_.successor_class_,
-      kSuccessorClassWriter);
+    assorted::raw_atomic_fetch_and_bitwise_and<uint8_t>(
+      &self_.components_.successor_class_, kSuccessorClassWriter);
   }
   inline void set_successor_next_only(thread::ThreadId thread_id, McsBlockIndex block_index) {
     McsRwBlock tmp;

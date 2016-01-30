@@ -460,7 +460,6 @@ ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
     ASSERT_ND(!lock_upgrade);
     lock_entry->mcs_block_ = context->mcs_acquire_writer_lock(lock_addr);  // unconditional
     lock_entry->taken_mode_ = kWriteLock;
-    *last_locked_pos = pos;
   } else {
     // hmm, we violated canonical mode. has a risk of deadlock.
     // Let's just try acquire the lock and immediately give up if it fails.
@@ -480,26 +479,27 @@ ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
     } else {
       ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
       if (lock_entry->preferred_mode_ == kWriteLock) {
-        if (!context->mcs_try_acquire_writer_lock(lock_addr, &lock_entry->mcs_block_, 0)) {
+        if (!context->mcs_try_acquire_writer_lock(lock_addr, &lock_entry->mcs_block_, 5000)) {
           DVLOG(0) << "Failed to try-acquire X-lock. giving up";
-          ASSERT_ND(lock_entry->mcs_block_ == 0);
+          ASSERT_ND(lock_entry->mcs_block_);
           return kErrorCodeXctRaceAbort;
         } else {
           lock_entry->taken_mode_ = kWriteLock;
         }
       } else {
         ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
-        if (!context->mcs_try_acquire_reader_lock(lock_addr, &lock_entry->mcs_block_, 0)) {
+        if (!context->mcs_try_acquire_reader_lock(lock_addr, &lock_entry->mcs_block_, 5000)) {
           DVLOG(0) << "Failed to try-acquire S-lock. giving up";
-          ASSERT_ND(lock_entry->mcs_block_ == 0);
+          ASSERT_ND(lock_entry->mcs_block_);
           return kErrorCodeXctRaceAbort;
         } else {
           lock_entry->taken_mode_ = kReadLock;
         }
       }
     }
-    ASSERT_ND(lock_entry->mcs_block_);
   }
+  ASSERT_ND(lock_entry->mcs_block_);
+  *last_locked_pos = pos;
   return kErrorCodeOk;
 }
 

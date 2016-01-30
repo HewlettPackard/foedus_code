@@ -282,14 +282,27 @@ class ThreadPimpl final : public DefaultInitializable {
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
 
 #ifdef MCS_RW_LOCK
-  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
-  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
+  bool mcs_acquire_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
+  bool mcs_acquire_writer_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
+
+  /** These two calls mcs_acquire_reader_lock internally */
   bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
   bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
+
+  /** One-shot CAS version */
+  bool mcs_try_acquire_reader_lock(
+    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index);
+  bool mcs_try_acquire_writer_lock(
+    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+
   /** This one is to upgrade a read lock to a write lock */
   bool mcs_try_acquire_writer_upgrade(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
+  void mcs_finalize_acquire_reader_lock(xct::McsRwLock* lock, xct::McsRwBlock* my_block);
+  bool mcs_lock_granted(xct::McsRwLock* lock, xct::McsBlockIndex block_index, int32_t timeout);
 #endif  // MCS_RW_LOCK
 
 #ifdef MCS_RW_TIMEOUT_LOCK
