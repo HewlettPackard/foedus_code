@@ -39,7 +39,8 @@ namespace foedus {
 namespace xct {
 DEFINE_TEST_CASE_PACKAGE(XctIdRwTimeoutLockTest, foedus.xct);
 
-const int kThreads = 10;
+const int kThreads = 8;
+const int kNodes = 1;
 const int kKeys = 100;
 
 RwLockableXctId keys[kKeys];
@@ -224,7 +225,8 @@ ErrorStack single_writer_task(const proc::ProcArguments& args) {
  Please uncomment when you get the integration done so that all functionalities work in both modes.
 TEST(XctIdRwTimeoutLockTest, WriteOnly) {
   EngineOptions options = get_tiny_options();
-  options.thread_.thread_count_per_group_ = kThreads;
+  options.thread_.thread_count_per_group_ = kThreads / kNodes;
+  options.thread_.group_count_ = kNodes;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("write_only_task", write_only_task);
   COERCE_ERROR(engine.initialize());
@@ -266,7 +268,8 @@ TEST(XctIdRwTimeoutLockTest, WriteOnly) {
 }
 TEST(XctIdRwTimeoutLockTest, ReadOnly) {
   EngineOptions options = get_tiny_options();
-  options.thread_.thread_count_per_group_ = kThreads;
+  options.thread_.thread_count_per_group_ = kThreads / kNodes;
+  options.thread_.group_count_ = kNodes;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("read_only_task", read_only_task);
   COERCE_ERROR(engine.initialize());
@@ -308,7 +311,8 @@ TEST(XctIdRwTimeoutLockTest, ReadOnly) {
 
 TEST(XctIdRwTimeoutLockTest, SingleReader) {
   EngineOptions options = get_tiny_options();
-  options.thread_.thread_count_per_group_ = kThreads;
+  options.thread_.thread_count_per_group_ = kThreads / kNodes;
+  options.thread_.group_count_ = kNodes;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("single_reader_task", single_reader_task);
   COERCE_ERROR(engine.initialize());
@@ -329,7 +333,8 @@ TEST(XctIdRwTimeoutLockTest, SingleReader) {
 
 TEST(XctIdRwTimeoutLockTest, SingleWriter) {
   EngineOptions options = get_tiny_options();
-  options.thread_.thread_count_per_group_ = kThreads;
+  options.thread_.thread_count_per_group_ = kThreads / kNodes;
+  options.thread_.group_count_ = kNodes;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("single_writer_task", single_writer_task);
   COERCE_ERROR(engine.initialize());
@@ -349,7 +354,8 @@ TEST(XctIdRwTimeoutLockTest, SingleWriter) {
 }
 TEST(XctIdRwTimeoutLockTest, ReadWrite) {
   EngineOptions options = get_tiny_options();
-  options.thread_.thread_count_per_group_ = kThreads;
+  options.thread_.thread_count_per_group_ = kThreads / kNodes;
+  options.thread_.group_count_ = kNodes;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("read_write_task", read_write_task);
   COERCE_ERROR(engine.initialize());
