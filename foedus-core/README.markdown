@@ -41,8 +41,8 @@ Which is great, but we often see breaking issues due to version differences.
 If you want to minimize unexpected bumps, we recommend to use one of the following
 **verified environments** where we continuously test our code on Jenkins services.
 
-* (Primary) Fedora 21, x86_64. [Our Jenkins Server](http://foedus-build.hpl.hp.com:8080/).
-* Ubuntu 15.04, x86_64. [Our Jenkins Server](http://foedus-build-ub.hpl.hp.com:8080/).
+* (Primary) Centos 7.2, x86_64. [Our Jenkins Server](http://cihead.labs.hpe.com/centos7/).
+* Ubuntu 14.04, x86_64. [Our Jenkins Server](http://cihead.labs.hpe.com/ub1404/).
 * Ubuntu 14.04, aarch64. [Our Jenkins Server](http://ms01915-003.hpl.hp.com:8080/).
 
 We will occasionally switch to semi-latest versions of Fedora (or some Redhat-flavor) and Ubuntu
@@ -269,7 +269,7 @@ Here is a minimal example program to create a key-value storage and query on it.
 API Documents
 -----------
 For more details, start from
-[API document](http://foedus-build.hpl.hp.com:8080/job/foedus-master-doxygen/doxygen/).
+[API document](http://cihead.labs.hpe.com/centos7/job/foedus-master-doxygen/doxygen/).
 
 Dependencies
 -----------
