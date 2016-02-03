@@ -17,6 +17,7 @@
  */
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -47,10 +48,11 @@ DEFINE_TEST_CASE_PACKAGE(MasstreeScanInsertRaceTest, foedus.storage.masstree);
 const int kKeyPrefixLength = 4;  // "user" without \0
 const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
 const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 chars for numbers
-const int kMinCoreCount = 16;
+const int kMaxNodes = 4;
+const int kMaxCores = 4;
 const uint32_t max_scan_length = 10000;
 
-int core_count = kMinCoreCount;
+int core_count = 0;
 std::unique_ptr<uint32_t[]> local_key_counter;
 
 class YcsbKey {
@@ -182,21 +184,16 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
 TEST(MasstreeScanInsertRaceTest, CreateAndInsertAndScan) {
   EngineOptions options = get_big_options();
 
-  // Use kMinCoreCount threads; if one node doesn't fit, try more
-  core_count = kMinCoreCount;
-  if (options.thread_.thread_count_per_group_ < kMinCoreCount) {
-    core_count = options.thread_.thread_count_per_group_;
-    int g = 0;
-    for (g = 0; g < options.thread_.group_count_ && core_count < kMinCoreCount; g++) {
-      core_count += options.thread_.thread_count_per_group_;
-    }
-    options.thread_.group_count_ = g;
-  } else {
-    options.thread_.thread_count_per_group_ = kMinCoreCount;
-    options.thread_.group_count_ = 1;
-  }
+  // Limit to 4 nodes, 4 cores each node
+  options.thread_.group_count_ = std::min(
+    kMaxNodes, static_cast<int>(options.thread_.group_count_));
+  // assuming htt is on...
+  options.thread_.thread_count_per_group_ =
+    std::min(kMaxCores, std::max(options.thread_.thread_count_per_group_ / 2, 1));
+  ASSERT_ND(options.thread_.group_count_ <= kMaxNodes);
+  ASSERT_ND(options.thread_.thread_count_per_group_ <= kMaxCores);
+  core_count = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
-  ASSERT_ND(core_count >= kMinCoreCount);
   key_arena = std::unique_ptr<YcsbKey[]>(new YcsbKey[core_count]);
   local_key_counter = std::unique_ptr<uint32_t[]>(new uint32_t[core_count]);
   for (int i = 0; i < core_count; i++) {
