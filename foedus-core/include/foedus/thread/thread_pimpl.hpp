@@ -444,7 +444,8 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
   xct::McsBlock*          mcs_blocks_;
-  xct::McsRwBlock*        mcs_rw_blocks_;
+  xct::McsRwSimpleBlock*  mcs_rw_simple_blocks_;
+  xct::McsRwExtendedBlock*  mcs_rw_extended_blocks_;
 
   xct::RwLockableXctId*   canonical_address_;
 };

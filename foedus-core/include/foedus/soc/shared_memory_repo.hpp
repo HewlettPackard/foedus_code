@@ -445,7 +445,9 @@ struct ThreadMemoryAnchors {
     * 512kb (==sizeof(McsBlock) * 64k) for each thread.
     */
   xct::McsBlock*  mcs_lock_memories_;
-  xct::McsRwBlock*  mcs_rw_lock_memories_;
+  // These two might be integrated, but for now we allocate both.
+  xct::McsRwSimpleBlock*  mcs_rw_simple_lock_memories_;
+  xct::McsRwExtendedBlock*  mcs_rw_extended_lock_memories_;
 };
 
 /**

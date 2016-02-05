@@ -40,7 +40,8 @@ ThreadRef::ThreadRef()
   task_input_memory_(nullptr),
   task_output_memory_(nullptr),
   mcs_blocks_(nullptr),
-  mcs_rw_blocks_(nullptr) {}
+  mcs_rw_simple_blocks_(nullptr),
+  mcs_rw_extended_blocks_(nullptr) {}
 
 ThreadRef::ThreadRef(Engine* engine, ThreadId id) : engine_(engine), id_(id) {
   soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager()->get_shared_memory_repo();
@@ -49,7 +50,8 @@ ThreadRef::ThreadRef(Engine* engine, ThreadId id) : engine_(engine), id_(id) {
   task_input_memory_ = anchors->task_input_memory_;
   task_output_memory_ = anchors->task_output_memory_;
   mcs_blocks_ = anchors->mcs_lock_memories_;
-  mcs_rw_blocks_ = anchors->mcs_rw_lock_memories_;
+  mcs_rw_simple_blocks_ = anchors->mcs_rw_simple_lock_memories_;
+  mcs_rw_extended_blocks_ = anchors->mcs_rw_extended_lock_memories_;
 }
 
 bool ThreadRef::try_impersonate(

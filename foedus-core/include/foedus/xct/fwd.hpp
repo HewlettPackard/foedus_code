@@ -32,7 +32,10 @@ struct  LockFreeWriteXctAccess;
 struct  McsBlock;
 struct  McsLock;
 struct  McsRwLock;
-struct  McsRwBlock;
+struct  McsRwBlock;  // To be removed
+// TODO(Hideaki) this must become usual forward-decl once it becomes its own class
+typedef McsRwBlock McsRwSimpleBlock;
+struct  McsRwExtendedBlock;
 struct  McsLockScope;
 struct  PointerAccess;
 struct  ReadXctAccess;

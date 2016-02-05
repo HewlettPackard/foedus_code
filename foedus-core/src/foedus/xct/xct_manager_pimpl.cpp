@@ -1146,7 +1146,7 @@ void XctManagerPimpl::release_all_current_locks_after(
       if (entry->mcs_block_) {
         ASSERT_ND(entry->taken_mode_ == kNoLock);
         if (context->mcs_lock_granted(entry->lock_->get_key_lock(), entry->mcs_block_, 10000)) {
-          auto *block = context->get_mcs_rw_blocks() + entry->mcs_block_;
+          auto *block = context->get_mcs_rw_simple_blocks() + entry->mcs_block_;
           if (block->is_reader()) {
             context->mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
           } else {

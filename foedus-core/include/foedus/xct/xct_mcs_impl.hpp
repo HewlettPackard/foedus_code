@@ -19,34 +19,44 @@
 #define FOEDUS_XCT_XCT_MCS_IMPL_HPP_
 
 #include "foedus/compiler.hpp"
+#include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace xct {
 
-enum McsImplType {
+/** Return value of acquire_async_rw. */
+struct AcquireAsyncRet {
+  /** whether we immediately acquired the lock or not */
+  bool acquired_;
   /**
-    * A combination of our MCSg lock and the original RW-MCS lock.
-    * This doesn't nicely support \e cancel, but functionality-wise it works.
-    * Cancellable-requests will cause frequent atomic operations in a shared place.
-    * Unconditional-requests and try-requests work just fine.
-    */
-  kMcsImplSimple = 0,
-  /**
-    * A combination of our MCSg lock, the original RW-MCS lock, and cancellable queue lock.
-    * This nicely supports \e cancel, allowing local spinning even for cancallable-requests.
-    * This also supports parallel async-lock nicely, but comes with complexity.
-    */
-  kMcsImplExtended,
+   * the queue node we pushed.
+   * It is always set whether acquired_ or not, whether simple or extended.
+   * However, in simple case when !acquired_, the block is not used and nothing
+   * sticks to the queue. We just skip the index next time.
+   */
+  McsBlockIndex block_index_;
 };
 
 /**
  * @brief Implements an MCS-locking Algorithm.
  * @ingroup XCT
  * @details
+ * @par Implementation Types
  * We implemented a few variants of MCS lock algorithm, so this switches the implementation
- * defined as McsImplType. Individual implementations are defined as individual functions
+ * defined below. Individual implementations are defined as individual functions
  * so that we can also test each of them explicitly.
+ *
+ * @par Implementation Type 1: "Simple" (RW_BLOCK = McsRwSimpleBlock)
+ * A combination of our MCSg lock and the original RW-MCS lock.
+ * This doesn't nicely support \e cancel, but functionality-wise it works.
+ * Cancellable-requests will cause frequent atomic operations in a shared place.
+ * Unconditional-requests and try-requests work just fine.
+ *
+ * @par Implementation Type 2: "Extended" (RW_BLOCK = McsRwExtendedBlock)
+ * A combination of our MCSg lock, the original RW-MCS lock, and cancellable queue lock.
+ * This nicely supports \e cancel, allowing local spinning even for cancallable-requests.
+ * This also supports parallel async-lock nicely, but comes with complexity.
  *
  * @par Lock Mode
  * foedus::xct::McsLock supports only exclusive lock (we call it \e ww below).
@@ -63,17 +73,30 @@ enum McsImplType {
  * check whether it acquired lock or not, and to \e cancel the lock.
  * It must also allow doing this for multiple locks in parallel.
  *
+ * @par Writer-Upgrade
+ * You might notice that we don't have a so-called \e upgrade method here to convert
+ * a read-lock to a write-lock. We don't need it in our architecture.
+ * We always release the read-lock first and take a write-lock using a new queue node.
+ * In traditional 2PL, this might violate serializability, but we are not using 2PL.
+ * Serializability on the record is always guaranteed by the read-verification.
+ * Also, writer-upgrade always has a risk of deadlock, even in a single-lock transaction.
+ * By getting rid of it, we make the RLL protocol simpler and more flexible.
+ *
  * @par References
  * TBD: original MCS paper and RW version.
  * TBD: link to MCSg paper
  *
- * @tparam ADAPTOR A template that implements the McsAdaptorInterface concept.
+ * @tparam ADAPTOR A template that implements the McsAdaptorConcept template concept.
  * We explicitly instantiate for all possible ADAPTOR types in cpp.
- * @see foedus::xct::McsAdaptorInterface
+ * @tparam RW_BLOCK Queue node object for RW-lock.
+ * Either \b McsRwSimpleBlock or \b McsRwExtendedBlock.
+ * This also defines the implementation.
+ * @see foedus::xct::McsAdaptorConcept
  */
-template<typename ADAPTOR>
-struct McsImpl {
-  McsImpl(ADAPTOR adaptor, McsImplType type) : adaptor_(adaptor), type_(type) {}
+template<typename ADAPTOR, typename RW_BLOCK>
+class McsImpl {
+ public:
+  explicit McsImpl(ADAPTOR adaptor) : adaptor_(adaptor) {}
 
   //////////////////////////////////////////////////////////////////////////////////
   /// WW-lock methods: BEGIN
@@ -97,116 +120,82 @@ struct McsImpl {
   /// WW-lock methods: END
   //////////////////////////////////////////////////////////////////////////////////
 
+
+
   //////////////////////////////////////////////////////////////////////////////////
   /// RW-lock methods: BEGIN
 
+  //////////////////////////
+  /// Unconditional-acquire
   /** [RW] Unconditionally takes a reader lock. */
-  void acquire_unconditional_rw_reader(McsRwLock* lock, McsBlockIndex* out) {
-    if (type_ == kMcsImplSimple) {
-      acquire_unconditional_rw_reader_simple(lock, out);
-    } else {
-      acquire_unconditional_rw_reader_extended(lock, out);
-    }
-  }
-  void acquire_unconditional_rw_reader_simple(McsRwLock* lock, McsBlockIndex* out);
-  void finalize_acquire_reader_simple(McsRwLock* lock, McsRwBlock* my_block);
-  void acquire_unconditional_rw_reader_extended(McsRwLock* lock, McsBlockIndex* out);
+  McsBlockIndex acquire_unconditional_rw_reader(McsRwLock* lock);
 
   /** [RW] Unconditionally takes a writer lock. */
-  void acquire_unconditional_rw_writer(McsRwLock* lock, McsBlockIndex* out) {
-    if (type_ == kMcsImplSimple) {
-      acquire_unconditional_rw_writer_simple(lock, out);
-    } else {
-      acquire_unconditional_rw_writer_extended(lock, out);
-    }
-  }
-  void acquire_unconditional_rw_writer_simple(McsRwLock* lock, McsBlockIndex* out);
-  void acquire_unconditional_rw_writer_extended(McsRwLock* lock, McsBlockIndex* out);
+  McsBlockIndex acquire_unconditional_rw_writer(McsRwLock* lock);
 
+  //////////////////////////
+  /// Try-acquire
   /**
    * [RW] Try to take a reader lock.
-   * @return whether acquired the lock or not.
+   * @pre the lock must \b NOT be taken by this thread yet.
+   * @return 0 if failed, the block index if acquired.
    */
-  bool acquire_try_rw_reader(McsRwLock* lock, McsBlockIndex* out) {
-    if (type_ == kMcsImplSimple) {
-      return acquire_try_rw_reader_simple(lock, out);
-    } else {
-      return acquire_try_rw_reader_extended(lock, out);
-    }
-  }
-  bool acquire_try_rw_reader_simple(McsRwLock* lock, McsBlockIndex* out);
-  bool acquire_try_rw_reader_extended(McsRwLock* lock, McsBlockIndex* out);
+  McsBlockIndex acquire_try_rw_reader(McsRwLock* lock);
 
   /**
    * [RW] Try to take a writer lock.
-   * @return whether acquired the lock or not.
+   * @pre the lock must \b NOT be taken by this thread yet (even in reader mode).
+   * @return 0 if failed, the block index if acquired.
    */
-  bool acquire_try_rw_writer(McsRwLock* lock, McsBlockIndex* out) {
-    if (type_ == kMcsImplSimple) {
-      return acquire_try_rw_writer_simple(lock, out);
-    } else {
-      return acquire_try_rw_writer_extended(lock, out);
-    }
-  }
-  bool acquire_try_rw_writer_simple(McsRwLock* lock, McsBlockIndex* out);
-  bool acquire_try_rw_writer_extended(McsRwLock* lock, McsBlockIndex* out);
+  McsBlockIndex acquire_try_rw_writer(McsRwLock* lock);
+
+  //////////////////////////
+  /// \b Async-acquire trios (\b acquire, \b cancel, \b retry)
 
   /**
-   * [RW] Try to upgrade a reader lock to a writer lock.
-   * @pre the lock must be now in reader mode.
-   * @return whether upgraded the lock or not.
+   * [RW] Asynchronously try to take a reader lock.
+   * @pre the lock must \b NOT be taken by this thread yet.
    */
-  bool acquire_try_rw_writer_upgrade(McsRwLock* lock, McsBlockIndex* out) {
-    if (type_ == kMcsImplSimple) {
-      return acquire_try_rw_writer_upgrade_simple(lock, out);
-    } else {
-      return acquire_try_rw_writer_upgrade_extended(lock, out);
-    }
-  }
-  bool acquire_try_rw_writer_upgrade_simple(McsRwLock* lock, McsBlockIndex* out);
-  bool acquire_try_rw_writer_upgrade_extended(McsRwLock* lock, McsBlockIndex* out);
+  AcquireAsyncRet acquire_async_rw_reader(McsRwLock* lock);
+  /**
+   * [RW] Asynchronously try to take a writer lock.
+   * @pre the lock must \b NOT be taken by this thread yet (even in reader mode).
+   */
+  AcquireAsyncRet acquire_async_rw_writer(McsRwLock* lock);
 
+  /**
+   * [RW] Returns whether the lock requeust is now granted.
+   * @pre block_index != 0
+   * @note this is an instantenous check. Timeout is handled by the caller.
+   */
+  bool retry_async_rw_reader(McsRwLock* lock, McsBlockIndex block_index);
+  bool retry_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index);
+
+  /**
+   * [RW] Cancels the lock request.
+   * @pre block_index != 0
+   * @note this works no matter whether the request is no granted or not.
+   */
+  void cancel_async_rw_reader(McsRwLock* lock, McsBlockIndex block_index);
+  void cancel_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index);
+
+  //////////////////////////
+  /// Release and other stuffs
   /**
    * [RW] Releases a reader lock.
    * @pre the lock must be now in reader mode.
    */
-  void release_rw_reader(McsRwLock* lock, McsBlockIndex block_index) {
-    if (type_ == kMcsImplSimple) {
-      release_rw_reader_simple(lock, block_index);
-    } else {
-      release_rw_reader_extended(lock, block_index);
-    }
-  }
-  void release_rw_reader_simple(McsRwLock* lock, McsBlockIndex block_index);
-  void release_rw_reader_extended(McsRwLock* lock, McsBlockIndex block_index);
+  void release_rw_reader(McsRwLock* lock, McsBlockIndex block_index);
   /**
    * [RW] Releases a writer lock.
    * @pre the lock must be now in writer mode.
    */
-  void release_rw_writer(McsRwLock* lock, McsBlockIndex block_index) {
-    if (type_ == kMcsImplSimple) {
-      release_rw_writer_simple(lock, block_index);
-    } else {
-      release_rw_writer_extended(lock, block_index);
-    }
-  }
-  void release_rw_writer_simple(McsRwLock* lock, McsBlockIndex block_index);
-  void release_rw_writer_extended(McsRwLock* lock, McsBlockIndex block_index);
-
-  McsRwBlock* dereference_rw_tail_block(uint32_t tail_int) {
-    McsRwLock tail_tmp;
-    tail_tmp.tail_ = tail_int;
-    uint32_t tail_id = tail_tmp.get_tail_waiter();
-    uint32_t tail_block = tail_tmp.get_tail_waiter_block();
-    return adaptor_.get_rw_other_block(tail_id, tail_block);
-  }
-
-
+  void release_rw_writer(McsRwLock* lock, McsBlockIndex block_index);
   /// RW-lock methods: END
   //////////////////////////////////////////////////////////////////////////////////
 
+ private:
   ADAPTOR adaptor_;
-  const McsImplType type_;
 };
 
 }  // namespace xct

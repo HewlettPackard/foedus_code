@@ -322,7 +322,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   bool mcs_lock_granted(xct::McsRwLock* lock, xct::McsBlockIndex block_index, int32_t timeout = 0);
 #endif  // MCS_RW_LOCK
-  xct::McsRwBlock* get_mcs_rw_blocks();
+  xct::McsRwSimpleBlock* get_mcs_rw_simple_blocks();
+  xct::McsRwExtendedBlock* get_mcs_rw_extended_blocks();
   void               mcs_release_reader_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);

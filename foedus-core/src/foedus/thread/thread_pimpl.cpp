@@ -70,7 +70,8 @@ ThreadPimpl::ThreadPimpl(
     task_input_memory_(nullptr),
     task_output_memory_(nullptr),
     mcs_blocks_(nullptr),
-    mcs_rw_blocks_(nullptr),
+    mcs_rw_simple_blocks_(nullptr),
+    mcs_rw_extended_blocks_(nullptr),
     canonical_address_(nullptr) {
 }
 
@@ -84,7 +85,8 @@ ErrorStack ThreadPimpl::initialize_once() {
   task_input_memory_ = anchors->task_input_memory_;
   task_output_memory_ = anchors->task_output_memory_;
   mcs_blocks_ = anchors->mcs_lock_memories_;
-  mcs_rw_blocks_ = anchors->mcs_rw_lock_memories_;
+  mcs_rw_simple_blocks_ = anchors->mcs_rw_simple_lock_memories_;
+  mcs_rw_extended_blocks_ = anchors->mcs_rw_extended_lock_memories_;
 
   pool_pimpl_ = engine_->get_thread_pool()->get_pimpl();
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
@@ -810,17 +812,20 @@ xct::McsRwBlock* ThreadPimpl::get_mcs_rw_block(thread::ThreadId id, xct::McsBloc
   ASSERT_ND(index > 0);
   ASSERT_ND(index < 0xFFFFU);
   ThreadRef thread = pool_pimpl_->get_thread_ref(id);
-  return thread.get_mcs_rw_blocks() + index;
+  return thread.get_mcs_rw_simple_blocks() + index;
 }
 xct::McsRwBlock* ThreadPimpl::get_mcs_rw_block(uint32_t tail_int) {
   xct::McsRwLock lock;
   lock.tail_ = tail_int;
   ThreadRef thread = pool_pimpl_->get_thread_ref(lock.get_tail_waiter());
-  return thread.get_mcs_rw_blocks() + lock.get_tail_waiter_block();
+  return thread.get_mcs_rw_simple_blocks() + lock.get_tail_waiter_block();
 }
 
-xct::McsRwBlock* Thread::get_mcs_rw_blocks() {
-  return pimpl_->mcs_rw_blocks_;
+xct::McsRwSimpleBlock* Thread::get_mcs_rw_simple_blocks() {
+  return pimpl_->mcs_rw_simple_blocks_;
+}
+xct::McsRwExtendedBlock* Thread::get_mcs_rw_extended_blocks() {
+  return pimpl_->mcs_rw_extended_blocks_;
 }
 
 // Put Thread methods here to allow inlining.
@@ -1500,7 +1505,7 @@ void ThreadPimpl::mcs_release_writer_lock(
   xct::McsBlockIndex block_index) {
   ASSERT_ND(block_index > 0);
   ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
-  xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_rw_blocks_ + block_index;
+  xct::McsRwBlock* my_block = (xct::McsRwBlock *) mcs_rw_simple_blocks_ + block_index;
   uint32_t expected = xct::McsRwLock::to_tail_int(id_, block_index);
   uint32_t* tail_address = &mcs_rw_lock->tail_;
   if (my_block->successor_is_ready() ||

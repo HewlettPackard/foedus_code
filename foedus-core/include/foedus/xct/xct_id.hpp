@@ -585,6 +585,11 @@ struct McsRwBlock {
 };
 #endif  // MCS_RW_LOCK
 
+// TODO : rename McsRwBlock to McsRwSimpleBlock, and make a new McsRwExtendedBlock
+typedef McsRwBlock McsRwSimpleBlock;
+struct McsRwExtendedBlock : public McsRwBlock {
+};
+
 /**
  * @brief An MCS lock data structure.
  * @ingroup XCT
