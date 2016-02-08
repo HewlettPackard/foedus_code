@@ -586,12 +586,5 @@ template class McsImpl< McsMockAdaptor<McsRwSimpleBlock> ,   McsRwSimpleBlock>;
 template class McsImpl< McsMockAdaptor<McsRwExtendedBlock> , McsRwExtendedBlock>;
 template class McsImpl< thread::ThreadPimplMcsAdaptor<McsRwSimpleBlock> ,   McsRwSimpleBlock>;
 template class McsImpl< thread::ThreadPimplMcsAdaptor<McsRwExtendedBlock> , McsRwExtendedBlock>;
-
-/*
-template McsBlockIndex McsImpl<McsMockAdaptor<McsRwSimpleBlock> , McsRwSimpleBlock>
-  ::acquire_unconditional_ww(McsLock* mcs_lock);
-template McsBlockIndex McsImpl<thread::ThreadPimplMcsAdaptor<McsRwSimpleBlock> , McsRwSimpleBlock>
-  ::acquire_unconditional_ww(McsLock* mcs_lock);
-*/
 }  // namespace xct
 }  // namespace foedus

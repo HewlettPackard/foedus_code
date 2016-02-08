@@ -277,7 +277,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
   void          collect_retired_volatile_page(storage::VolatilePagePointer ptr);
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
-  /** @copydoc foedus::xct::McsImpl::acquire_unconditional_ww() */
+  /** @copydoc foedus::xct::McsWwImpl::acquire_unconditional() */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
   /**
    * Unconditionally takes multiple MCS locks.
@@ -285,9 +285,9 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * following locks trivially have sequential block index from it.
    */
   xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size);
-  /** @copydoc foedus::xct::McsImpl::initial_ww() */
+  /** @copydoc foedus::xct::McsWwImpl::initial() */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
-  /** @copydoc foedus::xct::McsImpl::release_ww() */
+  /** @copydoc foedus::xct::McsWwImpl::release() */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
   /** corresponds to mcs_acquire_lock_batch() */
   void                mcs_release_lock_batch(
@@ -332,11 +332,11 @@ class Thread CXX11_FINAL : public virtual Initializable {
    */
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
 
-  /** @copydoc foedus::xct::McsImpl::ownerless_acquire_unconditional_ww() */
+  /** @copydoc foedus::xct::McsWwImpl::ownerless_acquire_unconditional() */
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
-  /** @copydoc foedus::xct::McsImpl::ownerless_release_ww() */
+  /** @copydoc foedus::xct::McsWwImpl::ownerless_release() */
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
-  /** @copydoc foedus::xct::McsImpl::ownerless_initial_ww() */
+  /** @copydoc foedus::xct::McsWwImpl::ownerless_initial() */
   static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
 
   /** @see foedus::xct::InCommitEpochGuard  */
