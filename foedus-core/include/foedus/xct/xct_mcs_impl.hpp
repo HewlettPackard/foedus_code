@@ -25,19 +25,6 @@
 namespace foedus {
 namespace xct {
 
-/** Return value of acquire_async_rw. */
-struct AcquireAsyncRet {
-  /** whether we immediately acquired the lock or not */
-  bool acquired_;
-  /**
-   * the queue node we pushed.
-   * It is always set whether acquired_ or not, whether simple or extended.
-   * However, in simple case when !acquired_, the block is not used and nothing
-   * sticks to the queue. We just skip the index next time.
-   */
-  McsBlockIndex block_index_;
-};
-
 /**
  * @brief Implements an MCS-locking Algorithm.
  * @ingroup XCT
@@ -97,31 +84,6 @@ template<typename ADAPTOR, typename RW_BLOCK>
 class McsImpl {
  public:
   explicit McsImpl(ADAPTOR adaptor) : adaptor_(adaptor) {}
-
-  //////////////////////////////////////////////////////////////////////////////////
-  /// WW-lock methods: BEGIN
-
-  /** [WW] Unconditionally takes exclusive-only MCS lock on the given lock. */
-  McsBlockIndex  acquire_unconditional_ww(McsLock* lock);
-  // TBD we so far do not have try/asynchronous versions of WW lock. Do we need them?
-
-  /** [WW] This doesn't use any atomic operation. only allowed when there is no race */
-  McsBlockIndex  initial_ww(McsLock* lock);
-  /** [WW] Unlcok an MCS lock acquired by this thread. */
-  void           release_ww(McsLock* lock, McsBlockIndex block_index);
-
-  /** [WW-Guest] Unconditionally takes exclusive-only \b guest lock on the given MCSg lock. */
-  static void ownerless_acquire_unconditional_ww(McsLock* lock);
-  static void ownerless_release_ww(McsLock* lock);
-  static void ownerless_initial_ww(McsLock* lock);
-  // No try/asynchronous versions for guests. Probably we don't need them.
-  // TBD So far no RW versions for guests. We might need them later..
-
-  /// WW-lock methods: END
-  //////////////////////////////////////////////////////////////////////////////////
-
-
-
   //////////////////////////////////////////////////////////////////////////////////
   /// RW-lock methods: BEGIN
 
@@ -193,6 +155,42 @@ class McsImpl {
   void release_rw_writer(McsRwLock* lock, McsBlockIndex block_index);
   /// RW-lock methods: END
   //////////////////////////////////////////////////////////////////////////////////
+
+ private:
+  ADAPTOR adaptor_;
+};
+
+/**
+ * @brief A specialized/simplified implementation of an MCS-locking Algorithm
+ * for exclusive-only (WW) locks.
+ * @ingroup XCT
+ * @details
+ * This is exactly same as MCSg. Most places in our codebase now use RW locks,
+ * but still there are a few WW-only places, such as page-lock (well, so far).
+ */
+template<typename ADAPTOR>
+class McsWwImpl {
+ public:
+  explicit McsWwImpl(ADAPTOR adaptor) : adaptor_(adaptor) {}
+
+  /** [WW] Unconditionally takes exclusive-only MCS lock on the given lock. */
+  McsBlockIndex  acquire_unconditional(McsLock* lock);
+  // TBD we so far do not have try/asynchronous versions of WW lock. Do we need them?
+
+  /**
+   * [WW] This doesn't use any atomic operation. only allowed when there is no race
+   * TASK(Hideaki): This will be renamed to mcs_non_racy_lock(). "initial_lock" is ambiguous.
+   */
+  McsBlockIndex  initial(McsLock* lock);
+  /** [WW] Unlcok an MCS lock acquired by this thread. */
+  void           release(McsLock* lock, McsBlockIndex block_index);
+
+  /** [WW-Guest] Unconditionally takes exclusive-only \b guest lock on the given MCSg lock. */
+  static void     ownerless_acquire_unconditional(McsLock* lock);
+  static void     ownerless_release(McsLock* lock);
+  static void     ownerless_initial(McsLock* lock);
+  // No try/asynchronous versions for guests. Probably we don't need them.
+  // TBD So far no RW versions for guests. We might need them later..
 
  private:
   ADAPTOR adaptor_;

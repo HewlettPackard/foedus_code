@@ -199,11 +199,6 @@ class XctManagerPimpl final : public DefaultInitializable {
   void        precommit_xct_apply(thread::Thread* context, XctId max_xct_id, Epoch *commit_epoch);
   /** unlocking all acquired locks, used when commit/abort. */
   void        release_and_clear_all_current_locks(thread::Thread* context);
-  /**
-   * unlock all acquire locks, but skips the first skip entries.
-   * Thus, skip=0 means releasing all locks.
-   */
-  void        release_all_current_locks_after(thread::Thread* context, LockListPosition skip);
   bool        precommit_xct_acquire_writer_lock(thread::Thread* context, WriteXctAccess *write);
   void        precommit_xct_sort_access(thread::Thread* context);
   bool        precommit_xct_try_acquire_writer_locks(thread::Thread* context);
@@ -306,7 +301,7 @@ inline void CurrentLockListIteratorForWriteSet::next_writes() {
   // CLL must contain all entries in write-set. We are reading in-order.
   // So, we must find a valid CLL entry that is == write_id
   const LockEntry* l = cll_->get_entry(cll_pos_);
-  while(l->universal_lock_id_ < write_id) {
+  while (l->universal_lock_id_ < write_id) {
     ASSERT_ND(cll_pos_ < cll_->get_last_active_entry());
     ++cll_pos_;
     l = cll_->get_entry(cll_pos_);

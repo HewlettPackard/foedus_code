@@ -27,6 +27,7 @@ XctOptions::XctOptions() {
   epoch_advance_interval_ms_ = kDefaultEpochAdvanceIntervalMs;
   enable_retrospective_lock_list_ = false;  // TODO(Hideaki) tentative!
   force_canonical_xlocks_in_precommit_ = true;  // TODO(Hideaki) tentative!
+  mcs_implementation_type_ = kMcsImplementationTypeSimple;
 }
 
 ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
@@ -37,6 +38,7 @@ ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, epoch_advance_interval_ms_);
   EXTERNALIZE_LOAD_ELEMENT(element, enable_retrospective_lock_list_);
   EXTERNALIZE_LOAD_ELEMENT(element, force_canonical_xlocks_in_precommit_);
+  EXTERNALIZE_LOAD_ELEMENT(element, mcs_implementation_type_);
   return kRetOk;
 }
 
@@ -67,6 +69,9 @@ ErrorStack XctOptions::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, force_canonical_xlocks_in_precommit_,
     "Whether precommit always releases all locks that violate canonical mode before"
     " taking X-locks.");
+  EXTERNALIZE_SAVE_ELEMENT(element, mcs_implementation_type_,
+    "Defines which implementation of MCS locks to use for RW locks."
+    " So far we allow kMcsImplementationTypeSimple and kMcsImplementationTypeExtended.");
   return kRetOk;
 }
 

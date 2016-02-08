@@ -63,6 +63,9 @@ class ThreadRef CXX11_FINAL {
   xct::McsBlock* get_mcs_blocks() const { return mcs_blocks_; }
   xct::McsRwSimpleBlock* get_mcs_rw_simple_blocks() const { return mcs_rw_simple_blocks_; }
   xct::McsRwExtendedBlock* get_mcs_rw_extended_blocks() const { return mcs_rw_extended_blocks_; }
+  // overload to be template-friendly
+  void get_mcs_rw_blocks(xct::McsRwSimpleBlock** out) const { *out = mcs_rw_simple_blocks_; }
+  void get_mcs_rw_blocks(xct::McsRwExtendedBlock** out) const { *out = mcs_rw_extended_blocks_; }
   ThreadControlBlock* get_control_block() const { return control_block_; }
 
   /** @see foedus::xct::InCommitEpochGuard  */
@@ -85,7 +88,7 @@ class ThreadRef CXX11_FINAL {
   void*                 task_output_memory_;
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
-  xct::McsBlock*        mcs_blocks_;
+  xct::McsBlock*            mcs_blocks_;
   xct::McsRwSimpleBlock*    mcs_rw_simple_blocks_;
   xct::McsRwExtendedBlock*  mcs_rw_extended_blocks_;
 };

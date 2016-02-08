@@ -45,6 +45,8 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
     kDefaultLocalWorkMemorySizeMb = 2,
     /** Default value for epoch_advance_interval_ms_. */
     kDefaultEpochAdvanceIntervalMs = 20,
+    kMcsImplementationTypeSimple = 0,
+    kMcsImplementationTypeExtended = 1,
   };
 
   /**
@@ -126,6 +128,15 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * @ref RLL
    */
   bool        force_canonical_xlocks_in_precommit_;
+
+  /**
+   * @brief Defines which implementation of MCS locks to use for RW locks.
+   * @details
+   * So far we allow "kMcsImplementationTypeSimple" and "kMcsImplementationTypeExtended".
+   * For WW locks, we always use our MCSg lock.
+   * @see foedus::xct::McsImpl
+   */
+  uint16_t    mcs_implementation_type_;
 };
 }  // namespace xct
 }  // namespace foedus

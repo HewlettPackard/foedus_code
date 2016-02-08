@@ -82,13 +82,6 @@ void Thread::reset_snapshot_cache_counts() const {
 xct::Xct&   Thread::get_current_xct()   { return pimpl_->current_xct_; }
 bool        Thread::is_running_xct()    const { return pimpl_->current_xct_.is_active(); }
 
-xct::RwLockableXctId* Thread::get_canonical_address() {
-  return pimpl_->canonical_address_;
-}
-void        Thread::set_canonical_address(xct::RwLockableXctId *ca) {
-  pimpl_->canonical_address_ = ca;
-}
-
 log::ThreadLogBuffer& Thread::get_thread_log_buffer() { return pimpl_->log_buffer_; }
 
 const memory::LocalPageResolver& Thread::get_local_volatile_page_resolver() const {

@@ -82,27 +82,18 @@ ErrorStack no_conflict_task(const proc::ProcArguments& args) {
   McsBlockIndex block = 0;
   acquired_writes = acquired_reads = 0;
   if (id % 2 == 0) {
-#ifdef MCS_RW_GROUP_TRY_LOCK
-  retry1:
-    while (!context->mcs_try_acquire_reader_lock(keys[id].get_key_lock(), &block, 10)) {}
-    if (!context->mcs_retry_acquire_reader_lock(keys[id].get_key_lock(), block, true)) {
-      goto retry1;
+    while (!block) {
+      block = context->mcs_try_acquire_reader_lock(keys[id].get_key_lock());
     }
-#endif
-#ifdef MCS_RW_LOCK
-    while (!context->mcs_try_acquire_reader_lock(keys[id].get_key_lock(), &block, 0)) {}
-#endif
+    auto* b = context->get_mcs_rw_simple_blocks() + block;
+    ASSERT_ND(b->is_finalized());
+    ASSERT_ND(b->is_granted());
   } else {
-#ifdef MCS_RW_GROUP_TRY_LOCK
-  retry2:
-    while (!context->mcs_try_acquire_writer_lock(keys[id].get_key_lock(), &block, 10)) {}
-    if (!context->mcs_retry_acquire_writer_lock(keys[id].get_key_lock(), block, true)) {
-      goto retry2;
+    while (!block) {
+      block = context->mcs_try_acquire_writer_lock(keys[id].get_key_lock());
     }
-#endif
-#ifdef MCS_RW_LOCK
-    while (!context->mcs_try_acquire_writer_lock(keys[id].get_key_lock(), &block, 0)) {}
-#endif
+    auto* b = context->get_mcs_rw_simple_blocks() + block;
+    ASSERT_ND(b->is_granted());
   }
   locked[id] = true;
   ++locked_count;
@@ -138,33 +129,17 @@ ErrorStack random_task(const proc::ProcArguments& args) {
     uint32_t k = r.uniform_within(0, kKeys - 1);
     McsBlockIndex block = 0;
     if (id % 2 == 0) {
-#ifdef MCS_RW_GROUP_TRY_LOCK
-      while (!context->mcs_try_acquire_reader_lock(keys[k].get_key_lock(), &block, 10)) {}
-      if (context->mcs_retry_acquire_reader_lock(keys[k].get_key_lock(), block, true)) {
+      block = context->mcs_try_acquire_reader_lock(keys[k].get_key_lock());
+      if (block) {
         acquired_reads++;
         context->mcs_release_reader_lock(keys[k].get_key_lock(), block);
       }
-#endif
-#ifdef MCS_RW_LOCK
-      if (context->mcs_try_acquire_reader_lock(keys[k].get_key_lock(), &block, 0)) {
-        acquired_reads++;
-        context->mcs_release_reader_lock(keys[k].get_key_lock(), block);
-      }
-#endif
     } else {
-#ifdef MCS_RW_GROUP_TRY_LOCK
-      while (!context->mcs_try_acquire_writer_lock(keys[k].get_key_lock(), &block, 10)) {}
-      if (context->mcs_retry_acquire_writer_lock(keys[k].get_key_lock(), block, true)) {
+      block = context->mcs_try_acquire_writer_lock(keys[k].get_key_lock());
+      if (block) {
         acquired_writes++;
         context->mcs_release_writer_lock(keys[k].get_key_lock(), block);
       }
-#endif
-#ifdef MCS_RW_LOCK
-      if (context->mcs_try_acquire_writer_lock(keys[k].get_key_lock(), &block, 0)) {
-        acquired_writes++;
-        context->mcs_release_writer_lock(keys[k].get_key_lock(), block);
-      }
-#endif
     }
   }
   WRAP_ERROR_CODE(xct_manager->abort_xct(context));

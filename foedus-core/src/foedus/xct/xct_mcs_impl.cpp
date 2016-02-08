@@ -23,6 +23,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/thread/thread_pimpl.hpp"  // just for explicit instantiation at the end
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_mcs_adapter_impl.hpp"
 
@@ -59,8 +60,8 @@ void spin_until(COND spin_until_cond) {
 ///  partial specialization. So we don't need any trick.
 ///
 ////////////////////////////////////////////////////////////////////////////////
-template <typename ADAPTOR, typename RW_BLOCK>
-McsBlockIndex McsImpl<ADAPTOR, RW_BLOCK>::acquire_unconditional_ww(McsLock* mcs_lock) {
+template <typename ADAPTOR>
+McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -146,8 +147,8 @@ McsBlockIndex McsImpl<ADAPTOR, RW_BLOCK>::acquire_unconditional_ww(McsLock* mcs_
   return block_index;
 }
 
-template <typename ADAPTOR, typename RW_BLOCK>
-void McsImpl<ADAPTOR, RW_BLOCK>::ownerless_acquire_unconditional_ww(McsLock* mcs_lock) {
+template <typename ADAPTOR>
+void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -166,8 +167,8 @@ void McsImpl<ADAPTOR, RW_BLOCK>::ownerless_acquire_unconditional_ww(McsLock* mcs
   ASSERT_ND(mcs_lock->is_locked());
 }
 
-template <typename ADAPTOR, typename RW_BLOCK>
-McsBlockIndex McsImpl<ADAPTOR, RW_BLOCK>::initial_ww(McsLock* mcs_lock) {
+template <typename ADAPTOR>
+McsBlockIndex McsWwImpl<ADAPTOR>::initial(McsLock* mcs_lock) {
   // Basically _all_ writes in this function must come with release barrier.
   // This method itself doesn't need barriers, but then we need to later take a seq_cst barrier
   // in an appropriate place. That's hard to debug, so just take release barriers here.
@@ -187,15 +188,15 @@ McsBlockIndex McsImpl<ADAPTOR, RW_BLOCK>::initial_ww(McsLock* mcs_lock) {
   return block_index;
 }
 
-template <typename ADAPTOR, typename RW_BLOCK>
-void McsImpl<ADAPTOR, RW_BLOCK>::ownerless_initial_ww(McsLock* mcs_lock) {
+template <typename ADAPTOR>
+void McsWwImpl<ADAPTOR>::ownerless_initial(McsLock* mcs_lock) {
   assert_mcs_aligned(mcs_lock);
   ASSERT_ND(!mcs_lock->is_locked());
   mcs_lock->reset_guest_id_release();
 }
 
-template <typename ADAPTOR, typename RW_BLOCK>
-void McsImpl<ADAPTOR, RW_BLOCK>::release_ww(McsLock* mcs_lock, McsBlockIndex block_index) {
+template <typename ADAPTOR>
+void McsWwImpl<ADAPTOR>::release(McsLock* mcs_lock, McsBlockIndex block_index) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -247,8 +248,8 @@ void McsImpl<ADAPTOR, RW_BLOCK>::release_ww(McsLock* mcs_lock, McsBlockIndex blo
   ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
 }
 
-template <typename ADAPTOR, typename RW_BLOCK>
-void McsImpl<ADAPTOR, RW_BLOCK>::ownerless_release_ww(McsLock* mcs_lock) {
+template <typename ADAPTOR>
+void McsWwImpl<ADAPTOR>::ownerless_release(McsLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -284,6 +285,13 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
   McsBlockIndex acquire_try_rw_reader(McsRwLock* lock) {
     McsBlockIndex block_index = adaptor_.issue_new_block();
     bool success = retry_async_rw_reader(lock, block_index);
+#ifndef NDEBUG
+    if (success) {
+      auto* my_block = adaptor_.get_rw_my_block(block_index);
+      ASSERT_ND(my_block->is_finalized());
+      ASSERT_ND(my_block->is_granted());
+    }
+#endif  // NDEBUG
     return success ? block_index : 0;
   }
 
@@ -473,7 +481,7 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
       uint64_t lock_word
         = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
       McsRwLock ll;
-      memcpy(&ll, &lock_word, sizeof(ll));
+      std::memcpy(&ll, &lock_word, sizeof(ll));
       if (ll.next_writer_ != McsRwLock::kNextWriterNone) {
         return false;
       }
@@ -494,6 +502,7 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
             block->set_successor_next_only(id, block_index);
           }
           my_block->unblock();
+          finalize_acquire_reader_simple(lock, my_block);
           return true;
         }
       }
@@ -570,8 +579,19 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 /// Finally, explicit instantiation of the template class.
 /// We instantiate the real adaptor for ThreadPimpl and the mock one for testing.
 ////////////////////////////////////////////////////////////////////////////////
+template class McsWwImpl< McsMockAdaptor<McsRwSimpleBlock> >;
+template class McsWwImpl< thread::ThreadPimplMcsAdaptor<McsRwSimpleBlock> >;
+
 template class McsImpl< McsMockAdaptor<McsRwSimpleBlock> ,   McsRwSimpleBlock>;
 template class McsImpl< McsMockAdaptor<McsRwExtendedBlock> , McsRwExtendedBlock>;
+template class McsImpl< thread::ThreadPimplMcsAdaptor<McsRwSimpleBlock> ,   McsRwSimpleBlock>;
+template class McsImpl< thread::ThreadPimplMcsAdaptor<McsRwExtendedBlock> , McsRwExtendedBlock>;
 
+/*
+template McsBlockIndex McsImpl<McsMockAdaptor<McsRwSimpleBlock> , McsRwSimpleBlock>
+  ::acquire_unconditional_ww(McsLock* mcs_lock);
+template McsBlockIndex McsImpl<thread::ThreadPimplMcsAdaptor<McsRwSimpleBlock> , McsRwSimpleBlock>
+  ::acquire_unconditional_ww(McsLock* mcs_lock);
+*/
 }  // namespace xct
 }  // namespace foedus

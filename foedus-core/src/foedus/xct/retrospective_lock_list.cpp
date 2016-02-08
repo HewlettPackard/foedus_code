@@ -445,58 +445,57 @@ ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
   }
   ASSERT_ND(lock_entry->taken_mode_ != kWriteLock);
 
-  bool lock_upgrade = false;
+  auto* lock_addr = lock_entry->lock_->get_key_lock();
   if (lock_entry->taken_mode_ != kNoLock) {
     ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
     ASSERT_ND(lock_entry->taken_mode_ == kReadLock);
-    lock_upgrade = true;
+    ASSERT_ND(lock_entry->mcs_block_);
+    // This is reader->writer upgrade.
+    // We simply release read-lock first then take write-lock in this case.
+    // In traditional 2PL, such an unlock-then-lock violates serializability,
+    // but we guarantee serializability by read-verification anyways.
+    // We can release any lock anytime.. great flexibility!
+    context->mcs_release_reader_lock(lock_addr, lock_entry->mcs_block_);
+
+    // simply recalculate. We can do a bit smarter thing.. if CPU profile tells something.
+    // unlikely because lock upgrade shouldn't be that often. RLL should minimize it.
+    *last_locked_pos = get_last_locked_entry();
+  } else {
+    // This method is for unconditional acquire and try, not aync/retry.
+    // If we have a queue node already, something was misused.
+    ASSERT_ND(lock_entry->mcs_block_ == 0);
   }
 
-  // Now we need to take or upgrade the lock. Are we in canonical mode?
-  auto* lock_addr = lock_entry->lock_->get_key_lock();
+  // Now we need to take the lock. Are we in canonical mode?
   if (*last_locked_pos == kLockListPositionInvalid || *last_locked_pos < pos) {
     // yay, we are in canonical mode. we can unconditionally get the lock
     ASSERT_ND(lock_entry->taken_mode_ == kNoLock);  // not a lock upgrade, either
-    ASSERT_ND(!lock_upgrade);
-    lock_entry->mcs_block_ = context->mcs_acquire_writer_lock(lock_addr);  // unconditional
-    lock_entry->taken_mode_ = kWriteLock;
+    if (lock_entry->preferred_mode_ == kWriteLock) {
+      lock_entry->mcs_block_ = context->mcs_acquire_writer_lock(lock_addr);
+    } else {
+      ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+      lock_entry->mcs_block_ = context->mcs_acquire_reader_lock(lock_addr);
+    }
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
   } else {
     // hmm, we violated canonical mode. has a risk of deadlock.
     // Let's just try acquire the lock and immediately give up if it fails.
     // The RLL will take care of the next run.
     // TODO(Hideaki) release some of the lock we have taken to restore canonical mode.
     // We haven't imlpemented this optimization yet.
-    if (lock_upgrade) {
-      ASSERT_ND(lock_entry->mcs_block_);
-      ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
-      if (!context->mcs_try_acquire_writer_upgrade(lock_addr, &lock_entry->mcs_block_)) {
-        DVLOG(0) << "Failed to try-upgrade S-lock to X. giving up";
-        return kErrorCodeXctRaceAbort;
-      } else {
-        DVLOG(1) << "Succeeded to try-upgrade S-lock to X.";
-        lock_entry->taken_mode_ = kWriteLock;
-      }
+    ASSERT_ND(lock_entry->mcs_block_ == 0);
+    ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+    if (lock_entry->preferred_mode_ == kWriteLock) {
+      lock_entry->mcs_block_ = context->mcs_try_acquire_writer_lock(lock_addr);
     } else {
-      ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
-      if (lock_entry->preferred_mode_ == kWriteLock) {
-        if (!context->mcs_try_acquire_writer_lock(lock_addr, &lock_entry->mcs_block_, 5000)) {
-          DVLOG(0) << "Failed to try-acquire X-lock. giving up";
-          ASSERT_ND(lock_entry->mcs_block_);
-          return kErrorCodeXctRaceAbort;
-        } else {
-          lock_entry->taken_mode_ = kWriteLock;
-        }
-      } else {
-        ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
-        if (!context->mcs_try_acquire_reader_lock(lock_addr, &lock_entry->mcs_block_, 5000)) {
-          DVLOG(0) << "Failed to try-acquire S-lock. giving up";
-          ASSERT_ND(lock_entry->mcs_block_);
-          return kErrorCodeXctRaceAbort;
-        } else {
-          lock_entry->taken_mode_ = kReadLock;
-        }
-      }
+      ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+      lock_entry->mcs_block_ = context->mcs_try_acquire_reader_lock(lock_addr);
     }
+    if (lock_entry->mcs_block_ == 0) {
+      DVLOG(0) << "Failed to try-acquire a lock.";
+      return kErrorCodeXctRaceAbort;
+    }
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
   }
   ASSERT_ND(lock_entry->mcs_block_);
   *last_locked_pos = pos;

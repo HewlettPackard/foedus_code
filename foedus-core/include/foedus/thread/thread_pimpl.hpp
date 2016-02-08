@@ -37,26 +37,13 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
+#include "foedus/thread/thread_ref.hpp"
 #include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace thread {
-
-/** Spin locally until the given condition returns false */
-template <typename COND>
-void spin_until(COND spin_while_cond) {
-  DVLOG(1) << "Locally spinning...";
-  uint64_t spins = 0;
-  while (spin_while_cond()) {
-    ++spins;
-    if ((spins & 0xFFFFFFU) == 0) {
-      assorted::spinlock_yield();
-    }
-  }
-  DVLOG(1) << "Spin ended. Spent " << spins << " spins";
-}
 
 /** Shared data of ThreadPimpl */
 struct ThreadControlBlock {
@@ -165,6 +152,8 @@ struct ThreadControlBlock {
  */
 class ThreadPimpl final : public DefaultInitializable {
  public:
+  template<typename RW_BLOCK> friend class ThreadPimplMcsAdaptor;
+
   ThreadPimpl() = delete;
   ThreadPimpl(
     Engine* engine,
@@ -274,6 +263,18 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Subroutine of collect_retired_volatile_page() just for assertion */
   bool          is_volatile_page_retired(storage::VolatilePagePointer ptr);
 
+  /** */
+  ThreadRef     get_thread_ref(ThreadId id);
+
+
+  ////////////////////////////////////////////////////////
+  /// MCS locks methods.
+  /// These just delegate to xct_mcs_impl.
+  /// Comments ommit as they are the same as xct_mcs_impl's.
+  template<typename FUNC>
+  void switch_mcs_impl(FUNC func);
+  bool is_simple_mcs_rw() const { return simple_mcs_rw_; }
+
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
@@ -281,52 +282,12 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Unlcok an MCS lock acquired by this thread. */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
 
-#ifdef MCS_RW_LOCK
-  bool mcs_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
-  bool mcs_acquire_writer_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
-
-  /** These two calls mcs_acquire_reader_lock internally */
-  bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
-  bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
+  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* lock);
+  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* lock);
 
   /** One-shot CAS version */
-  bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index);
-  bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-
-  /** This one is to upgrade a read lock to a write lock */
-  bool mcs_try_acquire_writer_upgrade(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-  void mcs_finalize_acquire_reader_lock(xct::McsRwLock* lock, xct::McsRwBlock* my_block);
-  bool mcs_lock_granted(xct::McsRwLock* lock, xct::McsBlockIndex block_index, int32_t timeout);
-#endif  // MCS_RW_LOCK
-
-#ifdef MCS_RW_TIMEOUT_LOCK
-  xct::McsRwBlock* mcs_init_block(xct::McsBlockIndex* out_block_index, bool writer);
-
-  /** The one-shot all-mighty acquire methods with timeout */
-  ErrorCode mcs_acquire_reader_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
-  ErrorCode mcs_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
-
-  /** Helper functions for cancelling a lock. Do **NOT** use these from the user
-   * side directly, use the ones defined in foedus::Thread instead. These two
-   * are only for mcs_acquire_reader/writer_lock to call when they timed out.
-   * If somehow you do need use this two from the user side, note the second
-   * argument is the whole lock tail int, not just your TLS block_index. */
-  ErrorCode mcs_cancel_writer_lock(xct::McsRwLock* lock, uint32_t my_tail_int);
-  ErrorCode mcs_cancel_reader_lock(xct::McsRwLock* lock, uint32_t my_tail_int);
-
-  /** Helper function for handling readers lined up behind a waiting reader who
-   * got the lock later. */
-  ErrorCode mcs_finish_acquire_reader_lock(
-    xct::McsRwLock* lock, xct::McsRwBlock* my_block, uint32_t my_tail_int);
-#endif  // MCS_RW_TIMEOUT_LOCK
+  xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* lock);
+  xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* lock);
 
   void               mcs_release_reader_lock(
     xct::McsRwLock* mcs_rw_lock,
@@ -334,26 +295,6 @@ class ThreadPimpl final : public DefaultInitializable {
   void               mcs_release_writer_lock(
     xct::McsRwLock* mcs_rw_lock,
     xct::McsBlockIndex block_index);
-#ifdef MCS_RW_GROUP_TRY_LOCK
-  bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
-  bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
-  bool mcs_retry_acquire_reader_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  bool mcs_retry_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  void mcs_abort_writer_lock_no_pred(
-    xct::McsRwLock* mcs_rw_lock, xct::McsRwBlock* block, uint32_t tail_int);
-  void mcs_uncondition_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-  bool mcs_eager_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-#endif // MCS_RW_GROUP_TRY_LOCK
-
-  /** Helper functions for try locks */
-  inline void pass_group_tail_to_successor(xct::McsRwBlock* block, uint32_t my_tail);
-  inline bool try_abort_as_group_leader(xct::McsRwBlock* expected_holder);
 
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
 
@@ -361,15 +302,19 @@ class ThreadPimpl final : public DefaultInitializable {
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
 
-  xct::McsRwBlock* get_mcs_rw_block(thread::ThreadId id, xct::McsBlockIndex index);
-  xct::McsRwBlock* get_mcs_rw_block(uint32_t tail_int);
+  /// async trio.
+  xct::AcquireAsyncRet mcs_acquire_async_rw_reader(xct::McsRwLock* lock);
+  xct::AcquireAsyncRet mcs_acquire_async_rw_writer(xct::McsRwLock* lock);
+  bool mcs_retry_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  bool mcs_retry_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  void mcs_cancel_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  void mcs_cancel_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
 
-  /** not used so far */
-  void                mcs_toolong_wait(
-    xct::McsRwLock* mcs_lock,
-    ThreadId predecessor_id,
-    xct::McsBlockIndex my_block,
-    xct::McsBlockIndex pred_block);
+  // overload to be template-friendly
+  void get_mcs_rw_my_blocks(xct::McsRwSimpleBlock** out) { *out = mcs_rw_simple_blocks_; }
+  void get_mcs_rw_my_blocks(xct::McsRwExtendedBlock** out) { *out = mcs_rw_extended_blocks_; }
+  /// MCS locks methods.
+  ////////////////////////////////////////////////////////
 
 
   Engine* const           engine_;
@@ -389,12 +334,8 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** globally and contiguously numbered ID of thread */
   const ThreadGlobalOrdinal global_ordinal_;
-  /**
-   * An optimization. Used in acquire/release lock.
-   * We don't want a function call overhead within a racy place, so we set this in init.
-   * This damages encapsulation, but we did observe a bottleneck here.
-   */
-  ThreadPoolPimpl*        pool_pimpl_;
+  /** shortcut for engine_->get_options().xct_.mcs_implementation_type_ == simple */
+  bool                    simple_mcs_rw_;
 
   /**
    * Private memory repository of this thread.
@@ -450,6 +391,78 @@ class ThreadPimpl final : public DefaultInitializable {
   xct::RwLockableXctId*   canonical_address_;
 };
 
+/**
+ * @brief Implements McsAdaptorConcept over ThreadPimpl.
+ * @ingroup THREAD
+ * @details
+ * This object is instantiated for every MCS lock invocation in ThreadPimpl, but
+ * this object is essentially just the \e this pointer itself (pimpl_).
+ * The compiler will/should eliminate basically everything.
+ */
+template<typename RW_BLOCK>
+class ThreadPimplMcsAdaptor {
+ public:
+  explicit ThreadPimplMcsAdaptor(ThreadPimpl* pimpl) : pimpl_(pimpl) {}
+  ~ThreadPimplMcsAdaptor() {}
+
+  xct::McsBlockIndex issue_new_block() { return ++pimpl_->control_block_->mcs_block_current_; }
+  xct::McsBlockIndex get_cur_block() const { return pimpl_->control_block_->mcs_block_current_; }
+  ThreadId      get_my_id() const { return pimpl_->id_; }
+  ThreadGroupId get_my_numa_node() const { return pimpl_->numa_node_; }
+  std::atomic<bool>* me_waiting() { return &pimpl_->control_block_->mcs_waiting_; }
+
+  xct::McsBlock* get_ww_my_block(xct::McsBlockIndex index) {
+    ASSERT_ND(index > 0);
+    ASSERT_ND(index < 0xFFFFU);
+    ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
+    return pimpl_->mcs_blocks_ + index;
+  }
+  RW_BLOCK* get_rw_my_block(xct::McsBlockIndex index) {
+    ASSERT_ND(index > 0);
+    ASSERT_ND(index < 0xFFFFU);
+    ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
+    RW_BLOCK* ret;
+    pimpl_->get_mcs_rw_my_blocks(&ret);
+    ret += index;
+    return ret;
+  }
+
+  std::atomic<bool>* other_waiting(ThreadId id) {
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    return &(other.get_control_block()->mcs_waiting_);
+  }
+  xct::McsBlockIndex get_other_cur_block(ThreadId id) {
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    return other.get_control_block()->mcs_block_current_;
+  }
+  xct::McsBlock* get_ww_other_block(ThreadId id, xct::McsBlockIndex index) {
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    ASSERT_ND(index <= other.get_control_block()->mcs_block_current_);
+    return other.get_mcs_blocks() + index;
+  }
+  RW_BLOCK* get_rw_other_block(ThreadId id, xct::McsBlockIndex index) {
+    ASSERT_ND(index > 0);
+    ASSERT_ND(index < 0xFFFFU);
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    RW_BLOCK* ret;
+    other.get_mcs_rw_blocks(&ret);
+    ASSERT_ND(index <= other.get_control_block()->mcs_block_current_);
+    ret += index;
+    return ret;
+  }
+  RW_BLOCK* dereference_rw_tail_block(uint32_t tail_int) {
+    xct::McsRwLock tail_tmp;
+    tail_tmp.tail_ = tail_int;
+    uint32_t tail_id = tail_tmp.get_tail_waiter();
+    uint32_t tail_block = tail_tmp.get_tail_waiter_block();
+    return get_rw_other_block(tail_id, tail_block);
+  }
+
+ private:
+  ThreadPimpl* const pimpl_;
+};
+
+
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
   storage::Page* buffer) {
@@ -461,6 +474,7 @@ inline ErrorCode ThreadPimpl::read_snapshot_pages(
   storage::Page* buffer) {
   return snapshot_file_set_.read_pages(page_id_begin, page_count, buffer);
 }
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_

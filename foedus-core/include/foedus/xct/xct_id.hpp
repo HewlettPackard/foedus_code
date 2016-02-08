@@ -133,6 +133,9 @@ enum LockMode {
  */
 typedef uintptr_t UniversalLockId;
 
+/** This never points to a valid lock, and also evaluates less than any vaild alocks */
+const UniversalLockId kNullUniversalLockId = 0;
+
 /**
  * @brief Index in a lock-list, either RLL or CLL.
  * @ingroup XCT
@@ -153,6 +156,19 @@ typedef uint32_t McsBlockIndex;
  * that doesn't have a context.
  */
 const uint32_t kMcsGuestId = -1;
+
+/** Return value of acquire_async_rw. */
+struct AcquireAsyncRet {
+  /** whether we immediately acquired the lock or not */
+  bool acquired_;
+  /**
+   * the queue node we pushed.
+   * It is always set whether acquired_ or not, whether simple or extended.
+   * However, in simple case when !acquired_, the block is not used and nothing
+   * sticks to the queue. We just skip the index next time.
+   */
+  McsBlockIndex block_index_;
+};
 
 /**
  * Represents an MCS node, a pair of node-owner (thread) and its block index.
@@ -585,10 +601,9 @@ struct McsRwBlock {
 };
 #endif  // MCS_RW_LOCK
 
-// TODO : rename McsRwBlock to McsRwSimpleBlock, and make a new McsRwExtendedBlock
-typedef McsRwBlock McsRwSimpleBlock;
-struct McsRwExtendedBlock : public McsRwBlock {
-};
+// TODO(Hideaki) : rename McsRwBlock to McsRwSimpleBlock, and make a new McsRwExtendedBlock
+struct McsRwSimpleBlock : public McsRwBlock {};
+struct McsRwExtendedBlock : public McsRwBlock {};
 
 /**
  * @brief An MCS lock data structure.

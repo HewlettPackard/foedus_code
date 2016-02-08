@@ -277,6 +277,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
   void          collect_retired_volatile_page(storage::VolatilePagePointer ptr);
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
+  /** @copydoc foedus::xct::McsImpl::acquire_unconditional_ww() */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
   /**
    * Unconditionally takes multiple MCS locks.
@@ -284,12 +285,9 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * following locks trivially have sequential block index from it.
    */
   xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size);
-  /**
-   * This doesn't use any atomic operation to take a lock. only allowed when there is no race.
-   * TASK(Hideaki): This will be renamed to mcs_non_racy_lock(). "initial_lock" is ambiguous.
-   */
+  /** @copydoc foedus::xct::McsImpl::initial_ww() */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
-  /** Unlcok an MCS lock acquired by this thread. */
+  /** @copydoc foedus::xct::McsImpl::release_ww() */
   void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
   /** corresponds to mcs_acquire_lock_batch() */
   void                mcs_release_lock_batch(
@@ -298,127 +296,48 @@ class Thread CXX11_FINAL : public virtual Initializable {
     uint16_t batch_size);
 
 
-  /**
-   * MCS reader-writer lock methods.
-   */
-#ifdef MCS_RW_LOCK
-  xct::McsBlockIndex mcs_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, int32_t timeout = xct::McsRwBlock::kTimeoutNever);
-  xct::McsBlockIndex mcs_acquire_writer_lock(
-    xct::McsRwLock* mcs_rw_lock, int32_t timeout = xct::McsRwBlock::kTimeoutNever);
-
-  bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
-  bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int32_t timeout);
-
-  bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index);
-  bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-
-  /** This one is to upgrade a read lock to a write lock */
-  bool mcs_try_acquire_writer_upgrade(xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-
-  bool mcs_lock_granted(xct::McsRwLock* lock, xct::McsBlockIndex block_index, int32_t timeout = 0);
-#endif  // MCS_RW_LOCK
-  xct::McsRwSimpleBlock* get_mcs_rw_simple_blocks();
-  xct::McsRwExtendedBlock* get_mcs_rw_extended_blocks();
-  void               mcs_release_reader_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
-  void               mcs_release_writer_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
-
-#ifdef MCS_RW_TIMEOUT_LOCK
-  /**
-   * External cancellable reader-writer MCS lock interfaces
-   * for transaction processing threads.
-   */
-
-  /**
-   * @brief Acquire reader/writer lock in one-shot with a timeout.
-   * @param[in] lock The MCS-RW-Timeout lock.
-   * @param[in,out] *block_index A pointer to the storage place of a MCS block index.
-   * @param[in] timeout Cycles (roughly) to spin before giving up.
-   * @return ErrorCode to indicate whether the acquire is successful (kErrorCodeOk)
-   * or not (kErrorCodeLockCancelled).
-   */
-  ErrorCode mcs_acquire_reader_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
-  ErrorCode mcs_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* block_index, uint32_t timeout);
-
-  /** The unconditional versions */
+  /** @copydoc foedus::xct::McsImpl::acquire_unconditional_rw_reader() */
   xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* lock);
+  /** @copydoc foedus::xct::McsImpl::acquire_unconditional_rw_writer() */
   xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* lock);
 
-  /**
-   * @brief Acquire reader/writer lock unconditionally
-   * @param[in] lock The MCS-RW-Timeout lock.
-   * @param[in,out] *block_index A pointer to the storage place of a MCS block index.
-   */
-  ErrorCode mcs_acquire_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
-  ErrorCode mcs_acquire_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
+  /** @copydoc foedus::xct::McsImpl::acquire_try_rw_reader() */
+  xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* lock);
+  /** @copydoc foedus::xct::McsImpl::acquire_try_rw_writer() */
+  xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* lock);
 
-  /**
-   * @brief Try to acquire an MCS-RW-Timeout lock. Returns immediately if the lock is not
-   * acquired, but leaves the qnode so the caller can check back later.
-   * @param[in] lock The MCS-RW-Timeout lock.
-   * @param[in] *block_index Pointer to the local storage for a block index
-   * @return ErrorCode to indicate whether the lock is granted.
-   */
-  ErrorCode mcs_try_acquire_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
-  ErrorCode mcs_try_acquire_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex* block_index);
+  /** @copydoc foedus::xct::McsImpl::release_rw_reader() */
+  void mcs_release_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  /** @copydoc foedus::xct::McsImpl::release_rw_writer() */
+  void mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
 
-  /**
-   * @brief Cancel an in-progress reader/writer lock acquire request made by
-   * mcs_try_acquire_reader/writer_lock.
-   * @param[in] lock The MCS-RW-Timeout lock.
-   * @param[in] block_index MCS block index returned by mcs_try_acquire_reader/writer_lock.
-   * @return ErrorCode to indicate whether the lock is cancelled or acquire after all.
-   */
-  ErrorCode mcs_cancel_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  ErrorCode mcs_cancel_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  /** @copydoc foedus::xct::McsImpl::acquire_async_rw_reader() */
+  xct::AcquireAsyncRet mcs_acquire_async_rw_reader(xct::McsRwLock* lock);
+  /** @copydoc foedus::xct::McsImpl::acquire_async_rw_writer() */
+  xct::AcquireAsyncRet mcs_acquire_async_rw_writer(xct::McsRwLock* lock);
+  /** @copydoc foedus::xct::McsImpl::retry_async_rw_reader() */
+  bool mcs_retry_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  /** @copydoc foedus::xct::McsImpl::retry_async_rw_writer() */
+  bool mcs_retry_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  /** @copydoc foedus::xct::McsImpl::cancel_async_rw_reader() */
+  void mcs_cancel_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+  /** @copydoc foedus::xct::McsImpl::cancel_async_rw_writer() */
+  void mcs_cancel_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
 
-  /**
-   * @brief Peek at the current lock acquire status. Returns immediately.
-   */
-  bool mcs_lock_granted(xct::McsBlockIndex block_index);
-#endif  // MCS_RW_TIMEOUT_LOCK
-
-#ifdef MCS_RW_GROUP_TRY_LOCK
-  bool mcs_try_acquire_reader_lock(
-    xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex* out_block_index, int tries);
-  bool mcs_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index, int tries);
-  bool mcs_retry_acquire_reader_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  bool mcs_retry_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex block_index, bool wait_for_result);
-  void mcs_uncondition_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-  bool mcs_eager_try_acquire_writer_lock(
-    xct::McsRwLock* lock, xct::McsBlockIndex* out_block_index);
-#endif // MCS_RW_GROUP_TRY_LOCK
-
+  xct::McsRwSimpleBlock* get_mcs_rw_simple_blocks();
+  xct::McsRwExtendedBlock* get_mcs_rw_extended_blocks();
   /**
    * Release all locks in CLL of this thread whose addresses are canonically ordered
    * before the parameter. This is used where we need to rule out the risk of deadlock.
    */
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
 
-  /**
-   * Ownerless versions of mcs_acquire/release_lock().
-   * These are static methods, no context needed.
-   */
+  /** @copydoc foedus::xct::McsImpl::ownerless_acquire_unconditional_ww() */
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
+  /** @copydoc foedus::xct::McsImpl::ownerless_release_ww() */
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
+  /** @copydoc foedus::xct::McsImpl::ownerless_initial_ww() */
   static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
-
-  xct::RwLockableXctId* get_canonical_address();
-  void set_canonical_address(xct::RwLockableXctId* ca);
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch*        get_in_commit_epoch_address();
