@@ -23,3 +23,14 @@ configure_file(config_ycsb.sh config_ycsb.sh COPYONLY)
 configure_file(config_ycsb_f.sh config_ycsb_f.sh COPYONLY)
 configure_file(run_ycsb_f_dl580.sh run_ycsb_f_dl580.sh COPYONLY)
 configure_file(run_ycsb_f_dh.sh run_ycsb_f_dh.sh COPYONLY)
+
+
+configure_file(run_ycsb_f_gh_ro.sh run_ycsb_f_gh_ro.sh COPYONLY)
+configure_file(run_ycsb_f_dh_ro.sh run_ycsb_f_dh_ro.sh COPYONLY)
+configure_file(run_ycsb_f_dl580_ro.sh run_ycsb_f_dl580_ro.sh COPYONLY)
+configure_file(run_ycsb_f_z820_ro.sh run_ycsb_f_z820_ro.sh COPYONLY)
+
+configure_file(run_ycsb_f_gh_rw.sh run_ycsb_f_gh_rw.sh COPYONLY)
+configure_file(run_ycsb_f_dh_rw.sh run_ycsb_f_dh_rw.sh COPYONLY)
+configure_file(run_ycsb_f_dl580_rw.sh run_ycsb_f_dl580_rw.sh COPYONLY)
+configure_file(run_ycsb_f_z820_rw.sh run_ycsb_f_z820_rw.sh COPYONLY)
