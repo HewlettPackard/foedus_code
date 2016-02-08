@@ -17,6 +17,8 @@
  */
 #include "foedus/thread/thread.hpp"
 
+#include <glog/logging.h>
+
 #include <ostream>
 
 #include "foedus/engine.hpp"

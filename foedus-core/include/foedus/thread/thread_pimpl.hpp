@@ -18,8 +18,6 @@
 #ifndef FOEDUS_THREAD_THREAD_PIMPL_HPP_
 #define FOEDUS_THREAD_THREAD_PIMPL_HPP_
 
-#include <glog/logging.h>
-
 #include <atomic>
 #include <thread>
 
