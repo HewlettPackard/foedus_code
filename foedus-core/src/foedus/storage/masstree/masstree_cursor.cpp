@@ -531,7 +531,7 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, SlotIndex record
   // fetch everything
   ASSERT_ND(record < page->get_key_count());
   cur_key_owner_id_address = page->get_owner_id(record);
-  cur_key_observed_owner_id_ = cur_key_owner_id_address->xct_id_;
+  cur_key_observed_owner_id_ = cur_key_owner_id_address->xct_id_.spin_while_being_written();
   KeyLength remainder = page->get_remainder_length(record);
   cur_key_in_layer_remainder_ = remainder;
   cur_key_in_layer_slice_ = page->get_slice(record);
