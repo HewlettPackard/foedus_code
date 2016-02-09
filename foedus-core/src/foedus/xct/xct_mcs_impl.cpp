@@ -558,18 +558,77 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
 template <typename ADAPTOR>
 class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsRwExtendedBlock
  public:
-  McsBlockIndex acquire_unconditional_rw_reader(McsRwLock* /*lock*/) { return 0; }
-  McsBlockIndex acquire_unconditional_rw_writer(McsRwLock* /*lock*/) { return 0; }
-  McsBlockIndex acquire_try_rw_writer(McsRwLock* /*lock*/) { return 0; }
-  McsBlockIndex acquire_try_rw_reader(McsRwLock* /*lock*/) { return 0; }
-  void release_rw_reader(McsRwLock* /*lock*/, McsBlockIndex /*block_index*/) {}
-  void release_rw_writer(McsRwLock* /*lock*/, McsBlockIndex /*block_index*/) {}
+  McsBlockIndex acquire_unconditional_rw_reader(McsRwLock* lock) {
+    McsBlockIndex block = 0;
+    auto ret = acquire_reader_lock(lock, &block, McsRwExtendedBlock::kTimeoutNever);
+    ASSERT_ND(block);
+    ASSERT_ND(ret == kErrorCodeOk);
+    return block;
+  }
+  McsBlockIndex acquire_unconditional_rw_writer(McsRwLock* lock) {
+    McsBlockIndex block = 0;
+    auto ret = acquire_writer_lock(lock, &block, McsRwExtendedBlock::kTimeoutNever);
+    ASSERT_ND(block);
+    ASSERT_ND(ret == kErrorCodeOk);
+    return block;
+  }
+  /** Instant-try versions. Passing timeout 0 will avoid cancelling upon timeout in
+   * the internal rountines; caller should explicitly cancel when needed. */
+  McsBlockIndex acquire_try_rw_writer(McsRwLock* lock) {
+    McsBlockIndex block = 0;
+    auto ret = acquire_writer_lock(lock, &block, McsRwExtendedBlock::kTimeoutZero);
+    ASSERT_ND(block);
+    return block;
+  }
+  McsBlockIndex acquire_try_rw_reader(McsRwLock* lock) {
+    McsBlockIndex block = 0;
+    auto ret = acquire_reader_lock(lock, &block, McsRwExtendedBlock::kTimeoutZero);
+    ASSERT_ND(block);
+    return block;
+  }
+  void release_rw_reader(McsRwLock* lock, McsBlockIndex block_index) {
+    release_reader_lock(lock, block_index);
+  }
+  void release_rw_writer(McsRwLock* lock, McsBlockIndex block_index) {
+    release_writer_lock(lock, block_index);
+  }
   AcquireAsyncRet acquire_async_rw_reader(McsRwLock* /*lock*/) { return {false, 0}; }
   AcquireAsyncRet acquire_async_rw_writer(McsRwLock* /*lock*/) { return {false, 0}; }
-  bool retry_async_rw_reader(McsRwLock* /*lock*/, McsBlockIndex /*block_index*/) { return false; }
-  bool retry_async_rw_writer(McsRwLock* /*lock*/, McsBlockIndex /*block_index*/) { return false; }
-  void cancel_async_rw_reader(McsRwLock* /*lock*/, McsBlockIndex /*block_index*/) {}
-  void cancel_async_rw_writer(McsRwLock* /*lock*/, McsBlockIndex /*block_index*/) {}
+  bool retry_async_rw_reader(McsRwLock* lock, McsBlockIndex block_index) {
+    auto* block = adaptor_.get_rw_my_block(block_index);
+    if (block->pred_flag_is_granted()) {
+      // checking me.next.flags.granted is ok - we're racing with ourself
+      if (!block->next_flag_is_granted()) {
+        auto ret = finish_acquire_reader_lock(
+          lock, block, static_cast<uint32_t>(adaptor_.get_my_id()) << 16 | block_index);
+        ASSERT_ND(ret == kErrorCodeOk);
+      }
+      return true;
+    }
+    return false;
+  }
+  bool retry_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index) {
+    auto* block = adaptor_.get_rw_my_block(block_index);
+    if (block->pred_flag_is_granted()) {
+      // checking me.next.flags.granted is ok - we're racing with ourself
+      if (!block->next_flag_is_granted()) {
+        block->set_next_flag_granted();
+      }
+      return true;
+    }
+    return false;
+  }
+  void cancel_async_rw_reader(McsRwLock* lock, McsBlockIndex block_index) {
+    if (cancel_reader_lock(lock, block_index) == kErrorCodeOk) {
+      // actually got the lock, have to release then
+      release_reader_lock(lock, block_index);
+    }
+  }
+  void cancel_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index) {
+    if (cancel_writer_lock(lock, block_index) == kErrorCodeOk) {
+      release_writer_lock(lock, block_index);
+    }
+  }
 
  private:
   /** internal utility functions for extended rw-lock. */
@@ -594,7 +653,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     return my_block;
   }
 
-  ErrorCode acquire_reader_lock(McsRwLock* lock, McsBlockIndex* out_block_index, uint32_t timeout) {
+  ErrorCode acquire_reader_lock(McsRwLock* lock, McsBlockIndex* out_block_index, int32_t timeout) {
     auto* my_block = init_block(out_block_index, false);
     ASSERT_ND(my_block->pred_flag_is_waiting());
     ASSERT_ND(my_block->next_flag_is_waiting());
@@ -680,7 +739,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     McsRwExtendedBlock* my_block,
     uint32_t my_tail_int,
     uint32_t pred,
-    uint32_t timeout) {
+    int32_t timeout) {
     auto* pred_block = adaptor_.get_rw_other_block(pred);
   check_pred:
     ASSERT_ND(my_block->get_pred_id() == 0);
@@ -696,6 +755,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       my_block->set_pred_id(pred);
       if (my_block->timeout_granted(timeout)) {
         return finish_acquire_reader_lock(lock, my_block, my_tail_int);
+      }
+      if (timeout == McsRwExtendedBlock::kTimeoutZero) {
+        return kErrorCodeLockRequested;
       }
       return cancel_reader_lock(lock, my_tail_int);
     }
@@ -741,6 +803,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         pred_block->set_next_id(my_tail_int);
         if (my_block->timeout_granted(timeout)) {
           return finish_acquire_reader_lock(lock, my_block, my_tail_int);
+        }
+        if (timeout == McsRwExtendedBlock::kTimeoutZero) {
+          return kErrorCodeLockRequested;
         }
         return cancel_reader_lock(lock, my_tail_int);
       }
@@ -951,7 +1016,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     McsRwExtendedBlock* my_block,
     uint32_t my_tail_int,
     uint32_t pred,
-    uint32_t timeout) {
+    int32_t timeout) {
     auto* pred_block = adaptor_.get_rw_other_block(pred);
     ASSERT_ND(pred_block->is_writer());
     // wait for the previous canceling dude to leave
@@ -967,6 +1032,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 
     if (my_block->timeout_granted(timeout)) {
       return finish_acquire_reader_lock(lock, my_block, my_tail_int);
+    }
+    if (timeout == McsRwExtendedBlock::kTimeoutZero) {
+      return kErrorCodeLockRequested;
     }
     return cancel_reader_lock(lock, my_tail_int);
   }
@@ -1037,7 +1105,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
   }
 
   ErrorCode acquire_writer_lock(
-    McsRwLock* lock, McsBlockIndex* out_block_index, uint32_t timeout) {
+    McsRwLock* lock, McsBlockIndex* out_block_index, int32_t timeout) {
     auto* my_block = init_block(out_block_index, true);
     ASSERT_ND(my_block->is_writer());
     auto id = adaptor_.get_my_id();
@@ -1074,10 +1142,13 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(lock->nreaders() == 0);
       return kErrorCodeOk;
     }
+    if (timeout == McsRwExtendedBlock::kTimeoutZero) {
+      return kErrorCodeLockRequested;
+    }
     return cancel_writer_lock(lock, my_tail_int);
   }
 
-  void mcs_release_writer_lock(McsRwLock* lock, McsBlockIndex block_index) {
+  void release_writer_lock(McsRwLock* lock, McsBlockIndex block_index) {
     auto id = adaptor_.get_my_id();
     auto my_tail_int = McsRwLock::to_tail_int(id, block_index);
     auto* my_block = adaptor_.get_rw_other_block(my_tail_int);

@@ -633,8 +633,8 @@ struct McsRwExtendedBlock {
   static const uint32_t kPredIdAcquired          = 0xFFFFFFFFU;
 
   /* Special timeouts for instant return and unconditional acquire */
-  static const uint32_t kTimeoutNever = 0xFFFFFFFFU;
-  static const uint32_t kTimeoutZero  = 0U;
+  static const int32_t kTimeoutNever = 0xFFFFFFFFU;
+  static const int32_t kTimeoutZero  = 0U;
 
   union Field {
     uint64_t data_;
@@ -825,14 +825,14 @@ struct McsRwExtendedBlock {
     ASSERT_ND(next_flag_is_waiting());
     ASSERT_ND(is_writer());
   }
-  inline bool timeout_granted(uint32_t timeout) {
+  inline bool timeout_granted(int32_t timeout) {
     if (timeout == kTimeoutZero) {
       return pred_flag_is_granted();
     } else if (timeout == kTimeoutNever) {
       while (!pred_flag_is_granted()) {}
       ASSERT_ND(pred_flag_is_granted());
     } else {
-      uint32_t cycles = 0;
+      int32_t cycles = 0;
       do {
         if (pred_flag_is_granted()) {
           return true;

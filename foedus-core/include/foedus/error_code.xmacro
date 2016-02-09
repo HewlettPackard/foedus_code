@@ -117,6 +117,7 @@ X(kErrorCodeXctNoMoreLocalWorkMemory, 0x0A09, "XCTION : Out of local work memory
 X(kErrorCodeRecordTemperatureChange, 0x0AA0, "XCTION : Record page temperature changed.")
 X(kErrorCodeXctLockAbort,               0x0AA1, "XCTION : Lock acquire failed.")
 X(kErrorCodeLockCancelled,            0x0AA2, "XCTION : Lock acquire cancelled.")
+X(kErrorCodeLockRequested,            0x0AA3, "XCTION : Lock acquire requested.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")
 
