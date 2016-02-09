@@ -79,6 +79,8 @@ class McsAdaptorConcept {
   McsBlock* get_ww_other_block(thread::ThreadId id, McsBlockIndex index);
   /** Dereference other thread's block index for reader-writer locks */
   RW_BLOCK* get_rw_other_block(thread::ThreadId id, McsBlockIndex index);
+  /** Dereference other thread's block index for reader-writer locks, but receives a block int */
+  RW_BLOCK* get_rw_other_block(uint32_t block_int);
 
   /** same as above, but receives a combined int in For McsRwLock */
   RW_BLOCK* dereference_rw_tail_block(uint32_t tail_int);
@@ -208,6 +210,12 @@ class McsMockAdaptor {
   }
   RW_BLOCK* get_rw_other_block(thread::ThreadId id, McsBlockIndex index) {
     McsMockThread<RW_BLOCK>* other = get_other_thread(id);
+    ASSERT_ND(index <= other->mcs_block_current_);
+    return other->mcs_rw_blocks_.data() + index;
+  }
+  RW_BLOCK* get_rw_other_block(uint32_t block_int) {
+    McsMockThread<RW_BLOCK>* other = get_other_thread(block_int >> 16);
+    McsBlockIndex index = block_int & 0xFFFFU;
     ASSERT_ND(index <= other->mcs_block_current_);
     return other->mcs_rw_blocks_.data() + index;
   }

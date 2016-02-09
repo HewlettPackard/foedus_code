@@ -43,7 +43,8 @@ namespace xct {
  * @par Implementation Type 2: "Extended" (RW_BLOCK = McsRwExtendedBlock)
  * A combination of our MCSg lock, the original RW-MCS lock, and cancellable queue lock.
  * This nicely supports \e cancel, allowing local spinning even for cancallable-requests.
- * This also supports parallel async-lock nicely, but comes with complexity.
+ * This also supports parallel async-lock nicely, but comes with complexity and more
+ * atomic instructions.
  *
  * @par Lock Mode
  * foedus::xct::McsLock supports only exclusive lock (we call it \e ww below).

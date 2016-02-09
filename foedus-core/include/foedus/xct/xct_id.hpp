@@ -462,8 +462,7 @@ struct McsRwBlock {
 };
 #endif  // MCS_RW_GROUP_TRY_LOCK
 
-#ifdef MCS_RW_LOCK
-struct McsRwBlock {
+struct McsRwSimpleBlock {
   static const uint8_t kStateClassMask       = 3U;        // [LSB + 1, LSB + 2]
   static const uint8_t kStateClassReaderFlag = 1U;        // LSB binary = 01
   static const uint8_t kStateClassWriterFlag = 2U;        // LSB binary = 10
@@ -562,7 +561,7 @@ struct McsRwBlock {
       &self_.components_.successor_class_, kSuccessorClassWriter);
   }
   inline void set_successor_next_only(thread::ThreadId thread_id, McsBlockIndex block_index) {
-    McsRwBlock tmp;
+    McsRwSimpleBlock tmp;
     tmp.self_.data_ = 0;
     tmp.successor_thread_id_ = thread_id;
     tmp.successor_block_index_ = block_index;
@@ -599,11 +598,250 @@ struct McsRwBlock {
     return (uint16_t)state << 8 | kSuccessorClassNone;
   }
 };
-#endif  // MCS_RW_LOCK
 
-// TODO(Hideaki) : rename McsRwBlock to McsRwSimpleBlock, and make a new McsRwExtendedBlock
-struct McsRwSimpleBlock : public McsRwBlock {};
-struct McsRwExtendedBlock : public McsRwBlock {};
+struct McsRwExtendedBlock {
+  /** Pred flags:
+   *  |---31---|-----|---0---|
+   *  |my class|empty|waiting|
+   *
+   *  Next flags:
+   *  |-----31-30-----|-----|-2--|--1-0--|
+   *  |successor class|empty|busy|waiting|
+   */
+  static const uint32_t kPredFlagWaiting         = 0U;
+  static const uint32_t kPredFlagGranted         = 1U;
+  static const uint32_t kPredFlagReader          = 0U;
+  static const uint32_t kPredFlagWriter          = 1U << 31;
+  static const uint32_t kPredFlagClassMask       = 1U << 31;
+
+  static const uint32_t kSuccFlagWaiting         = 0U;
+  static const uint32_t kSuccFlagLeaving         = 1U;
+  static const uint32_t kSuccFlagDirectGranted   = 2U;
+  static const uint32_t kSuccFlagLeavingGranted  = 3U;
+  static const uint32_t kSuccFlagMask            = 3U;
+
+  static const uint32_t kSuccFlagBusy            = 4U;
+
+  static const uint32_t kSuccFlagSuccessorClassMask = 3U << 30;
+  static const uint32_t kSuccFlagSuccessorReader    = 3U << 30;
+  static const uint32_t kSuccFlagSuccessorNone      = 0U;
+  static const uint32_t kSuccFlagSuccessorWriter    = 1U << 30;
+
+  static const uint32_t kSuccIdSuccessorLeaving  = 0xFFFFFFFFU;
+  static const uint32_t kSuccIdNoSuccessor       = 0xFFFFFFFEU;
+
+  static const uint32_t kPredIdAcquired          = 0xFFFFFFFFU;
+
+  /* Special timeouts for instant return and unconditional acquire */
+  static const uint32_t kTimeoutNever = 0xFFFFFFFFU;
+  static const uint32_t kTimeoutZero  = 0U;
+
+  union Field {
+    uint64_t data_;
+    struct Components {
+      uint32_t flags_;
+      uint32_t id_;
+    } components_;
+  };
+
+  Field pred_;
+  Field next_;
+
+  inline uint32_t read_pred_flags() {
+    return assorted::atomic_load_acquire<uint32_t>(&pred_.components_.flags_);
+  }
+  inline uint32_t read_next_flags() {
+    return assorted::atomic_load_acquire<uint32_t>(&next_.components_.flags_);
+  }
+  inline bool is_writer() { return read_pred_flags() & kPredFlagWriter; }
+  inline bool is_reader() { return !is_writer(); }
+  inline bool pred_flag_is_waiting() {
+    return !pred_flag_is_granted();
+  }
+  inline bool pred_flag_is_granted() {
+    return read_pred_flags() & kPredFlagGranted;
+  }
+  inline bool next_flag_is_direct_granted() {
+    auto f = (read_next_flags() & kSuccFlagMask);
+    return f == kSuccFlagDirectGranted;
+  }
+  inline bool next_flag_is_leaving_granted() {
+    auto f = (read_next_flags() & kSuccFlagMask);
+    return f == kSuccFlagLeavingGranted;
+  }
+  inline bool next_flag_is_granted() {
+    auto f = (read_next_flags() & kSuccFlagMask);
+    return f == kSuccFlagLeavingGranted || f == kSuccFlagDirectGranted;
+  }
+  inline bool next_flag_is_leaving() {
+    return (read_next_flags() & kSuccFlagMask) == kSuccFlagLeaving;
+  }
+  inline bool next_flag_is_waiting() {
+    return (read_next_flags() & kSuccFlagMask) == kSuccFlagWaiting;
+  }
+  inline void set_next_flag_writer_successor() {
+    ASSERT_ND(!next_flag_has_successor());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &next_.components_.flags_, kSuccFlagSuccessorWriter);
+  }
+  inline void set_next_flag_reader_successor() {
+    ASSERT_ND(!next_flag_has_successor());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &next_.components_.flags_, kSuccFlagSuccessorReader);
+  }
+  inline void set_pred_flag_granted() {
+    ASSERT_ND(pred_flag_is_waiting());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &pred_.components_.flags_, kPredFlagGranted);
+  }
+  inline void set_next_flag_granted() {
+    ASSERT_ND(pred_flag_is_granted());
+    ASSERT_ND(next_flag_is_waiting() | next_flag_is_leaving());
+    if (next_flag_is_waiting()) {
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagDirectGranted);
+    } else {
+      ASSERT_ND(next_flag_is_leaving());
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagLeavingGranted);
+    }
+  }
+  inline void set_next_flag_busy_granted() {
+    ASSERT_ND(pred_flag_is_granted());
+    ASSERT_ND(next_flag_is_waiting() | next_flag_is_leaving());
+    if (next_flag_is_waiting()) {
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagDirectGranted | kSuccFlagBusy);
+    } else {
+      ASSERT_ND(next_flag_is_leaving());
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagLeavingGranted | kSuccFlagBusy);
+    }
+  }
+  inline void set_next_flag_leaving() {
+    assorted::raw_atomic_exchange<uint16_t>(
+      reinterpret_cast<uint16_t*>(&next_.components_.flags_),
+      static_cast<uint16_t>(kSuccFlagLeaving));
+  }
+  inline void set_next_flag_no_successor() {
+    assorted::raw_atomic_fetch_and_bitwise_and<uint32_t>(
+      &next_.components_.flags_, ~kSuccFlagSuccessorClassMask);
+  }
+  inline void set_next(uint64_t next) {
+    assorted::atomic_store_release<uint64_t>(&next_.data_, next);
+  }
+  inline bool cas_next_weak(uint64_t expected, uint64_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+     &next_.data_, &expected, desired);
+  }
+  inline void set_flags_granted() {
+    set_pred_flag_granted();
+    set_next_flag_granted();
+  }
+  inline bool next_flag_has_successor() {
+    return read_next_flags() & kSuccFlagSuccessorClassMask;
+  }
+  inline bool next_flag_has_reader_successor() {
+    return (read_next_flags() & kSuccFlagSuccessorClassMask) == kSuccFlagSuccessorReader;
+  }
+  inline bool next_flag_has_writer_successor() {
+    return (read_next_flags() & kSuccFlagSuccessorClassMask) == kSuccFlagSuccessorWriter;
+  }
+  inline bool next_flag_is_busy() {
+    return (read_next_flags() & kSuccFlagBusy) == kSuccFlagBusy;
+  }
+  inline void set_next_flag_busy() {
+    ASSERT_ND(!next_flag_is_busy());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &next_.components_.flags_, kSuccFlagBusy);
+  }
+  inline void unset_next_flag_busy() {
+    ASSERT_ND(next_flag_is_busy());
+    assorted::raw_atomic_fetch_and_bitwise_and<uint32_t>(
+      &next_.components_.flags_, ~kSuccFlagBusy);
+  }
+  inline uint32_t cas_val_next_flag_weak(uint32_t expected, uint32_t desired) {
+    assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &next_.components_.flags_, &expected, desired);
+    return expected;
+  }
+  inline uint64_t cas_val_next_weak(uint64_t expected, uint64_t desired) {
+    assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+      &next_.data_, &expected, desired);
+    return expected;
+  }
+  inline bool cas_next_id_weak(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &next_.components_.id_, &expected, desired);
+  }
+  inline bool cas_pred_id_weak(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &pred_.components_.id_, &expected, desired);
+  }
+  inline bool cas_pred_id_strong(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint32_t>(
+      &pred_.components_.id_, &expected, desired);
+  }
+  inline uint32_t cas_val_pred_id_weak(uint32_t expected, uint32_t desired) {
+    assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &pred_.components_.id_, &expected, desired);
+    return expected;
+  }
+  inline uint32_t make_next_flag_waiting_with_no_successor() { return kSuccFlagWaiting; }
+  inline uint32_t make_next_flag_waiting_with_reader_successor() {
+    return kSuccFlagWaiting | kSuccFlagSuccessorReader;
+  }
+  inline uint32_t get_pred_id() {
+    return assorted::atomic_load_acquire<uint32_t>(&pred_.components_.id_);
+  }
+  inline uint32_t get_next_id() {
+    return assorted::atomic_load_acquire<uint32_t>(&next_.components_.id_);
+  }
+  inline uint64_t get_next() {
+    return assorted::atomic_load_acquire<uint64_t>(&next_.data_);
+  }
+  inline void set_pred_id(uint32_t id) {
+    assorted::atomic_store_release<uint32_t>(&pred_.components_.id_, id);
+  }
+  inline void set_next_id(uint32_t id) {
+    assorted::atomic_store_release<uint32_t>(&next_.components_.id_, id);
+  }
+  inline uint32_t xchg_pred_id(uint32_t id) {
+    return assorted::raw_atomic_exchange<uint32_t>(&pred_.components_.id_, id);
+  }
+  inline void init_reader() {
+    pred_.components_.flags_ = kPredFlagReader;
+    next_.components_.flags_ = 0;
+    pred_.components_.id_ = next_.components_.id_ = 0;
+    ASSERT_ND(pred_flag_is_waiting());
+    ASSERT_ND(next_flag_is_waiting());
+    ASSERT_ND(is_reader());
+  }
+  inline void init_writer() {
+    pred_.components_.flags_ = kPredFlagWriter;
+    next_.components_.flags_ = 0;
+    pred_.components_.id_ = next_.components_.id_ = 0;
+    ASSERT_ND(pred_flag_is_waiting());
+    ASSERT_ND(next_flag_is_waiting());
+    ASSERT_ND(is_writer());
+  }
+  inline bool timeout_granted(uint32_t timeout) {
+    if (timeout == kTimeoutZero) {
+      return pred_flag_is_granted();
+    } else if (timeout == kTimeoutNever) {
+      while (!pred_flag_is_granted()) {}
+      ASSERT_ND(pred_flag_is_granted());
+    } else {
+      uint32_t cycles = 0;
+      do {
+        if (pred_flag_is_granted()) {
+          return true;
+        }
+      } while (++cycles < timeout);
+    }
+    return pred_flag_is_granted();
+  }
+};
 
 /**
  * @brief An MCS lock data structure.
@@ -769,7 +1007,6 @@ struct McsRwLock {
 };
 #endif  // MCS_RW_GROUP_TRY_LOCK
 
-#ifdef MCS_RW_LOCK
 struct McsRwLock {
   static const thread::ThreadId kNextWriterNone = 0xFFFFU;
 
@@ -778,52 +1015,68 @@ struct McsRwLock {
   McsRwLock(const McsRwLock& other) CXX11_FUNC_DELETE;
   McsRwLock& operator=(const McsRwLock& other) CXX11_FUNC_DELETE;
 
-  McsBlockIndex reader_acquire(thread::Thread* context);
-  McsBlockIndex reader_release(thread::Thread* context, McsBlockIndex block);
-
-  McsBlockIndex writer_acquire(thread::Thread* context);
-  McsBlockIndex writer_release(thread::Thread* context, McsBlockIndex block);
-
-  void  reset() ALWAYS_INLINE {
-    tail_ = readers_count_ = 0;
-    next_writer_ = kNextWriterNone;
+  inline void reset() {
+    tail_ = nreaders_ = 0;
+    set_next_writer(kNextWriterNone);
+    assorted::memory_fence_release();
   }
-  void increment_readers_count() ALWAYS_INLINE {
-    assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, 1);
+  inline void increment_nreaders() {
+    assorted::raw_atomic_fetch_add<uint16_t>(&nreaders_, 1);
   }
-  uint16_t decrement_readers_count() ALWAYS_INLINE {
-    return assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, -1);
+  inline uint16_t decrement_nreaders() {
+    return assorted::raw_atomic_fetch_add<uint16_t>(&nreaders_, -1);
   }
-  bool is_locked() const {
-    return (tail_ & 0xFFFFU) != 0 || readers_count_ > 0;
+  inline uint16_t nreaders() {
+    return assorted::atomic_load_acquire<uint16_t>(&nreaders_);
   }
-  uint16_t nreaders() ALWAYS_INLINE {
-    return assorted::atomic_load_acquire<uint16_t>(&readers_count_);
+  inline McsBlockIndex get_tail_waiter_block() const { return tail_ & 0xFFFFU; }
+  inline thread::ThreadId get_tail_waiter() const { return tail_ >> 16U; }
+  inline bool has_next_writer() const {
+    return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_) != kNextWriterNone;
   }
-
-  static uint32_t to_tail_int(
+  inline void set_next_writer(thread::ThreadId thread_id) {
+    xchg_next_writer(thread_id);  // sub-word access...
+  }
+  inline thread::ThreadId get_next_writer() {
+    return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_);
+  }
+  inline thread::ThreadId xchg_next_writer(thread::ThreadId id) {
+    return assorted::raw_atomic_exchange<thread::ThreadId>(&next_writer_, id);
+  }
+  bool cas_next_writer_weak(thread::ThreadId expected, thread::ThreadId desired) {
+    return assorted::raw_atomic_compare_exchange_weak<thread::ThreadId>(
+      &next_writer_, &expected, desired);
+  }
+  inline uint32_t xchg_tail(uint32_t new_tail) {
+    return assorted::raw_atomic_exchange<uint32_t>(&tail_, new_tail);
+  }
+  inline bool cas_tail_weak(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(&tail_, &expected, desired);
+  }
+  static inline uint32_t to_tail_int(
     thread::ThreadId tail_waiter,
-    McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    McsBlockIndex tail_waiter_block) {
     ASSERT_ND(tail_waiter_block <= 0xFFFFU);
     return static_cast<uint32_t>(tail_waiter) << 16 | (tail_waiter_block & 0xFFFFU);
   }
-
-  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_ & 0xFFFFU; }
-  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_ >> 16U; }
-  bool has_next_writer() const ALWAYS_INLINE {return next_writer_ != kNextWriterNone; }
+  inline uint32_t get_tail_int() {
+    return assorted::atomic_load_acquire<uint32_t>(&tail_);
+  }
+  bool is_locked() const {
+    return (tail_ & 0xFFFFU) != 0 || nreaders_ > 0;
+  }
 
   uint32_t tail_;                 // +4 => 4
-  /* FIXME(tzwang): ThreadId starts from 0, so we use 0xFFFF as the "invalid"
+  /* Note that threadId starts from 0, so we use 0xFFFF as the "invalid"
    * marker, unless we make the lock even larger than 8 bytes. This essentially
    * limits the largest allowed number of cores we support to 256 sockets x 256
    * cores per socket - 1.
    */
   thread::ThreadId next_writer_;  // +2 => 6
-  uint16_t readers_count_;        // +2 => 8
+  uint16_t nreaders_;             // +2 => 8
 
   friend std::ostream& operator<<(std::ostream& o, const McsRwLock& v);
 };
-#endif  // MCS_RW_LOCK
 
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
 const uint64_t kXctIdMovedBit       = 1ULL << 62;
