@@ -1146,10 +1146,10 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     auto my_tail_int = McsRwLock::to_tail_int(id, *out_block_index);
     auto pred = lock->xchg_tail(my_tail_int);
     if (pred == 0) {
-      //ASSERT_ND(lock->get_next_writer() == McsRwLock::kNextWriterNone);
+      ASSERT_ND(lock->get_next_writer() == McsRwLock::kNextWriterNone);
       lock->set_next_writer(id);
       if (lock->nreaders() == 0) {
-        if (lock->cas_next_writer_weak(id, McsRwLock::kNextWriterNone)) {
+        if (lock->xchg_next_writer(McsRwLock::kNextWriterNone) == id) {
           my_block->set_flags_granted();
           ASSERT_ND(lock->nreaders() == 0);
           ASSERT_ND(lock->get_next_writer() == McsRwLock::kNextWriterNone);
@@ -1217,7 +1217,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
     ASSERT_ND(lock->nreaders() == 0);
     ASSERT_ND(!succ_block->pred_flag_is_granted());
-    ASSERT_ND(!succ_block->get_pred_id() != McsRwExtendedBlock::kPredIdAcquired);
+    ASSERT_ND(succ_block->get_pred_id() != McsRwExtendedBlock::kPredIdAcquired);
     while (!succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
       ASSERT_ND(my_block->get_next_id() == next_id);
     }
