@@ -235,6 +235,7 @@ ErrorStack MasstreeStoragePimpl::load_empty() {
   ASSERT_ND(root_offset);
   MasstreeIntermediatePage* root_page = reinterpret_cast<MasstreeIntermediatePage*>(
     local_resolver.resolve_offset_newpage(root_offset));
+  control_block_->first_root_owner_.lock_.reset();
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
   control_block_->root_page_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
     kDummyNode,
