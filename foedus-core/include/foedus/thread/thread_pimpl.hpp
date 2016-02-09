@@ -448,18 +448,6 @@ class ThreadPimplMcsAdaptor {
     ret += index;
     return ret;
   }
-  RW_BLOCK* get_rw_other_block(uint32_t block_int) {
-    xct::McsBlockIndex index = block_int & 0xFFFFU;
-    ASSERT_ND(index > 0);
-    ASSERT_ND(index < 0xFFFFU);
-    ThreadId id = block_int >> 16;
-    ThreadRef other = pimpl_->get_thread_ref(id);
-    RW_BLOCK* ret;
-    other.get_mcs_rw_blocks(&ret);
-    ASSERT_ND(index <= other.get_control_block()->mcs_block_current_);
-    ret += index;
-    return ret;
-  }
   RW_BLOCK* dereference_rw_tail_block(uint32_t tail_int) {
     xct::McsRwLock tail_tmp;
     tail_tmp.tail_ = tail_int;

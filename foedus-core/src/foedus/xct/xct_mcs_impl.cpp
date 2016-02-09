@@ -704,7 +704,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 
     ASSERT_ND(my_block->get_pred_id() == 0);
     // haven't set pred.next.id yet, safe to dereference
-    auto* pred_block = adaptor_.get_rw_other_block(pred);
+    auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
     if (pred_block->is_reader()) {
       return acquire_reader_lock_check_reader_pred(lock, my_block, my_tail_int, pred, timeout);
     }
@@ -737,7 +737,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return kErrorCodeOk;
     }
 
-    auto* succ_block = adaptor_.get_rw_other_block(next_id);
+    auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
     if (my_block->next_flag_is_leaving_granted() && !my_block->next_flag_has_successor()) {
       // successor might have seen me in leaving state, it'll wait for me in that case
       // in this case, the successor saw me in leaving state and didnt register as a reader
@@ -774,7 +774,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     uint32_t my_tail_int,
     uint32_t pred,
     int32_t timeout) {
-    auto* pred_block = adaptor_.get_rw_other_block(pred);
+    auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
   check_pred:
     ASSERT_ND(my_block->get_pred_id() == 0);
     ASSERT_ND(pred_block->is_reader());
@@ -812,7 +812,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(!my_block->pred_flag_is_granted());
       ASSERT_ND(pred);
       ASSERT_ND(pred != McsRwExtendedBlock::kPredIdAcquired);
-      pred_block = adaptor_.get_rw_other_block(pred);
+      pred_block = adaptor_.dereference_rw_tail_block(pred);
       if (pred_block->is_writer()) {
         return acquire_reader_lock_check_writer_pred(lock, my_block, my_tail_int, pred, timeout);
       }
@@ -848,7 +848,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
   }
 
   ErrorCode cancel_reader_lock(McsRwLock* lock, uint32_t my_tail_int) {
-    auto* my_block = adaptor_.get_rw_other_block(my_tail_int);
+    auto* my_block = adaptor_.dereference_rw_tail_block(my_tail_int);
     auto pred = my_block->xchg_pred_id(0);  // prevent pred from cancelling
     if (pred == McsRwExtendedBlock::kPredIdAcquired) {
       spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
@@ -862,7 +862,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return my_block->get_next_id() != McsRwExtendedBlock::kSuccIdSuccessorLeaving; });
 
     ASSERT_ND(pred);
-    auto* pred_block = adaptor_.get_rw_other_block(pred);
+    auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
     if (pred_block->is_reader()) {
       return cancel_reader_lock_with_reader_pred(lock, my_block, my_tail_int, pred);
     }
@@ -876,7 +876,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(my_block->next_flag_is_leaving());
     ASSERT_ND(pred);
     ASSERT_ND(pred >> 16 != adaptor_.get_my_id());
-    auto* pred_block = adaptor_.get_rw_other_block(pred);
+    auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
     ASSERT_ND(pred_block->is_writer());
     ASSERT_ND(my_block->get_pred_id() == 0);
     // wait for the cancelling pred to finish relink
@@ -901,7 +901,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
           return finish_acquire_reader_lock(lock, my_block, my_tail_int);
         }
         ASSERT_ND(pred);
-        pred_block = adaptor_.get_rw_other_block(pred);
+        pred_block = adaptor_.dereference_rw_tail_block(pred);
         if (pred_block->is_writer()) {
           goto retry;
         }
@@ -940,7 +940,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     // CAS out of pred.next (including id and flags)
     ASSERT_ND(pred);
     ASSERT_ND(pred >> 16 != adaptor_.get_my_id());
-    auto* pred_block = adaptor_.get_rw_other_block(pred);
+    auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
     // wait for the canceling pred to finish the relink
     spin_until([pred_block, my_tail_int]{
       return pred_block->next_flag_has_reader_successor() &&
@@ -979,7 +979,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
           spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
           return finish_acquire_reader_lock(lock, my_block, my_tail_int);
         }
-        pred_block = adaptor_.get_rw_other_block(pred);
+        pred_block = adaptor_.dereference_rw_tail_block(pred);
         ASSERT_ND(!my_block->pred_flag_is_granted());
         ASSERT_ND(pred);
         if (pred_block->is_writer()) {
@@ -1019,7 +1019,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     uint32_t next_id = my_block->get_next_id();
     ASSERT_ND(next_id);
     ASSERT_ND(next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
-    auto* succ_block = adaptor_.get_rw_other_block(next_id);
+    auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
     ASSERT_ND(pred);
     while (!succ_block->cas_pred_id_weak(my_tail_int, pred)) {}
 
@@ -1051,7 +1051,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     uint32_t my_tail_int,
     uint32_t pred,
     int32_t timeout) {
-    auto* pred_block = adaptor_.get_rw_other_block(pred);
+    auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
     ASSERT_ND(pred_block->is_writer());
     // wait for the previous canceling dude to leave
     spin_until([pred_block]{
@@ -1097,7 +1097,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(next_id);
     ASSERT_ND(next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
     if (next_id != McsRwExtendedBlock::kSuccIdNoSuccessor) {  // already handled successor
-      auto* succ_block = adaptor_.get_rw_other_block(next_id);
+      auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
       ASSERT_ND(my_block->next_flag_has_successor());
       ASSERT_ND(!succ_block->pred_flag_is_granted());
       if (succ_block->is_reader()) {
@@ -1158,7 +1158,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         }
       }
     } else {
-      auto* pred_block = adaptor_.get_rw_other_block(pred);
+      auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
       spin_until([pred_block]{
         return !pred_block->next_flag_has_successor() && !pred_block->get_next_id(); });
       // register on pred.flags as a writer successor, then fill in pred.next.id and wait
@@ -1214,7 +1214,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(next_id);
     ASSERT_ND(next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
 
-    auto* succ_block = adaptor_.get_rw_other_block(next_id);
+    auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
     ASSERT_ND(lock->nreaders() == 0);
     ASSERT_ND(!succ_block->pred_flag_is_granted());
     ASSERT_ND(!succ_block->get_pred_id() != McsRwExtendedBlock::kPredIdAcquired);
@@ -1228,7 +1228,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
   }
 
   ErrorCode cancel_writer_lock(McsRwLock* lock, uint32_t my_tail_int) {
-    auto* my_block = adaptor_.get_rw_other_block(my_tail_int);
+    auto* my_block = adaptor_.dereference_rw_tail_block(my_tail_int);
     auto pred = my_block->xchg_pred_id(0);
     // if pred is a releasing writer and already dereference my id, it will CAS me.pred.id
     // to Acquired, so we do a final check here; there's no way back after this point
@@ -1254,7 +1254,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return cancel_writer_lock_no_pred(lock, my_block, my_tail_int);
     }
     ASSERT_ND(pred);
-    auto* pred_block = adaptor_.get_rw_other_block(pred);
+    auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
     while (true) {
       // wait for cancelling pred to finish relink, note pred_block is updated
       // later in the if block as well
@@ -1278,7 +1278,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
           ASSERT_ND(lock->nreaders() == 0);
           return kErrorCodeOk;
         }
-        pred_block = adaptor_.get_rw_other_block(pred);
+        pred_block = adaptor_.dereference_rw_tail_block(pred);
         continue;
       } else if (eflags & static_cast<uint64_t>(McsRwExtendedBlock::kSuccFlagBusy)) {
         // pred is perhaps releasing (writer)? me.pred.id is 0, pred can do nothing about me,
@@ -1303,7 +1303,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
           ASSERT_ND(lock->nreaders() == 0);
           return kErrorCodeOk;
         }
-        pred_block = adaptor_.get_rw_other_block(pred);
+        pred_block = adaptor_.dereference_rw_tail_block(pred);
         continue;  // retry if it's a reader
       }
       ASSERT_ND(pred_block->get_next_id() == my_tail_int);
@@ -1331,7 +1331,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     uint32_t new_next_id = my_block->get_next_id();
     ASSERT_ND(new_next_id);
     ASSERT_ND(new_next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
-    auto* succ_block = adaptor_.get_rw_other_block(new_next_id);
+    auto* succ_block = adaptor_.dereference_rw_tail_block(new_next_id);
     while (!succ_block->cas_pred_id_weak(my_tail_int, pred)) {}
 
     uint64_t successor = 0;
@@ -1384,7 +1384,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
 
     // because I don't have a pred, if next_id is a writer, I should put it in lock.nw
-    auto* succ_block = adaptor_.get_rw_other_block(next_id);
+    auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
     ASSERT_ND(succ_block->pred_flag_is_waiting());
     if (succ_block->is_writer()) {
       ASSERT_ND(my_block->next_flag_has_writer_successor());
