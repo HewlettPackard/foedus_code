@@ -245,14 +245,13 @@ struct Runner {
 };
 
 TEST(XctMcsImplTest, InstantiateSimple) { Runner<McsRwSimpleBlock>::test_instantiate(); }
-// TODO(Hideaki) enable when extended versions are implemented
-// TEST(XctMcsImplTest, InstantiateExtended) { Runner<McsRwExtendedBlock>::test_instantiate(); }
+TEST(XctMcsImplTest, InstantiateExtended) { Runner<McsRwExtendedBlock>::test_instantiate(); }
 
 TEST(XctMcsImplTest, NoConflictSimple) { Runner<McsRwSimpleBlock>().test_no_conflict(); }
-// TEST(XctMcsImplTest, NoConflictExtended) { Runner<McsRwExtendedBlock>().test_no_conflict(); }
+TEST(XctMcsImplTest, NoConflictExtended) { Runner<McsRwExtendedBlock>().test_no_conflict(); }
 
 TEST(XctMcsImplTest, ConflictSimple) { Runner<McsRwSimpleBlock>().test_conflict(); }
-// TEST(XctMcsImplTest, ConflictExtended) { Runner<McsRwExtendedBlock>().test_conflict(); }
+TEST(XctMcsImplTest, ConflictExtended) { Runner<McsRwExtendedBlock>().test_conflict(); }
 
 TEST(XctMcsImplTest, RandomSimple) { Runner<McsRwSimpleBlock>().test_random(); }
 // TEST(XctMcsImplTest, RandomExtended) { Runner<McsRwExtendedBlock>().test_random(); }
