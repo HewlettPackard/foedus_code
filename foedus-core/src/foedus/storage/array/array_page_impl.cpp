@@ -45,7 +45,9 @@ void ArrayPage::initialize_snapshot_page(
   if (is_leaf()) {
     uint16_t records = get_leaf_record_count();
     for (uint16_t i = 0; i < records; ++i) {
-      get_leaf_record(i, payload_size)->owner_id_.xct_id_.set_epoch(initial_epoch);
+      auto* rec = get_leaf_record(i, payload_size);
+      rec->owner_id_.lock_.reset();
+      rec->owner_id_.xct_id_.set_epoch(initial_epoch);
     }
   }
 }
@@ -66,7 +68,9 @@ void ArrayPage::initialize_volatile_page(
   if (is_leaf()) {
     uint16_t records = get_leaf_record_count();
     for (uint16_t i = 0; i < records; ++i) {
-      get_leaf_record(i, payload_size)->owner_id_.xct_id_.set_epoch(initial_epoch);
+      auto* rec = get_leaf_record(i, payload_size);
+      rec->owner_id_.lock_.reset();
+      rec->owner_id_.xct_id_.set_epoch(initial_epoch);
     }
   }
 }
