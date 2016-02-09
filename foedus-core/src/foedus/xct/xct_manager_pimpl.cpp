@@ -517,12 +517,6 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
 #endif  // NDEBUG
 }
 
-#ifdef MCS_RW_TIMEOUT_LOCK
-ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct_id) {
-  // FIXME(tzwang): just a place holder for now
-}
-#endif
-
 ErrorCode XctManagerPimpl::precommit_xct_lock_batch_track_moved(thread::Thread* context) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
