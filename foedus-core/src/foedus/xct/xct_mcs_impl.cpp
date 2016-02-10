@@ -1088,7 +1088,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     uint32_t next_id = my_block->get_next_id();
     while (next_id == 0) {
       if (lock->cas_tail_weak(my_tail_int, 0)) {  // really no one behind me
-        lock->decrement_nreaders();
+        finish_release_reader_lock(lock);
         return;
       }
       next_id = my_block->get_next_id();

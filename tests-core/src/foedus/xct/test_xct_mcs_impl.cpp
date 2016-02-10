@@ -254,7 +254,7 @@ TEST(XctMcsImplTest, ConflictSimple) { Runner<McsRwSimpleBlock>().test_conflict(
 TEST(XctMcsImplTest, ConflictExtended) { Runner<McsRwExtendedBlock>().test_conflict(); }
 
 TEST(XctMcsImplTest, RandomSimple) { Runner<McsRwSimpleBlock>().test_random(); }
-// TEST(XctMcsImplTest, RandomExtended) { Runner<McsRwExtendedBlock>().test_random(); }
+TEST(XctMcsImplTest, RandomExtended) { Runner<McsRwExtendedBlock>().test_random(); }
 
 }  // namespace xct
 }  // namespace foedus
