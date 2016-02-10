@@ -451,10 +451,14 @@ TEST(XctMcsImplTest, AsyncReadOnlySimple) { Runner<McsRwSimpleBlock>().test_asyn
 TEST(XctMcsImplTest, AsyncReadOnlyExtended) { Runner<McsRwExtendedBlock>().test_async_read_only(); }
 
 TEST(XctMcsImplTest, AsyncWriteOnlySimple) { Runner<McsRwSimpleBlock>().test_async_write_only(); }
-TEST(XctMcsImplTest, AsyncWriteOnlyExtended) { Runner<McsRwExtendedBlock>().test_async_write_only(); }
+TEST(XctMcsImplTest, AsyncWriteOnlyExtended) {
+  Runner<McsRwExtendedBlock>().test_async_write_only();
+}
 
 TEST(XctMcsImplTest, AsyncReadWriteSimple) { Runner<McsRwSimpleBlock>().test_async_read_write(); }
-TEST(XctMcsImplTest, AsyncReadWriteExtended) { Runner<McsRwExtendedBlock>().test_async_read_write(); }
+TEST(XctMcsImplTest, AsyncReadWriteExtended) {
+  Runner<McsRwExtendedBlock>().test_async_read_write();
+}
 }  // namespace xct
 }  // namespace foedus
 
