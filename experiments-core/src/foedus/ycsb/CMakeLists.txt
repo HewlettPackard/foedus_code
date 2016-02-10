@@ -38,3 +38,6 @@ configure_file(run_ycsb_f_gh_rw.sh run_ycsb_f_gh_rw.sh COPYONLY)
 configure_file(run_ycsb_f_dh_rw.sh run_ycsb_f_dh_rw.sh COPYONLY)
 configure_file(run_ycsb_f_dl580_rw.sh run_ycsb_f_dl580_rw.sh COPYONLY)
 configure_file(run_ycsb_f_z820_rw.sh run_ycsb_f_z820_rw.sh COPYONLY)
+
+configure_file(${FOEDUS_SRC_ROOT}/scripts/summarizej.sh summarizej.sh COPYONLY)
+configure_file(${FOEDUS_SRC_ROOT}/scripts/summarizej.java summarizej.java COPYONLY)
