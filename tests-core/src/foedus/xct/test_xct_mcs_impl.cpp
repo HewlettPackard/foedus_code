@@ -80,6 +80,12 @@ struct Runner {
     signaled = false;
   }
 
+  void spin() {
+    assorted::UniformRandom spin_rnd(1234567);
+    int32_t rounds = spin_rnd.uniform_within(1, 1000);
+    while (--rounds) {}
+  }
+
   void no_conflict_task(thread::ThreadId id) {
     McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
@@ -221,6 +227,137 @@ struct Runner {
     done[id] = true;
   }
 
+  void async_read_only_task(thread::ThreadId id) {
+    McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
+    McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
+    assorted::UniformRandom r(id);
+    auto* lock = keys;
+    for (int i = 0; i < 1000; ++i) {
+      uint32_t timeout = r.uniform_within(0, 10000);
+      if (timeout % 1000 == 0) {
+        auto block_index = impl.acquire_unconditional_rw_reader(lock);
+        EXPECT_GT(block_index, 0);
+        spin();
+        impl.release_rw_reader(lock, block_index);
+      } else {
+        auto ret = impl.acquire_async_rw_reader(lock);
+        EXPECT_GT(ret.block_index_, 0);
+        if (!ret.acquired_) {
+          while (timeout--) {
+            if (impl.retry_async_rw_reader(lock, ret.block_index_)) {
+              ret.acquired_ = true;
+              break;
+            }
+          }
+        }
+        if (ret.acquired_) {
+          spin();
+          impl.release_rw_reader(lock, ret.block_index_);
+        } else {
+          impl.cancel_async_rw_reader(lock, ret.block_index_);
+        }
+      }
+    }
+    ++done_count;
+    done[id] = true;
+  }
+
+  void async_write_only_task(thread::ThreadId id) {
+    McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
+    McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
+    assorted::UniformRandom r(id);
+    auto* lock = keys;
+    for (int i = 0; i < 1000; ++i) {
+      uint32_t timeout = r.uniform_within(0, 10000);
+      if (timeout % 1000 == 0) {
+        auto block_index = impl.acquire_unconditional_rw_writer(lock);
+        EXPECT_GT(block_index, 0);
+        spin();
+        impl.release_rw_writer(lock, block_index);
+      } else {
+        auto ret = impl.acquire_async_rw_writer(lock);
+        EXPECT_GT(ret.block_index_, 0);
+        if (!ret.acquired_) {
+          while (timeout--) {
+            if (impl.retry_async_rw_writer(lock, ret.block_index_)) {
+              ret.acquired_ = true;
+              break;
+            }
+          }
+        }
+        if (ret.acquired_) {
+          spin();
+          impl.release_rw_writer(lock, ret.block_index_);
+        } else {
+          impl.cancel_async_rw_writer(lock, ret.block_index_);
+        }
+      }
+    }
+    ++done_count;
+    done[id] = true;
+  }
+
+  void async_read_write_task(thread::ThreadId id) {
+    McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
+    McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
+    assorted::UniformRandom r(id);
+    auto* lock = keys;
+    for (int i = 0; i < 1000; ++i) {
+      uint32_t timeout = r.uniform_within(0, 10000);
+      if (i % 2 == 0) {
+        if (timeout % 1000 == 0) {
+          auto block_index = impl.acquire_unconditional_rw_reader(lock);
+          EXPECT_GT(block_index, 0);
+          spin();
+          impl.release_rw_reader(lock, block_index);
+        } else {
+          auto ret = impl.acquire_async_rw_reader(lock);
+          EXPECT_GT(ret.block_index_, 0);
+          if (!ret.acquired_) {
+            while (timeout--) {
+              if (impl.retry_async_rw_reader(lock, ret.block_index_)) {
+                ret.acquired_ = true;
+                break;
+              }
+            }
+          }
+          if (ret.acquired_) {
+            spin();
+            impl.release_rw_reader(lock, ret.block_index_);
+          } else {
+            impl.cancel_async_rw_reader(lock, ret.block_index_);
+          }
+        }
+      } else {
+        if (timeout % 1000 == 0) {
+          auto block_index = impl.acquire_unconditional_rw_writer(lock);
+          EXPECT_GT(block_index, 0);
+          spin();
+          impl.release_rw_writer(lock, block_index);
+        } else {
+          auto ret = impl.acquire_async_rw_writer(lock);
+          EXPECT_GT(ret.block_index_, 0);
+          if (!ret.acquired_) {
+            while (timeout--) {
+              if (impl.retry_async_rw_writer(lock, ret.block_index_)) {
+                ret.acquired_ = true;
+                break;
+              }
+            }
+          }
+          if (ret.acquired_) {
+            spin();
+            impl.release_rw_writer(lock, ret.block_index_);
+          } else {
+            impl.cancel_async_rw_writer(lock, ret.block_index_);
+          }
+        }
+      }
+    }
+    ++done_count;
+    done[id] = true;
+  }
+
   void test_random() {
     init();
     std::vector<std::thread> sessions;
@@ -242,6 +379,60 @@ struct Runner {
       sessions[i].join();
     }
   }
+
+  void test_async_read_only() {
+    init();
+    std::vector<std::thread> sessions;
+    for (int i = 0; i < kThreads; ++i) {
+      sessions.emplace_back(&Runner::async_read_only_task, this, i);
+    }
+
+    while (done_count < kThreads) {
+      sleep_enough();
+    }
+
+    EXPECT_FALSE(keys[0].is_locked());
+    EXPECT_TRUE(done[0]);
+    for (int i = 0; i < kThreads; ++i) {
+      sessions[i].join();
+    }
+  }
+
+  void test_async_write_only() {
+    init();
+    std::vector<std::thread> sessions;
+    for (int i = 0; i < kThreads; ++i) {
+      sessions.emplace_back(&Runner::async_write_only_task, this, i);
+    }
+
+    while (done_count < kThreads) {
+      sleep_enough();
+    }
+
+    EXPECT_FALSE(keys[0].is_locked());
+    EXPECT_TRUE(done[0]);
+    for (int i = 0; i < kThreads; ++i) {
+      sessions[i].join();
+    }
+  }
+
+  void test_async_read_write() {
+    init();
+    std::vector<std::thread> sessions;
+    for (int i = 0; i < kThreads; ++i) {
+      sessions.emplace_back(&Runner::async_read_write_task, this, i);
+    }
+
+    while (done_count < kThreads) {
+      sleep_enough();
+    }
+
+    EXPECT_FALSE(keys[0].is_locked());
+    EXPECT_TRUE(done[0]);
+    for (int i = 0; i < kThreads; ++i) {
+      sessions[i].join();
+    }
+  }
 };
 
 TEST(XctMcsImplTest, InstantiateSimple) { Runner<McsRwSimpleBlock>::test_instantiate(); }
@@ -256,6 +447,14 @@ TEST(XctMcsImplTest, ConflictExtended) { Runner<McsRwExtendedBlock>().test_confl
 TEST(XctMcsImplTest, RandomSimple) { Runner<McsRwSimpleBlock>().test_random(); }
 TEST(XctMcsImplTest, RandomExtended) { Runner<McsRwExtendedBlock>().test_random(); }
 
+TEST(XctMcsImplTest, AsyncReadOnlySimple) { Runner<McsRwSimpleBlock>().test_async_read_only(); }
+TEST(XctMcsImplTest, AsyncReadOnlyExtended) { Runner<McsRwExtendedBlock>().test_async_read_only(); }
+
+TEST(XctMcsImplTest, AsyncWriteOnlySimple) { Runner<McsRwSimpleBlock>().test_async_write_only(); }
+TEST(XctMcsImplTest, AsyncWriteOnlyExtended) { Runner<McsRwExtendedBlock>().test_async_write_only(); }
+
+TEST(XctMcsImplTest, AsyncReadWriteSimple) { Runner<McsRwSimpleBlock>().test_async_read_write(); }
+TEST(XctMcsImplTest, AsyncReadWriteExtended) { Runner<McsRwExtendedBlock>().test_async_read_write(); }
 }  // namespace xct
 }  // namespace foedus
 
