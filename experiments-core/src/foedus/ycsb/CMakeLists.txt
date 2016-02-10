@@ -39,5 +39,5 @@ configure_file(run_ycsb_f_dh_rw.sh run_ycsb_f_dh_rw.sh COPYONLY)
 configure_file(run_ycsb_f_dl580_rw.sh run_ycsb_f_dl580_rw.sh COPYONLY)
 configure_file(run_ycsb_f_z820_rw.sh run_ycsb_f_z820_rw.sh COPYONLY)
 
-configure_file(${FOEDUS_SRC_ROOT}/scripts/summarizej.sh summarizej.sh COPYONLY)
-configure_file(${FOEDUS_SRC_ROOT}/scripts/summarizej.java summarizej.java COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../../../summarizej.sh summarizej.sh COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../../../summarizej.java summarizej.java COPYONLY)
