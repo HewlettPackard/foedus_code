@@ -37,7 +37,7 @@
 
 namespace foedus {
 namespace xct {
-DEFINE_TEST_CASE_PACKAGE(XctIdRwTimeoutLockTest, foedus.xct);
+DEFINE_TEST_CASE_PACKAGE(XctIdExtendedRwLockTest, foedus.xct);
 
 // adjust these when debugging
 const int kMaxCores = 4;
@@ -167,7 +167,7 @@ ErrorStack read_write_task(const proc::ProcArguments& args) {
   assorted::UniformRandom rnd(id);
   for (int i = 0; i < kAcquires; ++i) {
     McsBlockIndex block = 0;
-    uint32_t timeout = rnd.uniform_within(0, 200000);
+    int32_t timeout = rnd.uniform_within(0, 200000);
     if (i % 2 == 0) {
       if (timeout % 1000 == 0) {
         block = context->mcs_acquire_reader_lock(key.get_key_lock());
@@ -241,7 +241,7 @@ ErrorStack single_writer_task(const proc::ProcArguments& args) {
   return foedus::kRetOk;
 }
 
-TEST(XctIdRwTimeoutLockTest, WriteOnly) {
+TEST(XctIdExtendedRwLockTest, WriteOnly) {
   EngineOptions options = get_tiny_options();
   if (options.xct_.mcs_implementation_type_ != XctOptions::kMcsImplementationTypeExtended) {
     return;
@@ -253,7 +253,7 @@ TEST(XctIdRwTimeoutLockTest, WriteOnly) {
     std::min(kMaxCores, std::max(options.thread_.thread_count_per_group_ / 2, 1));
   ASSERT_ND(options.thread_.group_count_ <= kMaxNodes);
   ASSERT_ND(options.thread_.thread_count_per_group_ <= kMaxCores);
-  core_count = options.thread_.group_count_ * options.thread_.thread_count_per_group_; 
+  core_count = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
   for (int i = 0; i < kRounds; i++) {
     std::cout << "round " << i << std::endl;
@@ -294,7 +294,7 @@ TEST(XctIdRwTimeoutLockTest, WriteOnly) {
     cleanup_test(options);
   }
 }
-TEST(XctIdRwTimeoutLockTest, ReadOnly) {
+TEST(XctIdExtendedRwLockTest, ReadOnly) {
   EngineOptions options = get_tiny_options();
   if (options.xct_.mcs_implementation_type_ != XctOptions::kMcsImplementationTypeExtended) {
     return;
@@ -306,7 +306,7 @@ TEST(XctIdRwTimeoutLockTest, ReadOnly) {
     std::min(kMaxCores, std::max(options.thread_.thread_count_per_group_ / 2, 1));
   ASSERT_ND(options.thread_.group_count_ <= kMaxNodes);
   ASSERT_ND(options.thread_.thread_count_per_group_ <= kMaxCores);
-  core_count = options.thread_.group_count_ * options.thread_.thread_count_per_group_; 
+  core_count = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
   for (int i = 0; i < kRounds; i++) {
     std::cout << "round " << i << std::endl;
@@ -347,7 +347,7 @@ TEST(XctIdRwTimeoutLockTest, ReadOnly) {
   }
 }
 
-TEST(XctIdRwTimeoutLockTest, SingleReader) {
+TEST(XctIdExtendedRwLockTest, SingleReader) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = 1;
   options.thread_.group_count_ = 1;
@@ -367,7 +367,7 @@ TEST(XctIdRwTimeoutLockTest, SingleReader) {
   cleanup_test(options);
 }
 
-TEST(XctIdRwTimeoutLockTest, SingleWriter) {
+TEST(XctIdExtendedRwLockTest, SingleWriter) {
   EngineOptions options = get_tiny_options();
   options.thread_.thread_count_per_group_ = 1;
   options.thread_.group_count_ = 1;
@@ -386,7 +386,7 @@ TEST(XctIdRwTimeoutLockTest, SingleWriter) {
   }
   cleanup_test(options);
 }
-TEST(XctIdRwTimeoutLockTest, ReadWrite) {
+TEST(XctIdExtendedRwLockTest, ReadWrite) {
   EngineOptions options = get_tiny_options();
   if (options.xct_.mcs_implementation_type_ != XctOptions::kMcsImplementationTypeExtended) {
     return;
@@ -398,7 +398,7 @@ TEST(XctIdRwTimeoutLockTest, ReadWrite) {
     std::min(kMaxCores, std::max(options.thread_.thread_count_per_group_ / 2, 1));
   ASSERT_ND(options.thread_.group_count_ <= kMaxNodes);
   ASSERT_ND(options.thread_.thread_count_per_group_ <= kMaxCores);
-  core_count = options.thread_.group_count_ * options.thread_.thread_count_per_group_; 
+  core_count = options.thread_.group_count_ * options.thread_.thread_count_per_group_;
 
   for (int i = 0; i < kRounds; i++) {
     std::cout << "round " << i << std::endl;
@@ -442,4 +442,4 @@ TEST(XctIdRwTimeoutLockTest, ReadWrite) {
 }  // namespace xct
 }  // namespace foedus
 
-TEST_MAIN_CAPTURE_SIGNALS(XctIdRwTimeoutLockTest, foedus.xct);
+TEST_MAIN_CAPTURE_SIGNALS(XctIdExtendedRwLockTest, foedus.xct);
