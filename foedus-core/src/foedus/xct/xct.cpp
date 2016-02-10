@@ -242,21 +242,6 @@ ErrorCode Xct::add_to_read_set(
   }
 
   if (lets_take_lock) {
-#ifdef MCS_RW_GROUP_TRY_LOCK
-    if (context->mcs_try_acquire_reader_lock(
-      read->owner_id_address_->get_key_lock(), &read->mcs_block_, 10)) {
-      ASSERT_ND(read->mcs_block_);
-      if (context->mcs_retry_acquire_reader_lock(
-        read->owner_id_address_->get_key_lock(), read->mcs_block_, true)) {
-        // Now we locked it, update observed xct_id; the caller, however, must make
-        // sure to read the data after taking the lock, not before.
-        read->observed_owner_id_ = owner_id_address->xct_id_;
-        context->set_canonical_address(owner_id_address);
-        return kErrorCodeOk;
-      }
-    }
-#endif
-#ifdef MCS_RW_LOCK
     LockMode mode = read_only ? kReadLock : kWriteLock;
     LockListPosition cll_pos = current_lock_list_.get_or_add_entry(owner_id_address, mode);
     LockEntry* cll_entry = current_lock_list_.get_entry(cll_pos);
@@ -274,7 +259,6 @@ ErrorCode Xct::add_to_read_set(
       // Then we should take all locks before this too.
       CHECK_ERROR_CODE(current_lock_list_.try_or_acquire_multiple_locks(context, cll_pos));
     }
-#endif
   }
   return kErrorCodeOk;
 }

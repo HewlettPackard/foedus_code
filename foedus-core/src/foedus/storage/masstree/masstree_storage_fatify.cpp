@@ -89,7 +89,13 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
 
   while (true) {
     // lock the first root.
-    xct::McsRwLockScope owner_scope(context, &get_first_root_owner(), false);
+    // To remove risk on deadlock in HCC, we do this as a "try" semantics.
+    xct::McsRwLockScope owner_scope(context, &get_first_root_owner(), false, true, true);
+    if (!owner_scope.is_locked()) {
+      LOG(WARNING) << "Tried to lock the root for fatity-ing, but someone seems doing something."
+        << " As fatification is not a mandatory thing, we skip it now.";
+      return kRetOk;
+    }
     LOG(INFO) << "Locked the root page owner address.";
     MasstreeIntermediatePage* root;
     WRAP_ERROR_CODE(get_first_root(context, true, &root));

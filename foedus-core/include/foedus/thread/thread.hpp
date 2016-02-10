@@ -331,6 +331,14 @@ class Thread CXX11_FINAL : public virtual Initializable {
    * before the parameter. This is used where we need to rule out the risk of deadlock.
    */
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
+  /** same as mcs_release_all_current_locks_after(address - 1) */
+  void        mcs_release_all_current_locks_at_and_after(xct::UniversalLockId address) {
+    if (address == xct::kNullUniversalLockId) {
+      mcs_release_all_current_locks_after(xct::kNullUniversalLockId);
+    } else {
+      mcs_release_all_current_locks_after(address - 1U);
+    }
+  }
 
   /** @copydoc foedus::xct::McsWwImpl::ownerless_acquire_unconditional() */
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);

@@ -111,6 +111,16 @@ DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
 
 DEFINE_bool(sort_keys, true, "Whether to sort the keys used in workload F");
 
+DEFINE_bool(force_canonical_xlocks_in_precommit, true,
+  "Whether precommit always releases all locks that violate canonical mode before taking X-locks");
+DEFINE_bool(enable_retrospective_lock_list, true, "Whether to use RLL after aborts");
+DEFINE_bool(extended_rw_lock, false, "whether to use the extended RW lock implementation");
+
+// TODO(Hideaki) These are yet to be implemented in the precommit code
+DEFINE_bool(aggressive_release, true, "Enable aggressive lock-release to restore canonical mode");
+DEFINE_bool(parallel_lock, false, "whether to take locks in parallel in precommit when"
+    " we are not in canonical mode, using the async-lock interface.");
+
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0,    0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0,    0);     // Workload B - 95% read, 5% update
 YcsbWorkload YcsbWorkloadC('C', 0,  100U, 0,    0,    0);     // Workload C - 100% read
@@ -283,6 +293,22 @@ int driver_main(int argc, char **argv) {
   }
   options.storage_.hot_threshold_ = FLAGS_hot_threshold;
   std::cout << "Hot record threshold: " << options.storage_.hot_threshold_ << std::endl;
+
+  options.xct_.force_canonical_xlocks_in_precommit_ = FLAGS_force_canonical_xlocks_in_precommit;
+  options.xct_.enable_retrospective_lock_list_ = FLAGS_enable_retrospective_lock_list;
+  if (FLAGS_extended_rw_lock) {
+    options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeSimple;
+  } else {
+    options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeExtended;
+  }
+  // TODO(Hideaki) Some option and its implementation for aggressive_release/parallel_lock
+  std::cout
+    << "force_canonical_xlocks_in_precommit: " << FLAGS_force_canonical_xlocks_in_precommit
+    << " enable_retrospective_lock_list: " << FLAGS_enable_retrospective_lock_list
+    << " mcs_implementation_type_: " << options.xct_.mcs_implementation_type_
+    << " aggressive_release: " << FLAGS_aggressive_release
+    << " parallel_lock: " << FLAGS_parallel_lock
+    << std::endl;
 
   std::cout << "sort keys before accessing: " << FLAGS_sort_keys << std::endl;
 

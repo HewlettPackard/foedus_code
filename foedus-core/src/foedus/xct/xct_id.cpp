@@ -66,10 +66,11 @@ McsRwLockScope::McsRwLockScope(
   thread::Thread* context,
   RwLockableXctId* lock,
   bool as_reader,
-  bool acquire_now)
+  bool acquire_now,
+  bool is_try_acquire)
   : context_(context), lock_(lock->get_key_lock()), block_(0), as_reader_(as_reader) {
   if (acquire_now) {
-    acquire();
+    acquire_general(is_try_acquire);
   }
 }
 
@@ -77,18 +78,28 @@ McsRwLockScope::McsRwLockScope(
   thread::Thread* context,
   McsRwLock* lock,
   bool as_reader,
-  bool acquire_now)
+  bool acquire_now,
+  bool is_try_acquire)
   : context_(context), lock_(lock), block_(0), as_reader_(as_reader) {
   if (acquire_now) {
-    acquire();
+    acquire_general(is_try_acquire);
   }
 }
 
+bool McsRwLockScope::acquire_general(bool is_try_acquire) {
+  if (is_try_acquire) {
+    return try_acquire();
+  } else {
+    unconditional_acquire();
+    return true;
+  }
+}
 void McsRwLockScope::initialize(
   thread::Thread* context,
   McsRwLock* lock,
   bool as_reader,
-  bool acquire_now) {
+  bool acquire_now,
+  bool is_try_acquire) {
   if (is_valid() && is_locked()) {
     release();
   }
@@ -97,7 +108,7 @@ void McsRwLockScope::initialize(
   block_ = 0;
   as_reader_ = as_reader;
   if (acquire_now) {
-    acquire();
+    acquire_general(is_try_acquire);
   }
 }
 
@@ -127,61 +138,30 @@ McsRwLockScope& McsRwLockScope::operator=(McsRwLockScope&& other) {
   return *this;
 }
 
-/*
-void McsRwLockScope::move_to(storage::PageVersionLockScope* new_owner) {
-  ASSERT_ND(is_locked());
-  new_owner->context_ = context_;
-  // PageVersion's first member is McsRwLock, so this is ok.
-  new_owner->version_ = reinterpret_cast<storage::PageVersion*>(lock_);
-  ASSERT_ND(lock_ == &new_owner->version_->lock_);
-  new_owner->block_ = block_;
-  new_owner->as_reader_ = as_reader;
-  new_owner->changed_ = false;
-  new_owner->released_ = false;
-  context_ = nullptr;
-  lock_ = nullptr;
-  block_ = 0;
-  as_reader_ = false;
-  ASSERT_ND(!is_locked());
-}
-*/
-
-void McsRwLockScope::acquire() {
+void McsRwLockScope::unconditional_acquire() {
   if (is_valid()) {
     if (block_ == 0) {
-      /* TODO: This is an unconditional acquire for page, shouldn't have risk of deadlocks. right?
-      // release all S-locks first, see the comments in masstree_page_impl.cpp
-      xct::ReadXctAccess* read_set = context_->get_current_xct().get_read_set();
-      uint32_t read_set_size = context_->get_current_xct().get_read_set_size();
-      for (uint32_t j = 0; j < read_set_size; ++j) {
-        auto* entry = read_set + j;
-        if (entry->mcs_block_) {
-          context_->mcs_release_reader_lock(
-            entry->owner_id_address_->get_key_lock(), entry->mcs_block_);
-          entry->mcs_block_ = 0;
-        }
-      }
-      */
-#ifdef MCS_RW_GROUP_TRY_LOCK
-      if (as_reader_) {
-        do {
-          while (!context_->mcs_try_acquire_reader_lock(lock_, &block_, 10)) {}
-        } while (!context_->mcs_retry_acquire_reader_lock(lock_, block_, true));
-      } else {
-        do {
-          while (!context_->mcs_try_acquire_writer_lock(lock_, &block_, 10)) {}
-        } while (!context_->mcs_retry_acquire_writer_lock(lock_, block_, true));
-      }
-#endif
-#ifdef MCS_RW_LOCK
       if (as_reader_) {
         block_ = context_->mcs_acquire_reader_lock(lock_);
       } else {
         block_ = context_->mcs_acquire_writer_lock(lock_);
       }
-#endif
       ASSERT_ND(block_);
     }
+  }
+}
+bool McsRwLockScope::try_acquire() {
+  if (is_valid()) {
+    if (block_ == 0) {
+      if (as_reader_) {
+        block_ = context_->mcs_try_acquire_reader_lock(lock_);
+      } else {
+        block_ = context_->mcs_try_acquire_writer_lock(lock_);
+      }
+    }
+    return block_ != 0;
+  } else {
+    return false;
   }
 }
 

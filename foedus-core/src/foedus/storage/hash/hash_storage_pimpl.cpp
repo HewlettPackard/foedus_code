@@ -1257,9 +1257,13 @@ ErrorCode HashStoragePimpl::migrate_record(
   ASSERT_ND(cur_page->compare_slot_key(cur_index, combo.hash_, key, key_length));
   HashDataPage::Slot* cur_slot = cur_page->get_slot_address(cur_index);
 
+  // This is a lock on a single page, and we don't take any other lock here.
+  // Thus no risk of deadlocks even in HCC.
   PageVersionLockScope cur_page_scope(context, &cur_page->header().page_version_);
+  // However, the record lock might be risking deadlock. We thus release in-flight locks first.
   // After here, cur_page will not have a new entry.
-  xct::McsRwLockScope cur_record_scope(context, &cur_slot->tid_, false);
+  context->mcs_release_all_current_locks_at_and_after(xct::to_universal_lock_id(&cur_slot->tid_));
+  xct::McsRwLockScope cur_record_scope(context, &cur_slot->tid_, false, true, false);
   // cur_slot's status is now finalized.
   if (cur_slot->tid_.is_moved()) {
     // rare, but possible. locate the current record then.
@@ -1365,7 +1369,7 @@ ErrorCode HashStoragePimpl::migrate_record(
 }
 
 void HashStoragePimpl::migrate_record_move(
-  thread::Thread* context,
+  thread::Thread* /*context*/,
   const void* key,
   uint16_t key_length,
   const HashCombo& combo,
@@ -1389,7 +1393,8 @@ void HashStoragePimpl::migrate_record_move(
     payload_count);
   HashDataPage::Slot* new_slot = tail_page->get_slot_address(new_index);
 
-  xct::McsRwLockScope new_record_scope(context, &new_slot->tid_, false);
+  // Here, we avoid locking this new record for ease of deadlock handling in HCC.
+  // As this is a new record, no need to take a lock.
   xct::XctId new_xct_id = cur_slot->tid_.xct_id_;
   new_slot->tid_.xct_id_ = new_xct_id;
   new_location->observed_ = new_xct_id;

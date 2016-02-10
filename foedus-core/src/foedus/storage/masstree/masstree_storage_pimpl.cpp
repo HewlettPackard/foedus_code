@@ -125,7 +125,13 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     return kErrorCodeOk;
   }
 
-  xct::McsRwLockScope owner_scope(context, root_pointer_owner, false);
+  // To remove risk on deadlock in HCC, we use "try" lock here.
+  // Growing a root is not mandatory, so if someone else is working on it, we let him do that.
+  xct::McsRwLockScope owner_scope(context, root_pointer_owner, false, true, true);
+  if (!owner_scope.is_locked()) {
+    LOG(INFO) << "interesting. someone else won the lock to grow root. just let him do that";
+    return kErrorCodeOk;
+  }
   if (root_pointer_owner->is_moved()) {
     LOG(INFO) << "interesting. someone else has split the page that had a pointer"
       " to a root page of the layer to be grown";
@@ -476,7 +482,10 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   xct::RwLockableXctId* parent_lock = parent->get_owner_id(parent_index);
 
   // as an independent system transaction, here we do an optimistic version check.
-  xct::McsRwLockScope parent_scope(context, parent_lock, false);
+  // To remove risk on deadlock in HCC, we release in-flight locks that are after this lock.
+  // All such in-flight locks must be non-mandatory locks because this is during xct.
+  // So, we can arbitraliry release them.
+  xct::McsRwLockScope parent_scope(context, parent_lock, false, true, false);
   if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
     // someone else has also made this to a next layer or the page itself is moved!
     // our effort was a waste, but anyway the goal was achieved.
@@ -648,7 +657,11 @@ ErrorCode MasstreeStoragePimpl::expand_record(
 
     // 2-b. Lock the record and announce the new location in one-shot.
     {
-      xct::McsRwLockScope record_lock(context, &slot->tid_, false);
+      // To remove risk on deadlock in HCC, we release in-flight locks that are after this lock.
+      // All such in-flight locks must be non-mandatory locks because this is during xct.
+      // So, we can arbitraliry release them.
+      context->mcs_release_all_current_locks_at_and_after(xct::to_universal_lock_id(&slot->tid_));
+      xct::McsRwLockScope record_lock(context, &slot->tid_, false, true, false);
       // The above lock implies a barrier here
       ASSERT_ND(!slot->tid_.is_moved());
       slot->write_lengthes_oneshot(new_lengthes);
