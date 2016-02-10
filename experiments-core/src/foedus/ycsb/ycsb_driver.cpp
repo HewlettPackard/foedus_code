@@ -65,11 +65,11 @@ DEFINE_bool(profile, false, "Whether to profile the execution with gperftools.")
 DEFINE_bool(papi, false, "Whether to profile with PAPI.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
 DEFINE_string(nvm_folder, "/dev/shm", "Full path of the device representing NVM.");
-DEFINE_int32(volatile_pool_size, 1, "Size of volatile memory pool per NUMA node in GB.");
-DEFINE_int32(snapshot_pool_size, 2048, "Size of snapshot memory pool per NUMA node in MB.");
+DEFINE_int32(volatile_pool_size, 8, "Size of volatile memory pool per NUMA node in GB.");
+DEFINE_int32(snapshot_pool_size, 1, "Size of snapshot memory pool per NUMA node in MB.");
 DEFINE_int32(reducer_buffer_size, 1, "Size of reducer's buffer per NUMA node in GB.");
 DEFINE_int32(loggers_per_node, 1, "Number of log writers per numa node.");
-DEFINE_int32(thread_per_node, 0, "Number of threads per NUMA node. 0 uses logical count");
+DEFINE_int32(thread_per_node, 6, "Number of threads per NUMA node. 0 uses logical count");
 DEFINE_int32(numa_nodes, 0, "Number of NUMA nodes. 0 uses physical count");
 DEFINE_bool(use_numa_alloc, true, "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode()"
   " to allocate memories. If false, we use usual posix_memalign() instead");
@@ -77,25 +77,25 @@ DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleav
   " instead of ::numa_alloc_onnode()");
 DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
   " This requies special setup written in the readme.");
-DEFINE_int32(log_buffer_mb, 512, "Size in MB of log buffer for each thread");
+DEFINE_int32(log_buffer_mb, 256, "Size in MB of log buffer for each thread");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
-DEFINE_int64(duration_micro, 1000000, "Duration of benchmark in microseconds.");
+DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 DEFINE_int32(hot_threshold, -1, "Threshold to determine hot/cold pages,"
   " 0 (always hot, 2PL) - 256 (always cold, OCC).");
 
 // YCSB-specific options
-DEFINE_string(workload, "A", "YCSB workload; choose A/B/C/D/E/F.");
+DEFINE_string(workload, "F", "YCSB workload; choose A/B/C/D/E/F.");
 DEFINE_int64(max_scan_length, 1000, "Maximum number of records to scan.");
 DEFINE_bool(read_all_fields, true, "Read all or only one field(s) in read transactions.");
 DEFINE_bool(write_all_fields, true, "Write all or only one field(s) in update transactions.");
-DEFINE_int64(initial_table_size, 10000, "The number of records to insert at loading.");
+DEFINE_int64(initial_table_size, 50, "The number of records to insert at loading.");
 DEFINE_bool(random_inserts, false, "Allow inserting in others' key space (use random high bits).");
 DEFINE_bool(use_string_keys, true, "Whether the keys should start from 'user'.");
 DEFINE_bool(verify_loaded_data, true, "Whether to verify key length and value after loading.");
-DEFINE_double(zipfian_theta, 0.99, "The theta value in Zipfian distribution, 0 < theta < 1."
+DEFINE_double(zipfian_theta, 0, "The theta value in Zipfian distribution, 0 < theta < 1."
   " Larger = more sckewed.");
 DEFINE_int32(rmw_additional_reads, 10, "The number of reads in an RMW transaction.");
-DEFINE_int32(reps_per_tx, 1, "The number of operations to repeat in each transaction."
+DEFINE_int32(reps_per_tx, 0, "The number of operations to repeat in each transaction."
   " For instance, setting this to 10 and running workload F means 'do 10 RMWs in each tx'."
   " Records are choosen by the corresponding RNG used by the transaction.");
 
@@ -297,9 +297,9 @@ int driver_main(int argc, char **argv) {
   options.xct_.force_canonical_xlocks_in_precommit_ = FLAGS_force_canonical_xlocks_in_precommit;
   options.xct_.enable_retrospective_lock_list_ = FLAGS_enable_retrospective_lock_list;
   if (FLAGS_extended_rw_lock) {
-    options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeSimple;
-  } else {
     options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeExtended;
+  } else {
+    options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeSimple;
   }
   // TODO(Hideaki) Some option and its implementation for aggressive_release/parallel_lock
   std::cout

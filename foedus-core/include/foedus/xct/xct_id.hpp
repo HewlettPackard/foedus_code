@@ -34,9 +34,6 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 
-//#define MCS_RW_GROUP_TRY_LOCK
-#define MCS_RW_LOCK
-
 /**
  * @file foedus/xct/xct_id.hpp
  * @brief Definitions of IDs in this package and a few related constant values.
