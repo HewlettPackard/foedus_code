@@ -207,7 +207,6 @@ struct Runner {
       sessions[i].join();
     }
   }
-
   void random_task(thread::ThreadId id) {
     McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
@@ -226,6 +225,87 @@ struct Runner {
     ++done_count;
     done[id] = true;
   }
+
+  /**
+   * This one is a bit different from others.
+   * Here we intentially let it fail by taking locks
+   * in non-canonical mode. We just confirm that
+   * "try" won't cause a deadlock then.
+   *
+   * Lock-0 and Lock-9 is raced by Thread-0 and Thread-9.
+   * Thread-0 \e unconditionally takes Lock-0 as writer, then Lock-9 \e unconditionnally as writer.
+   * Thread-9 \e unconditionally takes Lock-9 as writer, then Lock-0 with \e try.
+   * Thread-9 might fail to take a lock, but it shouldn't cause an infinite wait.
+   *
+   * We do this for Lock-(n)/Lock-(9-n) by Thread-(n)/Thread-(9-n) and repeat it 100 times each.
+   *
+   * This testcase is to reproduce a bug we had and to verify the fix.
+   */
+  void non_canonical_task(thread::ThreadId id, bool latter_reader) {
+    McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
+    McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
+    const bool i_am_latter = id >= kThreads / 2U;
+    const int l1 = i_am_latter ? kThreads - 1 - id : id;
+    const int l2 = i_am_latter ? id : kThreads - 1 - id;
+    constexpr uint32_t kTries = 100;
+
+    while (!signaled) {
+      sleep_enough();
+    }
+    bool try_succeeded_at_least_once = false;
+    for (uint32_t i = 0; i < kTries; ++i) {
+      if (i_am_latter) {
+        McsBlockIndex block1 = impl.acquire_unconditional_rw_writer(&keys[l1]);
+        McsBlockIndex block2;
+        if (latter_reader) {
+          block2 = impl.acquire_try_rw_reader(&keys[l2]);
+        } else {
+          block2 = impl.acquire_try_rw_writer(&keys[l2]);
+        }
+        impl.release_rw_writer(&keys[l1], block1);
+        if (block2) {
+          try_succeeded_at_least_once = true;
+          if (latter_reader) {
+            impl.release_rw_reader(&keys[l2], block2);
+          } else {
+            impl.release_rw_writer(&keys[l2], block2);
+          }
+        }
+      } else {
+        McsBlockIndex block1 = impl.acquire_unconditional_rw_writer(&keys[l1]);
+        McsBlockIndex block2 = impl.acquire_unconditional_rw_writer(&keys[l2]);
+        impl.release_rw_writer(&keys[l1], block1);
+        impl.release_rw_writer(&keys[l2], block2);
+      }
+    }
+    if (!try_succeeded_at_least_once) {
+      // Maybe we make it an error? but this is possibble..
+      LOG(WARNING) << "Really, no success at all? mm, it's possible, but suspecious";
+    }
+    done[id] = true;
+    ++done_count;
+  }
+
+  void test_non_canonical(bool latter_reader) {
+    init();
+    std::vector<std::thread> sessions;
+    for (int i = 0; i < kThreads; ++i) {
+      sessions.emplace_back(&Runner::non_canonical_task, this, i, latter_reader);
+    }
+    while (done_count < kThreads) {
+      sleep_enough();
+    }
+    for (int i = 0; i < kThreads; ++i) {
+      EXPECT_TRUE(locked[i]) << i;
+      EXPECT_TRUE(done[i]) << i;
+      EXPECT_FALSE(keys[i].is_locked()) << i;
+    }
+    for (int i = 0; i < kThreads; ++i) {
+      sessions[i].join();
+    }
+  }
+  void test_non_canonical1() { test_non_canonical(false); }
+  void test_non_canonical2() { test_non_canonical(true); }
 
   void async_read_only_task(thread::ThreadId id) {
     McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
@@ -443,6 +523,11 @@ TEST(XctMcsImplTest, NoConflictExtended) { Runner<McsRwExtendedBlock>().test_no_
 
 TEST(XctMcsImplTest, ConflictSimple) { Runner<McsRwSimpleBlock>().test_conflict(); }
 TEST(XctMcsImplTest, ConflictExtended) { Runner<McsRwExtendedBlock>().test_conflict(); }
+
+TEST(XctMcsImplTest, NonCanonical1Simple) { Runner<McsRwSimpleBlock>().test_non_canonical1(); }
+TEST(XctMcsImplTest, NonCanonical1Extended) { Runner<McsRwExtendedBlock>().test_non_canonical1(); }
+TEST(XctMcsImplTest, NonCanonical2Simple) { Runner<McsRwSimpleBlock>().test_non_canonical2(); }
+TEST(XctMcsImplTest, NonCanonical2Extended) { Runner<McsRwExtendedBlock>().test_non_canonical2(); }
 
 TEST(XctMcsImplTest, RandomSimple) { Runner<McsRwSimpleBlock>().test_random(); }
 TEST(XctMcsImplTest, RandomExtended) { Runner<McsRwExtendedBlock>().test_random(); }

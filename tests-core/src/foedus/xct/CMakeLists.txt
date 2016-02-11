@@ -5,5 +5,26 @@ add_foedus_test_individual(test_xct_id "Empty;SetAll;SetEpoch;SetOrdinal;SetThre
 add_foedus_test_individual(test_xct_id_lock "NoConflict;Conflict;Random")
 add_foedus_test_individual(test_xct_id_rw_lock "NoConflict;Conflict;Random")
 add_foedus_test_individual(test_xct_id_simple_rwlock "NoConflict;Random")
-add_foedus_test_individual(test_xct_mcs_impl "InstantiateSimple;InstantiateExtended;NoConflictSimple;NoConflictExtended;ConflictSimple;ConflictExtended;RandomSimple;RandomExtended;AsyncReadOnlySimple;AsyncReadOnlyExtended;AsyncWriteOnlySimple;AsyncWriteOnlyExtended;AsyncReadWriteSimple;AsyncReadWriteExtended")
+
+set(test_xct_mcs_impl_individuals
+  InstantiateSimple
+  InstantiateExtended
+  NoConflictSimple
+  NoConflictExtended
+  ConflictSimple
+  ConflictExtended
+  RandomSimple
+  RandomExtended
+  NonCanonical1Simple
+  NonCanonical1Extended
+  NonCanonical2Simple
+  NonCanonical2Extended
+  AsyncReadOnlySimple
+  AsyncReadOnlyExtended
+  AsyncWriteOnlySimple
+  AsyncWriteOnlyExtended
+  AsyncReadWriteSimple
+  AsyncReadWriteExtended
+)
+add_foedus_test_individual(test_xct_mcs_impl "${test_xct_mcs_impl_individuals}")
 add_foedus_test_individual(test_xct_mcs_impl_ww "Instantiate;NoConflict;Conflict;Initial;Random")
