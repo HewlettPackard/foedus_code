@@ -294,7 +294,6 @@ struct Runner {
       sleep_enough();
     }
     for (int i = 0; i < kThreads; ++i) {
-      EXPECT_TRUE(locked[i]) << i;
       EXPECT_TRUE(done[i]) << i;
       EXPECT_FALSE(keys[i].is_locked()) << i;
     }
