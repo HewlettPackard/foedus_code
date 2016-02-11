@@ -176,14 +176,6 @@ struct Runner {
     while (locked_count < kThreads / 2) {
       sleep_enough();
     }
-    for (int i = kThreads / 2; i < kThreads; ++i) {
-      sessions.emplace_back(&Runner::conflict_task, this, i);
-    }
-    LOG(INFO) << "Launched 2nd half";
-    for (int i = 0; i < 4; ++i) {
-      sleep_enough();
-    }
-    LOG(INFO) << "Should be done by now";
     for (int i = 0; i < kThreads; ++i) {
       int l = i < kThreads / 2 ? i : i - kThreads / 2;
       EXPECT_TRUE(keys[l].is_locked()) << i;
@@ -194,6 +186,11 @@ struct Runner {
       }
       EXPECT_FALSE(done[i]) << i;
     }
+    for (int i = kThreads / 2; i < kThreads; ++i) {
+      sessions.emplace_back(&Runner::conflict_task, this, i);
+    }
+    LOG(INFO) << "Launched 2nd half";
+
     signaled = true;
     while (done_count < kThreads) {
       sleep_enough();

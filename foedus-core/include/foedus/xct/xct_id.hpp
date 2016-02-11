@@ -509,6 +509,10 @@ struct McsRwExtendedBlock {
     return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
      &next_.data_, &expected, desired);
   }
+  inline bool cas_next_strong(uint64_t expected, uint64_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+     &next_.data_, &expected, desired);
+  }
   inline void set_flags_granted() {
     set_pred_flag_granted();
     set_next_flag_granted();
@@ -535,9 +539,19 @@ struct McsRwExtendedBlock {
     assorted::raw_atomic_fetch_and_bitwise_and<uint32_t>(
       &next_.components_.flags_, ~kSuccFlagBusy);
   }
+  inline uint32_t cas_val_next_flag_strong(uint32_t expected, uint32_t desired) {
+    assorted::raw_atomic_compare_exchange_strong<uint32_t>(
+      &next_.components_.flags_, &expected, desired);
+    return expected;
+  }
   inline uint32_t cas_val_next_flag_weak(uint32_t expected, uint32_t desired) {
     assorted::raw_atomic_compare_exchange_weak<uint32_t>(
       &next_.components_.flags_, &expected, desired);
+    return expected;
+  }
+  inline uint64_t cas_val_next_strong(uint64_t expected, uint64_t desired) {
+    assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+      &next_.data_, &expected, desired);
     return expected;
   }
   inline uint64_t cas_val_next_weak(uint64_t expected, uint64_t desired) {
@@ -756,8 +770,15 @@ struct McsRwLock {
     return assorted::raw_atomic_compare_exchange_weak<thread::ThreadId>(
       &next_writer_, &expected, desired);
   }
+  bool cas_next_writer_strong(thread::ThreadId expected, thread::ThreadId desired) {
+    return assorted::raw_atomic_compare_exchange_strong<thread::ThreadId>(
+      &next_writer_, &expected, desired);
+  }
   inline uint32_t xchg_tail(uint32_t new_tail) {
     return assorted::raw_atomic_exchange<uint32_t>(&tail_, new_tail);
+  }
+  inline bool cas_tail_strong(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint32_t>(&tail_, &expected, desired);
   }
   inline bool cas_tail_weak(uint32_t expected, uint32_t desired) {
     return assorted::raw_atomic_compare_exchange_weak<uint32_t>(&tail_, &expected, desired);

@@ -477,37 +477,49 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
     McsRwLock* lock,
     McsBlockIndex block_index) {
     const thread::ThreadId id = adaptor_.get_my_id();
-    while (true) {
-      // take a look at the whole lock word, and cas if it's a reader or null
-      uint64_t lock_word
-        = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
-      McsRwLock ll;
-      std::memcpy(&ll, &lock_word, sizeof(ll));
-      if (ll.next_writer_ != McsRwLock::kNextWriterNone) {
-        return false;
-      }
-      McsRwSimpleBlock* block = nullptr;
-      if (ll.tail_) {
-        block = adaptor_.dereference_rw_tail_block(ll.tail_);
-      }
-      if (ll.tail_ == 0 || (block->is_granted() && block->is_reader())) {
-        ll.increment_nreaders();
-        ll.tail_ = McsRwLock::to_tail_int(id, block_index);
-        uint64_t desired = *reinterpret_cast<uint64_t*>(&ll);
-        auto* my_block = adaptor_.get_rw_my_block(block_index);
-        my_block->init_reader();
+    // take a look at the whole lock word, and cas if it's a reader or null
+    uint64_t lock_word
+      = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
+    McsRwLock ll;
+    std::memcpy(&ll, &lock_word, sizeof(ll));
+    // Note: it's tempting to put this whole function under an infinite retry
+    // loop and only break when this condition is true. That works fine with
+    // a single lock, but might cause deadlocks and making this try version
+    // not really a try, consider this example with two locks A and B.
+    //
+    // Lock: requester 1 -> requester 2
+    //
+    // A: T1 holding as writer -> T2 waiting unconditionally as a writer in canonical mode
+    // B: T2 holding as writer -> T1 trying as a reader in non-canonical mode
+    //
+    // In this case, T1 always sees next_writer=none because T2 consumed it when it got the
+    // lock, and the below CAS fails because now B.tail is T2, a writer. T1 would stay in
+    // the loop forever...
+    if (ll.next_writer_ != McsRwLock::kNextWriterNone) {
+      return false;
+    }
+    McsRwSimpleBlock* block = nullptr;
+    if (ll.tail_) {
+      block = adaptor_.dereference_rw_tail_block(ll.tail_);
+    }
+    if (ll.tail_ == 0 || (block->is_granted() && block->is_reader())) {
+      ll.increment_nreaders();
+      ll.tail_ = McsRwLock::to_tail_int(id, block_index);
+      uint64_t desired = *reinterpret_cast<uint64_t*>(&ll);
+      auto* my_block = adaptor_.get_rw_my_block(block_index);
+      my_block->init_reader();
 
-        if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-          reinterpret_cast<uint64_t*>(lock), &lock_word, desired)) {
-          if (block) {
-            block->set_successor_next_only(id, block_index);
-          }
-          my_block->unblock();
-          finalize_acquire_reader_simple(lock, my_block);
-          return true;
+      if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+        reinterpret_cast<uint64_t*>(lock), &lock_word, desired)) {
+        if (block) {
+          block->set_successor_next_only(id, block_index);
         }
+        my_block->unblock();
+        finalize_acquire_reader_simple(lock, my_block);
+        return true;
       }
     }
+    return false;
   }
   bool retry_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index) {
     const thread::ThreadId id = adaptor_.get_my_id();
@@ -811,7 +823,10 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       // ie successor was acquiring
       spin_until([succ_block, my_tail_int]{ return succ_block->get_pred_id() == my_tail_int; });
       ASSERT_ND(succ_block->pred_flag_is_waiting());
-      if (succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
+      // XXX(tzwang): we were using the weak version of CAS, but it tended to lock up when
+      // while gdb tells the link between me and successor is good. Use strong version for
+      // now; there are several other similar intances, all converted to *_strong.
+      if (succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
         lock->increment_nreaders();
         succ_block->set_pred_flag_granted();
         // make sure I know when releasing no need to wait
@@ -821,7 +836,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       if (my_block->next_flag_has_reader_successor()) {
         while (true) {
           spin_until([succ_block, my_tail_int]{ return succ_block->get_pred_id() == my_tail_int; });
-          if (succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
+          if (succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
             ASSERT_ND(succ_block->pred_flag_is_waiting());
             lock->increment_nreaders();
             succ_block->set_pred_flag_granted();
@@ -1088,7 +1103,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
     auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
     ASSERT_ND(pred);
-    while (!succ_block->cas_pred_id_weak(my_tail_int, pred)) {}
+    while (!succ_block->cas_pred_id_strong(my_tail_int, pred)) {}
 
     uint64_t successor = 0;
     if (my_block->next_flag_has_reader_successor()) {
@@ -1171,7 +1186,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         // so a cancelled successor gave me this new successor
         ASSERT_ND(my_block->next_flag_is_busy());
         lock->increment_nreaders();
-        while (!succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {}
+        while (!succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {}
         succ_block->set_pred_flag_granted();
       } else {
         ASSERT_ND(succ_block->is_writer());
@@ -1181,8 +1196,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         auto next_writer_id = next_id >> 16;
         lock->set_next_writer(next_writer_id);
         // also tell successor it doesn't have pred any more
-        spin_until([succ_block, my_tail_int]{
-          return succ_block->cas_pred_id_weak(my_tail_int, 0); });
+        while (!succ_block->cas_pred_id_strong(my_tail_int, 0)) {}
       }
     }
     finish_release_reader_lock(lock);
@@ -1195,11 +1209,11 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     auto next_writer_id = lock->get_next_writer();
     if (next_writer_id != McsRwLock::kNextWriterNone &&
       lock->nreaders() == 0 &&
-      lock->cas_next_writer_weak(next_writer_id, McsRwLock::kNextWriterNone)) {
+      lock->cas_next_writer_strong(next_writer_id, McsRwLock::kNextWriterNone)) {
       McsBlockIndex next_cur_block = adaptor_.get_other_cur_block(next_writer_id);
       auto* wb = adaptor_.get_rw_other_block(next_writer_id, next_cur_block);
       ASSERT_ND(!wb->pred_flag_is_granted());
-      while (!wb->cas_pred_id_weak(0, McsRwExtendedBlock::kPredIdAcquired)) {}
+      while (!wb->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired)) {}
       ASSERT_ND(lock->nreaders() == 0);
       wb->set_pred_flag_granted();
     }
@@ -1285,7 +1299,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(lock->nreaders() == 0);
     ASSERT_ND(!succ_block->pred_flag_is_granted());
     ASSERT_ND(succ_block->get_pred_id() != McsRwExtendedBlock::kPredIdAcquired);
-    while (!succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
+    while (!succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
       ASSERT_ND(my_block->get_next_id() == next_id);
     }
     if (succ_block->is_reader()) {
@@ -1399,7 +1413,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(new_next_id);
     ASSERT_ND(new_next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
     auto* succ_block = adaptor_.dereference_rw_tail_block(new_next_id);
-    while (!succ_block->cas_pred_id_weak(my_tail_int, pred)) {}
+    while (!succ_block->cas_pred_id_strong(my_tail_int, pred)) {}
 
     uint64_t successor = 0;
     if (my_block->next_flag_has_reader_successor()) {
@@ -1434,7 +1448,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return lock->get_next_writer() != xct::McsRwLock::kNextWriterNone ||
         !my_block->pred_flag_is_waiting(); });
     if (my_block->pred_flag_is_granted() ||
-      !lock->cas_next_writer_weak(adaptor_.get_my_id(), xct::McsRwLock::kNextWriterNone)) {
+      !lock->cas_next_writer_strong(adaptor_.get_my_id(), xct::McsRwLock::kNextWriterNone)) {
       // reader picked me up...
       spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
       my_block->set_next_flag_granted();
@@ -1458,13 +1472,20 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(lock->get_next_writer() == xct::McsRwLock::kNextWriterNone);
       // remaining readers will use CAS on lock.nw, so we blind write
       lock->set_next_writer(next_id >> 16);  // thread id only
-      while (!succ_block->cas_pred_id_weak(my_tail_int, 0)) {}
+      while (!succ_block->cas_pred_id_strong(my_tail_int, 0)) {}
+      if (lock->nreaders() == 0) {
+        if (lock->cas_next_writer_strong(next_id >> 16, McsRwLock::kNextWriterNone)) {
+          // ok, I'm so nice, cancelled myself and woke up a successor
+          while (!succ_block->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired)) {}
+          succ_block->set_pred_flag_granted();
+        }
+      }
     } else {
       // successor is a reader, lucky for it...
       ASSERT_ND(my_block->next_flag_has_reader_successor());
       ASSERT_ND(succ_block->is_reader());
       spin_until([succ_block, my_tail_int]{
-        return succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired); });
+        return succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired); });
       lock->increment_nreaders();
       succ_block->set_pred_flag_granted();
     }
