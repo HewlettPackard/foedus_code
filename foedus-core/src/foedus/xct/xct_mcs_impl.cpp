@@ -477,37 +477,49 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
     McsRwLock* lock,
     McsBlockIndex block_index) {
     const thread::ThreadId id = adaptor_.get_my_id();
-    while (true) {
-      // take a look at the whole lock word, and cas if it's a reader or null
-      uint64_t lock_word
-        = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
-      McsRwLock ll;
-      std::memcpy(&ll, &lock_word, sizeof(ll));
-      if (ll.next_writer_ != McsRwLock::kNextWriterNone) {
-        return false;
-      }
-      McsRwSimpleBlock* block = nullptr;
-      if (ll.tail_) {
-        block = adaptor_.dereference_rw_tail_block(ll.tail_);
-      }
-      if (ll.tail_ == 0 || (block->is_granted() && block->is_reader())) {
-        ll.increment_nreaders();
-        ll.tail_ = McsRwLock::to_tail_int(id, block_index);
-        uint64_t desired = *reinterpret_cast<uint64_t*>(&ll);
-        auto* my_block = adaptor_.get_rw_my_block(block_index);
-        my_block->init_reader();
+    // take a look at the whole lock word, and cas if it's a reader or null
+    uint64_t lock_word
+      = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
+    McsRwLock ll;
+    std::memcpy(&ll, &lock_word, sizeof(ll));
+    // Note: it's tempting to put this whole function under an infinite retry
+    // loop and only break when this condition is true. That works fine with
+    // a single lock, but might cause deadlocks and making this try version
+    // not really a try, consider this example with two locks A and B.
+    //
+    // Lock: requester 1 -> requester 2
+    //
+    // A: T1 holding as writer -> T2 waiting unconditionally as a writer in canonical mode
+    // B: T2 holding as writer -> T1 trying as a reader in non-canonical mode
+    //
+    // In this case, T1 always sees next_writer=none because T2 consumed it when it got the
+    // lock, and the below CAS fails because now B.tail is T2, a writer. T1 would stay in
+    // the loop forever...
+    if (ll.next_writer_ != McsRwLock::kNextWriterNone) {
+      return false;
+    }
+    McsRwSimpleBlock* block = nullptr;
+    if (ll.tail_) {
+      block = adaptor_.dereference_rw_tail_block(ll.tail_);
+    }
+    if (ll.tail_ == 0 || (block->is_granted() && block->is_reader())) {
+      ll.increment_nreaders();
+      ll.tail_ = McsRwLock::to_tail_int(id, block_index);
+      uint64_t desired = *reinterpret_cast<uint64_t*>(&ll);
+      auto* my_block = adaptor_.get_rw_my_block(block_index);
+      my_block->init_reader();
 
-        if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-          reinterpret_cast<uint64_t*>(lock), &lock_word, desired)) {
-          if (block) {
-            block->set_successor_next_only(id, block_index);
-          }
-          my_block->unblock();
-          finalize_acquire_reader_simple(lock, my_block);
-          return true;
+      if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+        reinterpret_cast<uint64_t*>(lock), &lock_word, desired)) {
+        if (block) {
+          block->set_successor_next_only(id, block_index);
         }
+        my_block->unblock();
+        finalize_acquire_reader_simple(lock, my_block);
+        return true;
       }
     }
+    return false;
   }
   bool retry_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index) {
     const thread::ThreadId id = adaptor_.get_my_id();
