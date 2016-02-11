@@ -1472,7 +1472,14 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(lock->get_next_writer() == xct::McsRwLock::kNextWriterNone);
       // remaining readers will use CAS on lock.nw, so we blind write
       lock->set_next_writer(next_id >> 16);  // thread id only
-      while (!succ_block->cas_pred_id_weak(my_tail_int, 0)) {}
+      while (!succ_block->cas_pred_id_strong(my_tail_int, 0)) {}
+      if (lock->nreaders() == 0) {
+        if (lock->cas_next_writer_strong(next_id >> 16, McsRwLock::kNextWriterNone)) {
+          // ok, I'm so nice, cancelled myself and woke up a successor
+          while (!succ_block->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired)) {}
+          succ_block->set_pred_flag_granted();
+        }
+      }
     } else {
       // successor is a reader, lucky for it...
       ASSERT_ND(my_block->next_flag_has_reader_successor());
