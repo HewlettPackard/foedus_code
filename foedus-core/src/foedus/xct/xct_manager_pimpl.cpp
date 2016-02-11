@@ -354,21 +354,13 @@ ErrorCode XctManagerPimpl::precommit_xct(thread::Thread* context, Epoch *commit_
     result = precommit_xct_readwrite(context, commit_epoch);
   }
 
-  if ((result == kErrorCodeXctRaceAbort || result == kErrorCodeXctLockAbort)
-    && engine_->get_options().xct_.enable_retrospective_lock_list_) {
-    const uint32_t hot_threashold = engine_->get_options().storage_.hot_threshold_;
-    const uint32_t conservative_threashold = (hot_threashold < 1U ? 0 : 1U);
-    current_xct.get_retrospective_lock_list()->construct(context, conservative_threashold);
-  } else {
-    current_xct.get_retrospective_lock_list()->clear_entries();
-  }
-
   ASSERT_ND(current_xct.assert_related_read_write());
   if (result != kErrorCodeOk) {
     ErrorCode abort_ret = abort_xct(context);
     ASSERT_ND(abort_ret == kErrorCodeOk);
     DVLOG(1) << *context << " Aborting because of contention";
   } else {
+    current_xct.get_retrospective_lock_list()->clear_entries();
     release_and_clear_all_current_locks(context);
     current_xct.deactivate();
   }
@@ -937,6 +929,20 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
     return kErrorCodeXctNoXct;
   }
   DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
+
+  // When we abort, whether in precommit or via user's explicit abort, we construct RLL.
+  // Abort may happen due to try-failure in reads, so we now put this in here, not precommit.
+  // One drawback is that we can't check the "cause" of the abort.
+  // We should probably construct RLL only in the case of race-abort.
+  // So, we might revist this choice.
+  if (engine_->get_options().xct_.enable_retrospective_lock_list_) {
+    const uint32_t hot_threashold = engine_->get_options().storage_.hot_threshold_;
+    const uint32_t conservative_threashold = (hot_threashold < 1U ? 0 : 1U);
+    current_xct.get_retrospective_lock_list()->construct(context, conservative_threashold);
+  } else {
+    current_xct.get_retrospective_lock_list()->clear_entries();
+  }
+
   release_and_clear_all_current_locks(context);
   current_xct.deactivate();
   context->get_thread_log_buffer().discard_current_xct_log();
