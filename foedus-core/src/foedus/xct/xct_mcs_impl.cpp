@@ -823,7 +823,10 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       // ie successor was acquiring
       spin_until([succ_block, my_tail_int]{ return succ_block->get_pred_id() == my_tail_int; });
       ASSERT_ND(succ_block->pred_flag_is_waiting());
-      if (succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
+      // XXX(tzwang): we were using the weak version of CAS, but it tended to lock up when
+      // while gdb tells the link between me and successor is good. Use strong version for
+      // now; there are several other similar intances, all converted to *_strong.
+      if (succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
         lock->increment_nreaders();
         succ_block->set_pred_flag_granted();
         // make sure I know when releasing no need to wait
@@ -833,7 +836,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       if (my_block->next_flag_has_reader_successor()) {
         while (true) {
           spin_until([succ_block, my_tail_int]{ return succ_block->get_pred_id() == my_tail_int; });
-          if (succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
+          if (succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
             ASSERT_ND(succ_block->pred_flag_is_waiting());
             lock->increment_nreaders();
             succ_block->set_pred_flag_granted();
@@ -1100,7 +1103,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
     auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
     ASSERT_ND(pred);
-    while (!succ_block->cas_pred_id_weak(my_tail_int, pred)) {}
+    while (!succ_block->cas_pred_id_strong(my_tail_int, pred)) {}
 
     uint64_t successor = 0;
     if (my_block->next_flag_has_reader_successor()) {
@@ -1183,7 +1186,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         // so a cancelled successor gave me this new successor
         ASSERT_ND(my_block->next_flag_is_busy());
         lock->increment_nreaders();
-        while (!succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {}
+        while (!succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {}
         succ_block->set_pred_flag_granted();
       } else {
         ASSERT_ND(succ_block->is_writer());
@@ -1193,8 +1196,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         auto next_writer_id = next_id >> 16;
         lock->set_next_writer(next_writer_id);
         // also tell successor it doesn't have pred any more
-        spin_until([succ_block, my_tail_int]{
-          return succ_block->cas_pred_id_weak(my_tail_int, 0); });
+        while (!succ_block->cas_pred_id_strong(my_tail_int, 0)) {}
       }
     }
     finish_release_reader_lock(lock);
@@ -1207,11 +1209,11 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     auto next_writer_id = lock->get_next_writer();
     if (next_writer_id != McsRwLock::kNextWriterNone &&
       lock->nreaders() == 0 &&
-      lock->cas_next_writer_weak(next_writer_id, McsRwLock::kNextWriterNone)) {
+      lock->cas_next_writer_strong(next_writer_id, McsRwLock::kNextWriterNone)) {
       McsBlockIndex next_cur_block = adaptor_.get_other_cur_block(next_writer_id);
       auto* wb = adaptor_.get_rw_other_block(next_writer_id, next_cur_block);
       ASSERT_ND(!wb->pred_flag_is_granted());
-      while (!wb->cas_pred_id_weak(0, McsRwExtendedBlock::kPredIdAcquired)) {}
+      while (!wb->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired)) {}
       ASSERT_ND(lock->nreaders() == 0);
       wb->set_pred_flag_granted();
     }
@@ -1297,7 +1299,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(lock->nreaders() == 0);
     ASSERT_ND(!succ_block->pred_flag_is_granted());
     ASSERT_ND(succ_block->get_pred_id() != McsRwExtendedBlock::kPredIdAcquired);
-    while (!succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
+    while (!succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
       ASSERT_ND(my_block->get_next_id() == next_id);
     }
     if (succ_block->is_reader()) {
@@ -1411,7 +1413,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(new_next_id);
     ASSERT_ND(new_next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
     auto* succ_block = adaptor_.dereference_rw_tail_block(new_next_id);
-    while (!succ_block->cas_pred_id_weak(my_tail_int, pred)) {}
+    while (!succ_block->cas_pred_id_strong(my_tail_int, pred)) {}
 
     uint64_t successor = 0;
     if (my_block->next_flag_has_reader_successor()) {
@@ -1446,7 +1448,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return lock->get_next_writer() != xct::McsRwLock::kNextWriterNone ||
         !my_block->pred_flag_is_waiting(); });
     if (my_block->pred_flag_is_granted() ||
-      !lock->cas_next_writer_weak(adaptor_.get_my_id(), xct::McsRwLock::kNextWriterNone)) {
+      !lock->cas_next_writer_strong(adaptor_.get_my_id(), xct::McsRwLock::kNextWriterNone)) {
       // reader picked me up...
       spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
       my_block->set_next_flag_granted();
@@ -1476,7 +1478,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(my_block->next_flag_has_reader_successor());
       ASSERT_ND(succ_block->is_reader());
       spin_until([succ_block, my_tail_int]{
-        return succ_block->cas_pred_id_weak(my_tail_int, McsRwExtendedBlock::kPredIdAcquired); });
+        return succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired); });
       lock->increment_nreaders();
       succ_block->set_pred_flag_granted();
     }
