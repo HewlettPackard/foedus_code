@@ -283,9 +283,10 @@ struct Runner {
         impl.release_rw_writer(&keys[l2], block2);
       }
     }
-    if (!try_succeeded_at_least_once) {
+    if (i_am_latter && !try_succeeded_at_least_once) {
       // Maybe we make it an error? but this is possibble..
       LOG(WARNING) << "Really, no success at all? mm, it's possible, but suspecious";
+      EXPECT_TRUE(try_succeeded_at_least_once);  // now really an error.
     }
     done[id] = true;
     ++done_count;
