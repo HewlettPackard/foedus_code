@@ -43,6 +43,7 @@ DEFINE_TEST_CASE_PACKAGE(XctMcsImplTest, foedus.xct);
 const int kThreads = 10;
 const int kNodes = 1;  // this so far must be 1. otherwise thread-id is not contiguous. tedious.
 const int kKeys = 100;
+const int kMaxBlocks = 1U << 16;
 
 template<typename RW_BLOCK>
 struct Runner {
@@ -66,7 +67,7 @@ struct Runner {
   }
 
   void init() {
-    context.init(kNodes, kThreads / kNodes, 1U << 16);
+    context.init(kNodes, kThreads / kNodes, kMaxBlocks);
     for (int i = 0; i < kKeys; ++i) {
       keys[i].reset();
       EXPECT_FALSE(keys[i].is_locked());
@@ -244,7 +245,12 @@ struct Runner {
     const bool i_am_latter = id >= kThreads / 2U;
     const int l1 = i_am_latter ? kThreads - 1 - id : id;
     const int l2 = i_am_latter ? id : kThreads - 1 - id;
-    constexpr uint32_t kTries = 100;
+#ifndef NDEBUG
+    constexpr uint32_t kTries = 1000;
+#else  // NDEBUG
+    constexpr uint32_t kTries = 10000;
+#endif  // NDEBUG
+    ASSERT_ND(kTries * 2U < kMaxBlocks);
 
     while (!signaled) {
       sleep_enough();
