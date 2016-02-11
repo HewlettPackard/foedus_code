@@ -250,7 +250,9 @@ struct Runner {
 #else  // NDEBUG
     constexpr uint32_t kTries = 10000;
 #endif  // NDEBUG
-    ASSERT_ND(kTries * 2U < kMaxBlocks);
+    if (kTries * 2U >= kMaxBlocks) {
+      LOG(FATAL) << "wait, too large kTries. Increase kMaxBlocks to test it";
+    }
 
     while (!signaled) {
       sleep_enough();
