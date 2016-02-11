@@ -37,7 +37,7 @@
 
 namespace foedus {
 namespace xct {
-DEFINE_TEST_CASE_PACKAGE(XctIdRwTryLockTest, foedus.xct);
+DEFINE_TEST_CASE_PACKAGE(XctIdSimpleRwLockTest, foedus.xct);
 
 // Even IDs are readers, odd ones are writers
 const int kThreads = 10;
@@ -150,8 +150,11 @@ ErrorStack random_task(const proc::ProcArguments& args) {
   return foedus::kRetOk;
 }
 
-TEST(XctIdRwTryLockTest, NoConflict) {
+TEST(XctIdSimpleRwLockTest, NoConflict) {
   EngineOptions options = get_tiny_options();
+  if (options.xct_.mcs_implementation_type_ != XctOptions::kMcsImplementationTypeSimple) {
+    return;
+  }
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("no_conflict_task", no_conflict_task);
@@ -206,8 +209,11 @@ TEST(XctIdRwTryLockTest, NoConflict) {
   cleanup_test(options);
 }
 
-TEST(XctIdRwTryLockTest, Random) {
+TEST(XctIdSimpleRwLockTest, Random) {
   EngineOptions options = get_tiny_options();
+  if (options.xct_.mcs_implementation_type_ != XctOptions::kMcsImplementationTypeSimple) {
+    return;
+  }
   options.thread_.thread_count_per_group_ = kThreads;
   Engine engine(options);
   engine.get_proc_manager()->pre_register("random_task", random_task);
@@ -257,4 +263,4 @@ TEST(XctIdRwTryLockTest, Random) {
 }  // namespace xct
 }  // namespace foedus
 
-TEST_MAIN_CAPTURE_SIGNALS(XctIdRwTryLockTest, foedus.xct);
+TEST_MAIN_CAPTURE_SIGNALS(XctIdSimpleRwLockTest, foedus.xct);
