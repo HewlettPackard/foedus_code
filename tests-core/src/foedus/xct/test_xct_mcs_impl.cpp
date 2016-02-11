@@ -289,6 +289,7 @@ struct Runner {
     for (int i = 0; i < kThreads; ++i) {
       sessions.emplace_back(&Runner::non_canonical_task, this, i, latter_reader);
     }
+    signaled = true;
     while (done_count < kThreads) {
       sleep_enough();
     }
