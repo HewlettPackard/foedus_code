@@ -19,4 +19,4 @@ initial_table_size=$4
 hot_threshold=$5
 ordered_inserts=0
 sort_load_keys=0
-sort_keys=1
+sort_keys=0
