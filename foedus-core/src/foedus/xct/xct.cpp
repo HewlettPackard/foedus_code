@@ -226,6 +226,7 @@ ErrorCode Xct::add_to_read_set(
   LockListPosition rll_pos = kLockListPositionInvalid;
   bool lets_take_lock = false;
   if (!retrospective_lock_list_.is_empty()) {
+//LOG(INFO) << "asd" << retrospective_lock_list_.get_last_active_entry();
     // RLL is set, which means the previous run aborted for race.
     // binary-search for each read-set is not cheap, but in this case better than aborts.
     // So, let's see if we should take the lock.

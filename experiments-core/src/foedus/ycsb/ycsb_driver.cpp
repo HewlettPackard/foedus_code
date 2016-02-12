@@ -606,6 +606,16 @@ ErrorStack YcsbDriver::run() {
   }
   channel->uninitialize();
 
+  // Let's debug out all pages if it's small
+  if (FLAGS_initial_table_size < 1000U) {
+#ifdef YCSB_HASH_STORAGE
+    storage::hash::HashStorage the_storage(engine_, "ycsb_user_table");
+#else
+    storage::masstree::MasstreeStorage the_storage(engine_, "ycsb_user_table");
+#endif
+    CHECK_ERROR(the_storage.debugout_single_thread(engine_));
+  }
+
   // wait just for a bit to avoid mixing stdout
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   for (uint32_t i = 0; i < result.worker_count_; ++i) {

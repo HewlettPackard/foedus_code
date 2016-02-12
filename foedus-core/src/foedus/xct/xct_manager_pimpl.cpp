@@ -646,6 +646,7 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
   ReadXctAccess*    read_set = current_xct.get_read_set();
   const uint32_t    read_set_size = current_xct.get_read_set_size();
   storage::StorageManager* st = engine_->get_storage_manager();
+  bool verification_failed = false;
   for (uint32_t i = 0; i < read_set_size; ++i) {
     ASSERT_ND(read_set[i].related_write_ == nullptr);
     // let's prefetch owner_id in parallel
@@ -685,11 +686,22 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
       // read clobbered, make it hotter
       access.owner_id_address_->hotter(context);
-      return false;
+
+      // We go on to other read-sets to make them hotter, too.
+      // This might sound like a bit of wasted effort, but anyway aborts must be reasonably
+      // infrequent (otherwise we are screwed!) so this doesn't add too much.
+      // Rather, we want to quickly mark problemetic pages as hot.
+      // return false;
+      verification_failed = true;
+      continue;
     }
 
     // Remembers the highest epoch observed.
     commit_epoch->store_max(access.observed_owner_id_.get_epoch());
+  }
+
+  if (verification_failed) {
+    return false;
   }
 
   DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
@@ -716,6 +728,7 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
   ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
   CurrentLockList*        cll = current_xct.get_current_lock_list();
+  bool verification_failed = false;
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // let's prefetch owner_id in parallel
     if (i % kReadsetPrefetchBatch == 0) {
@@ -733,13 +746,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
       DLOG(WARNING) << *context << "?? this should have been checked. being_written! will abort";
       return false;
     }
-    /* umm? why is this safe? we need to guarantee observed_owner_ids are same. disabled.
-    // Fast forward to the last one
-    if (i < read_set_size - 1 &&
-      access.owner_id_address_ == read_set[i + 1].owner_id_address_) {
-      continue;
-    }
-    */
     storage::StorageManager* st = engine_->get_storage_manager();
     if (access.related_write_) {
       // we already checked this in lock()
@@ -764,8 +770,16 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
       access.owner_id_address_->hotter(context);
       DVLOG(1) << *context << " read set changed by other transaction. will abort";
-      return false;
+      // same as read_only
+      verification_failed = true;
+      continue;
     }
+
+    /*
+    // Hideaki[2016Feb] I think I remember why I kept this here. When we didn't have the
+    // "being_written" flag, we did need it even after splitting XID/TID.
+    // But, now that we have it in XID, it's surely safe without this.
+    // Still.. in case I miss something, I leave it here commented out.
 
     // Hideaki: Umm, after several changes, I'm now not sure if we still need this check.
     // As far as XID hasn't changed, do we care whether others locked it or not?
@@ -784,10 +798,15 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
         return false;
       }
     }
+    */
     max_xct_id->store_max(access.observed_owner_id_);
   }
 
   // Check Page Pointer/Version
+  if (verification_failed) {
+    return false;
+  }
+
   if (!precommit_xct_verify_pointer_set(context)) {
     return false;
   } else if (!precommit_xct_verify_page_version_set(context)) {

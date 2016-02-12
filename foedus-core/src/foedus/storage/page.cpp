@@ -68,6 +68,7 @@ std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
   o << "<masstree_layer_>" << static_cast<int>(v.masstree_layer_) << "</masstree_layer_>";
   o << "<masstree_in_layer_level_>" << static_cast<int>(v.masstree_in_layer_level_)
     << "</masstree_in_layer_level_>";
+  o << "<hotness_>" << static_cast<int>(v.hotness_.value_) << "</hotness_>";
   o << std::endl << "<stat_last_updater_node_>" << static_cast<int>(v.stat_last_updater_node_)
     << "</stat_last_updater_node_>";
   o << v.page_version_;
