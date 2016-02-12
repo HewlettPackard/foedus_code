@@ -249,15 +249,26 @@ ErrorCode Xct::add_to_read_set(
       return kErrorCodeOk;  // already taken!
     }
 
+    ErrorCode lock_ret;
     if (rll_pos == kLockListPositionInvalid) {
       // Then, this is a single read-lock to take.
-      CHECK_ERROR_CODE(current_lock_list_.try_or_acquire_single_lock(context, cll_pos));
+      lock_ret = current_lock_list_.try_or_acquire_single_lock(context, cll_pos);
       // TODO(Hideaki) The above locks unconditionally in canonnical mode. Even in non-canonical,
       // when it returns kErrorCodeXctRaceAbort AND we haven't taken any write-lock yet,
       // we might still want a retry here.. but it has pros/cons. Revisit later.
     } else {
       // Then we should take all locks before this too.
-      CHECK_ERROR_CODE(current_lock_list_.try_or_acquire_multiple_locks(context, cll_pos));
+      lock_ret = current_lock_list_.try_or_acquire_multiple_locks(context, cll_pos);
+    }
+
+    if (lock_ret != kErrorCodeOk) {
+      ASSERT_ND(lock_ret == kErrorCodeXctRaceAbort);
+      DVLOG(0) << "Failed to take some of the lock that might be beneficial later"
+        << ". We still go on because the locks here are not mandatory.";
+      // At this point, no point to be advised by RLL any longer.
+      // Let's clear it, and let's give-up all incomplete locks in CLL.
+      context->mcs_giveup_all_current_locks_after(kNullUniversalLockId);
+      retrospective_lock_list_.clear_entries();
     }
   }
   return kErrorCodeOk;

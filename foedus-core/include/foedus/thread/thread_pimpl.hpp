@@ -295,6 +295,7 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::McsBlockIndex block_index);
 
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
+  void        mcs_giveup_all_current_locks_after(xct::UniversalLockId address);
 
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);

@@ -339,6 +339,19 @@ class Thread CXX11_FINAL : public virtual Initializable {
       mcs_release_all_current_locks_after(address - 1U);
     }
   }
+  /**
+   * This \e gives-up locks in CLL that are not yet taken.
+   * preferred mode will be set to either NoLock or same as taken_mode,
+   * and all incomplete async locks will be cancelled.
+   */
+  void        mcs_giveup_all_current_locks_after(xct::UniversalLockId address);
+  void        mcs_giveup_all_current_locks_at_and_after(xct::UniversalLockId address) {
+    if (address == xct::kNullUniversalLockId) {
+      mcs_giveup_all_current_locks_after(xct::kNullUniversalLockId);
+    } else {
+      mcs_giveup_all_current_locks_after(address - 1U);
+    }
+  }
 
   /** @copydoc foedus::xct::McsWwImpl::ownerless_acquire_unconditional() */
   static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
