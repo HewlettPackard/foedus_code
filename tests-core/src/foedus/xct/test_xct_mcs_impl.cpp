@@ -284,9 +284,12 @@ struct Runner {
       }
     }
     if (i_am_latter && !try_succeeded_at_least_once) {
-      // Maybe we make it an error? but this is possibble..
-      LOG(WARNING) << "Really, no success at all? mm, it's possible, but suspecious";
-      EXPECT_TRUE(try_succeeded_at_least_once);  // now really an error.
+      if (latter_reader && !impl.does_support_try_rw_reader()) {
+        LOG(INFO) << "this impl type doesn't support try-reader, so this is expected";
+      } else {
+        LOG(WARNING) << "Really, no success at all? mm, it's possible, but suspecious";
+        EXPECT_TRUE(try_succeeded_at_least_once);  // now really an error.
+      }
     }
     done[id] = true;
     ++done_count;

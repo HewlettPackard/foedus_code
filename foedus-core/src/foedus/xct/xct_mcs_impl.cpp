@@ -282,6 +282,7 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
     return success ? block_index : 0;
   }
 
+  static bool does_support_try_rw_reader() { return false; }
   McsBlockIndex acquire_try_rw_reader(McsRwLock* lock) {
     McsBlockIndex block_index = adaptor_.issue_new_block();
     bool success = retry_async_rw_reader(lock, block_index);
@@ -476,6 +477,10 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
   bool retry_async_rw_reader(
     McsRwLock* lock,
     McsBlockIndex block_index) {
+    /* The following turns out to be unsafe because there might be writers
+     who are not yet detected by the pred-readers. We are still trying
+     to find a way without resorting to extended version.. but for now disabled.
+     does_support_try_rw_reader() returns false for this reason.
     const thread::ThreadId id = adaptor_.get_my_id();
     // take a look at the whole lock word, and cas if it's a reader or null
     uint64_t lock_word
@@ -518,6 +523,26 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
         finalize_acquire_reader_simple(lock, my_block);
         return true;
       }
+    }
+    */
+
+    // Instead, a best-effort impl here, which is basically same as the writer-case below.
+    // This returns false even if there only are readers.
+    const thread::ThreadId id = adaptor_.get_my_id();
+    auto* my_block = adaptor_.get_rw_my_block(block_index);
+    my_block->init_reader();
+
+    McsRwLock tmp;
+    uint64_t expected = *reinterpret_cast<uint64_t*>(&tmp);
+    McsRwLock tmp2;
+    tmp2.increment_nreaders();
+    tmp2.tail_ = McsRwLock::to_tail_int(id, block_index);
+    uint64_t desired = *reinterpret_cast<uint64_t*>(&tmp2);
+    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+      reinterpret_cast<uint64_t*>(lock), &expected, desired)) {
+      my_block->unblock();
+      finalize_acquire_reader_simple(lock, my_block);
+      return true;
     }
     return false;
   }
@@ -571,6 +596,7 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
 template <typename ADAPTOR>
 class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsRwExtendedBlock
  public:
+  static bool does_support_try_rw_reader() { return true; }
   McsBlockIndex acquire_unconditional_rw_reader(McsRwLock* lock) {
     McsBlockIndex block_index = 0;
     auto ret = acquire_reader_lock(lock, &block_index, McsRwExtendedBlock::kTimeoutNever);

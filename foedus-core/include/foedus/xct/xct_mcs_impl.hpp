@@ -38,7 +38,9 @@ namespace xct {
  * A combination of our MCSg lock and the original RW-MCS lock.
  * This doesn't nicely support \e cancel, but functionality-wise it works.
  * Cancellable-requests will cause frequent atomic operations in a shared place.
- * Unconditional-requests and try-requests work just fine.
+ * Unconditional-requests and try-requests work just fine \b EXCEPT try-reader,
+ * which turns out to require doubly-linked list.
+ * For this, we have a meta-method to return whether the impl supports try-reader or not.
  *
  * @par Implementation Type 2: "Extended" (RW_BLOCK = McsRwExtendedBlock)
  * A combination of our MCSg lock, the original RW-MCS lock, and cancellable queue lock.
@@ -102,8 +104,14 @@ class McsImpl {
    * [RW] Try to take a reader lock.
    * @pre the lock must \b NOT be taken by this thread yet.
    * @return 0 if failed, the block index if acquired.
+   * @see  does_support_try_rw_reader()
    */
   McsBlockIndex acquire_try_rw_reader(McsRwLock* lock);
+  /**
+   * @return whether this impl supports acquire_try_rw_reader()/retry_async_rw_reader().
+   * @see acquire_try_rw_reader()
+   */
+  static bool does_support_try_rw_reader();
 
   /**
    * [RW] Try to take a writer lock.
@@ -130,6 +138,7 @@ class McsImpl {
    * [RW] Returns whether the lock requeust is now granted.
    * @pre block_index != 0
    * @note this is an instantenous check. Timeout is handled by the caller.
+   * @see  does_support_try_rw_reader()
    */
   bool retry_async_rw_reader(McsRwLock* lock, McsBlockIndex block_index);
   bool retry_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index);
