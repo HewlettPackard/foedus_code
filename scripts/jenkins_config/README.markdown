@@ -35,6 +35,7 @@ Other stuffs to do on Jenkins machine.
 
     sudo yum install make # seriously? some cloud machine doesn't have it.
     sudo yum install yum-utils
+    sudo yum install perl-Algo* perl-Reg*
     sudo debuginfo-install gcc gcc-c++
     sudo debuginfo-install libunwind numactl
     sudo sh -c  'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
@@ -122,3 +123,30 @@ Notes on Ubuntu's shmget issue.
 
 This was the trick! Weird. This wasn't requied on Fedora, or Ubuntu 1404 on aarch64.
 Maybe kernel version? FC21: 3.17.4, UB1504: 3.19.0
+
+
+== Setting up cihead/centos7/ciub1404/etc on the new cluster
+
+    cihead: http://cihead.labs.hpe.com/
+    centos7.2 x86_64 (cicentos7.labs.hpe.com): http://cihead.labs.hpe.com/centos7
+    ubuntu1404 x86_64 (ciub1404.labs.hpe.com): http://cihead.labs.hpe.com/ub1404
+
+    https://wiki.jenkins-ci.org/display/JENKINS/Running+Jenkins+behind+Apache
+
+    sudo emacs -nw /etc/sysconfig/jenkins
+    # on each slave,
+    # JENKINS_ARGS=" --prefix=/<slave_name>", for example:
+    JENKINS_ARGS="--prefix=/centos7"
+
+Hey, seems like cmakebuilder 2.4 is a lot different from 1.9.
+Now I have to redo all config.xml. duhhh.
+
+On centos7, get cloc from here: http://pkgs.org/centos-6/epel-i386/cloc-1.58-4.el6.noarch.rpm.html
+I don't know why, but EPEL didn't have it on the machine.
+
+At least on cicentos7, I had to do:
+
+    sudo chmod -R 777 /tmp/foedus_test /dev/shm/foedus_test
+
+Otherwise the create_tmp_dir testcase fails with permission errors.
+
