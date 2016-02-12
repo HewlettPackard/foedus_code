@@ -493,7 +493,7 @@ ErrorStack MasstreeComposeContext::execute_same_key_group(uint32_t from, uint32_
   uint32_t last_active_delete = to;
   // First, look for the last delete. It determines many things if exists.
   ASSERT_ND(to > 0);
-  for (uint32_t i = static_cast<uint32_t>(to - 1); i >= from; ++i) {
+  for (uint32_t i = static_cast<uint32_t>(to - 1); i >= from; --i) {
     log::LogCode log_type = merge_sort_->get_log_type_from_sort_position(i);
     if (log_type == log::kLogCodeMasstreeDelete) {
       ASSERT_ND(last_active_delete == to);
