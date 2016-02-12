@@ -432,6 +432,7 @@ void CurrentLockList::prepopulate_for_retrospective_lock_list(const Retrospectiv
   rll.assert_sorted();
   // Because now we use LockEntry for both RLL and CLL, we can do just one memcpy
   std::memcpy(array_ + 1U, rll.get_array() + 1U, sizeof(LockEntry) * rll.get_last_active_entry());
+  last_active_entry_ = rll.get_last_active_entry();
   assert_sorted();
 }
 
