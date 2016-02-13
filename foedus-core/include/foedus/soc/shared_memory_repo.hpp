@@ -413,6 +413,7 @@ struct ThreadMemoryAnchors {
     kTaskOutputMemorySize = 1 << 19,
     kMcsLockMemorySize = 1 << 19,
     kMcsRwLockMemorySize = 1 << 19,
+    kMcsRwAsyncMappingMemorySize  = 1 << 19,
   };
   ThreadMemoryAnchors() { std::memset(this, 0, sizeof(*this)); }
   ~ThreadMemoryAnchors() {}
@@ -448,6 +449,7 @@ struct ThreadMemoryAnchors {
   // These two might be integrated, but for now we allocate both.
   xct::McsRwSimpleBlock*  mcs_rw_simple_lock_memories_;
   xct::McsRwExtendedBlock*  mcs_rw_extended_lock_memories_;
+  xct::McsRwAsyncMapping*  mcs_rw_async_mappings_memories_;
 };
 
 /**

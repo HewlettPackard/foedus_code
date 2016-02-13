@@ -52,6 +52,7 @@ struct ThreadControlBlock {
   void initialize(ThreadId my_thread_id) {
     status_ = kNotInitialized;
     mcs_block_current_ = 0;
+    mcs_rw_async_mapping_current_ = 0;
     mcs_waiting_.store(false);
     current_ticket_ = 0;
     proc_name_.clear();
@@ -77,6 +78,9 @@ struct ThreadControlBlock {
    * for sanity check).
    */
   uint32_t            mcs_block_current_;
+
+  /** How many async mappings for extended RW lock we have so far. */
+  uint32_t            mcs_rw_async_mapping_current_;
 
   /**
    * Whether this thread is waiting for some MCS lock.
@@ -386,6 +390,7 @@ class ThreadPimpl final : public DefaultInitializable {
   xct::McsBlock*          mcs_blocks_;
   xct::McsRwSimpleBlock*  mcs_rw_simple_blocks_;
   xct::McsRwExtendedBlock*  mcs_rw_extended_blocks_;
+  xct::McsRwAsyncMapping* mcs_rw_async_mappings_;
 
   xct::RwLockableXctId*   canonical_address_;
 };
@@ -455,6 +460,31 @@ class ThreadPimplMcsAdaptor {
     uint32_t tail_id = tail_tmp.get_tail_waiter();
     uint32_t tail_block = tail_tmp.get_tail_waiter_block();
     return get_rw_other_block(tail_id, tail_block);
+  }
+  xct::McsRwExtendedBlock* get_rw_other_async_block(ThreadId id, xct::McsRwLock* lock) {
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    auto* mapping = other.get_mcs_rw_async_mapping(lock);
+    ASSERT_ND(mapping);
+    ASSERT_ND(mapping->lock_ == lock);
+    return get_rw_other_block(id, mapping->block_index_);
+  }
+  void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
+    // TLS, no concurrency control needed
+    auto index = pimpl_->control_block_->mcs_rw_async_mapping_current_++;
+    ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
+    ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].lock_ == nullptr);
+    pimpl_->mcs_rw_async_mappings_[index].lock_ = lock;
+    pimpl_->mcs_rw_async_mappings_[index].block_index_ = block_index;
+  }
+  void remove_rw_async_mapping(xct::McsRwLock* lock) {
+    for (uint32_t i = 0; i < pimpl_->control_block_->mcs_rw_async_mapping_current_; ++i) {
+      if (pimpl_->mcs_rw_async_mappings_[i].lock_ == lock) {
+        pimpl_->mcs_rw_async_mappings_[i].lock_ = nullptr;
+        --pimpl_->control_block_->mcs_rw_async_mapping_current_;
+        return;
+      }
+    }
+    ASSERT_ND(false);
   }
 
  private:

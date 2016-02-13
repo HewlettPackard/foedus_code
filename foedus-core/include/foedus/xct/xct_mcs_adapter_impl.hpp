@@ -85,6 +85,12 @@ class McsAdaptorConcept {
   /** same as above, but receives a combined int in For McsRwLock */
   RW_BLOCK* dereference_rw_tail_block(uint32_t tail_int);
 
+  /** Dereference other thread's block index for extended rwlock. This will go over
+   * the TLS lock-block_index mapping to find out the block index. For writers only. */
+  McsRwExtendedBlock* get_rw_other_async_block(thread::ThreadId id, xct::McsRwLock* lock);
+
+  void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
+
  private:
   McsAdaptorConcept() = delete;
   ~McsAdaptorConcept() = delete;
@@ -109,18 +115,31 @@ struct McsMockThread {
     // heh, std::vector::resize() demands a move constructor.
     mcs_ww_blocks_ = std::move(rhs.mcs_ww_blocks_);
     mcs_rw_blocks_ = std::move(rhs.mcs_rw_blocks_);
+    mcs_rw_async_mappings_ = std::move(rhs.mcs_rw_async_mappings_);
     mcs_block_current_ = rhs.mcs_block_current_;
     mcs_waiting_.store(rhs.mcs_waiting_.load());  // mainly due to this guy, this is NOT a move
   }
   void init(uint32_t max_block_count) {
     mcs_ww_blocks_.resize(max_block_count);
     mcs_rw_blocks_.resize(max_block_count);
+    mcs_rw_async_mappings_.resize(max_block_count);
+    mcs_rw_async_mapping_current_ = 0;
     mcs_block_current_ = 0;
     mcs_waiting_ = false;
+  }
+  xct::McsBlockIndex get_mcs_rw_async_block_index(xct::McsRwLock* lock) {
+    for (auto &m : mcs_rw_async_mappings_) {
+      if (m.lock_ == lock) {
+        return m.block_index_;
+      }
+    }
+    return 0;
   }
 
   std::vector<McsBlock>   mcs_ww_blocks_;
   std::vector< RW_BLOCK > mcs_rw_blocks_;
+  std::vector<xct::McsRwAsyncMapping> mcs_rw_async_mappings_;
+  uint32_t                mcs_rw_async_mapping_current_;
   uint32_t                mcs_block_current_;
   std::atomic<bool>       mcs_waiting_;
   // add more if we need more context
@@ -225,6 +244,37 @@ class McsMockAdaptor {
     uint32_t tail_id = tail_tmp.get_tail_waiter();
     uint32_t tail_block = tail_tmp.get_tail_waiter_block();
     return get_rw_other_block(tail_id, tail_block);
+  }
+  McsRwExtendedBlock* get_rw_other_async_block(thread::ThreadId id, xct::McsRwLock* lock) {
+    McsMockThread<RW_BLOCK>* other = get_other_thread(id);
+    McsBlockIndex block = other->get_mcs_rw_async_block_index(lock);
+    ASSERT_ND(block);
+    return get_rw_other_block(id, block);
+  }
+  void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
+    ASSERT_ND(lock);
+    ASSERT_ND(block_index);
+    for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
+      if (me_->mcs_rw_async_mappings_[i].lock_ == lock) {
+        ASSERT_ND(false);
+      }
+    }
+    // TLS, no concurrency control needed
+    auto index = me_->mcs_rw_async_mapping_current_++;
+    ASSERT_ND(me_->mcs_rw_async_mappings_[index].lock_ == nullptr);
+    me_->mcs_rw_async_mappings_[index].lock_ = lock;
+    me_->mcs_rw_async_mappings_[index].block_index_ = block_index;
+  }
+  void remove_rw_async_mapping(xct::McsRwLock* lock) {
+    ASSERT_ND(me_->mcs_rw_async_mapping_current_);
+    for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
+      if (me_->mcs_rw_async_mappings_[i].lock_ == lock) {
+        me_->mcs_rw_async_mappings_[i].lock_ = nullptr;
+        --me_->mcs_rw_async_mapping_current_;
+        return;
+      }
+    }
+    ASSERT_ND(false);
   }
 
  private:

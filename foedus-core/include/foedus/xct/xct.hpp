@@ -66,7 +66,10 @@ class Xct {
   Xct(const Xct& other) CXX11_FUNC_DELETE;
   Xct& operator=(const Xct& other) CXX11_FUNC_DELETE;
 
-  void initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_current);
+  void initialize(
+    memory::NumaCoreMemory* core_memory,
+    uint32_t* mcs_block_current,
+    uint32_t* mcs_rw_async_mapping_current);
 
   /**
    * Begins the transaction.
@@ -81,6 +84,7 @@ class Xct {
     write_set_size_ = 0;
     lock_free_write_set_size_ = 0;
     *mcs_block_current_ = 0;
+    *mcs_rw_async_mapping_current_ = 0;
     local_work_memory_cur_ = 0;
     current_lock_list_.clear_entries();
     if (!retrospective_lock_list_.is_empty()) {
@@ -100,6 +104,7 @@ class Xct {
     ASSERT_ND(current_lock_list_.is_empty());
     active_ = false;
     *mcs_block_current_ = 0;
+    *mcs_rw_async_mapping_current_ = 0;
   }
 
   uint32_t            get_mcs_block_current() const { return *mcs_block_current_; }
@@ -309,6 +314,8 @@ class Xct {
    * for sanity check).
    */
   uint32_t*           mcs_block_current_;
+
+  uint32_t*           mcs_rw_async_mapping_current_;
 
   ReadXctAccess*      read_set_;
   uint32_t            read_set_size_;

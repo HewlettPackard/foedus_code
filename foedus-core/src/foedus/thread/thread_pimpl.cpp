@@ -88,6 +88,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   mcs_blocks_ = anchors->mcs_lock_memories_;
   mcs_rw_simple_blocks_ = anchors->mcs_rw_simple_lock_memories_;
   mcs_rw_extended_blocks_ = anchors->mcs_rw_extended_lock_memories_;
+  mcs_rw_async_mappings_ = anchors->mcs_rw_async_mappings_memories_;
 
   auto mcs_type = engine_->get_options().xct_.mcs_implementation_type_;
   ASSERT_ND(mcs_type == xct::XctOptions::kMcsImplementationTypeSimple
@@ -101,7 +102,10 @@ ErrorStack ThreadPimpl::initialize_once() {
     snapshot_cache_hashtable_ = nullptr;
   }
   snapshot_page_pool_ = node_memory_->get_snapshot_pool();
-  current_xct_.initialize(core_memory_, &control_block_->mcs_block_current_);
+  current_xct_.initialize(
+    core_memory_,
+    &control_block_->mcs_block_current_,
+    &control_block_->mcs_rw_async_mapping_current_);
   CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
   global_volatile_page_resolver_

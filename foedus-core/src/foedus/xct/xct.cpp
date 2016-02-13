@@ -52,12 +52,16 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
   page_version_set_size_ = 0;
   isolation_level_ = kSerializable;
   mcs_block_current_ = nullptr;
+  mcs_rw_async_mapping_current_ = nullptr;
   local_work_memory_ = nullptr;
   local_work_memory_size_ = 0;
   local_work_memory_cur_ = 0;
 }
 
-void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_current) {
+void Xct::initialize(
+  memory::NumaCoreMemory* core_memory,
+  uint32_t* mcs_block_current,
+  uint32_t* mcs_rw_async_mapping_current) {
   id_.set_epoch(engine_->get_savepoint_manager()->get_initial_current_epoch());
   id_.set_ordinal(0);  // ordinal 0 is possible only as a dummy "latest" XctId
   ASSERT_ND(id_.is_valid());
@@ -80,6 +84,8 @@ void Xct::initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_cu
   page_version_set_size_ = 0;
   mcs_block_current_ = mcs_block_current;
   *mcs_block_current_ = 0;
+  mcs_rw_async_mapping_current_ = mcs_rw_async_mapping_current;
+  *mcs_rw_async_mapping_current_ = 0;
   local_work_memory_ = core_memory->get_local_work_memory();
   local_work_memory_size_ = core_memory->get_local_work_memory_size();
   local_work_memory_cur_ = 0;

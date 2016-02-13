@@ -692,6 +692,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     McsBlockIndex block_index = 0;
     auto ret = acquire_writer_lock(lock, &block_index, McsRwExtendedBlock::kTimeoutZero);
     ASSERT_ND(ret == kErrorCodeOk || ret == kErrorCodeLockRequested);
+    ASSERT_ND(block_index);
 #ifndef NDEBUG
     auto* my_block = adaptor_.get_rw_my_block(block_index);
     if (ret == kErrorCodeOk) {
@@ -702,7 +703,6 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(!my_block->next_flag_is_granted());
     }
 #endif
-    ASSERT_ND(block_index);
     return {ret == kErrorCodeOk, block_index};
   }
   bool retry_async_rw_reader(McsRwLock* lock, McsBlockIndex block_index) {
@@ -720,12 +720,13 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(!block->next_flag_is_granted());
     return false;
   }
-  bool retry_async_rw_writer(McsRwLock* /*lock*/, McsBlockIndex block_index) {
+  bool retry_async_rw_writer(McsRwLock* lock, McsBlockIndex block_index) {
     auto* block = adaptor_.get_rw_my_block(block_index);
     if (block->pred_flag_is_granted()) {
       // checking me.next.flags.granted is ok - we're racing with ourself
       if (!block->next_flag_is_granted()) {
         block->set_next_flag_granted();
+        adaptor_.remove_rw_async_mapping(lock);
       }
       ASSERT_ND(block->next_flag_is_granted());
       return true;
@@ -1219,8 +1220,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     if (next_writer_id != McsRwLock::kNextWriterNone &&
       lock->nreaders() == 0 &&
       lock->cas_next_writer_strong(next_writer_id, McsRwLock::kNextWriterNone)) {
-      McsBlockIndex next_cur_block = adaptor_.get_other_cur_block(next_writer_id);
-      auto* wb = adaptor_.get_rw_other_block(next_writer_id, next_cur_block);
+      auto* wb = adaptor_.get_rw_other_async_block(next_writer_id, lock);
       ASSERT_ND(!wb->pred_flag_is_granted());
       while (!wb->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired)) {}
       ASSERT_ND(lock->nreaders() == 0);
@@ -1235,6 +1235,8 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     auto id = adaptor_.get_my_id();
     auto my_tail_int = McsRwLock::to_tail_int(id, *out_block_index);
     auto pred = lock->xchg_tail(my_tail_int);
+    // register on my TLS lock-block_index mapping, must do this before setting pred.next.id or nw
+    adaptor_.add_rw_async_mapping(lock, *out_block_index);
     if (pred == 0) {
       ASSERT_ND(lock->get_next_writer() == McsRwLock::kNextWriterNone);
       lock->set_next_writer(id);
@@ -1244,6 +1246,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
           ASSERT_ND(lock->nreaders() == 0);
           ASSERT_ND(lock->get_next_writer() == McsRwLock::kNextWriterNone);
           ASSERT_ND(my_block->next_flag_is_granted());
+          adaptor_.remove_rw_async_mapping(lock);
           return kErrorCodeOk;
         }
       }
@@ -1263,6 +1266,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 
     if (my_block->timeout_granted(timeout)) {
       my_block->set_next_flag_granted();
+      adaptor_.remove_rw_async_mapping(lock);
       ASSERT_ND(lock->nreaders() == 0);
       ASSERT_ND(lock->get_next_writer() == McsRwLock::kNextWriterNone);
       ASSERT_ND(my_block->next_flag_is_granted());
@@ -1327,6 +1331,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     if (pred == McsRwExtendedBlock::kPredIdAcquired) {
       spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
       my_block->set_next_flag_granted();
+      adaptor_.remove_rw_async_mapping(lock);
       ASSERT_ND(lock->nreaders() == 0);
       return kErrorCodeOk;
     }
@@ -1365,6 +1370,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         } else if (pred == McsRwExtendedBlock::kPredIdAcquired) {
           spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
           my_block->set_next_flag_granted();
+          adaptor_.remove_rw_async_mapping(lock);
           ASSERT_ND(lock->nreaders() == 0);
           return kErrorCodeOk;
         }
@@ -1379,6 +1385,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
           spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
           ASSERT_ND(my_block->get_pred_id() == McsRwExtendedBlock::kPredIdAcquired);
           my_block->set_next_flag_granted();
+          adaptor_.remove_rw_async_mapping(lock);
           ASSERT_ND(lock->nreaders() == 0);
           return kErrorCodeOk;
         }
@@ -1390,6 +1397,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         } else if (pred == McsRwExtendedBlock::kPredIdAcquired) {
           spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
           my_block->set_next_flag_granted();
+          adaptor_.remove_rw_async_mapping(lock);
           ASSERT_ND(lock->nreaders() == 0);
           return kErrorCodeOk;
         }
@@ -1413,6 +1421,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     if (!my_block->get_next_id() && lock->cas_tail_weak(my_tail_int, pred)) {
       pred_block->set_next_flag_no_successor();
       pred_block->set_next_id(0);
+      adaptor_.remove_rw_async_mapping(lock);
       return kErrorCodeLockCancelled;
     }
     spin_until([my_block]{ return my_block->get_next_id() != 0; });
@@ -1448,6 +1457,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       goto retry;
     }
 
+    adaptor_.remove_rw_async_mapping(lock);
     return kErrorCodeLockCancelled;
   }
 
@@ -1461,11 +1471,13 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       // reader picked me up...
       spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
       my_block->set_next_flag_granted();
+      adaptor_.remove_rw_async_mapping(lock);
       return kErrorCodeOk;
     }
 
     // so lock.next_writer is null now, try to fix the lock tail
     if (my_block->get_next_id() == 0 && lock->cas_tail_weak(my_tail_int, 0)) {
+      adaptor_.remove_rw_async_mapping(lock);
       return kErrorCodeLockCancelled;
     }
 
@@ -1498,6 +1510,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       lock->increment_nreaders();
       succ_block->set_pred_flag_granted();
     }
+    adaptor_.remove_rw_async_mapping(lock);
     return kErrorCodeLockCancelled;
   }
 

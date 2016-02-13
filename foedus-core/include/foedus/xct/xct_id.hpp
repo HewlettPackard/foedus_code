@@ -808,6 +808,15 @@ struct McsRwLock {
   friend std::ostream& operator<<(std::ostream& o, const McsRwLock& v);
 };
 
+struct McsRwAsyncMapping {
+  McsRwLock* lock_;
+  McsBlockIndex block_index_;
+  char padding_[16 - sizeof(McsBlockIndex) - sizeof(McsRwLock*)];
+
+  McsRwAsyncMapping(McsRwLock* lock, McsBlockIndex block) : lock_(lock), block_index_(block) {}
+  McsRwAsyncMapping() : lock_(nullptr), block_index_(0) {}
+};
+
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
 const uint64_t kXctIdMovedBit       = 1ULL << 62;
 const uint64_t kXctIdBeingWrittenBit = 1ULL << 61;

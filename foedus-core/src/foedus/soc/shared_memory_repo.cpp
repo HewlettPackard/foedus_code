@@ -465,6 +465,12 @@ void SharedMemoryRepo::set_node_memory_anchors(
     total += ThreadMemoryAnchors::kMcsRwLockMemorySize;
     put_node_memory_boundary(
       node, &total, "thread_mcs_rw_extended_lock_memories_boundary", reset_boundaries);
+
+    thread_anchor.mcs_rw_async_mappings_memories_
+      = reinterpret_cast<xct::McsRwAsyncMapping*>(base + total);
+    total += ThreadMemoryAnchors::kMcsRwAsyncMappingMemorySize;
+    put_node_memory_boundary(
+      node, &total, "thread_mcs_rw_async_mappings_memories_boundary", reset_boundaries);
   }
 
   // This is larger than others (except volatile pool). we place this at the end.
@@ -517,6 +523,7 @@ uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& optio
   total += threads_per_node * (ThreadMemoryAnchors::kMcsLockMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kMcsRwLockMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kMcsRwLockMemorySize + kBoundarySize);
+  total += threads_per_node * (ThreadMemoryAnchors::kMcsRwAsyncMappingMemorySize + kBoundarySize);
 
   total +=
     (static_cast<uint64_t>(options.snapshot_.log_reducer_buffer_mb_) << 20)

@@ -35,6 +35,7 @@ struct  McsRwLock;
 struct  McsRwBlock;  // To be removed
 struct  McsRwSimpleBlock;
 struct  McsRwExtendedBlock;
+struct  McsRwAsyncMapping;
 struct  McsLockScope;
 struct  PointerAccess;
 struct  ReadXctAccess;
