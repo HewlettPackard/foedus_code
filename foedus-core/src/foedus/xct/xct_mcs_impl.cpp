@@ -643,42 +643,25 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     return 0;
   }
   McsBlockIndex acquire_try_rw_reader(McsRwLock* lock) {
+    // the same best-effort impl as in Simple case, see comments there.
     McsBlockIndex block_index = adaptor_.issue_new_block();
     const thread::ThreadId id = adaptor_.get_my_id();
-    while (true) {
-      // take a look at the whole lock word, and cas if it's a reader or null
-      uint64_t lock_word
-        = assorted::atomic_load_acquire<uint64_t>(reinterpret_cast<uint64_t*>(lock));
-      McsRwLock ll;
-      std::memcpy(&ll, &lock_word, sizeof(ll));
-      if (ll.next_writer_ != McsRwLock::kNextWriterNone) {
-        return 0;
-      }
-      McsRwExtendedBlock* block = nullptr;
-      if (ll.tail_) {
-        block = adaptor_.dereference_rw_tail_block(ll.tail_);
-      }
-      if (ll.tail_ == 0 || (block->pred_flag_is_granted() && block->is_reader())) {
-        ll.increment_nreaders();
-        ll.tail_ = McsRwLock::to_tail_int(id, block_index);
-        uint64_t desired = *reinterpret_cast<uint64_t*>(&ll);
-        auto* my_block = adaptor_.get_rw_my_block(block_index);
-        my_block->init_reader();
+    auto* my_block = adaptor_.get_rw_my_block(block_index);
+    my_block->init_reader();
 
-        if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-          reinterpret_cast<uint64_t*>(lock), &lock_word, desired)) {
-          if (block) {
-            block->set_next_id(McsRwExtendedBlock::kSuccIdNoSuccessor);
-          }
-          my_block->set_pred_flag_granted();
-          finish_acquire_reader_lock(lock, my_block, ll.tail_);
-          ASSERT_ND(my_block->pred_flag_is_granted());
-          ASSERT_ND(my_block->next_flag_is_granted());
-          return block_index;
-        }
-      }
+    McsRwLock tmp;
+    uint64_t expected = *reinterpret_cast<uint64_t*>(&tmp);
+    McsRwLock tmp2;
+    tmp2.increment_nreaders();
+    tmp2.tail_ = McsRwLock::to_tail_int(id, block_index);
+    uint64_t desired = *reinterpret_cast<uint64_t*>(&tmp2);
+    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+      reinterpret_cast<uint64_t*>(lock), &expected, desired)) {
+      my_block->set_pred_flag_granted();
+      finish_acquire_reader_lock(lock, my_block, McsRwLock::to_tail_int(id, block_index));
+      return block_index;
     }
-    ASSERT_ND(false);
+    return 0;
   }
   void release_rw_reader(McsRwLock* lock, McsBlockIndex block_index) {
     release_reader_lock(lock, block_index);
