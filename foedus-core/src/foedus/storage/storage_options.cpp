@@ -21,6 +21,7 @@ namespace storage {
 StorageOptions::StorageOptions() {
   max_storages_ = kDefaultMaxStorages;
   partitioner_data_memory_mb_ = kDefaultPartitionerDataMemoryMb;
+  hot_threshold_ = kDefaultHotThreshold;
 }
 ErrorStack StorageOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, max_storages_);

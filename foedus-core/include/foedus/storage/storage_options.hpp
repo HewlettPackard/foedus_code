@@ -30,6 +30,7 @@ struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
   enum Constants {
     kDefaultMaxStorages = 1 << 9,
     kDefaultPartitionerDataMemoryMb = 1,
+    kDefaultHotThreshold = 256,  // OCC by default (for test cases and benchamrks that don't set it)
   };
   /**
    * Constructs option values with default values.
