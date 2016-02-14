@@ -1127,7 +1127,7 @@ void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId addre
         ++canceled_async_write_locks;
       }
       entry->mcs_block_ = 0;
-      ASSERT_ND(entry->taken_mode_ = xct::kNoLock);
+      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
     } else {
       ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
       ++already_released_locks;
