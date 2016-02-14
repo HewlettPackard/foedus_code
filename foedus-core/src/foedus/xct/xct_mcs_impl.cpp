@@ -621,7 +621,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 #endif
     return block_index;
   }
-  /** Instant-try versions, won't push queue node if failed.
+  /** Instant-try versions, won't leave node in the queue if failed.
    * Same as acquire_try_rw_* in SimpleRWLock. */
   McsBlockIndex acquire_try_rw_writer(McsRwLock* lock) {
     const thread::ThreadId id = adaptor_.get_my_id();
@@ -643,22 +643,30 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     return 0;
   }
   McsBlockIndex acquire_try_rw_reader(McsRwLock* lock) {
-    // the same best-effort impl as in Simple case, see comments there.
-    McsBlockIndex block_index = adaptor_.issue_new_block();
-    const thread::ThreadId id = adaptor_.get_my_id();
+    // This is a bit special, we do an async acquire without timeout
+    // and check only once and cancel if didn't get the lock.
+    McsBlockIndex block_index = 0;
+    auto ret = acquire_reader_lock(lock, &block_index, McsRwExtendedBlock::kTimeoutZero);
+    ASSERT_ND(ret == kErrorCodeOk || ret == kErrorCodeLockRequested);
+    ASSERT_ND(block_index);
+    if (ret == kErrorCodeOk) {
+      return block_index;
+    }
     auto* my_block = adaptor_.get_rw_my_block(block_index);
-    my_block->init_reader();
-
-    McsRwLock tmp;
-    uint64_t expected = *reinterpret_cast<uint64_t*>(&tmp);
-    McsRwLock tmp2;
-    tmp2.increment_nreaders();
-    tmp2.tail_ = McsRwLock::to_tail_int(id, block_index);
-    uint64_t desired = *reinterpret_cast<uint64_t*>(&tmp2);
-    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-      reinterpret_cast<uint64_t*>(lock), &expected, desired)) {
-      my_block->set_pred_flag_granted();
-      finish_acquire_reader_lock(lock, my_block, McsRwLock::to_tail_int(id, block_index));
+    ASSERT_ND(ret == kErrorCodeLockRequested);
+    uint32_t my_tail_int =
+      xct::McsRwLock::to_tail_int(static_cast<uint32_t>(adaptor_.get_my_id()), block_index);
+    // check once
+    if (my_block->pred_flag_is_granted()) {
+      // checking me.next.flags.granted is ok - we're racing with ourself
+      if (!my_block->next_flag_is_granted()) {
+        auto ret = finish_acquire_reader_lock(lock, my_block, my_tail_int);
+        ASSERT_ND(ret == kErrorCodeOk);
+      }
+      ASSERT_ND(my_block->next_flag_is_granted());
+      return block_index;
+    }
+    if (cancel_reader_lock(lock, my_tail_int) == kErrorCodeOk) {
       return block_index;
     }
     return 0;
