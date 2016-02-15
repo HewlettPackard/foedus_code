@@ -559,6 +559,13 @@ struct McsRwExtendedBlock {
       &next_.data_, &expected, desired);
     return expected;
   }
+  inline uint32_t xchg_next_id(uint32_t id) {
+    return assorted::raw_atomic_exchange<uint32_t>(&next_.components_.id_, id);
+  }
+  inline bool cas_next_id_strong(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint32_t>(
+      &next_.components_.id_, &expected, desired);
+  }
   inline bool cas_next_id_weak(uint32_t expected, uint32_t desired) {
     return assorted::raw_atomic_compare_exchange_weak<uint32_t>(
       &next_.components_.id_, &expected, desired);

@@ -835,6 +835,23 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     }
 
     auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
+    if (succ_block->is_writer()) {
+      my_block->unset_next_flag_busy();
+      return kErrorCodeOk;
+    }
+
+    // successor might be cancelling, in which case it'd xchg me.next.id to NoSuccessor;
+    // it's also possible that my cancelling writer successor is about to give me a new
+    // reader successor, in this case my cancelling successor will realize that I already
+    // have the lock and try to wake up the new successor directly also by trying to change
+    // me.next.id to NoSuccessor (the new successor might spin forever if its timeout is
+    // Never and the cancelling successor didn't wake it up).
+    if (!my_block->cas_next_id_strong(next_id, McsRwExtendedBlock::kSuccIdNoSuccessor)) {
+      ASSERT_ND(my_block->get_next_id() == McsRwExtendedBlock::kSuccIdNoSuccessor);
+      my_block->unset_next_flag_busy();
+      return kErrorCodeOk;
+    }
+
     if (my_block->next_flag_is_leaving_granted() && !my_block->next_flag_has_successor()) {
       // successor might have seen me in leaving state, it'll wait for me in that case
       // in this case, the successor saw me in leaving state and didnt register as a reader
@@ -1044,7 +1061,8 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     // wait for the canceling pred to finish the relink
     spin_until([pred_block, my_tail_int]{
       return pred_block->next_flag_has_reader_successor() &&
-        pred_block->get_next_id() == my_tail_int; });
+        (pred_block->get_next_id() == my_tail_int ||
+          pred_block->get_next_id() == McsRwExtendedBlock::kSuccIdNoSuccessor); });
 
     uint64_t expected = pred_block->make_next_flag_waiting_with_reader_successor() |
       (static_cast<uint64_t>(my_tail_int) << 32);
@@ -1062,7 +1080,13 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         // pred will in its finish-acquire-reader() wake me up.
         // pred already should alredy have me on its next.id, just set me.pred.id
         // this also covers the case when pred.next.flags has busy set.
-        my_block->set_pred_id(pred);
+        if (pred_block->xchg_next_id(McsRwExtendedBlock::kSuccIdNoSuccessor) == my_tail_int) {
+          my_block->set_pred_id(McsRwExtendedBlock::kPredIdAcquired);
+          lock->increment_nreaders();
+          my_block->set_pred_flag_granted();
+        } else {
+          my_block->set_pred_id(pred);
+        }
         my_block->timeout_granted(McsRwExtendedBlock::kTimeoutNever);
         return finish_acquire_reader_lock(lock, my_block, my_tail_int);
       } else {
@@ -1197,16 +1221,10 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(next_id);
     ASSERT_ND(next_id != McsRwExtendedBlock::kSuccIdSuccessorLeaving);
     if (next_id != McsRwExtendedBlock::kSuccIdNoSuccessor) {  // already handled successor
-      auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
       ASSERT_ND(my_block->next_flag_has_successor());
-      ASSERT_ND(!succ_block->pred_flag_is_granted());
-      if (succ_block->is_reader()) {
-        // so a cancelled successor gave me this new successor
-        ASSERT_ND(my_block->next_flag_is_busy());
-        lock->increment_nreaders();
-        while (!succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {}
-        succ_block->set_pred_flag_granted();
-      } else {
+      if (my_block->next_flag_has_writer_successor()) {
+        auto* succ_block = adaptor_.dereference_rw_tail_block(next_id);
+        ASSERT_ND(!succ_block->pred_flag_is_granted());
         ASSERT_ND(succ_block->is_writer());
         ASSERT_ND(my_block->next_flag_has_writer_successor());
         // put it in next_writer
@@ -1457,6 +1475,21 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     uint64_t expected = 0, new_next = 0;
     expected = pred_block->get_next();
     ASSERT_ND(expected >> 32 == McsRwExtendedBlock::kSuccIdSuccessorLeaving);
+    bool wakeup = false;
+
+    if (pred_block->is_reader() && succ_block->is_reader()) {
+      uint32_t flags = expected & McsRwExtendedBlock::kSuccFlagMask;
+      if (flags == McsRwExtendedBlock::kSuccFlagLeavingGranted ||
+        flags == McsRwExtendedBlock::kSuccFlagDirectGranted) {
+        // There is a time window which starts after the pred finishedits "acquired" block
+        // and ends before it releases. During this period my relink is essentially invisible
+        // to pred. So we try to wake up the successor if this is the case.
+        successor = static_cast<uint64_t>(McsRwExtendedBlock::kSuccFlagSuccessorReader) |
+          (static_cast<uint64_t>(McsRwExtendedBlock::kSuccIdNoSuccessor) << 32);
+        wakeup = true;
+      }
+    }
+
     new_next = (successor | static_cast<uint64_t>(expected & McsRwExtendedBlock::kSuccFlagMask));
     if (expected & McsRwExtendedBlock::kSuccFlagBusy) {
       new_next |= static_cast<uint64_t>(McsRwExtendedBlock::kSuccFlagBusy);
@@ -1465,6 +1498,11 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       goto retry;
     }
 
+    if (wakeup) {
+      ASSERT_ND(succ_block->pred_flag_is_waiting());
+      lock->increment_nreaders();
+      succ_block->set_pred_flag_granted();
+    }
     adaptor_.remove_rw_async_mapping(lock);
     return kErrorCodeLockCancelled;
   }
