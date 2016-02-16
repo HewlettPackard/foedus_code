@@ -407,6 +407,10 @@ struct McsRwExtendedBlock {
 
   static const uint32_t kPredIdAcquired          = 0xFFFFFFFFU;
 
+#ifndef NDEBUG
+  static const uint64_t kSuccReleased            = 0xFFFFFFFFFFFFFFFFU;
+#endif
+
   /* Special timeouts for instant return and unconditional acquire */
   static const int32_t kTimeoutNever = 0xFFFFFFFFU;
   static const int32_t kTimeoutZero  = 0U;
@@ -421,6 +425,18 @@ struct McsRwExtendedBlock {
 
   Field pred_;
   Field next_;
+
+#ifndef NDEBUG
+  inline void mark_released() {
+    ASSERT_ND(pred_flag_is_granted());
+    ASSERT_ND(next_flag_is_granted());
+    set_next(kSuccReleased);
+  }
+
+  inline bool is_released() {
+    return get_next() == kSuccReleased;
+  }
+#endif
 
   inline uint32_t read_pred_flags() {
     return assorted::atomic_load_acquire<uint32_t>(&pred_.components_.flags_);

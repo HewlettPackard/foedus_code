@@ -1201,6 +1201,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     auto id = adaptor_.get_my_id();
     auto my_tail_int = McsRwLock::to_tail_int(id, block_index);
     auto* my_block = adaptor_.get_rw_other_block(id, block_index);
+#ifndef NDEBUG
+    ASSERT_ND(!my_block->is_released());
+#endif
 
     // make sure successor can't leave; readers, however, can still get the lock as usual
     // by seeing me.next.flags.granted set
@@ -1213,6 +1216,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     while (next_id == 0) {
       if (lock->cas_tail_weak(my_tail_int, 0)) {  // really no one behind me
         finish_release_reader_lock(lock);
+#ifndef NDEBUG
+        my_block->mark_released();
+#endif
         return;
       }
       next_id = my_block->get_next_id();
@@ -1236,6 +1242,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       }
     }
     finish_release_reader_lock(lock);
+#ifndef NDEBUG
+    my_block->mark_released();
+#endif
   }
 
   void finish_release_reader_lock(McsRwLock* lock) {
@@ -1243,6 +1252,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return;
     }
     auto next_writer_id = lock->get_next_writer();
+    ASSERT_ND(next_writer_id != adaptor_.get_my_id());
     if (next_writer_id != McsRwLock::kNextWriterNone &&
       lock->nreaders() == 0 &&
       lock->cas_next_writer_strong(next_writer_id, McsRwLock::kNextWriterNone)) {
