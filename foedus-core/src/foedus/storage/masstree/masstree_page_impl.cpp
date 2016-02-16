@@ -663,7 +663,8 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   // SMO ruins the tx's efforts to protect hot reads. Maybe re-acquire and validate
   // immediately after the SMO?
 
-  auto begin_address = xct::to_universal_lock_id(reinterpret_cast<xct::RwLockableXctId*>(this));
+  auto begin_address = xct::to_universal_lock_id(
+    context, reinterpret_cast<xct::RwLockableXctId*>(this));
   context->mcs_release_all_current_locks_after(begin_address);
   // Now we can take all locks unconditionally. simple!
 

@@ -156,6 +156,7 @@ class XctManagerPimpl final : public DefaultInitializable {
    * After phase 2, we take memory fence.
    */
   ErrorCode   precommit_xct_lock(thread::Thread* context, XctId* max_xct_id);
+  ErrorCode   precommit_xct_parallel_lock(thread::Thread* context, XctId* max_xct_id);
   /**
    * Subroutine of precommit_xct_lock to track \e most of moved records in write-set.
    * We initially did it per-record while we take a lock, but then we need lots of
@@ -247,6 +248,7 @@ struct CurrentLockListIteratorForWriteSet {
    * precommit_xct_sort_access() and batch_insert_write_placeholders() beforehand.
    */
   CurrentLockListIteratorForWriteSet(
+    thread::Thread* context,
     const WriteXctAccess* write_set,
     const CurrentLockList* cll,
     uint32_t write_set_size);
@@ -255,7 +257,7 @@ struct CurrentLockListIteratorForWriteSet {
    * Look for next record's write-set(s).
    * @pre is_valid(). otherwise undefined behavior
    */
-  void next_writes();
+  void next_writes(thread::Thread* context);
   bool is_valid() const { return write_cur_pos_ < write_next_pos_; }
 
   const WriteXctAccess* const   write_set_;
@@ -275,6 +277,7 @@ struct CurrentLockListIteratorForWriteSet {
 };
 
 inline CurrentLockListIteratorForWriteSet::CurrentLockListIteratorForWriteSet(
+  thread::Thread* context,
   const WriteXctAccess* write_set,
   const CurrentLockList* cll,
   uint32_t write_set_size)
@@ -286,17 +289,17 @@ inline CurrentLockListIteratorForWriteSet::CurrentLockListIteratorForWriteSet(
   cll_pos_ = kLockListPositionInvalid;
   cll_->assert_sorted();
 
-  next_writes();  // set to initial record.
+  next_writes(context);  // set to initial record.
 }
 
-inline void CurrentLockListIteratorForWriteSet::next_writes() {
+inline void CurrentLockListIteratorForWriteSet::next_writes(thread::Thread* context) {
   write_cur_pos_ = write_next_pos_;
   ++cll_pos_;
   if (write_cur_pos_ >= write_set_size_) {
     return;
   }
   const WriteXctAccess* write = write_set_ + write_cur_pos_;
-  const UniversalLockId write_id = to_universal_lock_id(write->owner_id_address_);
+  const UniversalLockId write_id = to_universal_lock_id(context, write->owner_id_address_);
 
   // CLL must contain all entries in write-set. We are reading in-order.
   // So, we must find a valid CLL entry that is == write_id
@@ -315,7 +318,8 @@ inline void CurrentLockListIteratorForWriteSet::next_writes() {
       break;
     }
     const WriteXctAccess* next_write = write_set_ + write_next_pos_;
-    const UniversalLockId next_write_id = to_universal_lock_id(next_write->owner_id_address_);
+    const UniversalLockId next_write_id =
+      to_universal_lock_id(context, next_write->owner_id_address_);
     ASSERT_ND(write_id <= next_write_id);
     if (write_id < next_write_id) {
       break;

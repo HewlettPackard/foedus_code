@@ -1237,6 +1237,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         ASSERT_ND(!lock->has_next_writer());
         auto next_writer_id = next_id >> 16;
         lock->set_next_writer(next_writer_id);
+        ASSERT_ND(adaptor_.get_rw_other_async_block(next_writer_id, lock));
         // also tell successor it doesn't have pred any more
         while (!succ_block->cas_pred_id_strong(my_tail_int, 0)) {}
       }
@@ -1270,9 +1271,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(my_block->is_writer());
     auto id = adaptor_.get_my_id();
     auto my_tail_int = McsRwLock::to_tail_int(id, *out_block_index);
-    auto pred = lock->xchg_tail(my_tail_int);
     // register on my TLS lock-block_index mapping, must do this before setting pred.next.id or nw
     adaptor_.add_rw_async_mapping(lock, *out_block_index);
+    auto pred = lock->xchg_tail(my_tail_int);
     if (pred == 0) {
       ASSERT_ND(lock->get_next_writer() == McsRwLock::kNextWriterNone);
       lock->set_next_writer(id);

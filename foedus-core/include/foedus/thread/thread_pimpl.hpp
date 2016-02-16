@@ -462,25 +462,38 @@ class ThreadPimplMcsAdaptor {
     return get_rw_other_block(tail_id, tail_block);
   }
   xct::McsRwExtendedBlock* get_rw_other_async_block(ThreadId id, xct::McsRwLock* lock) {
+    ASSERT_ND(id != get_my_id());
     ThreadRef other = pimpl_->get_thread_ref(id);
-    auto* mapping = other.get_mcs_rw_async_mapping(lock);
+    assorted::memory_fence_acquire();
+    auto lock_id = xct::to_universal_lock_id(
+      pimpl_->engine_, reinterpret_cast<const xct::RwLockableXctId*>(lock));
+    auto* mapping = other.get_mcs_rw_async_mapping(lock_id);
     ASSERT_ND(mapping);
-    ASSERT_ND(mapping->lock_ == lock);
+    ASSERT_ND(mapping->lock_id_ == lock_id);
     return get_rw_other_block(id, mapping->block_index_);
   }
   void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
     // TLS, no concurrency control needed
-    auto index = pimpl_->control_block_->mcs_rw_async_mapping_current_++;
+    auto index = pimpl_->control_block_->mcs_rw_async_mapping_current_;
     ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
-    ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].lock_ == nullptr);
-    pimpl_->mcs_rw_async_mappings_[index].lock_ = lock;
+    ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].lock_id_ == xct::kNullUniversalLockId);
+    ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].block_index_ == 0);
+    pimpl_->mcs_rw_async_mappings_[index].lock_id_ =
+      xct::to_universal_lock_id(
+        pimpl_->engine_, reinterpret_cast<const xct::RwLockableXctId*>(lock));
     pimpl_->mcs_rw_async_mappings_[index].block_index_ = block_index;
+    ++pimpl_->control_block_->mcs_rw_async_mapping_current_;
   }
   void remove_rw_async_mapping(xct::McsRwLock* lock) {
+    xct::UniversalLockId lock_id =
+      xct::to_universal_lock_id(
+        pimpl_->engine_, reinterpret_cast<const xct::RwLockableXctId*>(lock));
+    ASSERT_ND(pimpl_->control_block_->mcs_rw_async_mapping_current_);
     for (uint32_t i = 0; i < pimpl_->control_block_->mcs_rw_async_mapping_current_; ++i) {
-      if (pimpl_->mcs_rw_async_mappings_[i].lock_ == lock) {
-        pimpl_->mcs_rw_async_mappings_[i].lock_ = nullptr;
-        --pimpl_->control_block_->mcs_rw_async_mapping_current_;
+      if (pimpl_->mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
+        ASSERT_ND(pimpl_->mcs_rw_async_mappings_[i].block_index_);
+        pimpl_->mcs_rw_async_mappings_[i].lock_id_ = xct::kNullUniversalLockId;
+        pimpl_->mcs_rw_async_mappings_[i].block_index_= 0;
         return;
       }
     }

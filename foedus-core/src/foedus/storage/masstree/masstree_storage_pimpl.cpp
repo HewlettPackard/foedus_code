@@ -660,7 +660,8 @@ ErrorCode MasstreeStoragePimpl::expand_record(
       // To remove risk on deadlock in HCC, we release in-flight locks that are after this lock.
       // All such in-flight locks must be non-mandatory locks because this is during xct.
       // So, we can arbitraliry release them.
-      context->mcs_release_all_current_locks_at_and_after(xct::to_universal_lock_id(&slot->tid_));
+      context->mcs_release_all_current_locks_at_and_after(
+        xct::to_universal_lock_id(context, &slot->tid_));
       xct::McsRwLockScope record_lock(context, &slot->tid_, false, true, false);
       // The above lock implies a barrier here
       ASSERT_ND(!slot->tid_.is_moved());

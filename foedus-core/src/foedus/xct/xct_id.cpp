@@ -19,13 +19,67 @@
 
 #include <ostream>
 
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/memory/engine_memory.hpp"
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
 
 namespace foedus {
 namespace xct {
+
+UniversalLockId to_universal_lock_id(
+  Engine* engine,
+  const RwLockableXctId* lock) {
+  if (UNLIKELY(!engine)) {
+    // should be a test case calling this
+    return reinterpret_cast<UniversalLockId>(lock);
+  }
+  memory::GlobalVolatilePageResolver::Base base = 0;
+  uint16_t node = 0;
+  for (thread::ThreadGroupId n = 0; n < engine->get_options().thread_.group_count_; ++n) {
+    memory::GlobalVolatilePageResolver::Base b =
+      engine->get_memory_manager()->get_global_volatile_page_resolver().bases_[n];
+    if (b <= (memory::GlobalVolatilePageResolver::Base)lock && b > base) {
+      base = b;
+      node = n;
+    }
+  }
+
+  ASSERT_ND(base);
+  ASSERT_ND(reinterpret_cast<uintptr_t>(lock) >= reinterpret_cast<uintptr_t>(base));
+  return (static_cast<uint64_t>(node) << 48) |
+    (reinterpret_cast<uintptr_t>(lock) - reinterpret_cast<uintptr_t>(base));
+}
+
+RwLockableXctId* from_universal_lock_id(
+  Engine* engine,
+  UniversalLockId universal_lock_id) {
+  if (UNLIKELY(!engine)) {
+    // should be a test case calling this
+    return reinterpret_cast<RwLockableXctId*>(universal_lock_id);
+  }
+  ASSERT_ND(engine);
+  uint16_t node = reinterpret_cast<uintptr_t>(universal_lock_id) >> 48;
+  uint64_t offset = reinterpret_cast<uintptr_t>(universal_lock_id) & kUniversalLockIdOffsetMask;
+  auto base = engine->get_memory_manager()->get_global_volatile_page_resolver().bases_[node];
+  return reinterpret_cast<RwLockableXctId*>(reinterpret_cast<uintptr_t>(base) + offset);
+}
+
+UniversalLockId to_universal_lock_id(
+  thread::Thread* context,
+  const RwLockableXctId* lock) {
+  if (UNLIKELY(!context)) {
+    // should be a test case calling this
+    return reinterpret_cast<UniversalLockId>(lock);
+  }
+  return to_universal_lock_id(
+    context->get_engine(),
+    reinterpret_cast<const RwLockableXctId*>(lock));
+}
 
 bool RwLockableXctId::is_hot(thread::Thread* context) const {
   return foedus::storage::to_page(this)->get_header().contains_hot_records(context);

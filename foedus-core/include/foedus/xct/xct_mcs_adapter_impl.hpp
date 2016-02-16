@@ -128,8 +128,9 @@ struct McsMockThread {
     mcs_waiting_ = false;
   }
   xct::McsBlockIndex get_mcs_rw_async_block_index(xct::McsRwLock* lock) {
+    auto ulockid = xct::to_universal_lock_id(NULL, lock);
     for (auto &m : mcs_rw_async_mappings_) {
-      if (m.lock_ == lock) {
+      if (m.lock_id_ == ulockid) {
         return m.block_index_;
       }
     }
@@ -254,22 +255,26 @@ class McsMockAdaptor {
   void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
     ASSERT_ND(lock);
     ASSERT_ND(block_index);
+    auto ulockid = xct::to_universal_lock_id(NULL, lock);
+#ifndef NDEBUG
     for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
-      if (me_->mcs_rw_async_mappings_[i].lock_ == lock) {
+      if (me_->mcs_rw_async_mappings_[i].lock_id_ == ulockid) {
         ASSERT_ND(false);
       }
     }
+#endif
     // TLS, no concurrency control needed
     auto index = me_->mcs_rw_async_mapping_current_++;
-    ASSERT_ND(me_->mcs_rw_async_mappings_[index].lock_ == nullptr);
-    me_->mcs_rw_async_mappings_[index].lock_ = lock;
+    ASSERT_ND(me_->mcs_rw_async_mappings_[index].lock_id_ == kNullUniversalLockId);
+    me_->mcs_rw_async_mappings_[index].lock_id_ = ulockid;
     me_->mcs_rw_async_mappings_[index].block_index_ = block_index;
   }
   void remove_rw_async_mapping(xct::McsRwLock* lock) {
     ASSERT_ND(me_->mcs_rw_async_mapping_current_);
+    auto lock_id = xct::to_universal_lock_id(NULL, lock);
     for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
-      if (me_->mcs_rw_async_mappings_[i].lock_ == lock) {
-        me_->mcs_rw_async_mappings_[i].lock_ = nullptr;
+      if (me_->mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
+        me_->mcs_rw_async_mappings_[i].lock_id_ = kNullUniversalLockId;
         --me_->mcs_rw_async_mapping_current_;
         return;
       }

@@ -197,7 +197,7 @@ class RetrospectiveLockList {
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(RwLockableXctId* lock) const;
+  LockListPosition binary_search(thread::Thread* context, RwLockableXctId* lock) const;
 
   /**
    * Analogous to std::lower_bound() for the given lock.
@@ -205,7 +205,7 @@ class RetrospectiveLockList {
    * If no such entry, last_active_entry_ + 1U, whether last_active_entry_ is 0 or not.
    * Thus the return value is always >0. This is to immitate std::lower_bound's behavior.
    */
-  LockListPosition lower_bound(RwLockableXctId* lock) const;
+  LockListPosition lower_bound(thread::Thread* context, RwLockableXctId* lock) const;
 
   /**
    * @brief Fill out this retrospetive lock list for the next run of the given transaction.
@@ -306,7 +306,7 @@ class CurrentLockList {
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(RwLockableXctId* lock) const;
+  LockListPosition binary_search(thread::Thread* context, RwLockableXctId* lock) const;
 
   /**
    * Adds an entry to this list, re-sorting part of the list if necessary to keep the sortedness.
@@ -318,7 +318,8 @@ class CurrentLockList {
    * This method is used when we couldn't batch/expect the new entry.
    * @see batch_insert_write_placeholders()
    */
-  LockListPosition get_or_add_entry(RwLockableXctId* lock, LockMode preferred_mode);
+  LockListPosition get_or_add_entry(
+    thread::Thread* context, RwLockableXctId* lock, LockMode preferred_mode);
 
   /**
    * Analogous to std::lower_bound() for the given lock.
@@ -326,7 +327,7 @@ class CurrentLockList {
    * If no such entry, last_active_entry_ + 1U, whether last_active_entry_ is 0 or not.
    * Thus the return value is always >0. This is to immitate std::lower_bound's behavior.
    */
-  LockListPosition lower_bound(RwLockableXctId* lock) const;
+  LockListPosition lower_bound(thread::Thread* context, RwLockableXctId* lock) const;
 
   const LockEntry* get_array() const { return array_; }
   LockEntry* get_array() { return array_; }
@@ -371,12 +372,18 @@ class CurrentLockList {
    * @brief Create entries for all write-sets in one-shot.
    * @param[in] write_set write-sets to create placeholders for. Must be canonically sorted.
    * @param[in] write_set_size count of entries in write_set
+   * @param[in] thread context (for requesting extended rw lock and/or getting unversal lock ID).
+   * @param[in] try_async_lock whether to issue lock requests when using extended rw lock.
    * @details
    * During precommit, we must create an entry for every write-set.
    * Rather than doing it one by one, this method creates placeholder entries for all of them.
    * The placeholders are not locked yet (taken_mode_ == kNoLock).
    */
-  void batch_insert_write_placeholders(const WriteXctAccess* write_set, uint32_t write_set_size);
+  void batch_insert_write_placeholders(
+    const WriteXctAccess* write_set,
+    uint32_t write_set_size,
+    thread::Thread* context,
+    bool try_async_lock = false);
 
   /**
    * Another batch-insert method used at the beginning of a transaction.
@@ -418,6 +425,20 @@ class CurrentLockList {
     thread::Thread* context,
     LockListPosition pos,
     LockListPosition* last_locked_pos);
+
+  void try_async_single_lock(thread::Thread* context, LockListPosition pos);
+  bool retry_async_single_lock(thread::Thread* context, LockListPosition pos);
+  void cancel_async_single_lock(thread::Thread* context, LockListPosition pos);
+  void try_async_multiple_locks(
+    thread::Thread* context,
+    LockListPosition upto_pos);
+
+  void try_async_single_lock_impl(
+    thread::Thread* context,
+    LockListPosition pos,
+    LockListPosition* last_locked_pos);
+  bool retry_async_single_lock_impl(thread::Thread* context, LockListPosition pos);
+  void cancel_async_single_lock_impl(thread::Thread* context, LockListPosition pos);
 
  private:
   /**

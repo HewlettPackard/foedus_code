@@ -384,7 +384,12 @@ ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoc
   DVLOG(1) << *context << " Committing read-write";
   XctId max_xct_id;
   max_xct_id.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
-  auto lock_ret = precommit_xct_lock(context, &max_xct_id);  // Phase 1
+  ErrorCode lock_ret;
+  if (context->get_engine()->get_options().xct_.parallel_lock_) {
+    lock_ret = precommit_xct_parallel_lock(context, &max_xct_id);
+  } else {
+    lock_ret = precommit_xct_lock(context, &max_xct_id);  // Phase 1
+  }
   if (lock_ret != kErrorCodeOk) {
     return lock_ret;
   }
@@ -534,6 +539,113 @@ ErrorCode XctManagerPimpl::precommit_xct_lock_batch_track_moved(thread::Thread* 
   return kErrorCodeOk;
 }
 
+ErrorCode XctManagerPimpl::precommit_xct_parallel_lock(thread::Thread* context, XctId* max_xct_id) {
+  Xct& current_xct = context->get_current_xct();
+  WriteXctAccess* write_set = current_xct.get_write_set();
+  uint32_t        write_set_size = current_xct.get_write_set_size();
+  CurrentLockList* cll = current_xct.get_current_lock_list();
+  DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
+  const uint32_t parallel_lock_retries
+    = context->get_engine()->get_options().xct_.parallel_lock_retries_;
+
+#ifndef NDEBUG
+  // Initially, write-sets must be ordered by the insertion order.
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    ASSERT_ND(write_set[i].write_set_ordinal_ == i);
+    // Because of RLL, the write-set might or might not already have a corresponding lock
+  }
+#endif  // NDEBUG
+
+moved_retry:
+  CHECK_ERROR_CODE(precommit_xct_lock_batch_track_moved(context));
+  precommit_xct_sort_access(context);
+
+  // TODO(Hideaki) Because of how the new locks work, I'm not sure the prefetch still helps.
+  // Previously it did, but not significant either, so let's disable for now and revisit this later.
+  // we have to access the owner_id's pointed address. let's prefetch them in parallel
+  // for (uint32_t i = 0; i < write_set_size; ++i) {
+  //   assorted::prefetch_cacheline(write_set[i].owner_id_address_);
+  // }
+
+  // Create entries in CLL for all write sets. At this point they are not locked yet.
+  // Send out lock requests if parallel_lock is enabled.
+  cll->batch_insert_write_placeholders(write_set, write_set_size, context, true);
+
+  ASSERT_ND(current_xct.assert_related_read_write());
+  // Note: one alterantive is to sequentailly iterate over write-set and CLL,
+  // both of which are sorted. It will be faster, but probably not that different
+  // unless we have a large number of locks. For now binary_search each time.
+
+  // Now we have sent out all lock requests, loop over them to check status.
+  uint32_t async_lock_tries = 0;
+async_lock_retry:
+  bool all_locked = true;
+  for (CurrentLockListIteratorForWriteSet it(context, write_set, cll, write_set_size);
+        it.is_valid();
+        it.next_writes(context)) {
+    // for multiple writes on one record, only the first one (write_cur_pos_) takes the lock
+    WriteXctAccess* entry = write_set + it.write_cur_pos_;
+
+    LockListPosition lock_pos = it.cll_pos_;
+    ASSERT_ND(lock_pos != kLockListPositionInvalid);  // we have put placeholders for all!
+    LockEntry* lock_entry = cll->get_array() + lock_pos;
+    ASSERT_ND(lock_entry->lock_ == entry->owner_id_address_);
+    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
+    ASSERT_ND(lock_entry->mcs_block_);
+    if (lock_entry->taken_mode_ == kWriteLock) {
+      DVLOG(2) << "Yay, already taken. Probably Thanks to RLL or try succeeded directly?";
+    } else if (cll->retry_async_single_lock(context, lock_pos)) {
+      ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
+      ASSERT_ND(lock_entry->is_locked());
+    } else {
+      all_locked = false;
+      continue;
+    }
+
+    if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
+      // Because we invoked precommit_xct_lock_batch_track_moved beforehand,
+      // this happens only when a concurrent thread again split some of the overlapping page.
+      // Though rare, it happens. In that case redo the procedure.
+      LOG(INFO) << "Someone has split the page and moved our record after we check. Retry..";
+      goto moved_retry;
+    }
+
+    ASSERT_ND(!entry->owner_id_address_->is_moved());
+    ASSERT_ND(!entry->owner_id_address_->is_next_layer());
+    ASSERT_ND(entry->owner_id_address_->is_keylocked());
+    max_xct_id->store_max(entry->owner_id_address_->xct_id_);
+
+    // If we have to abort, we should abort early to not waste time.
+    // Thus, we check related read sets right here.
+    // For other writes of the same record, too.
+    for (uint32_t rec = it.write_cur_pos_; rec < it.write_next_pos_; ++rec) {
+      WriteXctAccess* r = write_set + rec;
+      ASSERT_ND(entry->owner_id_address_ == r->owner_id_address_);
+      if (r->related_read_) {
+        ASSERT_ND(r->related_read_->owner_id_address_ == r->owner_id_address_);
+        if (r->owner_id_address_->xct_id_ != r->related_read_->observed_owner_id_) {
+          return kErrorCodeXctRaceAbort;
+        }
+      }
+    }
+  }
+
+  if (!all_locked) {
+    if (++async_lock_tries < parallel_lock_retries) {
+      goto async_lock_retry;
+    }
+    return kErrorCodeXctLockAbort;
+  }
+
+  DVLOG(1) << *context << " locked write set";
+#ifndef NDEBUG
+  for (uint32_t i = 0; i < write_set_size; ++i) {
+    ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
+  }
+#endif  // NDEBUG
+  return kErrorCodeOk;
+}
+
 ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* max_xct_id) {
   Xct& current_xct = context->get_current_xct();
   WriteXctAccess* write_set = current_xct.get_write_set();
@@ -563,7 +675,7 @@ moved_retry:
   // }
 
   // Create entries in CLL for all write sets. At this point they are not locked yet.
-  cll->batch_insert_write_placeholders(write_set, write_set_size);
+  cll->batch_insert_write_placeholders(write_set, write_set_size, context);
 
   ASSERT_ND(current_xct.assert_related_read_write());
   // Note: one alterantive is to sequentailly iterate over write-set and CLL,
@@ -574,9 +686,9 @@ moved_retry:
   // This is way faster than invoking cll->binary_search() for each write-set entry.
   // Remember one thing, tho: write-set might have multiple entries for one record!
   LockListPosition last_locked_pos = cll->get_last_locked_entry();
-  for (CurrentLockListIteratorForWriteSet it(write_set, cll, write_set_size);
+  for (CurrentLockListIteratorForWriteSet it(context, write_set, cll, write_set_size);
         it.is_valid();
-        it.next_writes()) {
+        it.next_writes(context)) {
     // for multiple writes on one record, only the first one (write_cur_pos_) takes the lock
     WriteXctAccess* entry = write_set + it.write_cur_pos_;
 
@@ -727,7 +839,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
   Xct& current_xct = context->get_current_xct();
   ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
-  CurrentLockList*        cll = current_xct.get_current_lock_list();
   bool verification_failed = false;
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // let's prefetch owner_id in parallel

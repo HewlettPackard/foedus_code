@@ -1118,6 +1118,7 @@ void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId addre
       // Not locked yet, but we have mcs_block_ set, this means we tried it in
       // async mode, then still waiting or at least haven't confirmed that we acquired it.
       // Cancel these "retrieable" locks to which we already pushed our qnode.
+      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
       if (entry->preferred_mode_ == xct::kReadLock) {
         mcs_cancel_async_rw_reader(entry->lock_->get_key_lock(), entry->mcs_block_);
         ++canceled_async_read_locks;
@@ -1127,7 +1128,6 @@ void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId addre
         ++canceled_async_write_locks;
       }
       entry->mcs_block_ = 0;
-      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
     } else {
       ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
       ++already_released_locks;

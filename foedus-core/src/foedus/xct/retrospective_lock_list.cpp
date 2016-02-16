@@ -169,8 +169,9 @@ void RetrospectiveLockList::assert_sorted_impl() const {
 /// meaning it runs faster when accesses are nicely sorted.
 ////////////////////////////////////////////////////////////
 template<typename LOCK_LIST>
-LockListPosition lock_lower_bound(const LOCK_LIST& list, RwLockableXctId* lock) {
-  const UniversalLockId id = to_universal_lock_id(lock);
+LockListPosition lock_lower_bound(
+  thread::Thread* context, const LOCK_LIST& list, RwLockableXctId* lock) {
+  const UniversalLockId id = to_universal_lock_id(context, lock);
   LockListPosition last_active_entry = list.get_last_active_entry();
   if (last_active_entry == kLockListPositionInvalid) {
     return kLockListPositionInvalid + 1U;
@@ -202,10 +203,11 @@ LockListPosition lock_lower_bound(const LOCK_LIST& list, RwLockableXctId* lock) 
 }
 
 template<typename LOCK_LIST>
-LockListPosition lock_binary_search(const LOCK_LIST& list, RwLockableXctId* lock) {
-  const UniversalLockId id = to_universal_lock_id(lock);
+LockListPosition lock_binary_search(
+  thread::Thread* context, const LOCK_LIST& list, RwLockableXctId* lock) {
+  const UniversalLockId id = to_universal_lock_id(context, lock);
   LockListPosition last_active_entry = list.get_last_active_entry();
-  LockListPosition pos = lock_lower_bound<LOCK_LIST>(list, lock);
+  LockListPosition pos = lock_lower_bound<LOCK_LIST>(context, list, lock);
   if (pos != kLockListPositionInvalid && pos <= last_active_entry) {
     const LockEntry* array = list.get_array();
     if (array[pos].universal_lock_id_ == id) {
@@ -215,23 +217,28 @@ LockListPosition lock_binary_search(const LOCK_LIST& list, RwLockableXctId* lock
   return kLockListPositionInvalid;
 }
 
-LockListPosition CurrentLockList::binary_search(RwLockableXctId* lock) const {
-  return lock_binary_search<CurrentLockList>(*this, lock);
+LockListPosition CurrentLockList::binary_search(
+  thread::Thread* context, RwLockableXctId* lock) const {
+  return lock_binary_search<CurrentLockList>(context, *this, lock);
 }
-LockListPosition RetrospectiveLockList::binary_search(RwLockableXctId* lock) const {
-  return lock_binary_search<RetrospectiveLockList>(*this, lock);
+LockListPosition RetrospectiveLockList::binary_search(
+  thread::Thread* context, RwLockableXctId* lock) const {
+  return lock_binary_search<RetrospectiveLockList>(context, *this, lock);
 }
-LockListPosition CurrentLockList::lower_bound(RwLockableXctId* lock) const {
-  return lock_lower_bound<CurrentLockList>(*this, lock);
+LockListPosition CurrentLockList::lower_bound(
+  thread::Thread* context, RwLockableXctId* lock) const {
+  return lock_lower_bound<CurrentLockList>(context, *this, lock);
 }
-LockListPosition RetrospectiveLockList::lower_bound(RwLockableXctId* lock) const {
-  return lock_lower_bound<RetrospectiveLockList>(*this, lock);
+LockListPosition RetrospectiveLockList::lower_bound(
+  thread::Thread* context, RwLockableXctId* lock) const {
+  return lock_lower_bound<RetrospectiveLockList>(context, *this, lock);
 }
 
-LockListPosition CurrentLockList::get_or_add_entry(RwLockableXctId* lock, LockMode preferred_mode) {
+LockListPosition CurrentLockList::get_or_add_entry(
+  thread::Thread* context, RwLockableXctId* lock, LockMode preferred_mode) {
   // Easy case? (lock >= the last entry)
-  const UniversalLockId id = to_universal_lock_id(lock);
-  LockListPosition insert_pos = lower_bound(lock);
+  const UniversalLockId id = to_universal_lock_id(context, lock);
+  LockListPosition insert_pos = lower_bound(context, lock);
   ASSERT_ND(insert_pos != kLockListPositionInvalid);
 
   // Larger than all existing entries? Append to the last!
@@ -289,7 +296,7 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
     }
 
     auto pos = issue_new_position();
-    array_[pos].set(to_universal_lock_id(lock), lock, kReadLock, kNoLock);
+    array_[pos].set(to_universal_lock_id(context, lock), lock, kReadLock, kNoLock);
   }
   DVLOG(1) << "Added " << last_active_entry_ << " to RLL for read-locks";
 
@@ -297,7 +304,7 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
   for (uint32_t i = 0; i < write_set_size; ++i) {
     RwLockableXctId* lock = write_set[i].owner_id_address_;
     auto pos = issue_new_position();
-    array_[pos].set(to_universal_lock_id(lock), lock, kWriteLock, kNoLock);
+    array_[pos].set(to_universal_lock_id(context, lock), lock, kWriteLock, kNoLock);
   }
 
   // Now, the entries are not sorted and we might have duplicates.
@@ -333,7 +340,9 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
 
 void CurrentLockList::batch_insert_write_placeholders(
   const WriteXctAccess* write_set,
-  uint32_t write_set_size) {
+  uint32_t write_set_size,
+  thread::Thread* context,
+  bool try_async_lock) {
   // We want to avoid full-sorting and minimize the number of copies/shifts.
   // Luckily, write_set is already sorted, so is our array_. Just merge them in order.
   if (write_set_size == 0) {
@@ -358,35 +367,45 @@ void CurrentLockList::batch_insert_write_placeholders(
   //   merge from the end, not the beginning, to copy/shift only what we need to.
   //  3) insert all write-sets at the end then invoke std::sort once.
   // For now I picked 3) for simplicity. Revisit laster if CPU profile tells something.
-  uint32_t added = 0;
   uint32_t write_pos = 0;
-  for (LockListPosition pos = 1U; pos <= last_active_entry_ && write_pos < write_set_size;) {
+  uint32_t last_active_entry = last_active_entry_;
+  for (LockListPosition pos = 1U; pos <= last_active_entry && write_pos < write_set_size;) {
+    LockListPosition lock_pos = kLockListPositionInvalid;
     LockEntry* existing = array_ + pos;
     const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = to_universal_lock_id(write->owner_id_address_);
+    UniversalLockId write_lock_id = to_universal_lock_id(context, write->owner_id_address_);
     if (existing->universal_lock_id_ < write_lock_id) {
       ++pos;
+      continue;
     } else if (existing->universal_lock_id_ == write_lock_id) {
       if (existing->preferred_mode_ != kWriteLock) {
         existing->preferred_mode_ = kWriteLock;
+      }
+      if (existing->mcs_block_ == 0) {
+        lock_pos = pos;
       }
       ++write_pos;
     } else {
       // yuppy, new entry.
       ASSERT_ND(existing->universal_lock_id_ > write_lock_id);
-      ++added;
-      LockEntry* new_entry = array_ + last_active_entry_ + added;
+      lock_pos = ++last_active_entry_;
+      LockEntry* new_entry = array_ + lock_pos;
       new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
       // be careful on duplicate in write-set.
       // It might contain multiple writes to one record.
       for (++write_pos; write_pos < write_set_size; ++write_pos) {
         const WriteXctAccess* next_write = write_set + write_pos;
-        UniversalLockId next_write_id = to_universal_lock_id(next_write->owner_id_address_);
+        UniversalLockId next_write_id =
+          to_universal_lock_id(context, next_write->owner_id_address_);
         ASSERT_ND(next_write_id >= write_lock_id);
         if (next_write_id > write_lock_id) {
           break;
         }
       }
+    }
+    if (lock_pos != kLockListPositionInvalid && try_async_lock) {
+      try_async_single_lock(context, lock_pos);
+      ASSERT_ND(array_[lock_pos].mcs_block_);
     }
   }
 
@@ -394,19 +413,20 @@ void CurrentLockList::batch_insert_write_placeholders(
     // After iterating over all existing entries, still some write-set entry remains.
     // Hence they are all after the existing entries.
     const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = to_universal_lock_id(write->owner_id_address_);
+    UniversalLockId write_lock_id = to_universal_lock_id(context, write->owner_id_address_);
     ASSERT_ND(last_active_entry_ == kLockListPositionInvalid
       || array_[last_active_entry_].universal_lock_id_ < write_lock_id);
 
-    // Again, be careful on duplicate in write set
-    ASSERT_ND(last_active_entry_ + added == kLockListPositionInvalid
-      || array_[last_active_entry_ + added].universal_lock_id_ <= write_lock_id);
-    ++added;
-    LockEntry* new_entry = array_ + last_active_entry_ + added;
+    LockListPosition lock_pos = ++last_active_entry_;
+    LockEntry* new_entry = array_ + lock_pos;
     new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
+    if (try_async_lock) {
+      try_async_single_lock(context, lock_pos);
+      ASSERT_ND(array_[lock_pos].mcs_block_);
+    }
     for (++write_pos; write_pos < write_set_size; ++write_pos) {
       const WriteXctAccess* next_write = write_set + write_pos;
-      UniversalLockId next_write_id = to_universal_lock_id(next_write->owner_id_address_);
+      UniversalLockId next_write_id = to_universal_lock_id(context, next_write->owner_id_address_);
       ASSERT_ND(next_write_id >= write_lock_id);
       if (next_write_id > write_lock_id) {
         break;
@@ -414,14 +434,13 @@ void CurrentLockList::batch_insert_write_placeholders(
     }
   }
 
-  if (added > 0) {
-    last_active_entry_ += added;
+  if (last_active_entry != last_active_entry_) {
     std::sort(array_ + 1U, array_ + 1U + last_active_entry_);
   }
   assert_sorted();
 #ifndef NDEBUG
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(binary_search(write_set[i].owner_id_address_) != kLockListPositionInvalid);
+    ASSERT_ND(binary_search(context, write_set[i].owner_id_address_) != kLockListPositionInvalid);
   }
 #endif  // NDEBUG
 }
@@ -499,8 +518,93 @@ ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
     lock_entry->taken_mode_ = lock_entry->preferred_mode_;
   }
   ASSERT_ND(lock_entry->mcs_block_);
+  ASSERT_ND(lock_entry->is_locked());
   *last_locked_pos = pos;
   return kErrorCodeOk;
+}
+
+void CurrentLockList::try_async_single_lock(
+  thread::Thread* context,
+  LockListPosition pos) {
+  LockEntry* lock_entry = get_entry(pos);
+  if (lock_entry->is_enough()) {
+    return;
+  }
+  ASSERT_ND(lock_entry->taken_mode_ != kWriteLock);
+
+  auto* lock_addr = lock_entry->lock_->get_key_lock();
+  if (lock_entry->taken_mode_ != kNoLock) {
+    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
+    ASSERT_ND(lock_entry->taken_mode_ == kReadLock);
+    ASSERT_ND(lock_entry->mcs_block_);
+    // This is reader->writer upgrade.
+    // We simply release read-lock first then take write-lock in this case.
+    // In traditional 2PL, such an unlock-then-lock violates serializability,
+    // but we guarantee serializability by read-verification anyways.
+    // We can release any lock anytime.. great flexibility!
+    context->mcs_release_reader_lock(lock_addr, lock_entry->mcs_block_);
+  } else {
+    // This function is for pushing the queue node in the extended rwlock.
+    // Doomed if we already have a queue node.
+    ASSERT_ND(lock_entry->mcs_block_ == 0);
+  }
+
+  // Don't really care canonical order here, just send out the request.
+  AcquireAsyncRet async_ret;
+  if (lock_entry->preferred_mode_ == kWriteLock) {
+    async_ret = context->mcs_acquire_async_rw_writer(lock_addr);
+  } else {
+    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+    async_ret = context->mcs_acquire_async_rw_reader(lock_addr);
+  }
+  ASSERT_ND(async_ret.block_index_);
+  lock_entry->mcs_block_ = async_ret.block_index_;
+  if (async_ret.acquired_) {
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+  }
+  ASSERT_ND(lock_entry->mcs_block_);
+}
+
+bool CurrentLockList::retry_async_single_lock(
+  thread::Thread* context,
+  LockListPosition pos) {
+  LockEntry* lock_entry = get_entry(pos);
+  // Must be not taken yet, and must have pushed a qnode to the lock queue
+  ASSERT_ND(!lock_entry->is_enough());
+  ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+  ASSERT_ND(lock_entry->mcs_block_);
+  ASSERT_ND(!lock_entry->is_locked());
+
+  auto* lock_addr = lock_entry->lock_->get_key_lock();
+  bool acquired = false;
+  if (lock_entry->preferred_mode_ == kWriteLock) {
+    acquired = context->mcs_retry_async_rw_writer(lock_addr, lock_entry->mcs_block_);
+  } else {
+    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+    acquired = context->mcs_retry_async_rw_reader(lock_addr, lock_entry->mcs_block_);
+  }
+  if (acquired) {
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+    ASSERT_ND(lock_entry->is_locked());
+  }
+  return acquired;
+}
+
+void CurrentLockList::cancel_async_single_lock_impl(
+  thread::Thread* context,
+  LockListPosition pos) {
+  LockEntry* lock_entry = get_entry(pos);
+  ASSERT_ND(!lock_entry->is_enough());
+  ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+  ASSERT_ND(lock_entry->mcs_block_);
+  auto* lock_addr = lock_entry->lock_->get_key_lock();
+  if (lock_entry->preferred_mode_ == kReadLock) {
+    context->mcs_cancel_async_rw_reader(lock_addr, lock_entry->mcs_block_);
+  } else {
+    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+    context->mcs_cancel_async_rw_writer(lock_addr, lock_entry->mcs_block_);
+  }
+  lock_entry->mcs_block_ = 0;
 }
 
 ErrorCode CurrentLockList::try_or_acquire_single_lock(
@@ -508,6 +612,12 @@ ErrorCode CurrentLockList::try_or_acquire_single_lock(
   LockListPosition pos) {
   LockListPosition last_locked_pos = get_last_locked_entry();
   return try_or_acquire_single_lock_impl(context, pos, &last_locked_pos);
+}
+
+void CurrentLockList::cancel_async_single_lock(
+  thread::Thread* context,
+  LockListPosition pos) {
+  cancel_async_single_lock_impl(context, pos);
 }
 
 ErrorCode CurrentLockList::try_or_acquire_multiple_locks(
@@ -521,6 +631,16 @@ ErrorCode CurrentLockList::try_or_acquire_multiple_locks(
     CHECK_ERROR_CODE(try_or_acquire_single_lock_impl(context, pos, &last_locked_pos));
   }
   return kErrorCodeOk;
+}
+
+void CurrentLockList::try_async_multiple_locks(
+  thread::Thread* context,
+  LockListPosition upto_pos) {
+  ASSERT_ND(upto_pos != kLockListPositionInvalid);
+  ASSERT_ND(upto_pos <= last_active_entry_);
+  for (LockListPosition pos = 1U; pos <= upto_pos; ++pos) {
+    try_async_single_lock(context, pos);
+  }
 }
 
 }  // namespace xct

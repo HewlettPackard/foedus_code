@@ -50,60 +50,60 @@ TEST(RllTest, CllAddSearch) {
     dummy_locks[i] = &lock_objects[i];
   }
 
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[5]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[5]));
 
   // Add 3 -> [3]
-  EXPECT_EQ(1U, list.get_or_add_entry(dummy_locks[3], kReadLock));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[5]));
+  EXPECT_EQ(1U, list.get_or_add_entry(NULL, dummy_locks[3], kReadLock));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(1U, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[5]));
   EXPECT_EQ(1U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
   // Add 5 -> [3, 5]
-  EXPECT_EQ(2U, list.get_or_add_entry(dummy_locks[5], kReadLock));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(2U, list.binary_search(dummy_locks[5]));
+  EXPECT_EQ(2U, list.get_or_add_entry(NULL, dummy_locks[5], kReadLock));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(1U, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(2U, list.binary_search(NULL, dummy_locks[5]));
   EXPECT_EQ(2U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
   // Add 2 -> [2, 3, 5]
-  EXPECT_EQ(1U, list.get_or_add_entry(dummy_locks[2], kReadLock));
-  EXPECT_EQ(1U, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(2U, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(3U, list.binary_search(dummy_locks[5]));
+  EXPECT_EQ(1U, list.get_or_add_entry(NULL, dummy_locks[2], kReadLock));
+  EXPECT_EQ(1U, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(2U, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(3U, list.binary_search(NULL, dummy_locks[5]));
   EXPECT_EQ(3U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
   // Add 3 (ignored) -> [2, 3, 5]
-  EXPECT_EQ(2U, list.get_or_add_entry(dummy_locks[3], kReadLock));
-  EXPECT_EQ(1U, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(2U, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(3U, list.binary_search(dummy_locks[5]));
+  EXPECT_EQ(2U, list.get_or_add_entry(NULL, dummy_locks[3], kReadLock));
+  EXPECT_EQ(1U, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(2U, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(3U, list.binary_search(NULL, dummy_locks[5]));
   EXPECT_EQ(3U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
-  EXPECT_EQ(1U, list.lower_bound(dummy_locks[1]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[1]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_locks[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_locks[3]));
-  EXPECT_EQ(2U, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_locks[4]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[4]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_locks[5]));
-  EXPECT_EQ(3U, list.binary_search(dummy_locks[5]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_locks[6]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[6]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_locks[7]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[7]));
+  EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[1]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[1]));
+  EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[2]));
+  EXPECT_EQ(1U, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(2U, list.lower_bound(NULL, dummy_locks[3]));
+  EXPECT_EQ(2U, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(3U, list.lower_bound(NULL, dummy_locks[4]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[4]));
+  EXPECT_EQ(3U, list.lower_bound(NULL, dummy_locks[5]));
+  EXPECT_EQ(3U, list.binary_search(NULL, dummy_locks[5]));
+  EXPECT_EQ(4U, list.lower_bound(NULL, dummy_locks[6]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[6]));
+  EXPECT_EQ(4U, list.lower_bound(NULL, dummy_locks[7]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[7]));
 }
 
 TEST(RllTest, CllBatchInsertFromEmpty) {
@@ -136,27 +136,27 @@ TEST(RllTest, CllBatchInsertFromEmpty) {
   list.batch_insert_write_placeholders(write_set, kWriteSetSize);
   EXPECT_EQ(3U, list.get_last_active_entry());
 
-  EXPECT_EQ(1U, list.lower_bound(dummy_locks[1]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[1]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_locks[2]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_locks[3]));
-  EXPECT_EQ(1U, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_locks[4]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[4]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_locks[5]));
-  EXPECT_EQ(2U, list.binary_search(dummy_locks[5]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_locks[6]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[6]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_locks[8]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[8]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_locks[9]));
-  EXPECT_EQ(3U, list.binary_search(dummy_locks[9]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_locks[10]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[10]));
+  EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[1]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[1]));
+  EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[2]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[3]));
+  EXPECT_EQ(1U, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(2U, list.lower_bound(NULL, dummy_locks[4]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[4]));
+  EXPECT_EQ(2U, list.lower_bound(NULL, dummy_locks[5]));
+  EXPECT_EQ(2U, list.binary_search(NULL, dummy_locks[5]));
+  EXPECT_EQ(3U, list.lower_bound(NULL, dummy_locks[6]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[6]));
+  EXPECT_EQ(3U, list.lower_bound(NULL, dummy_locks[8]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[8]));
+  EXPECT_EQ(3U, list.lower_bound(NULL, dummy_locks[9]));
+  EXPECT_EQ(3U, list.binary_search(NULL, dummy_locks[9]));
+  EXPECT_EQ(4U, list.lower_bound(NULL, dummy_locks[10]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[10]));
 
   // Also test CurrentLockListIteratorForWriteSet
-  CurrentLockListIteratorForWriteSet it(write_set, &list, kWriteSetSize);
+  CurrentLockListIteratorForWriteSet it(NULL, write_set, &list, kWriteSetSize);
   // 3
   EXPECT_TRUE(it.is_valid());
   EXPECT_EQ(1U, it.cll_pos_);
@@ -164,21 +164,21 @@ TEST(RllTest, CllBatchInsertFromEmpty) {
   EXPECT_EQ(1U, it.write_next_pos_);
 
   // 5,5
-  it.next_writes();
+  it.next_writes(NULL);
   EXPECT_TRUE(it.is_valid());
   EXPECT_EQ(2U, it.cll_pos_);
   EXPECT_EQ(1U, it.write_cur_pos_);
   EXPECT_EQ(3U, it.write_next_pos_);
 
   // 9
-  it.next_writes();
+  it.next_writes(NULL);
   EXPECT_TRUE(it.is_valid());
   EXPECT_EQ(3U, it.cll_pos_);
   EXPECT_EQ(3U, it.write_cur_pos_);
   EXPECT_EQ(4U, it.write_next_pos_);
 
   // Done
-  it.next_writes();
+  it.next_writes(NULL);
   EXPECT_FALSE(it.is_valid());
   EXPECT_EQ(4U, it.cll_pos_);
   EXPECT_EQ(4U, it.write_cur_pos_);
@@ -201,9 +201,9 @@ TEST(RllTest, CllBatchInsertMerge) {
   }
 
   // Populate with [2, 6, 9]
-  list.get_or_add_entry(dummy_locks[2], kReadLock);
-  list.get_or_add_entry(dummy_locks[6], kReadLock);
-  list.get_or_add_entry(dummy_locks[9], kReadLock);
+  list.get_or_add_entry(NULL, dummy_locks[2], kReadLock);
+  list.get_or_add_entry(NULL, dummy_locks[6], kReadLock);
+  list.get_or_add_entry(NULL, dummy_locks[9], kReadLock);
 
   const uint32_t kWriteSetSize = 4;
   WriteXctAccess write_set[kWriteSetSize];
@@ -221,29 +221,29 @@ TEST(RllTest, CllBatchInsertMerge) {
   // Now it should be [2, 3, 5, 6, 9]
   EXPECT_EQ(5U, list.get_last_active_entry());
 
-  EXPECT_EQ(1U, list.lower_bound(dummy_locks[1]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[1]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_locks[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_locks[2]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_locks[3]));
-  EXPECT_EQ(2U, list.binary_search(dummy_locks[3]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_locks[4]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[4]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_locks[5]));
-  EXPECT_EQ(3U, list.binary_search(dummy_locks[5]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_locks[6]));
-  EXPECT_EQ(4U, list.binary_search(dummy_locks[6]));
-  EXPECT_EQ(5U, list.lower_bound(dummy_locks[7]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[7]));
-  EXPECT_EQ(5U, list.lower_bound(dummy_locks[8]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[8]));
-  EXPECT_EQ(5U, list.lower_bound(dummy_locks[9]));
-  EXPECT_EQ(5U, list.binary_search(dummy_locks[9]));
-  EXPECT_EQ(6U, list.lower_bound(dummy_locks[10]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_locks[10]));
+  EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[1]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[1]));
+  EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[2]));
+  EXPECT_EQ(1U, list.binary_search(NULL, dummy_locks[2]));
+  EXPECT_EQ(2U, list.lower_bound(NULL, dummy_locks[3]));
+  EXPECT_EQ(2U, list.binary_search(NULL, dummy_locks[3]));
+  EXPECT_EQ(3U, list.lower_bound(NULL, dummy_locks[4]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[4]));
+  EXPECT_EQ(3U, list.lower_bound(NULL, dummy_locks[5]));
+  EXPECT_EQ(3U, list.binary_search(NULL, dummy_locks[5]));
+  EXPECT_EQ(4U, list.lower_bound(NULL, dummy_locks[6]));
+  EXPECT_EQ(4U, list.binary_search(NULL, dummy_locks[6]));
+  EXPECT_EQ(5U, list.lower_bound(NULL, dummy_locks[7]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[7]));
+  EXPECT_EQ(5U, list.lower_bound(NULL, dummy_locks[8]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[8]));
+  EXPECT_EQ(5U, list.lower_bound(NULL, dummy_locks[9]));
+  EXPECT_EQ(5U, list.binary_search(NULL, dummy_locks[9]));
+  EXPECT_EQ(6U, list.lower_bound(NULL, dummy_locks[10]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(NULL, dummy_locks[10]));
 
   // Also test CurrentLockListIteratorForWriteSet
-  CurrentLockListIteratorForWriteSet it(write_set, &list, kWriteSetSize);
+  CurrentLockListIteratorForWriteSet it(NULL, write_set, &list, kWriteSetSize);
   // 3 (skips "2")
   EXPECT_TRUE(it.is_valid());
   EXPECT_EQ(2U, it.cll_pos_);
@@ -251,21 +251,21 @@ TEST(RllTest, CllBatchInsertMerge) {
   EXPECT_EQ(1U, it.write_next_pos_);
 
   // 5,5
-  it.next_writes();
+  it.next_writes(NULL);
   EXPECT_TRUE(it.is_valid());
   EXPECT_EQ(3U, it.cll_pos_);
   EXPECT_EQ(1U, it.write_cur_pos_);
   EXPECT_EQ(3U, it.write_next_pos_);
 
   // 9 (skips "6")
-  it.next_writes();
+  it.next_writes(NULL);
   EXPECT_TRUE(it.is_valid());
   EXPECT_EQ(5U, it.cll_pos_);
   EXPECT_EQ(3U, it.write_cur_pos_);
   EXPECT_EQ(4U, it.write_next_pos_);
 
   // Done
-  it.next_writes();
+  it.next_writes(NULL);
   EXPECT_FALSE(it.is_valid());
   EXPECT_EQ(6U, it.cll_pos_);
   EXPECT_EQ(4U, it.write_cur_pos_);

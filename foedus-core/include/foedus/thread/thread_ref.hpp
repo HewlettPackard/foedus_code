@@ -28,6 +28,7 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
+#include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace thread {
@@ -66,7 +67,7 @@ class ThreadRef CXX11_FINAL {
   // overload to be template-friendly
   void get_mcs_rw_blocks(xct::McsRwSimpleBlock** out) const { *out = mcs_rw_simple_blocks_; }
   void get_mcs_rw_blocks(xct::McsRwExtendedBlock** out) const { *out = mcs_rw_extended_blocks_; }
-  xct::McsRwAsyncMapping* get_mcs_rw_async_mapping(xct::McsRwLock* lock);
+  xct::McsRwAsyncMapping* get_mcs_rw_async_mapping(xct::UniversalLockId lock_id);
   ThreadControlBlock* get_control_block() const { return control_block_; }
 
   /** @see foedus::xct::InCommitEpochGuard  */

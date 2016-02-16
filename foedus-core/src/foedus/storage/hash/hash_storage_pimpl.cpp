@@ -1262,7 +1262,8 @@ ErrorCode HashStoragePimpl::migrate_record(
   PageVersionLockScope cur_page_scope(context, &cur_page->header().page_version_);
   // However, the record lock might be risking deadlock. We thus release in-flight locks first.
   // After here, cur_page will not have a new entry.
-  context->mcs_release_all_current_locks_at_and_after(xct::to_universal_lock_id(&cur_slot->tid_));
+  context->mcs_release_all_current_locks_at_and_after(
+    xct::to_universal_lock_id(context, &cur_slot->tid_));
   xct::McsRwLockScope cur_record_scope(context, &cur_slot->tid_, false, true, false);
   // cur_slot's status is now finalized.
   if (cur_slot->tid_.is_moved()) {

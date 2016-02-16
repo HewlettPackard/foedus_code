@@ -146,12 +146,14 @@ Epoch ThreadGroupRef::get_min_in_commit_epoch() const {
   return ret;
 }
 
-xct::McsRwAsyncMapping* ThreadRef::get_mcs_rw_async_mapping(xct::McsRwLock* lock) {
-  for (uint32_t i = 0; i < control_block_->mcs_rw_async_mapping_current_; ++i) {
-    if (mcs_rw_async_mappings_[i].lock_ == lock) {
+xct::McsRwAsyncMapping* ThreadRef::get_mcs_rw_async_mapping(xct::UniversalLockId lock_id) {
+  uint32_t nmappings = control_block_->mcs_rw_async_mapping_current_;
+  for (uint32_t i = 0; i < nmappings; ++i) {
+    if (mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
       return mcs_rw_async_mappings_ + i;
     }
   }
+  ASSERT_ND(false);
   return nullptr;
 }
 

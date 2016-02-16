@@ -228,14 +228,14 @@ ErrorCode Xct::add_to_read_set(
   // However, we might want to do this _before_ observing XctId. Otherwise there is a
   // chance of aborts even with the lock. But then more code changes. Later, later...
 
-  const UniversalLockId lock_id = to_universal_lock_id(owner_id_address);
+  const UniversalLockId lock_id = to_universal_lock_id(context, owner_id_address);
   LockListPosition rll_pos = kLockListPositionInvalid;
   bool lets_take_lock = false;
   if (!retrospective_lock_list_.is_empty()) {
     // RLL is set, which means the previous run aborted for race.
     // binary-search for each read-set is not cheap, but in this case better than aborts.
     // So, let's see if we should take the lock.
-    rll_pos = retrospective_lock_list_.binary_search(owner_id_address);
+    rll_pos = retrospective_lock_list_.binary_search(context, owner_id_address);
     if (rll_pos != kLockListPositionInvalid) {
       ASSERT_ND(retrospective_lock_list_.get_array()[rll_pos].universal_lock_id_ == lock_id);
       DVLOG(1) << "RLL recommends to take lock on this record!";
@@ -249,7 +249,8 @@ ErrorCode Xct::add_to_read_set(
 
   if (lets_take_lock) {
     LockMode mode = read_only ? kReadLock : kWriteLock;
-    LockListPosition cll_pos = current_lock_list_.get_or_add_entry(owner_id_address, mode);
+    LockListPosition cll_pos =
+      current_lock_list_.get_or_add_entry(context, owner_id_address, mode);
     LockEntry* cll_entry = current_lock_list_.get_entry(cll_pos);
     if (cll_entry->is_enough()) {
       return kErrorCodeOk;  // already taken!

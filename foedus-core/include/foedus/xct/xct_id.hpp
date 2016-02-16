@@ -115,19 +115,27 @@ enum LockMode {
  * @ingroup XCT
  * @details
  * This must follow a universally consistent order even across processes.
- * So far we just use virtual addresses, assuming that virtual addresses in each process
- * will follow the same order. In some case, it might be different!
  *
- * In future, we will put a bit more logic in the conversion functions below to address that.
- * Low priority as it's very rare, tho.
+ * Currently we assume all locks come from volatile pages. The bits are used as:
+ * |--63--48--|--47---0--|
+ * |--NodeId--|--Offset--|
+ *
+ * NodeId: ID of the NUMA node where this lock is allocated.
+ * Offset: the lock VA's offset based off of its owner node's virtual pool's start VA.
+ *
  * We attach the same shmem in fresh new processes in the same order
  * and in the same machine.. most likely we get the same VA-mapping.
  * // ASLR? Turn it off. I don't care security.
+ *
+ * So far a unitptr_t, revisit later if we need a struct over a uint64_t. Now we
+ * just compare the whole uintptr, which might cause some socket's data are always
+ * later; ideally, we can compare only the offset part. Revisit later.
  */
 typedef uintptr_t UniversalLockId;
 
 /** This never points to a valid lock, and also evaluates less than any vaild alocks */
 const UniversalLockId kNullUniversalLockId = 0;
+const uintptr_t kUniversalLockIdOffsetMask = 0xFFFFFFFFFFFFU;
 
 /**
  * @brief Index in a lock-list, either RLL or CLL.
@@ -832,12 +840,13 @@ struct McsRwLock {
 };
 
 struct McsRwAsyncMapping {
-  McsRwLock* lock_;
+  UniversalLockId lock_id_;
   McsBlockIndex block_index_;
-  char padding_[16 - sizeof(McsBlockIndex) - sizeof(McsRwLock*)];
+  char padding_[16 - sizeof(McsBlockIndex) - sizeof(UniversalLockId)];
 
-  McsRwAsyncMapping(McsRwLock* lock, McsBlockIndex block) : lock_(lock), block_index_(block) {}
-  McsRwAsyncMapping() : lock_(nullptr), block_index_(0) {}
+  McsRwAsyncMapping(UniversalLockId lock_id, McsBlockIndex block) :
+    lock_id_(lock_id), block_index_(block) {}
+  McsRwAsyncMapping() : lock_id_(kNullUniversalLockId), block_index_(0) {}
 };
 
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
@@ -1271,24 +1280,16 @@ inline XctId XctId::spin_while_being_written() const {
 
 /**
  * Always use this method rather than doing the conversion yourself.
- * We might change the conversion logic later!
  * @see UniversalLockId
  */
-inline UniversalLockId to_universal_lock_id(const RwLockableXctId* lock) {
-  return reinterpret_cast<uintptr_t>(lock);
-}
+UniversalLockId to_universal_lock_id(Engine* engine, const RwLockableXctId* lock);
+UniversalLockId to_universal_lock_id(thread::Thread* context, const RwLockableXctId* lock);
 
 /**
  * Always use this method rather than doing the conversion yourself.
- * We might change the conversion logic later!
  * @see UniversalLockId
  */
-inline RwLockableXctId* from_universal_lock_id(
-  Engine* engine,
-  UniversalLockId universal_lock_id) {
-  ASSERT_ND(engine);  // This will be required when we switch to a more accurate conversion
-  return reinterpret_cast<RwLockableXctId*>(reinterpret_cast<void*>(universal_lock_id));
-}
+RwLockableXctId* from_universal_lock_id(Engine* engine, UniversalLockId universal_lock_id);
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
