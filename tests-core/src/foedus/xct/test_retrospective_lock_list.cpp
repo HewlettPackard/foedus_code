@@ -133,7 +133,7 @@ TEST(RllTest, CllBatchInsertFromEmpty) {
   write_set[3].owner_id_address_ = dummy_locks[5];
   std::sort(write_set, write_set + kWriteSetSize, WriteXctAccess::compare);
 
-  list.batch_insert_write_placeholders(write_set, kWriteSetSize);
+  list.batch_insert_write_placeholders(write_set, kWriteSetSize, NULL);
   EXPECT_EQ(3U, list.get_last_active_entry());
 
   EXPECT_EQ(1U, list.lower_bound(NULL, dummy_locks[1]));
@@ -217,7 +217,7 @@ TEST(RllTest, CllBatchInsertMerge) {
   write_set[3].owner_id_address_ = dummy_locks[5];
   std::sort(write_set, write_set + kWriteSetSize, WriteXctAccess::compare);
 
-  list.batch_insert_write_placeholders(write_set, kWriteSetSize);
+  list.batch_insert_write_placeholders(write_set, kWriteSetSize, NULL);
   // Now it should be [2, 3, 5, 6, 9]
   EXPECT_EQ(5U, list.get_last_active_entry());
 

@@ -1285,6 +1285,11 @@ inline XctId XctId::spin_while_being_written() const {
 UniversalLockId to_universal_lock_id(Engine* engine, const RwLockableXctId* lock);
 UniversalLockId to_universal_lock_id(thread::Thread* context, const RwLockableXctId* lock);
 
+/** Assuming RwLock is the first field of RwLockableXctId */
+inline UniversalLockId to_universal_lock_id(Engine* engine, const McsRwLock* lock) {
+  return to_universal_lock_id(engine, reinterpret_cast<const RwLockableXctId*>(lock));
+}
+
 /**
  * Always use this method rather than doing the conversion yourself.
  * @see UniversalLockId
