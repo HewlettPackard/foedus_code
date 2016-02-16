@@ -130,6 +130,18 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
   bool        force_canonical_xlocks_in_precommit_;
 
   /**
+   * @brief Whether to use the parallel-async locking interface.
+   * @details
+   * This is an indirect way of avoiding deadlocks.
+   * When this is on, when locking records pre-commit will send out lock requests for all records
+   * then come back to check which are granted until all are granted within the number of tries
+   * specified by parallel_lock_retries_. The transaction will abort if it can't get all locks granted
+   * to resovle potential deadlocks.
+   */
+  bool        parallel_lock_;
+  uint32_t    parallel_lock_retries_;
+
+  /**
    * @brief Defines which implementation of MCS locks to use for RW locks.
    * @details
    * So far we allow "kMcsImplementationTypeSimple" and "kMcsImplementationTypeExtended".
