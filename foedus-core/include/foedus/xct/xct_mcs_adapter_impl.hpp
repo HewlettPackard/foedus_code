@@ -128,7 +128,7 @@ struct McsMockThread {
     mcs_waiting_ = false;
   }
   xct::McsBlockIndex get_mcs_rw_async_block_index(xct::McsRwLock* lock) {
-    auto ulockid = xct::to_universal_lock_id(NULL, lock);
+    auto ulockid = xct::to_universal_lock_id_va(lock);
     for (auto &m : mcs_rw_async_mappings_) {
       if (m.lock_id_ == ulockid) {
         return m.block_index_;
@@ -255,7 +255,7 @@ class McsMockAdaptor {
   void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
     ASSERT_ND(lock);
     ASSERT_ND(block_index);
-    auto ulockid = xct::to_universal_lock_id(NULL, lock);
+    auto ulockid = xct::to_universal_lock_id_va(lock);
 #ifndef NDEBUG
     for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
       if (me_->mcs_rw_async_mappings_[i].lock_id_ == ulockid) {
@@ -271,7 +271,7 @@ class McsMockAdaptor {
   }
   void remove_rw_async_mapping(xct::McsRwLock* lock) {
     ASSERT_ND(me_->mcs_rw_async_mapping_current_);
-    auto lock_id = xct::to_universal_lock_id(NULL, lock);
+    auto lock_id = xct::to_universal_lock_id_va(lock);
     for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
       if (me_->mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
         me_->mcs_rw_async_mappings_[i].lock_id_ = kNullUniversalLockId;

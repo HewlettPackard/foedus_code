@@ -1282,19 +1282,47 @@ inline XctId XctId::spin_while_being_written() const {
  * Always use this method rather than doing the conversion yourself.
  * @see UniversalLockId
  */
-UniversalLockId to_universal_lock_id(Engine* engine, const RwLockableXctId* lock);
-UniversalLockId to_universal_lock_id(thread::Thread* context, const RwLockableXctId* lock);
+UniversalLockId to_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  uintptr_t lock_ptr);
 
-/** Assuming RwLock is the first field of RwLockableXctId */
-inline UniversalLockId to_universal_lock_id(Engine* engine, const McsRwLock* lock) {
-  return to_universal_lock_id(engine, reinterpret_cast<const RwLockableXctId*>(lock));
-}
+UniversalLockId xct_id_to_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  RwLockableXctId* lock);
+
+UniversalLockId rw_lock_to_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  McsRwLock* lock);
 
 /**
  * Always use this method rather than doing the conversion yourself.
  * @see UniversalLockId
  */
-RwLockableXctId* from_universal_lock_id(Engine* engine, UniversalLockId universal_lock_id);
+uintptr_t from_universal_lock_id_ptr(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const UniversalLockId universal_lock_id);
+
+inline RwLockableXctId* from_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const UniversalLockId universal_lock_id) {
+  uintptr_t lock_ptr = from_universal_lock_id_ptr(resolver, universal_lock_id);
+  return reinterpret_cast<RwLockableXctId*>(lock_ptr);
+}
+
+/** For locks that are not in pages only; e.g., some test cases. */
+inline UniversalLockId to_universal_lock_id_va(const uintptr_t lock_ptr) {
+  return reinterpret_cast<UniversalLockId>(lock_ptr);
+}
+inline UniversalLockId to_universal_lock_id_va(const McsRwLock* lock_ptr) {
+  return reinterpret_cast<UniversalLockId>(lock_ptr);
+}
+inline UniversalLockId to_universal_lock_id_va(const RwLockableXctId* lock_ptr) {
+  return reinterpret_cast<UniversalLockId>(lock_ptr);
+}
+inline RwLockableXctId* from_universal_id_va(const UniversalLockId universal_lock_id) {
+  return reinterpret_cast<RwLockableXctId*>(universal_lock_id);
+}
+
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))

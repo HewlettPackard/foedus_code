@@ -25,6 +25,7 @@
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/error_code.hpp"
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -189,7 +190,11 @@ class RetrospectiveLockList {
   RetrospectiveLockList();
   ~RetrospectiveLockList();
 
-  void init(LockEntry* array, uint32_t capacity);
+  void init(
+    LockEntry* array,
+    uint32_t capacity,
+    const memory::GlobalVolatilePageResolver& resolver);
+  void xct_init(LockEntry* array, uint32_t capacity);
   void uninit();
   void clear_entries();
 
@@ -197,7 +202,7 @@ class RetrospectiveLockList {
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(thread::Thread* context, RwLockableXctId* lock) const;
+  LockListPosition binary_search(RwLockableXctId* lock) const;
 
   /**
    * Analogous to std::lower_bound() for the given lock.
@@ -205,7 +210,7 @@ class RetrospectiveLockList {
    * If no such entry, last_active_entry_ + 1U, whether last_active_entry_ is 0 or not.
    * Thus the return value is always >0. This is to immitate std::lower_bound's behavior.
    */
-  LockListPosition lower_bound(thread::Thread* context, RwLockableXctId* lock) const;
+  LockListPosition lower_bound(RwLockableXctId* lock) const;
 
   /**
    * @brief Fill out this retrospetive lock list for the next run of the given transaction.
@@ -249,6 +254,9 @@ class RetrospectiveLockList {
   LockEntry* end() { return array_ + 1U + last_active_entry_; }
   const LockEntry* cbegin() const { return array_ + 1U; }
   const LockEntry* cend() const { return array_ + 1U + last_active_entry_; }
+  const memory::GlobalVolatilePageResolver& get_volatile_page_resolver() const {
+    return volatile_page_resolver_;
+  }
 
  private:
   /**
@@ -259,6 +267,10 @@ class RetrospectiveLockList {
    * we merge it to one entry of write-lock.
    */
   LockEntry* array_;
+  /**
+   * Volatile page resolver for converting between lock ptr and UniversalLockId.
+   */
+  memory::GlobalVolatilePageResolver volatile_page_resolver_;
   /**
    * Capacity of the array_. Max count of LockEntry, \e NOT bytes.
    * Note that index-0 is a dummy entry, so capacity_ must be #-of-active-entries + 1.
@@ -298,7 +310,11 @@ class CurrentLockList {
   CurrentLockList();
   ~CurrentLockList();
 
-  void init(LockEntry* array, uint32_t capacity);
+  void init(
+    LockEntry* array,
+    uint32_t capacity,
+    const memory::GlobalVolatilePageResolver& resolver);
+  void xct_init(LockEntry* array, uint32_t capacity);
   void uninit();
   void clear_entries();
 
@@ -306,7 +322,7 @@ class CurrentLockList {
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(thread::Thread* context, RwLockableXctId* lock) const;
+  LockListPosition binary_search(RwLockableXctId* lock) const;
 
   /**
    * Adds an entry to this list, re-sorting part of the list if necessary to keep the sortedness.
@@ -318,8 +334,7 @@ class CurrentLockList {
    * This method is used when we couldn't batch/expect the new entry.
    * @see batch_insert_write_placeholders()
    */
-  LockListPosition get_or_add_entry(
-    thread::Thread* context, RwLockableXctId* lock, LockMode preferred_mode);
+  LockListPosition get_or_add_entry(RwLockableXctId* lock, LockMode preferred_mode);
 
   /**
    * Analogous to std::lower_bound() for the given lock.
@@ -327,7 +342,7 @@ class CurrentLockList {
    * If no such entry, last_active_entry_ + 1U, whether last_active_entry_ is 0 or not.
    * Thus the return value is always >0. This is to immitate std::lower_bound's behavior.
    */
-  LockListPosition lower_bound(thread::Thread* context, RwLockableXctId* lock) const;
+  LockListPosition lower_bound(RwLockableXctId* lock) const;
 
   const LockEntry* get_array() const { return array_; }
   LockEntry* get_array() { return array_; }
@@ -354,6 +369,9 @@ class CurrentLockList {
   LockEntry* end() { return array_ + 1U + last_active_entry_; }
   const LockEntry* cbegin() const { return array_ + 1U; }
   const LockEntry* cend() const { return array_ + 1U + last_active_entry_; }
+  const memory::GlobalVolatilePageResolver& get_volatile_page_resolver() const {
+    return volatile_page_resolver_;
+  }
 
   /**
    * @returns largest index of entries that are already locked.
@@ -379,11 +397,7 @@ class CurrentLockList {
    * Rather than doing it one by one, this method creates placeholder entries for all of them.
    * The placeholders are not locked yet (taken_mode_ == kNoLock).
    */
-  void batch_insert_write_placeholders(
-    const WriteXctAccess* write_set,
-    uint32_t write_set_size,
-    thread::Thread* context,
-    bool try_async_lock = false);
+  void batch_insert_write_placeholders(const WriteXctAccess* write_set, uint32_t write_set_size);
 
   /**
    * Another batch-insert method used at the beginning of a transaction.
@@ -447,6 +461,10 @@ class CurrentLockList {
    * Entries are distinct.
    */
   LockEntry* array_;
+  /**
+   * Volatile page resolver for converting between lock ptr and UniversalLockId.
+   */
+  memory::GlobalVolatilePageResolver volatile_page_resolver_;
   /**
    * Capacity of the array_. Max count of RetrospectiveLock, \e NOT bytes.
    * Note that index-0 is a dummy entry, so capacity_ must be #-of-active-entries + 1.

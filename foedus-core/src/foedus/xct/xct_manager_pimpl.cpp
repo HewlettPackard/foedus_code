@@ -47,6 +47,7 @@
 #include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_access.hpp"
+#include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_manager.hpp"
 #include "foedus/xct/xct_options.hpp"
 
@@ -568,8 +569,7 @@ moved_retry:
   // }
 
   // Create entries in CLL for all write sets. At this point they are not locked yet.
-  // Send out lock requests if parallel_lock is enabled.
-  cll->batch_insert_write_placeholders(write_set, write_set_size, context, true);
+  cll->batch_insert_write_placeholders(write_set, write_set_size);
 
   ASSERT_ND(current_xct.assert_related_read_write());
   // Note: one alterantive is to sequentailly iterate over write-set and CLL,
@@ -580,9 +580,9 @@ moved_retry:
   uint32_t async_lock_tries = 0;
 async_lock_retry:
   bool all_locked = true;
-  for (CurrentLockListIteratorForWriteSet it(context, write_set, cll, write_set_size);
+  for (CurrentLockListIteratorForWriteSet it(write_set, cll, write_set_size);
         it.is_valid();
-        it.next_writes(context)) {
+        it.next_writes()) {
     // for multiple writes on one record, only the first one (write_cur_pos_) takes the lock
     WriteXctAccess* entry = write_set + it.write_cur_pos_;
 
@@ -591,15 +591,28 @@ async_lock_retry:
     LockEntry* lock_entry = cll->get_array() + lock_pos;
     ASSERT_ND(lock_entry->lock_ == entry->owner_id_address_);
     ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
-    ASSERT_ND(lock_entry->mcs_block_);
     if (lock_entry->taken_mode_ == kWriteLock) {
       DVLOG(2) << "Yay, already taken. Probably Thanks to RLL or try succeeded directly?";
-    } else if (cll->retry_async_single_lock(context, lock_pos)) {
-      ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
-      ASSERT_ND(lock_entry->is_locked());
     } else {
-      all_locked = false;
-      continue;
+      if (lock_entry->mcs_block_ == 0) {
+        ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+        ASSERT_ND(!lock_entry->is_locked());
+        // Send out lock requests
+        cll->try_async_single_lock(context, lock_pos);
+        ASSERT_ND(lock_entry->mcs_block_);
+      }
+      ASSERT_ND(lock_entry->mcs_block_);
+      if (lock_entry->taken_mode_ != kWriteLock) {
+        if (!cll->retry_async_single_lock(context, lock_pos)) {
+          all_locked = false;
+        } else {
+          ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
+          ASSERT_ND(lock_entry->is_locked());
+        }
+      } else {
+        ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
+        ASSERT_ND(lock_entry->is_locked());
+      }
     }
 
     if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
@@ -675,7 +688,7 @@ moved_retry:
   // }
 
   // Create entries in CLL for all write sets. At this point they are not locked yet.
-  cll->batch_insert_write_placeholders(write_set, write_set_size, context);
+  cll->batch_insert_write_placeholders(write_set, write_set_size);
 
   ASSERT_ND(current_xct.assert_related_read_write());
   // Note: one alterantive is to sequentailly iterate over write-set and CLL,
@@ -686,9 +699,9 @@ moved_retry:
   // This is way faster than invoking cll->binary_search() for each write-set entry.
   // Remember one thing, tho: write-set might have multiple entries for one record!
   LockListPosition last_locked_pos = cll->get_last_locked_entry();
-  for (CurrentLockListIteratorForWriteSet it(context, write_set, cll, write_set_size);
+  for (CurrentLockListIteratorForWriteSet it(write_set, cll, write_set_size);
         it.is_valid();
-        it.next_writes(context)) {
+        it.next_writes()) {
     // for multiple writes on one record, only the first one (write_cur_pos_) takes the lock
     WriteXctAccess* entry = write_set + it.write_cur_pos_;
 

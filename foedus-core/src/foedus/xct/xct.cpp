@@ -25,6 +25,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/savepoint/savepoint.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
@@ -92,10 +93,12 @@ void Xct::initialize(
 
   current_lock_list_.init(
     core_memory->get_current_lock_list_memory(),
-    core_memory->get_current_lock_list_capacity());
+    core_memory->get_current_lock_list_capacity(),
+    engine_->get_memory_manager()->get_global_volatile_page_resolver());
   retrospective_lock_list_.init(
     core_memory->get_retrospective_lock_list_memory(),
-    core_memory->get_retrospective_lock_list_capacity());
+    core_memory->get_retrospective_lock_list_capacity(),
+    engine_->get_memory_manager()->get_global_volatile_page_resolver());
 }
 
 void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
@@ -228,14 +231,15 @@ ErrorCode Xct::add_to_read_set(
   // However, we might want to do this _before_ observing XctId. Otherwise there is a
   // chance of aborts even with the lock. But then more code changes. Later, later...
 
-  const UniversalLockId lock_id = to_universal_lock_id(context, owner_id_address);
+  const UniversalLockId lock_id = xct_id_to_universal_lock_id(
+    current_lock_list_.get_volatile_page_resolver(), owner_id_address);
   LockListPosition rll_pos = kLockListPositionInvalid;
   bool lets_take_lock = false;
   if (!retrospective_lock_list_.is_empty()) {
     // RLL is set, which means the previous run aborted for race.
     // binary-search for each read-set is not cheap, but in this case better than aborts.
     // So, let's see if we should take the lock.
-    rll_pos = retrospective_lock_list_.binary_search(context, owner_id_address);
+    rll_pos = retrospective_lock_list_.binary_search(owner_id_address);
     if (rll_pos != kLockListPositionInvalid) {
       ASSERT_ND(retrospective_lock_list_.get_array()[rll_pos].universal_lock_id_ == lock_id);
       DVLOG(1) << "RLL recommends to take lock on this record!";
@@ -250,7 +254,7 @@ ErrorCode Xct::add_to_read_set(
   if (lets_take_lock) {
     LockMode mode = read_only ? kReadLock : kWriteLock;
     LockListPosition cll_pos =
-      current_lock_list_.get_or_add_entry(context, owner_id_address, mode);
+      current_lock_list_.get_or_add_entry(owner_id_address, mode);
     LockEntry* cll_entry = current_lock_list_.get_entry(cll_pos);
     if (cll_entry->is_enough()) {
       return kErrorCodeOk;  // already taken!

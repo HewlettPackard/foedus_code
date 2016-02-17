@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
@@ -42,9 +43,13 @@ RetrospectiveLockList::~RetrospectiveLockList() {
   uninit();
 }
 
-void RetrospectiveLockList::init(LockEntry* array, uint32_t capacity) {
+void RetrospectiveLockList::init(
+  LockEntry* array,
+  uint32_t capacity,
+  const memory::GlobalVolatilePageResolver& resolver) {
   array_ = array;
   capacity_ = capacity;
+  volatile_page_resolver_ = resolver;
   clear_entries();
 }
 
@@ -75,9 +80,13 @@ CurrentLockList::~CurrentLockList() {
   uninit();
 }
 
-void CurrentLockList::init(LockEntry* array, uint32_t capacity) {
+void CurrentLockList::init(
+  LockEntry* array,
+  uint32_t capacity,
+  const memory::GlobalVolatilePageResolver& resolver) {
   array_ = array;
   capacity_ = capacity;
+  volatile_page_resolver_ = resolver;
   clear_entries();
 }
 
@@ -170,8 +179,10 @@ void RetrospectiveLockList::assert_sorted_impl() const {
 ////////////////////////////////////////////////////////////
 template<typename LOCK_LIST>
 LockListPosition lock_lower_bound(
-  thread::Thread* context, const LOCK_LIST& list, RwLockableXctId* lock) {
-  const UniversalLockId id = to_universal_lock_id(context, lock);
+  const memory::GlobalVolatilePageResolver& resolver,
+  const LOCK_LIST& list,
+  RwLockableXctId* lock) {
+  const UniversalLockId id = xct_id_to_universal_lock_id(resolver, lock);
   LockListPosition last_active_entry = list.get_last_active_entry();
   if (last_active_entry == kLockListPositionInvalid) {
     return kLockListPositionInvalid + 1U;
@@ -204,10 +215,12 @@ LockListPosition lock_lower_bound(
 
 template<typename LOCK_LIST>
 LockListPosition lock_binary_search(
-  thread::Thread* context, const LOCK_LIST& list, RwLockableXctId* lock) {
-  const UniversalLockId id = to_universal_lock_id(context, lock);
+  const memory::GlobalVolatilePageResolver& resolver,
+  const LOCK_LIST& list,
+  RwLockableXctId* lock) {
+  const UniversalLockId id = xct_id_to_universal_lock_id(resolver, lock);
   LockListPosition last_active_entry = list.get_last_active_entry();
-  LockListPosition pos = lock_lower_bound<LOCK_LIST>(context, list, lock);
+  LockListPosition pos = lock_lower_bound<LOCK_LIST>(resolver, list, lock);
   if (pos != kLockListPositionInvalid && pos <= last_active_entry) {
     const LockEntry* array = list.get_array();
     if (array[pos].universal_lock_id_ == id) {
@@ -217,28 +230,24 @@ LockListPosition lock_binary_search(
   return kLockListPositionInvalid;
 }
 
-LockListPosition CurrentLockList::binary_search(
-  thread::Thread* context, RwLockableXctId* lock) const {
-  return lock_binary_search<CurrentLockList>(context, *this, lock);
+LockListPosition CurrentLockList::binary_search(RwLockableXctId* lock) const {
+  return lock_binary_search<CurrentLockList>(volatile_page_resolver_, *this, lock);
 }
-LockListPosition RetrospectiveLockList::binary_search(
-  thread::Thread* context, RwLockableXctId* lock) const {
-  return lock_binary_search<RetrospectiveLockList>(context, *this, lock);
+LockListPosition RetrospectiveLockList::binary_search(RwLockableXctId* lock) const {
+  return lock_binary_search<RetrospectiveLockList>(volatile_page_resolver_, *this, lock);
 }
-LockListPosition CurrentLockList::lower_bound(
-  thread::Thread* context, RwLockableXctId* lock) const {
-  return lock_lower_bound<CurrentLockList>(context, *this, lock);
+LockListPosition CurrentLockList::lower_bound(RwLockableXctId* lock) const {
+  return lock_lower_bound<CurrentLockList>(volatile_page_resolver_, *this, lock);
 }
-LockListPosition RetrospectiveLockList::lower_bound(
-  thread::Thread* context, RwLockableXctId* lock) const {
-  return lock_lower_bound<RetrospectiveLockList>(context, *this, lock);
+LockListPosition RetrospectiveLockList::lower_bound(RwLockableXctId* lock) const {
+  return lock_lower_bound<RetrospectiveLockList>(volatile_page_resolver_, *this, lock);
 }
 
 LockListPosition CurrentLockList::get_or_add_entry(
-  thread::Thread* context, RwLockableXctId* lock, LockMode preferred_mode) {
+  RwLockableXctId* lock, LockMode preferred_mode) {
   // Easy case? (lock >= the last entry)
-  const UniversalLockId id = to_universal_lock_id(context, lock);
-  LockListPosition insert_pos = lower_bound(context, lock);
+  const UniversalLockId id = xct_id_to_universal_lock_id(volatile_page_resolver_, lock);
+  LockListPosition insert_pos = lower_bound(lock);
   ASSERT_ND(insert_pos != kLockListPositionInvalid);
 
   // Larger than all existing entries? Append to the last!
@@ -296,7 +305,8 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
     }
 
     auto pos = issue_new_position();
-    array_[pos].set(to_universal_lock_id(context, lock), lock, kReadLock, kNoLock);
+    array_[pos].set(
+      xct_id_to_universal_lock_id(volatile_page_resolver_, lock), lock, kReadLock, kNoLock);
   }
   DVLOG(1) << "Added " << last_active_entry_ << " to RLL for read-locks";
 
@@ -304,7 +314,11 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
   for (uint32_t i = 0; i < write_set_size; ++i) {
     RwLockableXctId* lock = write_set[i].owner_id_address_;
     auto pos = issue_new_position();
-    array_[pos].set(to_universal_lock_id(context, lock), lock, kWriteLock, kNoLock);
+    array_[pos].set(
+      xct_id_to_universal_lock_id(volatile_page_resolver_, lock),
+      lock,
+      kWriteLock,
+      kNoLock);
   }
 
   // Now, the entries are not sorted and we might have duplicates.
@@ -340,9 +354,7 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
 
 void CurrentLockList::batch_insert_write_placeholders(
   const WriteXctAccess* write_set,
-  uint32_t write_set_size,
-  thread::Thread* context,
-  bool try_async_lock) {
+  uint32_t write_set_size) {
   // We want to avoid full-sorting and minimize the number of copies/shifts.
   // Luckily, write_set is already sorted, so is our array_. Just merge them in order.
   if (write_set_size == 0) {
@@ -368,44 +380,39 @@ void CurrentLockList::batch_insert_write_placeholders(
   //  3) insert all write-sets at the end then invoke std::sort once.
   // For now I picked 3) for simplicity. Revisit laster if CPU profile tells something.
   uint32_t write_pos = 0;
-  uint32_t last_active_entry = last_active_entry_;
-  for (LockListPosition pos = 1U; pos <= last_active_entry && write_pos < write_set_size;) {
-    LockListPosition lock_pos = kLockListPositionInvalid;
+  uint32_t added = 0;
+  for (LockListPosition pos = 1U; pos <= last_active_entry_ && write_pos < write_set_size;) {
     LockEntry* existing = array_ + pos;
     const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = to_universal_lock_id(context, write->owner_id_address_);
+    UniversalLockId write_lock_id = xct_id_to_universal_lock_id(
+      volatile_page_resolver_,
+      write->owner_id_address_);
     if (existing->universal_lock_id_ < write_lock_id) {
       ++pos;
-      continue;
     } else if (existing->universal_lock_id_ == write_lock_id) {
       if (existing->preferred_mode_ != kWriteLock) {
         existing->preferred_mode_ = kWriteLock;
-      }
-      if (existing->mcs_block_ == 0) {
-        lock_pos = pos;
       }
       ++write_pos;
     } else {
       // yuppy, new entry.
       ASSERT_ND(existing->universal_lock_id_ > write_lock_id);
-      lock_pos = ++last_active_entry_;
-      LockEntry* new_entry = array_ + lock_pos;
+      ++added;
+      LockEntry* new_entry = array_ + last_active_entry_ + added;
       new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
       // be careful on duplicate in write-set.
       // It might contain multiple writes to one record.
       for (++write_pos; write_pos < write_set_size; ++write_pos) {
         const WriteXctAccess* next_write = write_set + write_pos;
         UniversalLockId next_write_id =
-          to_universal_lock_id(context, next_write->owner_id_address_);
+          xct_id_to_universal_lock_id(
+            volatile_page_resolver_,
+            next_write->owner_id_address_);
         ASSERT_ND(next_write_id >= write_lock_id);
         if (next_write_id > write_lock_id) {
           break;
         }
       }
-    }
-    if (lock_pos != kLockListPositionInvalid && try_async_lock) {
-      try_async_single_lock(context, lock_pos);
-      ASSERT_ND(array_[lock_pos].mcs_block_);
     }
   }
 
@@ -413,20 +420,21 @@ void CurrentLockList::batch_insert_write_placeholders(
     // After iterating over all existing entries, still some write-set entry remains.
     // Hence they are all after the existing entries.
     const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = to_universal_lock_id(context, write->owner_id_address_);
+    UniversalLockId write_lock_id = xct_id_to_universal_lock_id(
+      volatile_page_resolver_, write->owner_id_address_);
     ASSERT_ND(last_active_entry_ == kLockListPositionInvalid
       || array_[last_active_entry_].universal_lock_id_ < write_lock_id);
 
-    LockListPosition lock_pos = ++last_active_entry_;
-    LockEntry* new_entry = array_ + lock_pos;
+    // Again, be careful on duplicate in write set
+    ASSERT_ND(last_active_entry_ + added == kLockListPositionInvalid
+      || array_[last_active_entry_ + added].universal_lock_id_ <= write_lock_id);
+    ++added;
+    LockEntry* new_entry = array_ + last_active_entry_ + added;
     new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
-    if (try_async_lock) {
-      try_async_single_lock(context, lock_pos);
-      ASSERT_ND(array_[lock_pos].mcs_block_);
-    }
     for (++write_pos; write_pos < write_set_size; ++write_pos) {
       const WriteXctAccess* next_write = write_set + write_pos;
-      UniversalLockId next_write_id = to_universal_lock_id(context, next_write->owner_id_address_);
+      UniversalLockId next_write_id = xct_id_to_universal_lock_id(
+        volatile_page_resolver_, next_write->owner_id_address_);
       ASSERT_ND(next_write_id >= write_lock_id);
       if (next_write_id > write_lock_id) {
         break;
@@ -434,13 +442,14 @@ void CurrentLockList::batch_insert_write_placeholders(
     }
   }
 
-  if (last_active_entry != last_active_entry_) {
+  if (added > 0) {
+    last_active_entry_ += added;
     std::sort(array_ + 1U, array_ + 1U + last_active_entry_);
   }
   assert_sorted();
 #ifndef NDEBUG
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(binary_search(context, write_set[i].owner_id_address_) != kLockListPositionInvalid);
+    ASSERT_ND(binary_search(write_set[i].owner_id_address_) != kLockListPositionInvalid);
   }
 #endif  // NDEBUG
 }

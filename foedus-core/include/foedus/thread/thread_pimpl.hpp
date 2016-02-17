@@ -465,8 +465,7 @@ class ThreadPimplMcsAdaptor {
     ASSERT_ND(id != get_my_id());
     ThreadRef other = pimpl_->get_thread_ref(id);
     assorted::memory_fence_acquire();
-    auto lock_id = xct::to_universal_lock_id(
-      pimpl_->engine_, reinterpret_cast<const xct::RwLockableXctId*>(lock));
+    auto lock_id = xct::rw_lock_to_universal_lock_id(pimpl_->global_volatile_page_resolver_, lock);
     auto* mapping = other.get_mcs_rw_async_mapping(lock_id);
     ASSERT_ND(mapping);
     ASSERT_ND(mapping->lock_id_ == lock_id);
@@ -479,15 +478,13 @@ class ThreadPimplMcsAdaptor {
     ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].lock_id_ == xct::kNullUniversalLockId);
     ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].block_index_ == 0);
     pimpl_->mcs_rw_async_mappings_[index].lock_id_ =
-      xct::to_universal_lock_id(
-        pimpl_->engine_, reinterpret_cast<const xct::RwLockableXctId*>(lock));
+      xct::rw_lock_to_universal_lock_id(pimpl_->global_volatile_page_resolver_, lock);
     pimpl_->mcs_rw_async_mappings_[index].block_index_ = block_index;
     ++pimpl_->control_block_->mcs_rw_async_mapping_current_;
   }
   void remove_rw_async_mapping(xct::McsRwLock* lock) {
     xct::UniversalLockId lock_id =
-      xct::to_universal_lock_id(
-        pimpl_->engine_, reinterpret_cast<const xct::RwLockableXctId*>(lock));
+      xct::rw_lock_to_universal_lock_id(pimpl_->global_volatile_page_resolver_, lock);
     ASSERT_ND(pimpl_->control_block_->mcs_rw_async_mapping_current_);
     for (uint32_t i = 0; i < pimpl_->control_block_->mcs_rw_async_mapping_current_; ++i) {
       if (pimpl_->mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
