@@ -54,7 +54,7 @@ RwLockableXctId* from_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
   UniversalLockId universal_lock_id) {
   uint16_t node = universal_lock_id >> 48;
-  uint64_t offset = universal_lock_id & kUniversalLockIdOffsetMask;
+  uint64_t offset = universal_lock_id & ((1ULL << 48) - 1ULL);
   uintptr_t base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
   return reinterpret_cast<RwLockableXctId*>(base + offset);
 }

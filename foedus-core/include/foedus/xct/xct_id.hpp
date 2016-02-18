@@ -135,8 +135,6 @@ typedef uintptr_t UniversalLockId;
 
 /** This never points to a valid lock, and also evaluates less than any vaild alocks */
 const UniversalLockId kNullUniversalLockId = 0;
-const uintptr_t kUniversalLockIdOffsetMask = 0xFFFFFFFFFFFFU;
-const uintptr_t kUniversalLockIdMsbFlag = 0x8000000000000000U;
 
 /**
  * @brief Index in a lock-list, either RLL or CLL.
