@@ -64,9 +64,12 @@ ErrorStack test_write_log(const proc::ProcArguments& args) {
 
   // hacky. just to make this transaction read-write.
   xct::RwLockableXctId dummy_record;
+  xct::RwLockableXctId* dummy_record_address =
+    reinterpret_cast<xct::RwLockableXctId*>(
+      reinterpret_cast<uintptr_t>(&dummy_record) | xct::kUniversalLockIdMsbFlag);
   context->get_current_xct().add_to_write_set(
     12345,
-    &dummy_record,
+    dummy_record_address,
     reinterpret_cast<char*>(&dummy_record),
     reinterpret_cast<RecordLogType*>(filler));
 
@@ -123,9 +126,12 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
   filler->populate(kBufferSize - 128);
 
   xct::RwLockableXctId dummy_record;
+  xct::RwLockableXctId* dummy_record_address =
+    reinterpret_cast<xct::RwLockableXctId*>(
+      reinterpret_cast<uintptr_t>(&dummy_record) | xct::kUniversalLockIdMsbFlag);
   context->get_current_xct().add_to_write_set(
     12345,
-    &dummy_record,
+    dummy_record_address,
     reinterpret_cast<char*>(&dummy_record),
     reinterpret_cast<RecordLogType*>(filler));
 
@@ -153,7 +159,7 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
   // hacky. just to make this transaction read-write.
   context->get_current_xct().add_to_write_set(
     12345,
-    &dummy_record,
+    dummy_record_address,
     reinterpret_cast<char*>(&dummy_record),
     reinterpret_cast<RecordLogType*>(filler));
   buffer.assert_consistent();

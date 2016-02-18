@@ -119,6 +119,7 @@ WriteXctAccess create_write_access(int i) {
   access.owner_id_address_ = reinterpret_cast<xct::RwLockableXctId*>(to_ptr(i * 14325));
   access.write_set_ordinal_ = 0;  // we should have a testcase to test this order
   access.log_entry_ = reinterpret_cast<log::RecordLogType*>(to_ptr(i * 5423423));
+  access.owner_lock_id_ = reinterpret_cast<UniversalLockId>(access.owner_id_address_);
   return access;
 }
 void verify_access(const WriteXctAccess &access, int i) {

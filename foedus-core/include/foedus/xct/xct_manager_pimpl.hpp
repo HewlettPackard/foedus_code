@@ -297,8 +297,7 @@ inline void CurrentLockListIteratorForWriteSet::next_writes() {
     return;
   }
   const WriteXctAccess* write = write_set_ + write_cur_pos_;
-  const UniversalLockId write_id = xct_id_to_universal_lock_id(
-    cll_->get_volatile_page_resolver(), write->owner_id_address_);
+  const UniversalLockId write_id = write->owner_lock_id_;
 
   // CLL must contain all entries in write-set. We are reading in-order.
   // So, we must find a valid CLL entry that is == write_id

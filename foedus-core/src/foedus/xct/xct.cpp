@@ -239,7 +239,7 @@ ErrorCode Xct::add_to_read_set(
     // RLL is set, which means the previous run aborted for race.
     // binary-search for each read-set is not cheap, but in this case better than aborts.
     // So, let's see if we should take the lock.
-    rll_pos = retrospective_lock_list_.binary_search(owner_id_address);
+    rll_pos = retrospective_lock_list_.binary_search(lock_id);
     if (rll_pos != kLockListPositionInvalid) {
       ASSERT_ND(retrospective_lock_list_.get_array()[rll_pos].universal_lock_id_ == lock_id);
       DVLOG(1) << "RLL recommends to take lock on this record!";
@@ -327,7 +327,17 @@ ErrorCode Xct::add_to_write_set(
   write->payload_address_ = payload_address;
   write->log_entry_ = log_entry;
   write->storage_id_ = storage_id;
-  write->owner_id_address_ = owner_id_address;
+  uintptr_t address_ptr = reinterpret_cast<uintptr_t>(owner_id_address);
+  if (address_ptr & kUniversalLockIdMsbFlag) {
+    write->owner_id_address_ =
+      reinterpret_cast<RwLockableXctId*>(address_ptr & ~kUniversalLockIdMsbFlag);
+    write->owner_lock_id_ = to_universal_lock_id_va(owner_id_address);
+  } else {
+    write->owner_id_address_ = owner_id_address;
+    write->owner_lock_id_ = xct_id_to_universal_lock_id(
+      engine_->get_memory_manager()->get_global_volatile_page_resolver(),
+      owner_id_address);
+  }
   write->related_read_ = CXX11_NULLPTR;
   ++write_set_size_;
   return kErrorCodeOk;

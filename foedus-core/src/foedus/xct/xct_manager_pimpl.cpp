@@ -435,7 +435,7 @@ ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoc
 
 
 bool XctManagerPimpl::precommit_xct_lock_track_write(
-  thread::Thread* /*context*/, WriteXctAccess* entry) {
+  thread::Thread* context, WriteXctAccess* entry) {
   ASSERT_ND(entry->owner_id_address_->needs_track_moved());
   storage::StorageManager* st = engine_->get_storage_manager();
   TrackMovedRecordResult result = st->track_moved_record(
@@ -454,6 +454,8 @@ bool XctManagerPimpl::precommit_xct_lock_track_write(
     ASSERT_ND(entry->related_read_->owner_id_address_ == entry->owner_id_address_);
     entry->related_read_->owner_id_address_ = result.new_owner_address_;
   }
+  entry->owner_lock_id_ = xct_id_to_universal_lock_id(
+    context->get_global_volatile_page_resolver(), result.new_owner_address_);
   entry->owner_id_address_ = result.new_owner_address_;
   entry->payload_address_ = result.new_payload_address_;
   return true;
@@ -505,11 +507,10 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
   // eg: repeated overwrites to one record should be applied in the order the user issued.
   for (uint32_t i = 1; i < write_set_size; ++i) {
     ASSERT_ND(write_set[i - 1].write_set_ordinal_ != write_set[i].write_set_ordinal_);
-    if (write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_) {
+    if (write_set[i].owner_lock_id_ == write_set[i - 1].owner_lock_id_) {
       ASSERT_ND(write_set[i - 1].write_set_ordinal_ < write_set[i].write_set_ordinal_);
     } else {
-      ASSERT_ND(reinterpret_cast<uintptr_t>(write_set[i - 1].owner_id_address_)
-        < reinterpret_cast<uintptr_t>(write_set[i].owner_id_address_));
+      ASSERT_ND(write_set[i - 1].owner_lock_id_ < write_set[i].owner_lock_id_);
     }
   }
 #endif  // NDEBUG
@@ -597,6 +598,7 @@ async_lock_retry:
       if (lock_entry->mcs_block_ == 0) {
         ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
         ASSERT_ND(!lock_entry->is_locked());
+        ASSERT_ND(!lock_entry->is_enough());
         // Send out lock requests
         cll->try_async_single_lock(context, lock_pos);
         ASSERT_ND(lock_entry->mcs_block_);
@@ -634,6 +636,7 @@ async_lock_retry:
     for (uint32_t rec = it.write_cur_pos_; rec < it.write_next_pos_; ++rec) {
       WriteXctAccess* r = write_set + rec;
       ASSERT_ND(entry->owner_id_address_ == r->owner_id_address_);
+      ASSERT_ND(entry->owner_lock_id_ == r->owner_lock_id_);
       if (r->related_read_) {
         ASSERT_ND(r->related_read_->owner_id_address_ == r->owner_id_address_);
         if (r->owner_id_address_->xct_id_ != r->related_read_->observed_owner_id_) {

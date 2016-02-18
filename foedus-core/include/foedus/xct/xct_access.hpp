@@ -145,15 +145,19 @@ struct WriteXctAccess {
    * Indicates the ordinal among WriteXctAccess of this transaction.
    * For example, first log record has 0, second 1,..
    * Next transaction of this thread resets it to 0 at begin_xct.
-   * This is an auxiliary field we can potentially re-calculate from owner_id_address_,
+   * This is an auxiliary field we can potentially re-calculate from lock_id_,
    * but it's tedious (it's not address order when it wraps around in log buffer).
    * So, we maintain it here for sanity checks.
-   * Also used for stable sorting (in case owner_id_address_ is same) of write-sets.
+   * Also used for stable sorting (in case lock_id_ is same) of write-sets.
    */
   uint32_t              write_set_ordinal_;
 
-  /** Pointer to the accessed record. */
+  /** Pointer to the accessed record. We can calculate this from lock_id_,
+   * this is here just for convenience. */
   RwLockableXctId*      owner_id_address_;
+
+  /** Universal Lock ID of the lock in the write record. */
+  UniversalLockId       owner_lock_id_;
 
   /** Pointer to the payload of the record. */
   char*                 payload_address_;
@@ -164,7 +168,10 @@ struct WriteXctAccess {
   /** @see ReadXctAccess::related_write_ */
   ReadXctAccess*        related_read_;
 
-  /** sort the write set in a unique order. We use address of records as done in [TU2013]. */
+  /** sort the write set in a unique order. We use UniversalLockId which contains the
+   * records's NodeID and local VA offset. This is different from Silo [Tu '13] because
+   * we need global ordering across all processes. VA's might give different per-process
+   * results. */
   static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) ALWAYS_INLINE;
 };
 
@@ -201,10 +208,10 @@ inline bool ReadXctAccess::compare(const ReadXctAccess &left, const ReadXctAcces
 inline bool WriteXctAccess::compare(
   const WriteXctAccess &left,
   const WriteXctAccess& right) {
-  uintptr_t left_address = reinterpret_cast<uintptr_t>(left.owner_id_address_);
-  uintptr_t right_address = reinterpret_cast<uintptr_t>(right.owner_id_address_);
-  if (left_address != right_address) {
-    return left_address < right_address;
+  uintptr_t left_id = reinterpret_cast<uintptr_t>(left.owner_lock_id_);
+  uintptr_t right_id = reinterpret_cast<uintptr_t>(right.owner_lock_id_);
+  if (left_id != right_id) {
+    return left_id < right_id;
   } else {
     return left.write_set_ordinal_ < right.write_set_ordinal_;
   }

@@ -136,6 +136,7 @@ typedef uintptr_t UniversalLockId;
 /** This never points to a valid lock, and also evaluates less than any vaild alocks */
 const UniversalLockId kNullUniversalLockId = 0;
 const uintptr_t kUniversalLockIdOffsetMask = 0xFFFFFFFFFFFFU;
+const uintptr_t kUniversalLockIdMsbFlag = 0x8000000000000000U;
 
 /**
  * @brief Index in a lock-list, either RLL or CLL.
@@ -1294,6 +1295,12 @@ UniversalLockId rw_lock_to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
   McsRwLock* lock);
 
+/** Clears the MSB for a lockptr */
+inline RwLockableXctId* to_lock_ptr(RwLockableXctId* lock) {
+  return reinterpret_cast<RwLockableXctId*>(
+    reinterpret_cast<uintptr_t>(lock) & ~kUniversalLockIdMsbFlag);
+}
+
 /**
  * Always use this method rather than doing the conversion yourself.
  * @see UniversalLockId
@@ -1309,18 +1316,18 @@ inline RwLockableXctId* from_universal_lock_id(
   return reinterpret_cast<RwLockableXctId*>(lock_ptr);
 }
 
-/** For locks that are not in pages only; e.g., some test cases. */
+/** For locks that are not in volatile pages only; e.g., some test cases. */
 inline UniversalLockId to_universal_lock_id_va(const uintptr_t lock_ptr) {
-  return reinterpret_cast<UniversalLockId>(lock_ptr);
+  return reinterpret_cast<UniversalLockId>(lock_ptr) | kUniversalLockIdMsbFlag;
 }
 inline UniversalLockId to_universal_lock_id_va(const McsRwLock* lock_ptr) {
-  return reinterpret_cast<UniversalLockId>(lock_ptr);
+  return reinterpret_cast<UniversalLockId>(lock_ptr) | kUniversalLockIdMsbFlag;
 }
 inline UniversalLockId to_universal_lock_id_va(const RwLockableXctId* lock_ptr) {
-  return reinterpret_cast<UniversalLockId>(lock_ptr);
+  return reinterpret_cast<UniversalLockId>(lock_ptr) | kUniversalLockIdMsbFlag;
 }
 inline RwLockableXctId* from_universal_id_va(const UniversalLockId universal_lock_id) {
-  return reinterpret_cast<RwLockableXctId*>(universal_lock_id);
+  return reinterpret_cast<RwLockableXctId*>(universal_lock_id & ~kUniversalLockIdMsbFlag);
 }
 
 

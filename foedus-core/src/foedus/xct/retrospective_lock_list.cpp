@@ -43,6 +43,12 @@ RetrospectiveLockList::~RetrospectiveLockList() {
   uninit();
 }
 
+void RetrospectiveLockList::init_va(LockEntry* array, uint32_t capacity) {
+  array_ = array;
+  capacity_ = capacity;
+  clear_entries();
+}
+
 void RetrospectiveLockList::init(
   LockEntry* array,
   uint32_t capacity,
@@ -78,6 +84,12 @@ CurrentLockList::CurrentLockList() {
 
 CurrentLockList::~CurrentLockList() {
   uninit();
+}
+
+void CurrentLockList::init_va(LockEntry* array, uint32_t capacity) {
+  array_ = array;
+  capacity_ = capacity;
+  clear_entries();
 }
 
 void CurrentLockList::init(
@@ -179,10 +191,8 @@ void RetrospectiveLockList::assert_sorted_impl() const {
 ////////////////////////////////////////////////////////////
 template<typename LOCK_LIST>
 LockListPosition lock_lower_bound(
-  const memory::GlobalVolatilePageResolver& resolver,
   const LOCK_LIST& list,
-  RwLockableXctId* lock) {
-  const UniversalLockId id = xct_id_to_universal_lock_id(resolver, lock);
+  UniversalLockId lock) {
   LockListPosition last_active_entry = list.get_last_active_entry();
   if (last_active_entry == kLockListPositionInvalid) {
     return kLockListPositionInvalid + 1U;
@@ -191,9 +201,9 @@ LockListPosition lock_lower_bound(
   const LockEntry* array = list.get_array();
   // For example, [dummy, 3, 5, 7] (last_active_entry=3).
   // id=7: 3, larger: 4, smaller: need to check more
-  if (array[last_active_entry].universal_lock_id_ == id) {
+  if (array[last_active_entry].universal_lock_id_ == lock) {
     return last_active_entry;
-  } else if (array[last_active_entry].universal_lock_id_ < id) {
+  } else if (array[last_active_entry].universal_lock_id_ < lock) {
     return last_active_entry + 1U;
   }
 
@@ -202,59 +212,57 @@ LockListPosition lock_lower_bound(
     = std::lower_bound(
         array + 1U,
         array + last_active_entry + 1U,
-        id,
+        lock,
         LockEntry::LessThan())
       - array;
   // in the above example, id=6: 3, id=4,5: 2, smaller: 1
   ASSERT_ND(pos != kLockListPositionInvalid);
   ASSERT_ND(pos <= last_active_entry);  // otherwise we went into the branch above
-  ASSERT_ND(array[pos].universal_lock_id_ >= id);
-  ASSERT_ND(pos == 1U || array[pos - 1U].universal_lock_id_ < id);
+  ASSERT_ND(array[pos].universal_lock_id_ >= lock);
+  ASSERT_ND(pos == 1U || array[pos - 1U].universal_lock_id_ < lock);
   return pos;
 }
 
 template<typename LOCK_LIST>
 LockListPosition lock_binary_search(
-  const memory::GlobalVolatilePageResolver& resolver,
   const LOCK_LIST& list,
-  RwLockableXctId* lock) {
-  const UniversalLockId id = xct_id_to_universal_lock_id(resolver, lock);
+  UniversalLockId lock) {
   LockListPosition last_active_entry = list.get_last_active_entry();
-  LockListPosition pos = lock_lower_bound<LOCK_LIST>(resolver, list, lock);
+  LockListPosition pos = lock_lower_bound<LOCK_LIST>(list, lock);
   if (pos != kLockListPositionInvalid && pos <= last_active_entry) {
     const LockEntry* array = list.get_array();
-    if (array[pos].universal_lock_id_ == id) {
+    if (array[pos].universal_lock_id_ == lock) {
       return pos;
     }
   }
   return kLockListPositionInvalid;
 }
 
-LockListPosition CurrentLockList::binary_search(RwLockableXctId* lock) const {
-  return lock_binary_search<CurrentLockList>(volatile_page_resolver_, *this, lock);
+LockListPosition CurrentLockList::binary_search(UniversalLockId lock) const {
+  return lock_binary_search<CurrentLockList>(*this, lock);
 }
-LockListPosition RetrospectiveLockList::binary_search(RwLockableXctId* lock) const {
-  return lock_binary_search<RetrospectiveLockList>(volatile_page_resolver_, *this, lock);
+LockListPosition RetrospectiveLockList::binary_search(UniversalLockId lock) const {
+  return lock_binary_search<RetrospectiveLockList>(*this, lock);
 }
-LockListPosition CurrentLockList::lower_bound(RwLockableXctId* lock) const {
-  return lock_lower_bound<CurrentLockList>(volatile_page_resolver_, *this, lock);
+LockListPosition CurrentLockList::lower_bound(UniversalLockId lock) const {
+  return lock_lower_bound<CurrentLockList>(*this, lock);
 }
-LockListPosition RetrospectiveLockList::lower_bound(RwLockableXctId* lock) const {
-  return lock_lower_bound<RetrospectiveLockList>(volatile_page_resolver_, *this, lock);
+LockListPosition RetrospectiveLockList::lower_bound(UniversalLockId lock) const {
+  return lock_lower_bound<RetrospectiveLockList>(*this, lock);
 }
 
 LockListPosition CurrentLockList::get_or_add_entry(
   RwLockableXctId* lock, LockMode preferred_mode) {
   // Easy case? (lock >= the last entry)
   const UniversalLockId id = xct_id_to_universal_lock_id(volatile_page_resolver_, lock);
-  LockListPosition insert_pos = lower_bound(lock);
+  LockListPosition insert_pos = lower_bound(id);
   ASSERT_ND(insert_pos != kLockListPositionInvalid);
 
   // Larger than all existing entries? Append to the last!
   if (insert_pos > last_active_entry_) {
     ASSERT_ND(insert_pos == last_active_entry_ + 1U);
     LockListPosition new_pos = issue_new_position();
-    array_[new_pos].set(id, lock, preferred_mode, kNoLock);
+    array_[new_pos].set(id, to_lock_ptr(lock), preferred_mode, kNoLock);
     ASSERT_ND(new_pos == insert_pos);
     return new_pos;
   }
@@ -279,7 +287,7 @@ LockListPosition CurrentLockList::get_or_add_entry(
   uint64_t moved_bytes = sizeof(LockEntry) * (new_last_pos - insert_pos);
   std::memmove(array_ + insert_pos + 1U, array_ + insert_pos, moved_bytes);
   DVLOG(1) << "Re-sorted. hope this won't happen often";
-  array_[insert_pos].set(id, lock, preferred_mode, kNoLock);
+  array_[insert_pos].set(id, to_lock_ptr(lock), preferred_mode, kNoLock);
   assert_sorted();
   return insert_pos;
 }
@@ -312,11 +320,13 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
 
   // Writes are always added to RLL.
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    RwLockableXctId* lock = write_set[i].owner_id_address_;
     auto pos = issue_new_position();
+    ASSERT_ND(
+      write_set[i].owner_lock_id_ ==
+      xct_id_to_universal_lock_id(volatile_page_resolver_, write_set[i].owner_id_address_));
     array_[pos].set(
-      xct_id_to_universal_lock_id(volatile_page_resolver_, lock),
-      lock,
+      write_set[i].owner_lock_id_,
+      write_set[i].owner_id_address_,
       kWriteLock,
       kNoLock);
   }
@@ -363,11 +373,10 @@ void CurrentLockList::batch_insert_write_placeholders(
 #ifndef NDEBUG
   for (uint32_t i = 1; i < write_set_size; ++i) {
     ASSERT_ND(write_set[i - 1].write_set_ordinal_ != write_set[i].write_set_ordinal_);
-    if (write_set[i].owner_id_address_ == write_set[i - 1].owner_id_address_) {
+    if (write_set[i].owner_lock_id_ == write_set[i - 1].owner_lock_id_) {
       ASSERT_ND(write_set[i - 1].write_set_ordinal_ < write_set[i].write_set_ordinal_);
     } else {
-      ASSERT_ND(reinterpret_cast<uintptr_t>(write_set[i - 1].owner_id_address_)
-        < reinterpret_cast<uintptr_t>(write_set[i].owner_id_address_));
+      ASSERT_ND(write_set[i - 1].owner_lock_id_ < write_set[i].owner_lock_id_);
     }
   }
   assert_sorted();
@@ -384,9 +393,7 @@ void CurrentLockList::batch_insert_write_placeholders(
   for (LockListPosition pos = 1U; pos <= last_active_entry_ && write_pos < write_set_size;) {
     LockEntry* existing = array_ + pos;
     const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = xct_id_to_universal_lock_id(
-      volatile_page_resolver_,
-      write->owner_id_address_);
+    UniversalLockId write_lock_id = write->owner_lock_id_;
     if (existing->universal_lock_id_ < write_lock_id) {
       ++pos;
     } else if (existing->universal_lock_id_ == write_lock_id) {
@@ -404,10 +411,7 @@ void CurrentLockList::batch_insert_write_placeholders(
       // It might contain multiple writes to one record.
       for (++write_pos; write_pos < write_set_size; ++write_pos) {
         const WriteXctAccess* next_write = write_set + write_pos;
-        UniversalLockId next_write_id =
-          xct_id_to_universal_lock_id(
-            volatile_page_resolver_,
-            next_write->owner_id_address_);
+        UniversalLockId next_write_id = next_write->owner_lock_id_;
         ASSERT_ND(next_write_id >= write_lock_id);
         if (next_write_id > write_lock_id) {
           break;
@@ -420,21 +424,17 @@ void CurrentLockList::batch_insert_write_placeholders(
     // After iterating over all existing entries, still some write-set entry remains.
     // Hence they are all after the existing entries.
     const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = xct_id_to_universal_lock_id(
-      volatile_page_resolver_, write->owner_id_address_);
+    UniversalLockId write_lock_id = write->owner_lock_id_;
     ASSERT_ND(last_active_entry_ == kLockListPositionInvalid
       || array_[last_active_entry_].universal_lock_id_ < write_lock_id);
 
-    // Again, be careful on duplicate in write set
-    ASSERT_ND(last_active_entry_ + added == kLockListPositionInvalid
-      || array_[last_active_entry_ + added].universal_lock_id_ <= write_lock_id);
+    // Again, be careful on duplicate in write set.
     ++added;
     LockEntry* new_entry = array_ + last_active_entry_ + added;
     new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
     for (++write_pos; write_pos < write_set_size; ++write_pos) {
       const WriteXctAccess* next_write = write_set + write_pos;
-      UniversalLockId next_write_id = xct_id_to_universal_lock_id(
-        volatile_page_resolver_, next_write->owner_id_address_);
+      UniversalLockId next_write_id = next_write->owner_lock_id_;
       ASSERT_ND(next_write_id >= write_lock_id);
       if (next_write_id > write_lock_id) {
         break;
@@ -449,7 +449,7 @@ void CurrentLockList::batch_insert_write_placeholders(
   assert_sorted();
 #ifndef NDEBUG
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(binary_search(write_set[i].owner_id_address_) != kLockListPositionInvalid);
+    ASSERT_ND(binary_search(write_set[i].owner_lock_id_) != kLockListPositionInvalid);
   }
 #endif  // NDEBUG
 }
@@ -570,6 +570,7 @@ void CurrentLockList::try_async_single_lock(
   lock_entry->mcs_block_ = async_ret.block_index_;
   if (async_ret.acquired_) {
     lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+    ASSERT_ND(lock_entry->is_enough());
   }
   ASSERT_ND(lock_entry->mcs_block_);
 }

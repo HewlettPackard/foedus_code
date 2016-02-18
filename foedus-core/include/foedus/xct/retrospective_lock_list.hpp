@@ -194,7 +194,13 @@ class RetrospectiveLockList {
     LockEntry* array,
     uint32_t capacity,
     const memory::GlobalVolatilePageResolver& resolver);
-  void xct_init(LockEntry* array, uint32_t capacity);
+
+  /**
+   * This one doesn't initialize with a valid volatile_page_resolver. Use it only if
+   * you only need direct VA translation for UniversalLockId. The only users so far are
+   * CLL/RLL test cases.
+   */
+  void init_va(LockEntry* array, uint32_t capacity);
   void uninit();
   void clear_entries();
 
@@ -202,7 +208,7 @@ class RetrospectiveLockList {
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(RwLockableXctId* lock) const;
+  LockListPosition binary_search(UniversalLockId lock) const;
 
   /**
    * Analogous to std::lower_bound() for the given lock.
@@ -210,7 +216,7 @@ class RetrospectiveLockList {
    * If no such entry, last_active_entry_ + 1U, whether last_active_entry_ is 0 or not.
    * Thus the return value is always >0. This is to immitate std::lower_bound's behavior.
    */
-  LockListPosition lower_bound(RwLockableXctId* lock) const;
+  LockListPosition lower_bound(UniversalLockId lock) const;
 
   /**
    * @brief Fill out this retrospetive lock list for the next run of the given transaction.
@@ -314,7 +320,12 @@ class CurrentLockList {
     LockEntry* array,
     uint32_t capacity,
     const memory::GlobalVolatilePageResolver& resolver);
-  void xct_init(LockEntry* array, uint32_t capacity);
+  /**
+   * This one doesn't initialize with a valid volatile_page_resolver. Use it only if
+   * you only need direct VA translation for UniversalLockId. The only users so far are
+   * CLL/RLL test cases.
+   */
+  void init_va(LockEntry* array, uint32_t capacity);
   void uninit();
   void clear_entries();
 
@@ -322,7 +333,7 @@ class CurrentLockList {
    * Analogous to std::binary_search() for the given lock.
    * @return Index of an entry whose lock_ == lock. kLockListPositionInvalid if not found.
    */
-  LockListPosition binary_search(RwLockableXctId* lock) const;
+  LockListPosition binary_search(UniversalLockId lock) const;
 
   /**
    * Adds an entry to this list, re-sorting part of the list if necessary to keep the sortedness.
@@ -342,7 +353,7 @@ class CurrentLockList {
    * If no such entry, last_active_entry_ + 1U, whether last_active_entry_ is 0 or not.
    * Thus the return value is always >0. This is to immitate std::lower_bound's behavior.
    */
-  LockListPosition lower_bound(RwLockableXctId* lock) const;
+  LockListPosition lower_bound(UniversalLockId lock) const;
 
   const LockEntry* get_array() const { return array_; }
   LockEntry* get_array() { return array_; }

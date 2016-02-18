@@ -59,7 +59,8 @@ std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
 //    << "<current_lock_position_>" << v.current_lock_position_ << "</current_lock_position_>"
     << "<write_set_ordinal_>" << v.write_set_ordinal_ << "</write_set_ordinal_>"
-    << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id><log>";
+    << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id><log>"
+    << "<owner_lock_id>" << v.owner_lock_id_ << "</owner_lock_id><log>";
   log::invoke_ostream(v.log_entry_, &o);
   o << "</log>";
   if (v.related_read_) {
