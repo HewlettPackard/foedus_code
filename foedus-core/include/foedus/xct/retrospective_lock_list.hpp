@@ -195,12 +195,6 @@ class RetrospectiveLockList {
     uint32_t capacity,
     const memory::GlobalVolatilePageResolver& resolver);
 
-  /**
-   * This one doesn't initialize with a valid volatile_page_resolver. Use it only if
-   * you only need direct VA translation for UniversalLockId. The only users so far are
-   * CLL/RLL test cases.
-   */
-  void init_va(LockEntry* array, uint32_t capacity);
   void uninit();
   void clear_entries();
 
@@ -320,12 +314,6 @@ class CurrentLockList {
     LockEntry* array,
     uint32_t capacity,
     const memory::GlobalVolatilePageResolver& resolver);
-  /**
-   * This one doesn't initialize with a valid volatile_page_resolver. Use it only if
-   * you only need direct VA translation for UniversalLockId. The only users so far are
-   * CLL/RLL test cases.
-   */
-  void init_va(LockEntry* array, uint32_t capacity);
   void uninit();
   void clear_entries();
 

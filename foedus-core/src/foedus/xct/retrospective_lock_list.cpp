@@ -43,12 +43,6 @@ RetrospectiveLockList::~RetrospectiveLockList() {
   uninit();
 }
 
-void RetrospectiveLockList::init_va(LockEntry* array, uint32_t capacity) {
-  array_ = array;
-  capacity_ = capacity;
-  clear_entries();
-}
-
 void RetrospectiveLockList::init(
   LockEntry* array,
   uint32_t capacity,
@@ -84,12 +78,6 @@ CurrentLockList::CurrentLockList() {
 
 CurrentLockList::~CurrentLockList() {
   uninit();
-}
-
-void CurrentLockList::init_va(LockEntry* array, uint32_t capacity) {
-  array_ = array;
-  capacity_ = capacity;
-  clear_entries();
 }
 
 void CurrentLockList::init(

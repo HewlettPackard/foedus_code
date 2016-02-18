@@ -2,8 +2,6 @@ add_foedus_test_individual(test_retrospective_lock_list "CllAddSearch")
 add_foedus_test_individual(test_xct_access "CompareReadSet;SortReadSet;RandomReadSet;CompareWriteSet;SortWriteSet;RandomWriteSet")
 add_foedus_test_individual(test_xct_commit_conflict "NoConflict;LightConflict;HeavyConflict;ExtremeConflict")
 add_foedus_test_individual(test_xct_id "Empty;SetAll;SetEpoch;SetOrdinal;SetThread")
-add_foedus_test_individual(test_xct_id_lock "NoConflict;Conflict;Random")
-add_foedus_test_individual(test_xct_id_rw_lock "NoConflict;Conflict;Random")
 
 set(test_xct_mcs_impl_individuals
   InstantiateSimple

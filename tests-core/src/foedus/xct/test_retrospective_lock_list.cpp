@@ -27,146 +27,149 @@
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_manager_pimpl.hpp"  // For CurrentLockListIteratorForWriteSet
+#include "foedus/xct/xct_mcs_adapter_impl.hpp"
 
 namespace foedus {
 namespace xct {
 DEFINE_TEST_CASE_PACKAGE(RllTest, foedus.xct);
 
+const uint16_t kNodes = 1U;
+const uint32_t kMaxLockCount = 16;
+const uint16_t kDummyStorageId = 1U;
+const uint16_t kDefaultNodeId = 0U;
+
 TEST(RllTest, CllAddSearch) {
+  RwLockableXctId* lock_addresses[kMaxLockCount];
+  UniversalLockId lock_ids[kMaxLockCount];
+  McsMockContext<McsRwSimpleBlock> con;
+  con.init(kDummyStorageId, kNodes, 1U, 1U << 16, kMaxLockCount);
+  for (uint32_t i = 0; i < kMaxLockCount; ++i) {
+    lock_addresses[i] = con.get_rw_lock_address(kDefaultNodeId, i);
+    lock_addresses[i]->xct_id_.set_epoch_int(i + 1U);
+    lock_ids[i] = xct::to_universal_lock_id(
+      con.page_memory_resolver_,
+      reinterpret_cast<uintptr_t>(lock_addresses[i]));
+  }
+
   const uint32_t kBufferSize = 1024;
   LockEntry cll_buffer[kBufferSize];
   CurrentLockList list;
-  list.init_va(cll_buffer, kBufferSize);
+  list.init(cll_buffer, kBufferSize, con.page_memory_resolver_);
   EXPECT_EQ(kBufferSize, list.get_capacity());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
 
-  const uint32_t kLockCount = 16;
-  RwLockableXctId lock_objects[kLockCount];
-  RwLockableXctId* dummy_locks[kLockCount];
-  UniversalLockId dummy_lock_ids[kLockCount];
-
-  std::memset(lock_objects, 0, sizeof(RwLockableXctId) * kLockCount);
-  for (uint32_t i = 0; i < kLockCount; ++i) {
-    lock_objects[i].xct_id_.set_epoch_int(i + 1U);
-    dummy_locks[i] = reinterpret_cast<RwLockableXctId*>(
-      reinterpret_cast<uintptr_t>(&lock_objects[i]) | xct::kUniversalLockIdMsbFlag);
-    dummy_lock_ids[i] = xct::to_universal_lock_id_va(
-      reinterpret_cast<uintptr_t>(dummy_locks[i]) | xct::kUniversalLockIdMsbFlag);
-  }
-
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[5]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[5]));
 
   // Add 3 -> [3]
-  EXPECT_EQ(1U, list.get_or_add_entry(dummy_locks[3], kReadLock));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[5]));
+  EXPECT_EQ(1U, list.get_or_add_entry(lock_addresses[3], kReadLock));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(1U, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[5]));
   EXPECT_EQ(1U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
   // Add 5 -> [3, 5]
-  EXPECT_EQ(2U, list.get_or_add_entry(dummy_locks[5], kReadLock));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(2U, list.binary_search(dummy_lock_ids[5]));
+  EXPECT_EQ(2U, list.get_or_add_entry(lock_addresses[5], kReadLock));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(1U, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(2U, list.binary_search(lock_ids[5]));
   EXPECT_EQ(2U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
   // Add 2 -> [2, 3, 5]
-  EXPECT_EQ(1U, list.get_or_add_entry(dummy_locks[2], kReadLock));
-  EXPECT_EQ(1U, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(2U, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(3U, list.binary_search(dummy_lock_ids[5]));
+  EXPECT_EQ(1U, list.get_or_add_entry(lock_addresses[2], kReadLock));
+  EXPECT_EQ(1U, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(2U, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(3U, list.binary_search(lock_ids[5]));
   EXPECT_EQ(3U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
   // Add 3 (ignored) -> [2, 3, 5]
-  EXPECT_EQ(2U, list.get_or_add_entry(dummy_locks[3], kReadLock));
-  EXPECT_EQ(1U, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(2U, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(3U, list.binary_search(dummy_lock_ids[5]));
+  EXPECT_EQ(2U, list.get_or_add_entry(lock_addresses[3], kReadLock));
+  EXPECT_EQ(1U, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(2U, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(3U, list.binary_search(lock_ids[5]));
   EXPECT_EQ(3U, list.get_last_active_entry());
   EXPECT_EQ(kLockListPositionInvalid, list.get_last_locked_entry());
   LOG(INFO) << list;
 
-  EXPECT_EQ(1U, list.lower_bound(dummy_lock_ids[1]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[1]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_lock_ids[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_lock_ids[3]));
-  EXPECT_EQ(2U, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_lock_ids[4]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[4]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_lock_ids[5]));
-  EXPECT_EQ(3U, list.binary_search(dummy_lock_ids[5]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_lock_ids[6]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[6]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_lock_ids[7]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[7]));
+  EXPECT_EQ(1U, list.lower_bound(lock_ids[1]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[1]));
+  EXPECT_EQ(1U, list.lower_bound(lock_ids[2]));
+  EXPECT_EQ(1U, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(2U, list.lower_bound(lock_ids[3]));
+  EXPECT_EQ(2U, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(3U, list.lower_bound(lock_ids[4]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[4]));
+  EXPECT_EQ(3U, list.lower_bound(lock_ids[5]));
+  EXPECT_EQ(3U, list.binary_search(lock_ids[5]));
+  EXPECT_EQ(4U, list.lower_bound(lock_ids[6]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[6]));
+  EXPECT_EQ(4U, list.lower_bound(lock_ids[7]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[7]));
 }
 
 TEST(RllTest, CllBatchInsertFromEmpty) {
+  RwLockableXctId* lock_addresses[kMaxLockCount];
+  UniversalLockId lock_ids[kMaxLockCount];
+  McsMockContext<McsRwSimpleBlock> con;
+  con.init(kDummyStorageId, kNodes, 1U, 1U << 16, kMaxLockCount);
+  for (uint32_t i = 0; i < kMaxLockCount; ++i) {
+    lock_addresses[i] = con.get_rw_lock_address(kDefaultNodeId, i);
+    lock_addresses[i]->xct_id_.set_epoch_int(i + 1U);
+    lock_ids[i] = xct::to_universal_lock_id(
+      con.page_memory_resolver_,
+      reinterpret_cast<uintptr_t>(lock_addresses[i]));
+  }
+
   const uint32_t kBufferSize = 1024;
   LockEntry cll_buffer[kBufferSize];
   CurrentLockList list;
-  list.init_va(cll_buffer, kBufferSize);
-
-  const uint32_t kLockCount = 16;
-  RwLockableXctId lock_objects[kLockCount];
-  RwLockableXctId* dummy_locks[kLockCount];
-  UniversalLockId dummy_lock_ids[kLockCount];
-  std::memset(lock_objects, 0, sizeof(RwLockableXctId) * kLockCount);
-  for (uint32_t i = 0; i < kLockCount; ++i) {
-    lock_objects[i].xct_id_.set_epoch_int(i + 1U);
-    dummy_locks[i] = reinterpret_cast<RwLockableXctId*>(
-      reinterpret_cast<uintptr_t>(&lock_objects[i]) | xct::kUniversalLockIdMsbFlag);
-    dummy_lock_ids[i] = xct::to_universal_lock_id_va(
-      reinterpret_cast<uintptr_t>(dummy_locks[i]) | xct::kUniversalLockIdMsbFlag);
-  }
+  list.init(cll_buffer, kBufferSize, con.page_memory_resolver_);
 
   const uint32_t kWriteSetSize = 4;
   WriteXctAccess write_set[kWriteSetSize];
   write_set[0].write_set_ordinal_ = 0;
-  write_set[0].owner_id_address_ = dummy_locks[5];
-  write_set[0].owner_lock_id_ = dummy_lock_ids[5];
+  write_set[0].owner_id_address_ = lock_addresses[5];
+  write_set[0].owner_lock_id_ = lock_ids[5];
   write_set[1].write_set_ordinal_ = 1;
-  write_set[1].owner_id_address_ = dummy_locks[3];
-  write_set[1].owner_lock_id_ = dummy_lock_ids[3];
+  write_set[1].owner_id_address_ = lock_addresses[3];
+  write_set[1].owner_lock_id_ = lock_ids[3];
   write_set[2].write_set_ordinal_ = 2;
-  write_set[2].owner_id_address_ = dummy_locks[9];
-  write_set[2].owner_lock_id_ = dummy_lock_ids[9];
+  write_set[2].owner_id_address_ = lock_addresses[9];
+  write_set[2].owner_lock_id_ = lock_ids[9];
   write_set[3].write_set_ordinal_ = 3;
-  write_set[3].owner_id_address_ = dummy_locks[5];
-  write_set[3].owner_lock_id_ = dummy_lock_ids[5];
+  write_set[3].owner_id_address_ = lock_addresses[5];
+  write_set[3].owner_lock_id_ = lock_ids[5];
   std::sort(write_set, write_set + kWriteSetSize, WriteXctAccess::compare);
 
   list.batch_insert_write_placeholders(write_set, kWriteSetSize);
   EXPECT_EQ(3U, list.get_last_active_entry());
 
-  EXPECT_EQ(1U, list.lower_bound(dummy_lock_ids[1]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[1]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_lock_ids[2]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_lock_ids[3]));
-  EXPECT_EQ(1U, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_lock_ids[4]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[4]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_lock_ids[5]));
-  EXPECT_EQ(2U, list.binary_search(dummy_lock_ids[5]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_lock_ids[6]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[6]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_lock_ids[8]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[8]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_lock_ids[9]));
-  EXPECT_EQ(3U, list.binary_search(dummy_lock_ids[9]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_lock_ids[10]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[10]));
+  EXPECT_EQ(1U, list.lower_bound(lock_ids[1]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[1]));
+  EXPECT_EQ(1U, list.lower_bound(lock_ids[2]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(1U, list.lower_bound(lock_ids[3]));
+  EXPECT_EQ(1U, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(2U, list.lower_bound(lock_ids[4]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[4]));
+  EXPECT_EQ(2U, list.lower_bound(lock_ids[5]));
+  EXPECT_EQ(2U, list.binary_search(lock_ids[5]));
+  EXPECT_EQ(3U, list.lower_bound(lock_ids[6]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[6]));
+  EXPECT_EQ(3U, list.lower_bound(lock_ids[8]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[8]));
+  EXPECT_EQ(3U, list.lower_bound(lock_ids[9]));
+  EXPECT_EQ(3U, list.binary_search(lock_ids[9]));
+  EXPECT_EQ(4U, list.lower_bound(lock_ids[10]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[10]));
 
   // Also test CurrentLockListIteratorForWriteSet
   CurrentLockListIteratorForWriteSet it(write_set, &list, kWriteSetSize);
@@ -199,69 +202,68 @@ TEST(RllTest, CllBatchInsertFromEmpty) {
 }
 
 TEST(RllTest, CllBatchInsertMerge) {
+  RwLockableXctId* lock_addresses[kMaxLockCount];
+  UniversalLockId lock_ids[kMaxLockCount];
+  McsMockContext<McsRwSimpleBlock> con;
+  con.init(kDummyStorageId, kNodes, 1U, 1U << 16, kMaxLockCount);
+  for (uint32_t i = 0; i < kMaxLockCount; ++i) {
+    lock_addresses[i] = con.get_rw_lock_address(kDefaultNodeId, i);
+    lock_addresses[i]->xct_id_.set_epoch_int(i + 1U);
+    lock_ids[i] = xct::to_universal_lock_id(
+      con.page_memory_resolver_,
+      reinterpret_cast<uintptr_t>(lock_addresses[i]));
+  }
+
   const uint32_t kBufferSize = 1024;
   LockEntry cll_buffer[kBufferSize];
   CurrentLockList list;
-  list.init_va(cll_buffer, kBufferSize);
-
-  const uint32_t kLockCount = 16;
-  RwLockableXctId lock_objects[kLockCount];
-  RwLockableXctId* dummy_locks[kLockCount];
-  UniversalLockId dummy_lock_ids[kLockCount];
-  std::memset(lock_objects, 0, sizeof(RwLockableXctId) * kLockCount);
-  for (uint32_t i = 0; i < kLockCount; ++i) {
-    lock_objects[i].xct_id_.set_epoch_int(i + 1U);
-    dummy_locks[i] = reinterpret_cast<RwLockableXctId*>(
-      reinterpret_cast<uintptr_t>(&lock_objects[i]) | xct::kUniversalLockIdMsbFlag);
-    dummy_lock_ids[i] = xct::to_universal_lock_id_va(
-      reinterpret_cast<uintptr_t>(dummy_locks[i]) | xct::kUniversalLockIdMsbFlag);
-  }
+  list.init(cll_buffer, kBufferSize, con.page_memory_resolver_);
 
   // Populate with [2, 6, 9]
-  list.get_or_add_entry(dummy_locks[2], kReadLock);
-  list.get_or_add_entry(dummy_locks[6], kReadLock);
-  list.get_or_add_entry(dummy_locks[9], kReadLock);
+  list.get_or_add_entry(lock_addresses[2], kReadLock);
+  list.get_or_add_entry(lock_addresses[6], kReadLock);
+  list.get_or_add_entry(lock_addresses[9], kReadLock);
 
   const uint32_t kWriteSetSize = 4;
   WriteXctAccess write_set[kWriteSetSize];
   write_set[0].write_set_ordinal_ = 0;
-  write_set[0].owner_id_address_ = dummy_locks[5];
-  write_set[0].owner_lock_id_ = dummy_lock_ids[5];
+  write_set[0].owner_id_address_ = lock_addresses[5];
+  write_set[0].owner_lock_id_ = lock_ids[5];
   write_set[1].write_set_ordinal_ = 1;
-  write_set[1].owner_id_address_ = dummy_locks[3];
-  write_set[1].owner_lock_id_ = dummy_lock_ids[3];
+  write_set[1].owner_id_address_ = lock_addresses[3];
+  write_set[1].owner_lock_id_ = lock_ids[3];
   write_set[2].write_set_ordinal_ = 2;
-  write_set[2].owner_id_address_ = dummy_locks[9];
-  write_set[2].owner_lock_id_ = dummy_lock_ids[9];
+  write_set[2].owner_id_address_ = lock_addresses[9];
+  write_set[2].owner_lock_id_ = lock_ids[9];
   write_set[3].write_set_ordinal_ = 3;
-  write_set[3].owner_id_address_ = dummy_locks[5];
-  write_set[3].owner_lock_id_ = dummy_lock_ids[5];
+  write_set[3].owner_id_address_ = lock_addresses[5];
+  write_set[3].owner_lock_id_ = lock_ids[5];
   std::sort(write_set, write_set + kWriteSetSize, WriteXctAccess::compare);
 
   list.batch_insert_write_placeholders(write_set, kWriteSetSize);
   // Now it should be [2, 3, 5, 6, 9]
   EXPECT_EQ(5U, list.get_last_active_entry());
 
-  EXPECT_EQ(1U, list.lower_bound(dummy_lock_ids[1]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[1]));
-  EXPECT_EQ(1U, list.lower_bound(dummy_lock_ids[2]));
-  EXPECT_EQ(1U, list.binary_search(dummy_lock_ids[2]));
-  EXPECT_EQ(2U, list.lower_bound(dummy_lock_ids[3]));
-  EXPECT_EQ(2U, list.binary_search(dummy_lock_ids[3]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_lock_ids[4]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[4]));
-  EXPECT_EQ(3U, list.lower_bound(dummy_lock_ids[5]));
-  EXPECT_EQ(3U, list.binary_search(dummy_lock_ids[5]));
-  EXPECT_EQ(4U, list.lower_bound(dummy_lock_ids[6]));
-  EXPECT_EQ(4U, list.binary_search(dummy_lock_ids[6]));
-  EXPECT_EQ(5U, list.lower_bound(dummy_lock_ids[7]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[7]));
-  EXPECT_EQ(5U, list.lower_bound(dummy_lock_ids[8]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[8]));
-  EXPECT_EQ(5U, list.lower_bound(dummy_lock_ids[9]));
-  EXPECT_EQ(5U, list.binary_search(dummy_lock_ids[9]));
-  EXPECT_EQ(6U, list.lower_bound(dummy_lock_ids[10]));
-  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(dummy_lock_ids[10]));
+  EXPECT_EQ(1U, list.lower_bound(lock_ids[1]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[1]));
+  EXPECT_EQ(1U, list.lower_bound(lock_ids[2]));
+  EXPECT_EQ(1U, list.binary_search(lock_ids[2]));
+  EXPECT_EQ(2U, list.lower_bound(lock_ids[3]));
+  EXPECT_EQ(2U, list.binary_search(lock_ids[3]));
+  EXPECT_EQ(3U, list.lower_bound(lock_ids[4]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[4]));
+  EXPECT_EQ(3U, list.lower_bound(lock_ids[5]));
+  EXPECT_EQ(3U, list.binary_search(lock_ids[5]));
+  EXPECT_EQ(4U, list.lower_bound(lock_ids[6]));
+  EXPECT_EQ(4U, list.binary_search(lock_ids[6]));
+  EXPECT_EQ(5U, list.lower_bound(lock_ids[7]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[7]));
+  EXPECT_EQ(5U, list.lower_bound(lock_ids[8]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[8]));
+  EXPECT_EQ(5U, list.lower_bound(lock_ids[9]));
+  EXPECT_EQ(5U, list.binary_search(lock_ids[9]));
+  EXPECT_EQ(6U, list.lower_bound(lock_ids[10]));
+  EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[10]));
 
   // Also test CurrentLockListIteratorForWriteSet
   CurrentLockListIteratorForWriteSet it(write_set, &list, kWriteSetSize);
