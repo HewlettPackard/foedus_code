@@ -336,17 +336,10 @@ ErrorCode Xct::add_to_write_set(
   write->payload_address_ = payload_address;
   write->log_entry_ = log_entry;
   write->storage_id_ = storage_id;
-  uintptr_t address_ptr = reinterpret_cast<uintptr_t>(owner_id_address);
-  if (address_ptr & kUniversalLockIdMsbFlag) {
-    write->owner_id_address_ =
-      reinterpret_cast<RwLockableXctId*>(address_ptr & ~kUniversalLockIdMsbFlag);
-    write->owner_lock_id_ = to_universal_lock_id_va(owner_id_address);
-  } else {
-    write->owner_id_address_ = owner_id_address;
-    write->owner_lock_id_ = xct_id_to_universal_lock_id(
-      engine_->get_memory_manager()->get_global_volatile_page_resolver(),
-      owner_id_address);
-  }
+  write->owner_id_address_ = owner_id_address;
+  write->owner_lock_id_ = xct_id_to_universal_lock_id(
+    engine_->get_memory_manager()->get_global_volatile_page_resolver(),
+    owner_id_address);
   write->related_read_ = CXX11_NULLPTR;
   ++write_set_size_;
   return kErrorCodeOk;

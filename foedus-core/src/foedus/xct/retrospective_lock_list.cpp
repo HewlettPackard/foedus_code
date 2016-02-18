@@ -151,7 +151,7 @@ std::ostream& operator<<(std::ostream& o, const RetrospectiveLockList& v) {
 
 
 template<typename LOCK_LIST>
-void lock_assert_sorted(const LOCK_LIST& list) {
+void lock_assert_sorted(const memory::GlobalVolatilePageResolver& resolver, const LOCK_LIST& list) {
   const LockEntry* array = list.get_array();
   ASSERT_ND(array[kLockListPositionInvalid].universal_lock_id_ == 0);
   ASSERT_ND(array[kLockListPositionInvalid].lock_ == nullptr);
@@ -162,14 +162,17 @@ void lock_assert_sorted(const LOCK_LIST& list) {
     ASSERT_ND(array[pos - 1U].universal_lock_id_ < array[pos].universal_lock_id_);
     ASSERT_ND(array[pos].universal_lock_id_ != 0);
     ASSERT_ND(array[pos].lock_ != nullptr);
+    ASSERT_ND(array[pos].universal_lock_id_
+      == xct_id_to_universal_lock_id(resolver, array[pos].lock_));
+    ASSERT_ND(array[pos].lock_ == from_universal_lock_id(resolver, array[pos].universal_lock_id_));
   }
 }
 
 void CurrentLockList::assert_sorted_impl() const {
-  lock_assert_sorted(*this);
+  lock_assert_sorted(volatile_page_resolver_, *this);
 }
 void RetrospectiveLockList::assert_sorted_impl() const {
-  lock_assert_sorted(*this);
+  lock_assert_sorted(volatile_page_resolver_, *this);
 }
 
 ////////////////////////////////////////////////////////////
@@ -250,7 +253,7 @@ LockListPosition CurrentLockList::get_or_add_entry(
   if (insert_pos > last_active_entry_) {
     ASSERT_ND(insert_pos == last_active_entry_ + 1U);
     LockListPosition new_pos = issue_new_position();
-    array_[new_pos].set(id, to_lock_ptr(lock), preferred_mode, kNoLock);
+    array_[new_pos].set(id, lock, preferred_mode, kNoLock);
     ASSERT_ND(new_pos == insert_pos);
     return new_pos;
   }
@@ -275,7 +278,7 @@ LockListPosition CurrentLockList::get_or_add_entry(
   uint64_t moved_bytes = sizeof(LockEntry) * (new_last_pos - insert_pos);
   std::memmove(array_ + insert_pos + 1U, array_ + insert_pos, moved_bytes);
   DVLOG(1) << "Re-sorted. hope this won't happen often";
-  array_[insert_pos].set(id, to_lock_ptr(lock), preferred_mode, kNoLock);
+  array_[insert_pos].set(id, lock, preferred_mode, kNoLock);
   assert_sorted();
   return insert_pos;
 }

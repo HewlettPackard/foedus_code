@@ -34,9 +34,6 @@ namespace xct {
 UniversalLockId to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
   uintptr_t lock_ptr) {
-  if (UNLIKELY(lock_ptr & kUniversalLockIdMsbFlag)) {
-    return to_universal_lock_id_va(lock_ptr);
-  }
   storage::Page* page = storage::to_page(reinterpret_cast<void*>(lock_ptr));
   auto& page_header = page->get_header();
   uintptr_t base = 0;
@@ -53,34 +50,13 @@ UniversalLockId to_universal_lock_id(
   return (node << 48) | (lock_ptr - base);
 }
 
-UniversalLockId xct_id_to_universal_lock_id(
+RwLockableXctId* from_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
-  RwLockableXctId* lock) {
-  if (UNLIKELY(resolver.numa_node_count_ == 0)) {
-    return to_universal_lock_id_va(lock);
-  }
-  return to_universal_lock_id(resolver, reinterpret_cast<uintptr_t>(&lock->lock_));
-}
-
-UniversalLockId rw_lock_to_universal_lock_id(
-  const memory::GlobalVolatilePageResolver& resolver,
-  McsRwLock* lock) {
-  if (UNLIKELY(resolver.numa_node_count_ == 0)) {
-    return to_universal_lock_id_va(lock);
-  }
-  return to_universal_lock_id(resolver, reinterpret_cast<uintptr_t>(lock));
-}
-
-uintptr_t from_universal_lock_id_ptr(
-  const memory::GlobalVolatilePageResolver resolver,
   UniversalLockId universal_lock_id) {
-  if (UNLIKELY(universal_lock_id & kUniversalLockIdMsbFlag)) {
-    return reinterpret_cast<uintptr_t>(universal_lock_id) & ~kUniversalLockIdMsbFlag;
-  }
-  uint16_t node = reinterpret_cast<uintptr_t>(universal_lock_id) >> 48;
-  uint64_t offset = reinterpret_cast<uintptr_t>(universal_lock_id) & kUniversalLockIdOffsetMask;
-  auto base = resolver.bases_[node];
-  return (reinterpret_cast<uintptr_t>(base) + offset) & ~kUniversalLockIdMsbFlag;
+  uint16_t node = universal_lock_id >> 48;
+  uint64_t offset = universal_lock_id & kUniversalLockIdOffsetMask;
+  uintptr_t base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
+  return reinterpret_cast<RwLockableXctId*>(base + offset);
 }
 
 bool RwLockableXctId::is_hot(thread::Thread* context) const {

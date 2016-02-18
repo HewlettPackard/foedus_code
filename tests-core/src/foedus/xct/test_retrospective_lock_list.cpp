@@ -49,6 +49,8 @@ TEST(RllTest, CllAddSearch) {
     lock_ids[i] = xct::to_universal_lock_id(
       con.page_memory_resolver_,
       reinterpret_cast<uintptr_t>(lock_addresses[i]));
+    ASSERT_ND(lock_addresses[i]
+      == xct::from_universal_lock_id(con.page_memory_resolver_, lock_ids[i]));
   }
 
   const uint32_t kBufferSize = 1024;
@@ -126,6 +128,8 @@ TEST(RllTest, CllBatchInsertFromEmpty) {
     lock_ids[i] = xct::to_universal_lock_id(
       con.page_memory_resolver_,
       reinterpret_cast<uintptr_t>(lock_addresses[i]));
+    ASSERT_ND(lock_addresses[i]
+      == xct::from_universal_lock_id(con.page_memory_resolver_, lock_ids[i]));
   }
 
   const uint32_t kBufferSize = 1024;
@@ -212,6 +216,8 @@ TEST(RllTest, CllBatchInsertMerge) {
     lock_ids[i] = xct::to_universal_lock_id(
       con.page_memory_resolver_,
       reinterpret_cast<uintptr_t>(lock_addresses[i]));
+    ASSERT_ND(lock_addresses[i]
+      == xct::from_universal_lock_id(con.page_memory_resolver_, lock_ids[i]));
   }
 
   const uint32_t kBufferSize = 1024;

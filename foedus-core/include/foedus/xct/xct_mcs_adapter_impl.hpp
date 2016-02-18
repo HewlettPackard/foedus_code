@@ -132,8 +132,10 @@ struct McsMockThread {
     mcs_block_current_ = 0;
     mcs_waiting_ = false;
   }
-  xct::McsBlockIndex get_mcs_rw_async_block_index(xct::McsRwLock* lock) {
-    auto ulockid = xct::to_universal_lock_id_va(lock);
+  xct::McsBlockIndex get_mcs_rw_async_block_index(
+    const memory::GlobalVolatilePageResolver& resolver,
+    xct::McsRwLock* lock) {
+    auto ulockid = xct::rw_lock_to_universal_lock_id(resolver, lock);
     for (auto &m : mcs_rw_async_mappings_) {
       if (m.lock_id_ == ulockid) {
         return m.block_index_;
@@ -351,14 +353,15 @@ class McsMockAdaptor {
   }
   McsRwExtendedBlock* get_rw_other_async_block(thread::ThreadId id, xct::McsRwLock* lock) {
     McsMockThread<RW_BLOCK>* other = get_other_thread(id);
-    McsBlockIndex block = other->get_mcs_rw_async_block_index(lock);
+    McsBlockIndex block
+      = other->get_mcs_rw_async_block_index(context_->page_memory_resolver_, lock);
     ASSERT_ND(block);
     return get_rw_other_block(id, block);
   }
   void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
     ASSERT_ND(lock);
     ASSERT_ND(block_index);
-    auto ulockid = xct::to_universal_lock_id_va(lock);
+    auto ulockid = xct::rw_lock_to_universal_lock_id(context_->page_memory_resolver_, lock);
 #ifndef NDEBUG
     for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
       if (me_->mcs_rw_async_mappings_[i].lock_id_ == ulockid) {
@@ -374,7 +377,7 @@ class McsMockAdaptor {
   }
   void remove_rw_async_mapping(xct::McsRwLock* lock) {
     ASSERT_ND(me_->mcs_rw_async_mapping_current_);
-    auto lock_id = xct::to_universal_lock_id_va(lock);
+    auto lock_id = xct::rw_lock_to_universal_lock_id(context_->page_memory_resolver_, lock);
     for (uint32_t i = 0; i < me_->mcs_rw_async_mapping_current_; ++i) {
       if (me_->mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
         me_->mcs_rw_async_mappings_[i].lock_id_ = kNullUniversalLockId;

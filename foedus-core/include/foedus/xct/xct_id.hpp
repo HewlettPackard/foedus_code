@@ -1286,50 +1286,25 @@ inline XctId XctId::spin_while_being_written() const {
 UniversalLockId to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
   uintptr_t lock_ptr);
-
-UniversalLockId xct_id_to_universal_lock_id(
+// just shorthands.
+inline UniversalLockId xct_id_to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
-  RwLockableXctId* lock);
-
-UniversalLockId rw_lock_to_universal_lock_id(
+  RwLockableXctId* lock) {
+  return to_universal_lock_id(resolver, reinterpret_cast<uintptr_t>(lock));
+}
+inline UniversalLockId rw_lock_to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
-  McsRwLock* lock);
-
-/** Clears the MSB for a lockptr */
-inline RwLockableXctId* to_lock_ptr(RwLockableXctId* lock) {
-  return reinterpret_cast<RwLockableXctId*>(
-    reinterpret_cast<uintptr_t>(lock) & ~kUniversalLockIdMsbFlag);
+  McsRwLock* lock) {
+  return to_universal_lock_id(resolver, reinterpret_cast<uintptr_t>(lock));
 }
 
 /**
  * Always use this method rather than doing the conversion yourself.
  * @see UniversalLockId
  */
-uintptr_t from_universal_lock_id_ptr(
+RwLockableXctId* from_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
   const UniversalLockId universal_lock_id);
-
-inline RwLockableXctId* from_universal_lock_id(
-  const memory::GlobalVolatilePageResolver& resolver,
-  const UniversalLockId universal_lock_id) {
-  uintptr_t lock_ptr = from_universal_lock_id_ptr(resolver, universal_lock_id);
-  return reinterpret_cast<RwLockableXctId*>(lock_ptr);
-}
-
-/** For locks that are not in volatile pages only; e.g., some test cases. */
-inline UniversalLockId to_universal_lock_id_va(const uintptr_t lock_ptr) {
-  return reinterpret_cast<UniversalLockId>(lock_ptr) | kUniversalLockIdMsbFlag;
-}
-inline UniversalLockId to_universal_lock_id_va(const McsRwLock* lock_ptr) {
-  return reinterpret_cast<UniversalLockId>(lock_ptr) | kUniversalLockIdMsbFlag;
-}
-inline UniversalLockId to_universal_lock_id_va(const RwLockableXctId* lock_ptr) {
-  return reinterpret_cast<UniversalLockId>(lock_ptr) | kUniversalLockIdMsbFlag;
-}
-inline RwLockableXctId* from_universal_id_va(const UniversalLockId universal_lock_id) {
-  return reinterpret_cast<RwLockableXctId*>(universal_lock_id & ~kUniversalLockIdMsbFlag);
-}
-
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
