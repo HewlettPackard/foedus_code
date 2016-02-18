@@ -832,6 +832,20 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     return false;
   }
 
+  // Check lock-free read-set, which is a bit simpler.
+  LockFreeReadXctAccess* lock_free_read_set = current_xct.get_lock_free_read_set();
+  const uint32_t    lock_free_read_set_size = current_xct.get_lock_free_read_set_size();
+  for (uint32_t i = 0; i < lock_free_read_set_size; ++i) {
+    const LockFreeReadXctAccess& access = lock_free_read_set[i];
+    ASSERT_ND(!access.owner_id_address_->needs_track_moved());
+    if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
+      DLOG(WARNING) << *context << " lock free read set changed by other transaction. will abort";
+      return false;
+    }
+
+    commit_epoch->store_max(access.observed_owner_id_.get_epoch());
+  }
+
   DVLOG(1) << *context << "Read-only higest epoch observed: " << *commit_epoch;
   if (!commit_epoch->is_valid()) {
     DVLOG(1) << *context
@@ -932,6 +946,18 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
   // Check Page Pointer/Version
   if (verification_failed) {
     return false;
+  }
+
+  // Check lock-free read-set, which is a bit simpler.
+  LockFreeReadXctAccess* lock_free_read_set = current_xct.get_lock_free_read_set();
+  const uint32_t    lock_free_read_set_size = current_xct.get_lock_free_read_set_size();
+  for (uint32_t i = 0; i < lock_free_read_set_size; ++i) {
+    const LockFreeReadXctAccess& access = lock_free_read_set[i];
+    ASSERT_ND(!access.owner_id_address_->needs_track_moved());
+    if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
+      DLOG(WARNING) << *context << " lock free read set changed by other transaction. will abort";
+      return false;
+    }
   }
 
   if (!precommit_xct_verify_pointer_set(context)) {

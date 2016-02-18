@@ -119,7 +119,6 @@ struct ReadXctAccess {
   static bool compare(const ReadXctAccess &left, const ReadXctAccess& right) ALWAYS_INLINE;
 };
 
-
 /**
  * @brief Represents a record of write-access during a transaction.
  * @ingroup XCT
@@ -175,6 +174,35 @@ struct WriteXctAccess {
   static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) ALWAYS_INLINE;
 };
 
+/**
+ * @brief Represents a record of special read-access during a transaction
+ * without any need for locking.
+ * @ingroup XCT
+ * @details
+ * @par POD
+ * Some storage type doesn't need locking for serializability (so far \ref SEQUENTIAL only)
+ * For them, we record only a XctId in its metadata placed in control block.
+ * It's almost same as the usual ReadXctAccess in terms of the information we store here and how
+ * we verify that at precommit, but to clarify we separate it to this object.
+ * Also, there is a small difference now: the owner_id_address_ in this object points
+ * to a control block whereas usual ReadXctAccess assumes that it points to a valid data page
+ * so that we can always convert to UniversalLockId.
+ */
+struct LockFreeReadXctAccess {
+  friend std::ostream& operator<<(std::ostream& o, const LockFreeReadXctAccess& v);
+
+  /** XID value we observed. */
+  XctId               observed_owner_id_;
+
+  /** The storage we accessed. */
+  storage::StorageId  storage_id_;
+
+  /** Pointer to the TID we protect against. */
+  RwLockableXctId*    owner_id_address_;
+
+  // no related-write in this object.
+  // also, no sorting needed for this object.
+};
 
 /**
  * @brief Represents a record of special write-access during a transaction

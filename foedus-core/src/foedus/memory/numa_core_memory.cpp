@@ -68,6 +68,8 @@ uint64_t NumaCoreMemory::calculate_local_small_memory_size(const EngineOptions& 
   const uint16_t nodes = options.thread_.group_count_;
   memory_size += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
   memory_size += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
+  memory_size += sizeof(xct::LockFreeReadXctAccess)
+    * xct_opt.max_lock_free_read_set_size_;
   memory_size += sizeof(xct::LockFreeWriteXctAccess)
     * xct_opt.max_lock_free_write_set_size_;
   memory_size += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
@@ -113,6 +115,8 @@ ErrorStack NumaCoreMemory::initialize_once() {
   memory += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
   small_thread_local_memory_pieces_.xct_write_access_memory_ = memory;
   memory += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
+  small_thread_local_memory_pieces_.xct_lock_free_read_access_memory_ = memory;
+  memory += sizeof(xct::LockFreeReadXctAccess) * xct_opt.max_lock_free_read_set_size_;
   small_thread_local_memory_pieces_.xct_lock_free_write_access_memory_ = memory;
   memory += sizeof(xct::LockFreeWriteXctAccess) * xct_opt.max_lock_free_write_set_size_;
   retired_volatile_pool_chunks_ = reinterpret_cast<PagePoolOffsetAndEpochChunk*>(memory);

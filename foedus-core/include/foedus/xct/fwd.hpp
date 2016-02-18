@@ -28,6 +28,7 @@ class   CurrentLockList;
 struct  InCommitEpochGuard;
 struct  LockableXctId;
 struct  LockEntry;
+struct  LockFreeReadXctAccess;
 struct  LockFreeWriteXctAccess;
 struct  McsBlock;
 struct  McsLock;

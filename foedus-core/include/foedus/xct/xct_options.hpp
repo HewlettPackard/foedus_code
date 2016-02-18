@@ -39,6 +39,8 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
     kDefaultMaxReadSetSize = 32 << 10,
     /** Default value for max_write_set_size_. */
     kDefaultMaxWriteSetSize = 8 << 10,
+    /** Default value for max_lock_free_read_set_size_. */
+    kDefaultMaxLockFreeReadSetSize = 1 << 8,
     /** Default value for max_lock_free_write_set_size_. */
     kDefaultMaxLockFreeWriteSetSize = 4 << 10,
     /** Default value for local_work_memory_size_mb_. */
@@ -71,6 +73,14 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.
    */
   uint32_t    max_write_set_size_;
+
+  /**
+   * @brief The maximum number of lock-free read-set one transaction can have.
+   * @details
+   * Default is very small (256) because this is the number of sequential storages
+   * a xct accesses, not the number of records.
+   */
+  uint32_t    max_lock_free_read_set_size_;
 
   /**
    * @brief The maximum number of lock-free write-set one transaction can have.

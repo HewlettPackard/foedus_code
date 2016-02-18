@@ -50,6 +50,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
     char* xct_page_version_memory_;
     char* xct_read_access_memory_;
     char* xct_write_access_memory_;
+    char* xct_lock_free_read_access_memory_;
     char* xct_lock_free_write_access_memory_;
   };
 
@@ -139,6 +140,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * \li (used in Xct) PageVersionAccess(16b) * 1k : 16kb
    * \li (used in Xct) ReadXctAccess(32b) * 32k :1024kb
    * \li (used in Xct) WriteXctAccess(40b) * 8k : 320kb
+   * \li (used in Xct) LockFreeReadXctAccess(32b) * 128 : 4kb
    * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
    * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=512kb) * #-of-nodes
    *  : 512kb * #nodes

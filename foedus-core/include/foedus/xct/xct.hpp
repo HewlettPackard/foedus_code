@@ -82,6 +82,7 @@ class Xct {
     page_version_set_size_ = 0;
     read_set_size_ = 0;
     write_set_size_ = 0;
+    lock_free_read_set_size_ = 0;
     lock_free_write_set_size_ = 0;
     *mcs_block_current_ = 0;
     *mcs_rw_async_mapping_current_ = 0;
@@ -126,11 +127,13 @@ class Xct {
   uint32_t            get_page_version_set_size() const { return page_version_set_size_; }
   uint32_t            get_read_set_size() const { return read_set_size_; }
   uint32_t            get_write_set_size() const { return write_set_size_; }
+  uint32_t            get_lock_free_read_set_size() const { return lock_free_read_set_size_; }
   uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
   const PointerAccess*   get_pointer_set() const { return pointer_set_; }
   const PageVersionAccess*  get_page_version_set() const { return page_version_set_; }
   ReadXctAccess*      get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
+  LockFreeReadXctAccess* get_lock_free_read_set() { return lock_free_read_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
 
 
@@ -242,6 +245,14 @@ class Xct {
     log::RecordLogType* log_entry);
 
   /**
+   * @brief Add the given record to the special read-set that is not placed in usual data pages.
+   */
+  ErrorCode           add_to_lock_free_read_set(
+    storage::StorageId storage_id,
+    XctId observed_owner_id,
+    RwLockableXctId* owner_id_address);
+
+  /**
    * @brief Add the given log to the lock-free write set of this transaction.
    */
   ErrorCode           add_to_lock_free_write_set(
@@ -325,15 +336,13 @@ class Xct {
   uint32_t            write_set_size_;
   uint32_t            max_write_set_size_;
 
+  LockFreeReadXctAccess*  lock_free_read_set_;
+  uint32_t                lock_free_read_set_size_;
+  uint32_t                max_lock_free_read_set_size_;
+
   LockFreeWriteXctAccess* lock_free_write_set_;
   uint32_t                lock_free_write_set_size_;
   uint32_t                max_lock_free_write_set_size_;
-
-  // @todo we also need a special lock_free read set just for scanning xct on sequential storage.
-  // it should check if the biggest XctId the scanner read is still the biggest XctId in the list.
-  // we can easily implement it by remembering "safe" page to resume search, or just remembering
-  // tail (abort if tail has changed), and then reading all record in the page.
-  // as we don't have scanning accesses to sequential storage yet, low priority.
 
   PointerAccess*      pointer_set_;
   uint32_t            pointer_set_size_;

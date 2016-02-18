@@ -46,6 +46,9 @@ Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_i
   write_set_ = nullptr;
   write_set_size_ = 0;
   max_write_set_size_ = 0;
+  lock_free_read_set_ = nullptr;
+  lock_free_read_set_size_ = 0;
+  max_lock_free_read_set_size_ = 0;
   lock_free_write_set_ = nullptr;
   lock_free_write_set_size_ = 0;
   max_lock_free_write_set_size_ = 0;
@@ -75,6 +78,10 @@ void Xct::initialize(
   write_set_ = reinterpret_cast<WriteXctAccess*>(pieces.xct_write_access_memory_);
   write_set_size_ = 0;
   max_write_set_size_ = xct_opt.max_write_set_size_;
+  lock_free_read_set_ = reinterpret_cast<LockFreeReadXctAccess*>(
+    pieces.xct_lock_free_read_access_memory_);
+  lock_free_read_set_size_ = 0;
+  max_lock_free_read_set_size_ = xct_opt.max_lock_free_read_set_size_;
   lock_free_write_set_ = reinterpret_cast<LockFreeWriteXctAccess*>(
     pieces.xct_lock_free_write_access_memory_);
   lock_free_write_set_size_ = 0;
@@ -144,6 +151,8 @@ std::ostream& operator<<(std::ostream& o, const Xct& v) {
       << "<write_set_size>" << v.get_write_set_size() << "</write_set_size>"
       << "<pointer_set_size>" << v.get_pointer_set_size() << "</pointer_set_size>"
       << "<page_version_set_size>" << v.get_page_version_set_size() << "</page_version_set_size>"
+      << "<lock_free_read_set_size>" << v.get_lock_free_read_set_size()
+        << "</lock_free_read_set_size>"
       << "<lock_free_write_set_size>" << v.get_lock_free_write_set_size()
         << "</lock_free_write_set_size>";
   }
@@ -372,6 +381,25 @@ ErrorCode Xct::add_to_read_and_write_set(
   ASSERT_ND(write->log_entry_ == log_entry);
   ASSERT_ND(write->owner_id_address_ == owner_id_address);
   ASSERT_ND(write_set_size_ > 0);
+  return kErrorCodeOk;
+}
+
+ErrorCode Xct::add_to_lock_free_read_set(
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  RwLockableXctId* owner_id_address) {
+  ASSERT_ND(storage_id != 0);
+  if (isolation_level_ != kSerializable) {
+    return kErrorCodeOk;
+  }
+  if (UNLIKELY(lock_free_read_set_size_ >= max_lock_free_read_set_size_)) {
+    return kErrorCodeXctReadSetOverflow;
+  }
+
+  lock_free_read_set_[lock_free_read_set_size_].storage_id_ = storage_id;
+  lock_free_read_set_[lock_free_read_set_size_].observed_owner_id_ = observed_owner_id;
+  lock_free_read_set_[lock_free_read_set_size_].owner_id_address_ = owner_id_address;
+  ++lock_free_read_set_size_;
   return kErrorCodeOk;
 }
 

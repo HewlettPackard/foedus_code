@@ -70,6 +70,16 @@ std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
   return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const LockFreeReadXctAccess& v) {
+  o << "<LockFreeReadXctAccess>"
+    << "<storage>" << v.storage_id_ << "</storage>"
+    << "<observed_owner_id>" << v.observed_owner_id_ << "</observed_owner_id>"
+    << "<record_address>" << v.owner_id_address_ << "</record_address>"
+    << "<current_owner_id>" << *v.owner_id_address_ << "</current_owner_id>";
+  o << "</LockFreeReadXctAccess>";
+  return o;
+}
+
 std::ostream& operator<<(std::ostream& o, const LockFreeWriteXctAccess& v) {
   o << "<LockFreeWriteXctAccess>"
     << "<storage>" << v.storage_id_ << "</storage>";
