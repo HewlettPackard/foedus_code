@@ -19,10 +19,15 @@
 #define FOEDUS_XCT_XCT_MCS_ADAPTER_IMPL_HPP_
 
 #include <atomic>
+#include <memory>
 #include <vector>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
+#include "foedus/memory/aligned_memory.hpp"
+#include "foedus/memory/page_resolver.hpp"
+#include "foedus/storage/page.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -146,20 +151,77 @@ struct McsMockThread {
   // add more if we need more context
 };
 
+constexpr uint32_t kMcsMockDataPageHeaderSize = 128U;
+constexpr uint32_t kMcsMockDataPageHeaderPad
+  = kMcsMockDataPageHeaderSize - sizeof(storage::PageHeader);
+constexpr uint32_t kMcsMockDataPageLocksPerPage
+  = (storage::kPageSize - kMcsMockDataPageHeaderSize) / (sizeof(RwLockableXctId) + sizeof(McsLock));
+constexpr uint32_t kMcsMockDataPageFiller
+  = (storage::kPageSize - kMcsMockDataPageHeaderSize)
+    - (sizeof(RwLockableXctId) + sizeof(McsLock)) * kMcsMockDataPageLocksPerPage;
+
+
+/**
+ * A dummy page layout to store RwLockableXctId.
+ * We need to fake a valid page layout because that's what our UniversalLockId conversion logic
+ * assumes.
+ */
+struct McsMockDataPage {
+  void init(storage::StorageId dummy_storage_id, uint16_t node_id, uint32_t in_node_index) {
+    storage::VolatilePagePointer page_id
+      = storage::combine_volatile_page_pointer(node_id, 0, 0, in_node_index);
+    header_.init_volatile(page_id, dummy_storage_id, storage::kArrayPageType);
+    for (uint32_t i = 0; i < kMcsMockDataPageLocksPerPage; ++i) {
+      tid_[i].reset();
+      ww_[i].reset();
+    }
+  }
+  storage::PageHeader header_;      // +40 -> 40
+  char                header_pad_[kMcsMockDataPageHeaderPad];  // -> 128
+  RwLockableXctId     tid_[kMcsMockDataPageLocksPerPage];
+  McsLock             ww_[kMcsMockDataPageLocksPerPage];
+  char                filler_[kMcsMockDataPageFiller];
+};
+
 /**
  * Analogous to one thread-group/socket/node.
  * @note completely header-only
  */
 template<typename RW_BLOCK>
 struct McsMockNode {
-  void init(uint32_t threads_per_node, uint32_t max_block_count) {
+  void init(
+    storage::StorageId dummy_storage_id,
+    uint16_t node_id,
+    uint32_t threads_per_node,
+    uint32_t max_block_count,
+    uint32_t pages_per_node) {
+    node_id_ = node_id;
+    max_block_count_ = max_block_count;
     threads_.resize(threads_per_node);
     for (uint32_t t = 0; t < threads_per_node; ++t) {
       threads_[t].init(max_block_count);
     }
+
+    page_memory_.alloc_onnode(
+      sizeof(McsMockDataPage) * pages_per_node,
+      sizeof(McsMockDataPage),
+      node_id);
+    ASSERT_ND(!page_memory_.is_null());
+    pages_ = reinterpret_cast<McsMockDataPage*>(page_memory_.get_block());
+    for (uint32_t i = 0; i < pages_per_node; ++i) {
+      pages_[i].init(dummy_storage_id, node_id, i);
+    }
   }
 
+  uint16_t node_id_;
+  uint32_t max_block_count_;
   std::vector< McsMockThread<RW_BLOCK> >  threads_;
+
+  /**
+   * Locks assigned to this node are stored in these memory.
+   */
+  McsMockDataPage*      pages_;
+  memory::AlignedMemory page_memory_;
 };
 
 /**
@@ -168,14 +230,55 @@ struct McsMockNode {
  */
 template<typename RW_BLOCK>
 struct McsMockContext {
-  void init(uint32_t nodes, uint32_t threads_per_node, uint32_t max_block_count) {
+  void init(
+    storage::StorageId dummy_storage_id,
+    uint32_t nodes,
+    uint32_t threads_per_node,
+    uint32_t max_block_count,
+    uint32_t max_lock_count) {
+    max_block_count_ = max_block_count;
+    max_lock_count_ = max_lock_count;
+    // + 1U for index-0 (which is not used), and +1U for ceiling
+    pages_per_node_ = (max_lock_count_ / kMcsMockDataPageLocksPerPage) + 1U + 1U;
     nodes_.resize(nodes);
+    page_memory_resolver_.numa_node_count_ = nodes;
+    page_memory_resolver_.begin_ = 1U;
+    page_memory_resolver_.end_ = pages_per_node_;
     for (uint32_t n = 0; n < nodes; ++n) {
-      nodes_[n].init(threads_per_node, max_block_count);
+      nodes_[n].init(dummy_storage_id, n, threads_per_node, max_block_count, pages_per_node_);
+      page_memory_resolver_.bases_[n] = reinterpret_cast<storage::Page*>(nodes_[n].pages_);
     }
   }
 
+  RwLockableXctId* get_rw_lock_address(uint16_t node_id, uint64_t lock_index) {
+    ASSERT_ND(lock_index < max_lock_count_);
+    ASSERT_ND(node_id < nodes_.size());
+    const uint64_t page_index = lock_index / kMcsMockDataPageLocksPerPage + 1U;
+    const uint64_t lock_in_page_index = lock_index % kMcsMockDataPageLocksPerPage;;
+    ASSERT_ND(page_index < pages_per_node_);
+    McsMockDataPage* page = nodes_[node_id].pages_ + page_index;
+    return page->tid_ + lock_in_page_index;
+  }
+  McsLock*        get_ww_lock_address(uint16_t node_id, uint64_t lock_index) {
+    ASSERT_ND(lock_index < max_lock_count_);
+    ASSERT_ND(node_id < nodes_.size());
+    const uint64_t page_index = lock_index / kMcsMockDataPageLocksPerPage + 1U;
+    const uint64_t lock_in_page_index = lock_index % kMcsMockDataPageLocksPerPage;;
+    ASSERT_ND(page_index < pages_per_node_);
+    McsMockDataPage* page = nodes_[node_id].pages_ + page_index;
+    return page->ww_ + lock_in_page_index;
+  }
+
+  uint32_t max_block_count_;
+  uint32_t max_lock_count_;
+  uint32_t pages_per_node_;
   std::vector< McsMockNode<RW_BLOCK> >    nodes_;
+  /**
+   * All locks managed by this objects are placed in these memory regions.
+   * Unlike the real engine, these are not shared-memory, but the page
+   * resolver logic doesn't care whether it's shared-memory or not, so it's fine.
+   */
+  memory::GlobalVolatilePageResolver      page_memory_resolver_;
 };
 
 /**
@@ -289,6 +392,8 @@ class McsMockAdaptor {
   McsMockContext<RW_BLOCK>* const   context_;
   McsMockThread<RW_BLOCK>* const    me_;
 };
+
+static_assert(sizeof(McsMockDataPage) == storage::kPageSize, "McsMockDataPage not in kPageSize?");
 
 }  // namespace xct
 }  // namespace foedus

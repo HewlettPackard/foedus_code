@@ -44,33 +44,38 @@ const int kThreads = 10;
 const int kNodes = 1;  // this so far must be 1. otherwise thread-id is not contiguous. tedious.
 const int kKeys = 100;
 const int kMaxBlocks = 1U << 16;
+const uint16_t kDummyStorageId = 1U;
+const uint16_t kDefaultNodeId = 0U;
 
 template<typename RW_BLOCK>
 struct Runner {
   static void test_instantiate() {
     McsMockContext<RW_BLOCK> con;
-    con.init(kNodes, kThreads / kNodes, 1U << 16);
+    con.init(kDummyStorageId, kNodes, kThreads / kNodes, 1U << 16, kKeys);
     McsMockAdaptor<RW_BLOCK> adaptor(0, &con);
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
   }
 
   McsMockContext<RW_BLOCK> context;
-  McsRwLock keys[kKeys];
   std::atomic<bool> locked[kThreads];
   std::atomic<bool> done[kThreads];
   std::atomic<bool> signaled;
   std::atomic<int> locked_count;
   std::atomic<int> done_count;
 
+  McsRwLock* get_lock(uint32_t lock_index) {
+    return &context.get_rw_lock_address(kDefaultNodeId, lock_index)->lock_;
+  }
+
   void sleep_enough() {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 
   void init() {
-    context.init(kNodes, kThreads / kNodes, kMaxBlocks);
+    context.init(kDummyStorageId, kNodes, kThreads / kNodes, kMaxBlocks, kKeys);
     for (int i = 0; i < kKeys; ++i) {
-      keys[i].reset();
-      EXPECT_FALSE(keys[i].is_locked());
+      get_lock(i)->reset();
+      EXPECT_FALSE(get_lock(i)->is_locked());
     }
     for (int i = 0; i < kThreads; ++i) {
       done[i] = false;
@@ -92,9 +97,9 @@ struct Runner {
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     McsBlockIndex block = 0;
     if (id % 2 == 0) {
-      block = impl.acquire_unconditional_rw_reader(&keys[id]);
+      block = impl.acquire_unconditional_rw_reader(get_lock(id));
     } else {
-      block = impl.acquire_unconditional_rw_writer(&keys[id]);
+      block = impl.acquire_unconditional_rw_writer(get_lock(id));
     }
     locked[id] = true;
     ++locked_count;
@@ -103,9 +108,9 @@ struct Runner {
       assorted::memory_fence_seq_cst();
     }
     if (id % 2 == 0) {
-      impl.release_rw_reader(&keys[id], block);
+      impl.release_rw_reader(get_lock(id), block);
     } else {
-      impl.release_rw_writer(&keys[id], block);
+      impl.release_rw_writer(get_lock(id), block);
     }
     done[id] = true;
     ++done_count;
@@ -123,7 +128,7 @@ struct Runner {
     }
 
     for (int i = 0; i < kThreads; ++i) {
-      EXPECT_TRUE(keys[i].is_locked());
+      EXPECT_TRUE(get_lock(i)->is_locked());
       EXPECT_TRUE(locked[i]);
       EXPECT_FALSE(done[i]);
     }
@@ -134,7 +139,7 @@ struct Runner {
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(locked[i]);
       EXPECT_TRUE(done[i]);
-      EXPECT_FALSE(keys[i].is_locked());
+      EXPECT_FALSE(get_lock(i)->is_locked());
     }
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -147,10 +152,10 @@ struct Runner {
     int l = id < kThreads / 2 ? id : id - kThreads / 2;
     McsBlockIndex block = 0;
     if (id % 2 == 0) {
-      block = impl.acquire_unconditional_rw_reader(&keys[l]);
+      block = impl.acquire_unconditional_rw_reader(get_lock(l));
       LOG(INFO) << "Acked-" << id << " on " << l << " Reader";
     } else {
-      block = impl.acquire_unconditional_rw_writer(&keys[l]);
+      block = impl.acquire_unconditional_rw_writer(get_lock(l));
       LOG(INFO) << "Acked-" << id << " on " << l << " Writer";
     }
     locked[id] = true;
@@ -159,9 +164,9 @@ struct Runner {
       sleep_enough();
     }
     if (id % 2 == 0) {
-      impl.release_rw_reader(&keys[l], block);
+      impl.release_rw_reader(get_lock(l), block);
     } else {
-      impl.release_rw_writer(&keys[l], block);
+      impl.release_rw_writer(get_lock(l), block);
     }
     done[id] = true;
     ++done_count;
@@ -179,7 +184,7 @@ struct Runner {
     }
     for (int i = 0; i < kThreads; ++i) {
       int l = i < kThreads / 2 ? i : i - kThreads / 2;
-      EXPECT_TRUE(keys[l].is_locked()) << i;
+      EXPECT_TRUE(get_lock(l)->is_locked()) << i;
       if (i < kThreads / 2) {
         EXPECT_TRUE(locked[i]) << i;
       } else {
@@ -199,7 +204,7 @@ struct Runner {
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(locked[i]) << i;
       EXPECT_TRUE(done[i]) << i;
-      EXPECT_FALSE(keys[i].is_locked()) << i;
+      EXPECT_FALSE(get_lock(i)->is_locked()) << i;
     }
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -213,11 +218,11 @@ struct Runner {
       uint32_t k = r.uniform_within(0, kKeys - 1);
       McsBlockIndex block = 0;
       if (id % 2 == 0) {
-        block = impl.acquire_unconditional_rw_reader(&keys[k]);
-        impl.release_rw_reader(&keys[k], block);
+        block = impl.acquire_unconditional_rw_reader(get_lock(k));
+        impl.release_rw_reader(get_lock(k), block);
       } else {
-        block = impl.acquire_unconditional_rw_writer(&keys[k]);
-        impl.release_rw_writer(&keys[k], block);
+        block = impl.acquire_unconditional_rw_writer(get_lock(k));
+        impl.release_rw_writer(get_lock(k), block);
       }
     }
     ++done_count;
@@ -260,27 +265,27 @@ struct Runner {
     bool try_succeeded_at_least_once = false;
     for (uint32_t i = 0; i < kTries; ++i) {
       if (i_am_latter) {
-        McsBlockIndex block1 = impl.acquire_unconditional_rw_writer(&keys[l1]);
+        McsBlockIndex block1 = impl.acquire_unconditional_rw_writer(get_lock(l1));
         McsBlockIndex block2;
         if (latter_reader) {
-          block2 = impl.acquire_try_rw_reader(&keys[l2]);
+          block2 = impl.acquire_try_rw_reader(get_lock(l2));
         } else {
-          block2 = impl.acquire_try_rw_writer(&keys[l2]);
+          block2 = impl.acquire_try_rw_writer(get_lock(l2));
         }
-        impl.release_rw_writer(&keys[l1], block1);
+        impl.release_rw_writer(get_lock(l1), block1);
         if (block2) {
           try_succeeded_at_least_once = true;
           if (latter_reader) {
-            impl.release_rw_reader(&keys[l2], block2);
+            impl.release_rw_reader(get_lock(l2), block2);
           } else {
-            impl.release_rw_writer(&keys[l2], block2);
+            impl.release_rw_writer(get_lock(l2), block2);
           }
         }
       } else {
-        McsBlockIndex block1 = impl.acquire_unconditional_rw_writer(&keys[l1]);
-        McsBlockIndex block2 = impl.acquire_unconditional_rw_writer(&keys[l2]);
-        impl.release_rw_writer(&keys[l1], block1);
-        impl.release_rw_writer(&keys[l2], block2);
+        McsBlockIndex block1 = impl.acquire_unconditional_rw_writer(get_lock(l1));
+        McsBlockIndex block2 = impl.acquire_unconditional_rw_writer(get_lock(l2));
+        impl.release_rw_writer(get_lock(l1), block1);
+        impl.release_rw_writer(get_lock(l2), block2);
       }
     }
     if (i_am_latter && !try_succeeded_at_least_once) {
@@ -307,7 +312,7 @@ struct Runner {
     }
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(done[i]) << i;
-      EXPECT_FALSE(keys[i].is_locked()) << i;
+      EXPECT_FALSE(get_lock(i)->is_locked()) << i;
     }
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -320,7 +325,7 @@ struct Runner {
     McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     assorted::UniformRandom r(id);
-    auto* lock = keys;
+    auto* lock = get_lock(0);
     for (int i = 0; i < 1000; ++i) {
       uint32_t timeout = r.uniform_within(0, 10000);
       if (timeout % 1000 == 0) {
@@ -355,7 +360,7 @@ struct Runner {
     McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     assorted::UniformRandom r(id);
-    auto* lock = keys;
+    auto* lock = get_lock(0);
     for (int i = 0; i < 1000; ++i) {
       uint32_t timeout = r.uniform_within(0, 10000);
       if (timeout % 1000 == 0) {
@@ -390,7 +395,7 @@ struct Runner {
     McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     assorted::UniformRandom r(id);
-    auto* lock = keys;
+    auto* lock = get_lock(0);
     for (int i = 0; i < 1000; ++i) {
       uint32_t timeout = r.uniform_within(0, 10000);
       if (i % 2 == 0) {
@@ -459,7 +464,7 @@ struct Runner {
     }
 
     for (int i = 0; i < kKeys; ++i) {
-      EXPECT_FALSE(keys[i].is_locked());
+      EXPECT_FALSE(get_lock(i)->is_locked());
     }
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(done[i]) << i;
@@ -480,7 +485,7 @@ struct Runner {
       sleep_enough();
     }
 
-    EXPECT_FALSE(keys[0].is_locked());
+    EXPECT_FALSE(get_lock(0)->is_locked());
     EXPECT_TRUE(done[0]);
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -498,7 +503,7 @@ struct Runner {
       sleep_enough();
     }
 
-    EXPECT_FALSE(keys[0].is_locked());
+    EXPECT_FALSE(get_lock(0)->is_locked());
     EXPECT_TRUE(done[0]);
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -516,7 +521,7 @@ struct Runner {
       sleep_enough();
     }
 
-    EXPECT_FALSE(keys[0].is_locked());
+    EXPECT_FALSE(get_lock(0)->is_locked());
     EXPECT_TRUE(done[0]);
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();

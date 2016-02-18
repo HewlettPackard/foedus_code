@@ -46,32 +46,37 @@ DEFINE_TEST_CASE_PACKAGE(XctMcsImplWwTest, foedus.xct);
 const int kThreads = 10;
 const int kNodes = 1;  // this so far must be 1. otherwise thread-id is not contiguous. tedious.
 const int kKeys = 100;
+const uint16_t kDummyStorageId = 1U;
+const uint16_t kDefaultNodeId = 0U;
 
 struct Runner {
   static void test_instantiate() {
     McsMockContext<McsRwSimpleBlock> con;
-    con.init(kNodes, kThreads / kNodes, 1U << 16);
+    con.init(kDummyStorageId, kNodes, kThreads / kNodes, 1U << 16, kKeys);
     McsMockAdaptor<McsRwSimpleBlock> adaptor(0, &con);
     McsWwImpl< McsMockAdaptor<McsRwSimpleBlock> > impl(adaptor);
   }
 
   McsMockContext<McsRwSimpleBlock> context;
-  McsLock keys[kKeys];
   std::atomic<bool> locked[kThreads];
   std::atomic<bool> done[kThreads];
   std::atomic<bool> signaled;
   std::atomic<int> locked_count;
   std::atomic<int> done_count;
 
+  McsLock* get_lock(uint32_t lock_index) {
+    return context.get_ww_lock_address(kDefaultNodeId, lock_index);
+  }
+
   void sleep_enough() {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 
   void init() {
-    context.init(kNodes, kThreads / kNodes, 1U << 16);
+    context.init(kDummyStorageId, kNodes, kThreads / kNodes, 1U << 16, kKeys);
     for (int i = 0; i < kKeys; ++i) {
-      keys[i].reset();
-      EXPECT_FALSE(keys[i].is_locked());
+      get_lock(i)->reset();
+      EXPECT_FALSE(get_lock(i)->is_locked());
     }
     for (int i = 0; i < kThreads; ++i) {
       done[i] = false;
@@ -86,14 +91,14 @@ struct Runner {
     McsMockAdaptor<McsRwSimpleBlock> adaptor(id, &context);
     McsWwImpl< McsMockAdaptor<McsRwSimpleBlock> > impl(adaptor);
     McsBlockIndex block = 0;
-    block = impl.acquire_unconditional(&keys[id]);
+    block = impl.acquire_unconditional(get_lock(id));
     locked[id] = true;
     ++locked_count;
     while (!signaled) {
       sleep_enough();
       assorted::memory_fence_seq_cst();
     }
-    impl.release(&keys[id], block);
+    impl.release(get_lock(id), block);
     done[id] = true;
     ++done_count;
   }
@@ -110,7 +115,7 @@ struct Runner {
     }
 
     for (int i = 0; i < kThreads; ++i) {
-      EXPECT_TRUE(keys[i].is_locked());
+      EXPECT_TRUE(get_lock(i)->is_locked());
       EXPECT_TRUE(locked[i]);
       EXPECT_FALSE(done[i]);
     }
@@ -121,7 +126,7 @@ struct Runner {
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(locked[i]);
       EXPECT_TRUE(done[i]);
-      EXPECT_FALSE(keys[i].is_locked());
+      EXPECT_FALSE(get_lock(i)->is_locked());
     }
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -132,14 +137,14 @@ struct Runner {
     McsMockAdaptor<McsRwSimpleBlock> adaptor(id, &context);
     McsWwImpl< McsMockAdaptor<McsRwSimpleBlock> > impl(adaptor);
     int l = id < kThreads / 2 ? id : id - kThreads / 2;
-    McsBlockIndex block = impl.acquire_unconditional(&keys[l]);
+    McsBlockIndex block = impl.acquire_unconditional(get_lock(l));
     LOG(INFO) << "Acked-" << id << " on " << l;
     locked[id] = true;
     ++locked_count;
     while (!signaled) {
       sleep_enough();
     }
-    impl.release(&keys[l], block);
+    impl.release(get_lock(l), block);
     done[id] = true;
     ++done_count;
   }
@@ -164,7 +169,7 @@ struct Runner {
     LOG(INFO) << "Should be done by now";
     for (int i = 0; i < kThreads; ++i) {
       int l = i < kThreads / 2 ? i : i - kThreads / 2;
-      EXPECT_TRUE(keys[l].is_locked()) << i;
+      EXPECT_TRUE(get_lock(l)->is_locked()) << i;
       if (i < kThreads / 2) {
         EXPECT_TRUE(locked[i]) << i;
       } else {
@@ -179,7 +184,7 @@ struct Runner {
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(locked[i]) << i;
       EXPECT_TRUE(done[i]) << i;
-      EXPECT_FALSE(keys[i].is_locked()) << i;
+      EXPECT_FALSE(get_lock(i)->is_locked()) << i;
     }
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -193,10 +198,10 @@ struct Runner {
     int l = id < kThreads / 2 ? id : id - kThreads / 2;
     McsBlockIndex block;
     if (id < kThreads / 2) {
-      block = impl.initial(&keys[l]);
+      block = impl.initial(get_lock(l));
       LOG(INFO) << "Acked-" << id << " on " << l << " initial";
     } else {
-      block = impl.acquire_unconditional(&keys[l]);
+      block = impl.acquire_unconditional(get_lock(l));
       LOG(INFO) << "Acked-" << id << " on " << l << " unconditional";
     }
     locked[id] = true;
@@ -204,7 +209,7 @@ struct Runner {
     while (!signaled) {
       sleep_enough();
     }
-    impl.release(&keys[l], block);
+    impl.release(get_lock(l), block);
     done[id] = true;
     ++done_count;
   }
@@ -229,7 +234,7 @@ struct Runner {
     LOG(INFO) << "Should be done by now";
     for (int i = 0; i < kThreads; ++i) {
       int l = i < kThreads / 2 ? i : i - kThreads / 2;
-      EXPECT_TRUE(keys[l].is_locked()) << i;
+      EXPECT_TRUE(get_lock(l)->is_locked()) << i;
       if (i < kThreads / 2) {
         EXPECT_TRUE(locked[i]) << i;
       } else {
@@ -244,7 +249,7 @@ struct Runner {
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(locked[i]) << i;
       EXPECT_TRUE(done[i]) << i;
-      EXPECT_FALSE(keys[i].is_locked()) << i;
+      EXPECT_FALSE(get_lock(i)->is_locked()) << i;
     }
     for (int i = 0; i < kThreads; ++i) {
       sessions[i].join();
@@ -256,8 +261,8 @@ struct Runner {
     assorted::UniformRandom r(id);
     for (uint32_t i = 0; i < 1000; ++i) {
       uint32_t k = r.uniform_within(0, kKeys - 1);
-      McsBlockIndex block = impl.acquire_unconditional(&keys[k]);
-      impl.release(&keys[k], block);
+      McsBlockIndex block = impl.acquire_unconditional(get_lock(k));
+      impl.release(get_lock(k), block);
     }
     ++done_count;
     done[id] = true;
@@ -275,7 +280,7 @@ struct Runner {
     }
 
     for (int i = 0; i < kKeys; ++i) {
-      EXPECT_FALSE(keys[i].is_locked());
+      EXPECT_FALSE(get_lock(i)->is_locked());
     }
     for (int i = 0; i < kThreads; ++i) {
       EXPECT_TRUE(done[i]) << i;
