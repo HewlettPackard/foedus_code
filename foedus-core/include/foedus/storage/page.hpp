@@ -476,16 +476,18 @@ void assert_within_valid_volatile_page_impl(
   const void* address);
 
 // Use this instead. In release version, this method is completely eliminated by compiler
+#ifndef NDEBUG
 inline void assert_within_valid_volatile_page(
   const memory::GlobalVolatilePageResolver& resolver,
   const void* address) {
-#ifndef NDEBUG
   assert_within_valid_volatile_page_impl(resolver, address);
-#else  // NDEBUG
-  UNUSED_ND(resolver);
-  UNUSED_ND(address);
-#endif  // NDEBUG
 }
+#else  // NDEBUG
+inline void assert_within_valid_volatile_page(
+  const memory::GlobalVolatilePageResolver& /*resolver*/,
+  const void* /*address*/) {
+}
+#endif  // NDEBUG
 
 }  // namespace storage
 }  // namespace foedus
