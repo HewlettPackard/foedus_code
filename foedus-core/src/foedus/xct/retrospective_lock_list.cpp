@@ -543,6 +543,7 @@ void CurrentLockList::try_async_single_lock(
     // but we guarantee serializability by read-verification anyways.
     // We can release any lock anytime.. great flexibility!
     context->mcs_release_reader_lock(lock_addr, lock_entry->mcs_block_);
+    lock_entry->taken_mode_ = kNoLock;
   } else {
     // This function is for pushing the queue node in the extended rwlock.
     // Doomed if we already have a queue node.

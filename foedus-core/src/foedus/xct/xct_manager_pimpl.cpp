@@ -595,13 +595,18 @@ async_lock_retry:
     if (lock_entry->taken_mode_ == kWriteLock) {
       DVLOG(2) << "Yay, already taken. Probably Thanks to RLL or try succeeded directly?";
     } else {
-      if (lock_entry->mcs_block_ == 0) {
+      if (lock_entry->taken_mode_ == kReadLock) {
+        // first-time upgrade, an update-my-own-read case?
+        ASSERT_ND(lock_entry->mcs_block_);
+        ASSERT_ND(lock_entry->is_locked());
+        ASSERT_ND(!lock_entry->is_enough());
+        cll->try_async_single_lock(context, lock_pos);  // this guy will do the "upgrade"
+      } else if (lock_entry->mcs_block_ == 0) {
         ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
         ASSERT_ND(!lock_entry->is_locked());
         ASSERT_ND(!lock_entry->is_enough());
         // Send out lock requests
         cll->try_async_single_lock(context, lock_pos);
-        ASSERT_ND(lock_entry->mcs_block_);
       }
       ASSERT_ND(lock_entry->mcs_block_);
       if (lock_entry->taken_mode_ != kWriteLock) {
@@ -611,9 +616,6 @@ async_lock_retry:
           ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
           ASSERT_ND(lock_entry->is_locked());
         }
-      } else {
-        ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
-        ASSERT_ND(lock_entry->is_locked());
       }
     }
 
