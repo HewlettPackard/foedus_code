@@ -612,6 +612,7 @@ async_lock_retry:
       if (lock_entry->taken_mode_ != kWriteLock) {
         if (!cll->retry_async_single_lock(context, lock_pos)) {
           all_locked = false;
+          continue;
         } else {
           ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
           ASSERT_ND(lock_entry->is_locked());
@@ -627,6 +628,7 @@ async_lock_retry:
       goto moved_retry;
     }
 
+    ASSERT_ND(lock_entry->is_enough());
     ASSERT_ND(!entry->owner_id_address_->is_moved());
     ASSERT_ND(!entry->owner_id_address_->is_next_layer());
     ASSERT_ND(entry->owner_id_address_->is_keylocked());

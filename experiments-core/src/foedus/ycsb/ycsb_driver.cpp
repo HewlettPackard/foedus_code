@@ -302,10 +302,6 @@ int driver_main(int argc, char **argv) {
   if (FLAGS_extended_rw_lock) {
     options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeExtended;
   } else {
-    if (FLAGS_parallel_lock) {
-      std::cout << "Parallel lock acquire must be used with extended_rw_lock.";
-      return 1;
-    }
     options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeSimple;
   }
   // TODO(Hideaki) Some option and its implementation for aggressive_release/parallel_lock
