@@ -24,7 +24,6 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/memory/page_resolver.hpp"
-#include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -131,23 +130,29 @@ void PageVersionLockScope::take_over(PageVersionLockScope* move_from) {
 void assert_within_valid_volatile_page_impl(
   const memory::GlobalVolatilePageResolver& resolver,
   const void* address) {
-
-  const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(address));
+  const Page* page = to_page(reinterpret_cast<const void*>(address));
   ASSERT_ND(!page->get_header().snapshot_);
 
-  storage::VolatilePagePointer vpp
-    = storage::construct_volatile_page_pointer(page->get_header().page_id_);
+  VolatilePagePointer vpp = construct_volatile_page_pointer(page->get_header().page_id_);
   const uint64_t node = vpp.components.numa_node;
   const uintptr_t base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
-  const uintptr_t int_address = reinterpret_cast<uintptr_t>(address);
 
   ASSERT_ND(base);
   ASSERT_ND(node < resolver.numa_node_count_);
-  ASSERT_ND(int_address >= base + vpp.components.offset * storage::kPageSize);
-  ASSERT_ND(int_address < base + (vpp.components.offset + 1U) * storage::kPageSize);
   ASSERT_ND(vpp.components.offset >= resolver.begin_);
   ASSERT_ND(vpp.components.offset < resolver.end_);
 
+  const uintptr_t same_address = base + vpp.components.offset * kPageSize;
+  const Page* same_page = reinterpret_cast<const Page*>(same_address);
+  ASSERT_ND(same_page->get_header().page_id_ == page->get_header().page_id_);
+  ASSERT_ND(!same_page->get_header().snapshot_);
+  /// Ah, oh, finally realized why I occasionally hit assertions here.
+  /// When we have multiple VA mappings (eg emulated fork mode), it is possible
+  /// that base + offset becomes a different address even if pointing to the same physical page.
+  /// Unfortunately we can't do this check.. but only page-ID check.
+  // const uintptr_t int_address = reinterpret_cast<uintptr_t>(address);
+  // ASSERT_ND(int_address >= base + vpp.components.offset * kPageSize);
+  // ASSERT_ND(int_address < base + (vpp.components.offset + 1U) * kPageSize);
 }
 
 }  // namespace storage

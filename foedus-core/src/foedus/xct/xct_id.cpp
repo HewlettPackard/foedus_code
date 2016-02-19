@@ -40,15 +40,21 @@ UniversalLockId to_universal_lock_id(
   ASSERT_ND(!page_header.snapshot_);
   storage::VolatilePagePointer vpp(storage::construct_volatile_page_pointer(page_header.page_id_));
   const uint64_t node = vpp.components.numa_node;
-  const uintptr_t base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
+  const uint64_t page_index = vpp.components.offset;
+  const uint64_t in_page_offset = lock_ptr % storage::kPageSize;
 
-  ASSERT_ND(base);
+  // See assert_within_valid_volatile_page() why we can't do these assertions.
+  // ASSERT_ND(lock_ptr >= base + vpp.components.offset * storage::kPageSize);
+  // ASSERT_ND(lock_ptr < base + (vpp.components.offset + 1U) * storage::kPageSize);
+
+  // Although we have the addresses in resolver, we can NOT use it to calculate the offset
+  // because the base might be a different VA (though pointing to the same physical address).
+  // We thus calculate UniversalLockId purely from PageId in the page header and in_page_offset.
+  // Thus, actually this function uses resolver only for assertions (so far)!
   ASSERT_ND(node < resolver.numa_node_count_);
-  ASSERT_ND(lock_ptr >= base + vpp.components.offset * storage::kPageSize);
-  ASSERT_ND(lock_ptr < base + (vpp.components.offset + 1U) * storage::kPageSize);
   ASSERT_ND(vpp.components.offset >= resolver.begin_);
   ASSERT_ND(vpp.components.offset < resolver.end_);
-  return (node << 48) | (lock_ptr - base);
+  return (node << 48) | (page_index * storage::kPageSize + in_page_offset);
 }
 
 RwLockableXctId* from_universal_lock_id(
