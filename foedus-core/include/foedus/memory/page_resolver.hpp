@@ -121,6 +121,8 @@ struct GlobalVolatilePageResolver CXX11_FINAL {
     storage::Page* page = resolve_offset_newpage(numa_node, offset);
     // this is NOT a new page, so we have sanity checks
     storage::assert_valid_volatile_page(page, offset);
+    ASSERT_ND(storage::construct_volatile_page_pointer(page->get_header().page_id_).
+      components.numa_node == numa_node);
     return page;
   }
   /** Resolves volatile page ID to storage::Page*. */

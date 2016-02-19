@@ -289,6 +289,7 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   if (UNLIKELY(offset == 0)) {
     return kErrorCodeMemoryNoFreePages;
   }
+  ASSERT_ND(offset < local_volatile_page_resolver_.end_);
   storage::Page* page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
   std::memcpy(page, snapshot_page, storage::kPageSize);
   // We copied from a snapshot page, so the snapshot flag is on.
@@ -429,6 +430,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         if (UNLIKELY(offset == 0)) {
           return kErrorCodeMemoryNoFreePages;
         }
+        ASSERT_ND(offset < local_volatile_page_resolver_.end_);
         storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
         storage::VolatilePagePointer new_page_id;
         new_page_id.components.numa_node = numa_node_;

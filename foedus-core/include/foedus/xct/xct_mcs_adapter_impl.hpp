@@ -246,6 +246,7 @@ struct McsMockContext {
     page_memory_resolver_.numa_node_count_ = nodes;
     page_memory_resolver_.begin_ = 1U;
     page_memory_resolver_.end_ = pages_per_node_;
+    ASSERT_ND(page_memory_resolver_.begin_ < page_memory_resolver_.end_);
     for (uint32_t n = 0; n < nodes; ++n) {
       nodes_[n].init(dummy_storage_id, n, threads_per_node, max_block_count, pages_per_node_);
       page_memory_resolver_.bases_[n] = reinterpret_cast<storage::Page*>(nodes_[n].pages_);

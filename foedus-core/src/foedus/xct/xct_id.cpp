@@ -34,19 +34,20 @@ namespace xct {
 UniversalLockId to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
   uintptr_t lock_ptr) {
-  storage::Page* page = storage::to_page(reinterpret_cast<void*>(lock_ptr));
-  auto& page_header = page->get_header();
-  uintptr_t base = 0;
-  uint64_t node = 0;
-  if (LIKELY(!page_header.snapshot_)) {
-    storage::VolatilePagePointer vpp;
-    vpp.word = page_header.page_id_;
-    node = vpp.components.numa_node;
-    base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
-  }
+  storage::assert_within_valid_volatile_page(resolver, reinterpret_cast<void*>(lock_ptr));
+  const storage::Page* page = storage::to_page(reinterpret_cast<void*>(lock_ptr));
+  const auto& page_header = page->get_header();
+  ASSERT_ND(!page_header.snapshot_);
+  storage::VolatilePagePointer vpp(storage::construct_volatile_page_pointer(page_header.page_id_));
+  const uint64_t node = vpp.components.numa_node;
+  const uintptr_t base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
 
-  ASSERT_ND(base || page_header.snapshot_);
-  ASSERT_ND(lock_ptr >= base);
+  ASSERT_ND(base);
+  ASSERT_ND(node < resolver.numa_node_count_);
+  ASSERT_ND(lock_ptr >= base + vpp.components.offset * storage::kPageSize);
+  ASSERT_ND(lock_ptr < base + (vpp.components.offset + 1U) * storage::kPageSize);
+  ASSERT_ND(vpp.components.offset >= resolver.begin_);
+  ASSERT_ND(vpp.components.offset < resolver.end_);
   return (node << 48) | (lock_ptr - base);
 }
 

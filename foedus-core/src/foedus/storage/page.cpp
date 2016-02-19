@@ -23,6 +23,8 @@
 
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
+#include "foedus/memory/page_resolver.hpp"
+#include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 
 namespace foedus {
@@ -124,6 +126,28 @@ void PageVersionLockScope::take_over(PageVersionLockScope* move_from) {
   move_from->block_ = 0;
   move_from->changed_ = false;
   move_from->released_ = true;
+}
+
+void assert_within_valid_volatile_page_impl(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const void* address) {
+
+  const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(address));
+  ASSERT_ND(!page->get_header().snapshot_);
+
+  storage::VolatilePagePointer vpp
+    = storage::construct_volatile_page_pointer(page->get_header().page_id_);
+  const uint64_t node = vpp.components.numa_node;
+  const uintptr_t base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
+  const uintptr_t int_address = reinterpret_cast<uintptr_t>(address);
+
+  ASSERT_ND(base);
+  ASSERT_ND(node < resolver.numa_node_count_);
+  ASSERT_ND(int_address >= base + vpp.components.offset * storage::kPageSize);
+  ASSERT_ND(int_address < base + (vpp.components.offset + 1U) * storage::kPageSize);
+  ASSERT_ND(vpp.components.offset >= resolver.begin_);
+  ASSERT_ND(vpp.components.offset < resolver.end_);
+
 }
 
 }  // namespace storage

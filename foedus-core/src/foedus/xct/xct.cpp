@@ -233,6 +233,14 @@ ErrorCode Xct::add_to_read_set(
   if (isolation_level_ != kSerializable) {
     return kErrorCodeOk;
   }
+  const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(owner_id_address));
+  const auto& resolver = context->get_global_volatile_page_resolver();
+  if (page->get_header().snapshot_) {
+    // Snapshot page doesn't need any read-set.
+    return kErrorCodeOk;
+  } else {
+    storage::assert_within_valid_volatile_page(resolver, owner_id_address);
+  }
 
   CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
 
@@ -240,8 +248,7 @@ ErrorCode Xct::add_to_read_set(
   // However, we might want to do this _before_ observing XctId. Otherwise there is a
   // chance of aborts even with the lock. But then more code changes. Later, later...
 
-  const UniversalLockId lock_id = xct_id_to_universal_lock_id(
-    current_lock_list_.get_volatile_page_resolver(), owner_id_address);
+  const UniversalLockId lock_id = xct_id_to_universal_lock_id(resolver, owner_id_address);
   LockListPosition rll_pos = kLockListPositionInvalid;
   bool lets_take_lock = false;
   if (!retrospective_lock_list_.is_empty()) {
@@ -325,9 +332,12 @@ ErrorCode Xct::add_to_write_set(
   ASSERT_ND(owner_id_address);
   ASSERT_ND(payload_address);
   ASSERT_ND(log_entry);
+  const auto& resolver = retrospective_lock_list_.get_volatile_page_resolver();
 #ifndef NDEBUG
+  storage::assert_within_valid_volatile_page(resolver, owner_id_address);
   log::invoke_assert_valid(log_entry);
 #endif  // NDEBUG
+
   if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
     return kErrorCodeXctWriteSetOverflow;
   }
@@ -337,9 +347,7 @@ ErrorCode Xct::add_to_write_set(
   write->log_entry_ = log_entry;
   write->storage_id_ = storage_id;
   write->owner_id_address_ = owner_id_address;
-  write->owner_lock_id_ = xct_id_to_universal_lock_id(
-    engine_->get_memory_manager()->get_global_volatile_page_resolver(),
-    owner_id_address);
+  write->owner_lock_id_ = xct_id_to_universal_lock_id(resolver, owner_id_address);
   write->related_read_ = CXX11_NULLPTR;
   ++write_set_size_;
   return kErrorCodeOk;

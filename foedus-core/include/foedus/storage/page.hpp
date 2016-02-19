@@ -27,6 +27,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/prob_counter.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -466,6 +467,23 @@ inline void assert_valid_volatile_page(const Page* page, uint32_t offset) {
   VolatilePagePointer pointer;
   pointer.word = page->get_header().page_id_;
   ASSERT_ND(pointer.components.offset == offset);
+#endif  // NDEBUG
+}
+
+// Defined in cpp. Don't directly invoke because it causes overhead to invoke one func.
+void assert_within_valid_volatile_page_impl(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const void* address);
+
+// Use this instead. In release version, this method is completely eliminated by compiler
+inline void assert_within_valid_volatile_page(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const void* address) {
+#ifndef NDEBUG
+  assert_within_valid_volatile_page_impl(resolver, address);
+#else  // NDEBUG
+  UNUSED_ND(resolver);
+  UNUSED_ND(address);
 #endif  // NDEBUG
 }
 
