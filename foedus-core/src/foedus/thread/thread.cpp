@@ -33,22 +33,13 @@ Thread::Thread(
   Engine* engine,
   ThreadId id,
   ThreadGlobalOrdinal global_ordinal)
-  : pimpl_(nullptr),
-  stat_lock_request_failures_(0),
-  stat_lock_request_successes_(0),
-  stat_lock_acquire_failures_(0),
-  stat_lock_acquire_successes_(0) {
+  : pimpl_(nullptr) {
   lock_rnd_.set_current_seed(global_ordinal);
   pimpl_ = new ThreadPimpl(engine, this, id, global_ordinal);
 }
 Thread::~Thread() {
   delete pimpl_;
   pimpl_ = nullptr;
-  LOG(INFO)
-    << "<lock_request_successes>" << stat_lock_request_successes_ << "</lock_request_successes>"
-    << "<lock_request_failures>" << stat_lock_request_failures_ << "</lock_request_failures>"
-    << "<lock_acquire_successes>" << stat_lock_acquire_successes_ << "</lock_acquire_successes>"
-    << "<lock_acquire_failures>" << stat_lock_acquire_failures_ << "</lock_acquire_failures>";
 }
 
 ErrorStack Thread::initialize() {

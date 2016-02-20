@@ -66,11 +66,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
   ThreadGroupId get_numa_node() const { return decompose_numa_node(get_thread_id()); }
   ThreadGlobalOrdinal get_thread_global_ordinal() const;
 
-  inline void add_stat_lock_request_failure() { ++stat_lock_request_failures_; }
-  inline void add_stat_lock_request_success() { ++stat_lock_request_successes_; }
-  inline void add_stat_lock_acquire_failure() { ++stat_lock_acquire_failures_; }
-  inline void add_stat_lock_acquire_success() { ++stat_lock_acquire_successes_; }
-
   /**
    * Returns the transaction that is currently running on this thread.
    */
@@ -374,10 +369,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
   ThreadPimpl*    pimpl_;
 
   // The following should be in pimpl. later.
-  uint64_t        stat_lock_request_failures_;
-  uint64_t        stat_lock_request_successes_;
-  uint64_t        stat_lock_acquire_failures_;
-  uint64_t        stat_lock_acquire_successes_;
   assorted::UniformRandom lock_rnd_;
 };
 
