@@ -774,6 +774,15 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     return my_block;
   }
 
+  void link_pred(
+    uint32_t pred,
+    McsRwExtendedBlock* pred_block,
+    uint32_t me,
+    McsRwExtendedBlock* my_block) {
+    my_block->set_pred_id(pred);
+    pred_block->set_next_id(me);
+  }
+
   ErrorCode acquire_reader_lock(McsRwLock* lock, McsBlockIndex* out_block_index, int32_t timeout) {
     auto* my_block = init_block(out_block_index, false);
     ASSERT_ND(my_block->pred_flag_is_waiting());
@@ -847,7 +856,6 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       // successor might have seen me in leaving state, it'll wait for me in that case
       // in this case, the successor saw me in leaving state and didnt register as a reader
       // ie successor was acquiring
-      spin_until([succ_block, my_tail_int]{ return succ_block->get_pred_id() == my_tail_int; });
       ASSERT_ND(succ_block->pred_flag_is_waiting());
       // XXX(tzwang): we were using the weak version of CAS, but it tended to lock up when
       // while gdb tells the link between me and successor is good. Use strong version for
@@ -893,8 +901,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     uint32_t val = pred_block->cas_val_next_flag_weak(
       expected, pred_block->make_next_flag_waiting_with_reader_successor());
     if (val == expected) {
-      pred_block->set_next_id(my_tail_int);
-      my_block->set_pred_id(pred);
+      link_pred(pred, pred_block, my_tail_int, my_block);
       if (my_block->timeout_granted(timeout)) {
         return finish_acquire_reader_lock(lock, my_block, my_tail_int);
       }
@@ -906,11 +913,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 
     if ((val & McsRwExtendedBlock::kSuccFlagMask) == McsRwExtendedBlock::kSuccFlagLeaving) {
       // don't set pred.next.successor_class here
-      pred_block->set_next_id(my_tail_int);
-      my_block->set_pred_id(pred);
+      link_pred(pred, pred_block, my_tail_int, my_block);
       // if pred did cancel, it will give me a new pred; if it got the lock it will wake me up
-      spin_until([my_block, pred]{
-        return my_block->get_pred_id() != pred || !my_block->pred_flag_is_waiting(); });
+      spin_until([my_block, pred]{ return my_block->get_pred_id() != pred; });
       // consume it and retry
       pred = my_block->xchg_pred_id(0);
       if (pred == McsRwExtendedBlock::kPredIdAcquired) {
@@ -930,27 +935,16 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(
         (val & McsRwExtendedBlock::kSuccFlagMask) == McsRwExtendedBlock::kSuccFlagDirectGranted ||
         (val & McsRwExtendedBlock::kSuccFlagMask) == McsRwExtendedBlock::kSuccFlagLeavingGranted);
-      if (pred_block->is_reader()) {
-        // I didn't register, pred won't wake me up, but if pred is leaving_granted,
-        // we need to tell it not to poke me in its finish-acquire call. For direct_granted,
-        // also set its next.id to NoSuccessor so it knows that there's no need to wait and
-        // examine successor upon release. This also covers the case when pred.next.flags
-        // has Busy set.
-        pred_block->set_next_id(McsRwExtendedBlock::kSuccIdNoSuccessor);
-        lock->increment_nreaders();
-        my_block->set_pred_flag_granted();
-        return finish_acquire_reader_lock(lock, my_block, my_tail_int);
-      } else {
-        my_block->set_pred_id(pred);
-        pred_block->set_next_id(my_tail_int);
-        if (my_block->timeout_granted(timeout)) {
-          return finish_acquire_reader_lock(lock, my_block, my_tail_int);
-        }
-        if (timeout == McsRwExtendedBlock::kTimeoutZero) {
-          return kErrorCodeLockRequested;
-        }
-        return cancel_reader_lock(lock, my_tail_int);
-      }
+      ASSERT_ND(pred_block->is_reader());
+      // I didn't register, pred won't wake me up, but if pred is leaving_granted,
+      // we need to tell it not to poke me in its finish-acquire call. For direct_granted,
+      // also set its next.id to NoSuccessor so it knows that there's no need to wait and
+      // examine successor upon release. This also covers the case when pred.next.flags
+      // has Busy set.
+      pred_block->set_next_id(McsRwExtendedBlock::kSuccIdNoSuccessor);
+      lock->increment_nreaders();
+      my_block->set_pred_flag_granted();
+      return finish_acquire_reader_lock(lock, my_block, my_tail_int);
     }
     ASSERT_ND(false);
   }
@@ -1072,15 +1066,12 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       if (pred_succ_flag == McsRwExtendedBlock::kSuccFlagDirectGranted ||
         pred_succ_flag == McsRwExtendedBlock::kSuccFlagLeavingGranted) {
         // pred will in its finish-acquire-reader() wake me up.
-        // pred already should alredy have me on its next.id, just set me.pred.id
+        // pred already should alredy have me on its next.id and has reader successor class,
+        // now me.pred.id is 0, blocking pred from waking me up, so just set me.pred.id
+        // (the CAS loop in the "acquired" block).
         // this also covers the case when pred.next.flags has busy set.
-        if (pred_block->xchg_next_id(McsRwExtendedBlock::kSuccIdNoSuccessor) == my_tail_int) {
-          my_block->set_pred_id(McsRwExtendedBlock::kPredIdAcquired);
-          lock->increment_nreaders();
-          my_block->set_pred_flag_granted();
-        } else {
-          my_block->set_pred_id(pred);
-        }
+        ASSERT_ND(pred_block->next_flag_has_reader_successor());
+        my_block->set_pred_id(pred);
         my_block->timeout_granted(McsRwExtendedBlock::kTimeoutNever);
         return finish_acquire_reader_lock(lock, my_block, my_tail_int);
       } else {
@@ -1089,8 +1080,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         // pred is trying to leave, wait for a new pred or being waken up
         // pred has higher priority to leave, and it should already have me on its next.id
         my_block->set_pred_id(pred);
-        spin_until([my_block, pred]{
-          return my_block->get_pred_id() != pred || !my_block->pred_flag_is_waiting(); });
+        spin_until([my_block, pred]{ return my_block->get_pred_id() != pred; });
         // consume it and retry
         pred = my_block->xchg_pred_id(0);
         if (pred == McsRwExtendedBlock::kPredIdAcquired) {
