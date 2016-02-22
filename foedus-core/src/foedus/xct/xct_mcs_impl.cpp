@@ -622,22 +622,21 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     return block_index;
   }
   /** Instant-try versions, won't leave node in the queue if failed.
-   * Same as acquire_try_rw_* in SimpleRWLock. */
+   * Different from SimpleRWLock, here we use the async try/retry/cancel trio. */
   McsBlockIndex acquire_try_rw_writer(McsRwLock* lock) {
-    const thread::ThreadId id = adaptor_.get_my_id();
-    McsBlockIndex block_index = adaptor_.issue_new_block();
-    auto* my_block = adaptor_.get_rw_my_block(block_index);
-    my_block->init_writer();
-
-    McsRwLock tmp;
-    uint64_t expected = *reinterpret_cast<uint64_t*>(&tmp);
-    McsRwLock tmp2;
-    tmp2.tail_ = McsRwLock::to_tail_int(id, block_index);
-    uint64_t desired = *reinterpret_cast<uint64_t*>(&tmp2);
-    my_block->set_pred_flag_granted();
-    my_block->set_next_flag_granted();
-    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-      reinterpret_cast<uint64_t*>(lock), &expected, desired)) {
+    McsBlockIndex block_index = 0;
+    auto ret = acquire_writer_lock(lock, &block_index, McsRwExtendedBlock::kTimeoutZero);
+    ASSERT_ND(ret == kErrorCodeOk || ret == kErrorCodeLockRequested);
+    ASSERT_ND(block_index);
+    if (ret == kErrorCodeOk) {
+      return block_index;
+    }
+    ASSERT_ND(ret == kErrorCodeLockRequested);
+    uint32_t my_tail_int =
+      xct::McsRwLock::to_tail_int(static_cast<uint32_t>(adaptor_.get_my_id()), block_index);
+    // check once
+    if (retry_async_rw_writer(lock, block_index) ||
+      cancel_writer_lock(lock, my_tail_int) == kErrorCodeOk) {
       return block_index;
     }
     return 0;
