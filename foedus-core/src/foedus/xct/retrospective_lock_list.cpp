@@ -513,7 +513,7 @@ ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
     }
     if (lock_entry->mcs_block_ == 0) {
       DVLOG(0) << "Failed to try-acquire a lock.";
-      return kErrorCodeXctRaceAbort;
+      return kErrorCodeXctLockAbort;
     }
     lock_entry->taken_mode_ = lock_entry->preferred_mode_;
   }
