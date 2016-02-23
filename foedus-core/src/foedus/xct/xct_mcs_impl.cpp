@@ -778,6 +778,8 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     McsRwExtendedBlock* pred_block,
     uint32_t me,
     McsRwExtendedBlock* my_block) {
+    ASSERT_ND(my_block->get_pred_id() == 0);
+    ASSERT_ND(pred_block->get_next_id() == 0);
     my_block->set_pred_id(pred);
     pred_block->set_next_id(me);
   }
@@ -859,6 +861,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       // XXX(tzwang): we were using the weak version of CAS, but it tended to lock up when
       // while gdb tells the link between me and successor is good. Use strong version for
       // now; there are several other similar intances, all converted to *_strong.
+      spin_until([succ_block, my_tail_int]{ return succ_block->get_pred_id() == my_tail_int; });
       if (succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
         lock->increment_nreaders();
         succ_block->set_pred_flag_granted();
@@ -880,6 +883,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       }
     }
     my_block->unset_next_flag_busy();
+    ASSERT_ND(my_block->get_next_id() == McsRwExtendedBlock::kSuccIdNoSuccessor);
     return kErrorCodeOk;
   }
 
@@ -997,18 +1001,23 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         // pred should give me a new pred, after its CAS trying to pass me the lock failed
         ASSERT_ND(my_block->get_pred_id() == 0);
         my_block->set_pred_id(pred);
-        spin_until([my_block, pred]{ return my_block->get_pred_id() != pred; });
         pred = my_block->xchg_pred_id(0);
-        if (pred == McsRwExtendedBlock::kPredIdAcquired) {
+        if (pred == 0 || pred == McsRwExtendedBlock::kPredIdAcquired) {
           spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
           return finish_acquire_reader_lock(lock, my_block, my_tail_int);
-        }
-        ASSERT_ND(pred);
-        pred_block = adaptor_.dereference_rw_tail_block(pred);
-        if (pred_block->is_writer()) {
+        } else {
+          // make sure successor can't leave, unless it tried to leave first
+          ASSERT_ND(!my_block->next_flag_is_granted());
+          my_block->set_next_flag_leaving();
+          spin_until([my_block]{
+            return my_block->get_next_id() != McsRwExtendedBlock::kSuccIdSuccessorLeaving; });
+          auto* pred_block = adaptor_.dereference_rw_tail_block(pred);
+          ASSERT_ND(my_block->get_pred_id() == 0);
+          if (pred_block->is_reader()) {
+            return cancel_reader_lock_with_reader_pred(lock, my_block, my_tail_int, pred);
+          }
           goto retry;
         }
-        return cancel_reader_lock_with_reader_pred(lock, my_block, my_tail_int, pred);
       } else if (eflags & McsRwExtendedBlock::kSuccFlagBusy) {
         ASSERT_ND(pred_block->next_flag_is_granted());
         ASSERT_ND(pred_block->next_flag_is_busy());
@@ -1344,6 +1353,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
   }
 
   ErrorCode cancel_writer_lock(McsRwLock* lock, uint32_t my_tail_int) {
+  start_cancel:
     auto* my_block = adaptor_.dereference_rw_tail_block(my_tail_int);
     auto pred = my_block->xchg_pred_id(0);
     // if pred is a releasing writer and already dereference my id, it will CAS me.pred.id
@@ -1382,22 +1392,12 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       uint64_t eflags = pred_block->read_next_flags();
       if ((eflags & McsRwExtendedBlock::kSuccFlagMask) == McsRwExtendedBlock::kSuccFlagLeaving) {
         ASSERT_ND(my_block->get_pred_id() == 0);
-        // pred might be cancelling (reader/writer) or releasing, so just wait
+        // pred might be cancelling, we won't know if it'll eventually
+        // get the lock or really cancel. In the former case it won't update my pred;
+        // in the latter case it will. So just recover me.pred.id and retry (can't reset
+        // next.flags to Waiting - that will confuse our successor).
         my_block->set_pred_id(pred);
-        spin_until([my_block, pred]{ return my_block->get_pred_id() != pred; });
-        pred = my_block->xchg_pred_id(0);
-        if (pred == 0) {
-          // pred reader was releasing and it should have put me on lock.next_writer
-          return cancel_writer_lock_no_pred(lock, my_block, my_tail_int);
-        } else if (pred == McsRwExtendedBlock::kPredIdAcquired) {
-          spin_until([my_block]{ return my_block->pred_flag_is_granted(); });
-          my_block->set_next_flag_granted();
-          adaptor_.remove_rw_async_mapping(lock);
-          ASSERT_ND(lock->nreaders() == 0);
-          return kErrorCodeOk;
-        }
-        pred_block = adaptor_.dereference_rw_tail_block(pred);
-        continue;
+        goto start_cancel;
       } else if (eflags & static_cast<uint64_t>(McsRwExtendedBlock::kSuccFlagBusy)) {
         // pred is perhaps releasing (writer)? me.pred.id is 0, pred can do nothing about me,
         // so it's safe to dereference
