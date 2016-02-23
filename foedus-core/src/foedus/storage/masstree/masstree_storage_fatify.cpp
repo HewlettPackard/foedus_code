@@ -76,7 +76,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
     if (root->has_foster_child()) {
       // oh, the root page needs to grow
       LOG(INFO) << "oh, the root page needs to grow";
-      WRAP_ERROR_CODE(grow_root(
+      WRAP_ERROR_CODE(grow_first_root(
         context,
         &get_first_root_pointer(),
         &get_first_root_owner(),
@@ -89,8 +89,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
 
   while (true) {
     // lock the first root.
-    // To remove risk on deadlock in HCC, we do this as a "try" semantics.
-    xct::McsRwLockScope owner_scope(context, &get_first_root_owner(), false, true, true);
+    xct::McsLockScope owner_scope(context, &get_first_root_owner(), true, false);
     if (!owner_scope.is_locked()) {
       LOG(WARNING) << "Tried to lock the root for fatity-ing, but someone seems doing something."
         << " As fatification is not a mandatory thing, we skip it now.";

@@ -93,7 +93,7 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
     ASSERT_ND(!get_first_root_owner().is_moved());
     // root page has a foster child... time for tree growth!
     MasstreeIntermediatePage* new_root;
-    CHECK_ERROR_CODE(grow_root(
+    CHECK_ERROR_CODE(grow_first_root(
       context,
       &get_first_root_pointer(),
       &get_first_root_owner(),
@@ -111,8 +111,7 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
   return kErrorCodeOk;
 }
 
-
-ErrorCode MasstreeStoragePimpl::grow_root(
+ErrorCode MasstreeStoragePimpl::grow_non_first_root(
   thread::Thread* context,
   DualPagePointer* root_pointer,
   xct::RwLockableXctId* root_pointer_owner,
@@ -137,7 +136,38 @@ ErrorCode MasstreeStoragePimpl::grow_root(
       " to a root page of the layer to be grown";
     return kErrorCodeOk;  // same above.
   }
+  return grow_root(context, root_pointer, new_root);
+}
 
+ErrorCode MasstreeStoragePimpl::grow_first_root(
+  thread::Thread* context,
+  DualPagePointer* root_pointer,
+  xct::LockableXctId* root_pointer_owner,
+  MasstreeIntermediatePage** new_root) {
+  *new_root = nullptr;
+  if (root_pointer_owner->is_keylocked()) {
+    DVLOG(0) << "interesting. someone else is growing the tree, so let him do that.";
+    // we can move on, thanks to the master-tree invariant. tree-growth is not a mandatory
+    // task to do right away
+    return kErrorCodeOk;
+  }
+  // Growing a root is not mandatory, so if someone else is working on it, we let him do that.
+  xct::McsLockScope owner_scope(context, root_pointer_owner, true, false);
+
+  // McsLock doesn't have a try interface, we should got the lock directly.
+  ASSERT_ND(owner_scope.is_locked());
+  if (root_pointer_owner->is_moved()) {
+    LOG(INFO) << "interesting. someone else has split the page that had a pointer"
+      " to a root page of the layer to be grown";
+    return kErrorCodeOk;  // same above.
+  }
+  return grow_root(context, root_pointer, new_root);
+}
+
+ErrorCode MasstreeStoragePimpl::grow_root(
+  thread::Thread* context,
+  DualPagePointer* root_pointer,
+  MasstreeIntermediatePage** new_root) {
   // follow the pointer after taking lock on owner ID
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
   MasstreePage* root = reinterpret_cast<MasstreePage*>(
@@ -563,7 +593,7 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   // root page has a foster child... time for tree growth!
   if (UNLIKELY(next_root->has_foster_child())) {
     MasstreeIntermediatePage* new_next_root;
-    CHECK_ERROR_CODE(grow_root(context, pointer, owner, &new_next_root));
+    CHECK_ERROR_CODE(grow_non_first_root(context, pointer, owner, &new_next_root));
     if (new_next_root) {
       next_root = new_next_root;
     } else {
