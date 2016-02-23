@@ -171,7 +171,8 @@ struct YcsbWorkload {
       scan_percent_(scan_percent),
       rmw_percent_(rmw_percent),
       rmw_additional_reads_(0),
-      reps_per_tx_(1) {}
+      reps_per_tx_(1),
+      distinct_keys_(true) {}
 
   YcsbWorkload() {}
   int16_t insert_percent() const { return insert_percent_; }
@@ -198,6 +199,7 @@ struct YcsbWorkload {
   int16_t rmw_percent_;
   int32_t rmw_additional_reads_;
   int32_t reps_per_tx_;
+  bool distinct_keys_;
 };
 
 class YcsbLoadTask {

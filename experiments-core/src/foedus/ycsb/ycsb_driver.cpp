@@ -110,6 +110,7 @@ DEFINE_bool(simple_int_keys, true, "Whether to use 8-byte interger key; ignores 
 DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
 
 DEFINE_bool(sort_keys, true, "Whether to sort the keys used in workload F");
+DEFINE_bool(distinct_keys, true, "Whether to make every key under access is different");
 
 DEFINE_bool(force_canonical_xlocks_in_precommit, true,
   "Whether precommit always releases all locks that violate canonical mode before taking X-locks");
@@ -376,6 +377,7 @@ ErrorStack YcsbDriver::run() {
   }
 
   workload.reps_per_tx_ = FLAGS_reps_per_tx;
+  workload.distinct_keys_ = FLAGS_distinct_keys;
 
   LOG(INFO)
     << "Workload -"
@@ -386,6 +388,7 @@ ErrorStack YcsbDriver::run() {
     << " rmw: " << workload.rmw_percent() << "%"
     << " rmw additional reads: " << workload.rmw_additional_reads_
     << " operations per transaction: " << workload.reps_per_tx_
+    << " use distinct keys: " << workload.distinct_keys_
     << " zipfian theta: " << FLAGS_zipfian_theta;
 
   // Create an empty table

@@ -111,8 +111,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     if (access_keys.size() == 0) {
       for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
         YcsbKey k = build_rmw_key();
-        while (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
-          k = build_rmw_key();
+        if (workload_.distinct_keys_) {
+          while (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
+            k = build_rmw_key();
+          }
         }
         access_keys.push_back(k);
       }
