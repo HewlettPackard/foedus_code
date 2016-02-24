@@ -396,7 +396,7 @@ ErrorStack YcsbDriver::run() {
 #ifdef YCSB_HASH_STORAGE
   LOG(INFO) << "Use hash table storage";
   storage::hash::HashMetadata meta("ycsb_user_table");
-  const float kHashPreferredRecordsPerBin = 5.0;
+  const float kHashPreferredRecordsPerBin = 15.0;
   if (workload.insert_percent() == 0) {
     meta.set_capacity(initial_table_size, kHashPreferredRecordsPerBin);
   } else {
@@ -415,8 +415,7 @@ ErrorStack YcsbDriver::run() {
 
   // Keep volatile pages
   meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
-  CHECK_ERROR(engine_->get_storage_manager()->create_storage(&meta, &ep));
-
+  COERCE_ERROR(engine_->get_storage_manager()->create_storage(&meta, &ep));
   auto initial_records_per_thread = initial_table_size / total_thread_count;
   auto* thread_pool = engine_->get_thread_pool();
   // One loader per node
