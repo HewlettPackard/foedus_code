@@ -20,3 +20,7 @@ hot_threshold=$5
 ordered_inserts=0
 sort_load_keys=0
 sort_keys=0
+extended_rw_lock=1
+parallel_lock=0
+enable_retrospective_lock_list=1
+force_canonical_xlocks_in_precommit=1
