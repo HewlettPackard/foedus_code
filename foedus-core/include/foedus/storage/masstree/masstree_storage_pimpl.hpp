@@ -392,6 +392,11 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     bool follow_volatile,
     uint32_t* remaining_pages);
 
+  /** For stupid reasons (I'm lazy!) these are defined in _debug.cpp. */
+  ErrorStack  hcc_reset_all_temperature_stat(Engine* engine);
+  ErrorStack  hcc_reset_all_temperature_stat_recurse(Engine* engine, MasstreePage* parent);
+  ErrorStack  hcc_reset_all_temperature_stat_follow(Engine* engine, VolatilePagePointer page_id);
+
   /** Thread::follow_page_pointer() for masstree */
   ErrorCode follow_page(
     thread::Thread* context,

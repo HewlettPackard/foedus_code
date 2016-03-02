@@ -689,6 +689,9 @@ ErrorStack MasstreeStorage::debugout_single_thread(
   return MasstreeStoragePimpl(this).debugout_single_thread(engine, volatile_only, max_pages);
 }
 
+ErrorStack MasstreeStorage::hcc_reset_all_temperature_stat(Engine* engine) {
+  return MasstreeStoragePimpl(this).hcc_reset_all_temperature_stat(engine);
+}
 
 ErrorCode MasstreeStorage::prefetch_pages_normalized(
   thread::Thread* context,

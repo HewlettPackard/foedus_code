@@ -543,6 +543,12 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     bool volatile_only = false,
     uint32_t max_pages = 1024U);
 
+  /**
+   * Resets all volatile pages' temperature stat to be zero in this storage.
+   * Used only in HCC-branch.
+   */
+  ErrorStack  hcc_reset_all_temperature_stat(Engine* engine);
+
   /** Arguments for peek_volatile_page_boundaries() */
   struct PeekBoundariesArguments {
     /** [IN] slices of higher layers that lead to the B-trie layer of interest. null if 1st layer */
