@@ -624,13 +624,42 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
   /** Instant-try versions, won't leave node in the queue if failed.
    * Different from SimpleRWLock, here we use the async try/retry/cancel trio. */
   McsBlockIndex acquire_try_rw_writer(McsRwLock* lock) {
+    const thread::ThreadId id = adaptor_.get_my_id();
     McsBlockIndex block_index = 0;
-    auto ret = acquire_writer_lock(lock, &block_index, McsRwExtendedBlock::kTimeoutZero);
+    auto* my_block = init_block(&block_index, true);
+
+    McsRwLock tmp;
+    uint64_t expected = *reinterpret_cast<uint64_t*>(&tmp);
+    McsRwLock tmp2;
+    tmp2.tail_ = McsRwLock::to_tail_int(id, block_index);
+    uint64_t desired = *reinterpret_cast<uint64_t*>(&tmp2);
+    my_block->set_flags_granted();
+    if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+      reinterpret_cast<uint64_t*>(lock), &expected, desired)) {
+      return block_index;
+    }
+    return 0;
+
+  /*
+   * XXX(tzwang, Feb 2016): it turns out the above CAS-try is better than using the trio -
+   * the difference could be as much as 10x under high contention (DL580). The reason
+   * I think is under high contention, often we need to cancel anyway, which is much
+   * more expensive than a simple weak CAS.
+   *
+   * But the case for readers is a bit different: the trio wins especially with a lot of
+   * reads because it allows real reader-sharing.
+   */
+  /*
+    McsBlockIndex block_index = 0;
+    //auto ret = acquire_writer_lock(lock, &block_index, McsRwExtendedBlock::kTimeoutZero);
+    auto ret = acquire_writer_lock(lock, &block_index, 1000);
     ASSERT_ND(ret == kErrorCodeOk || ret == kErrorCodeLockRequested);
     ASSERT_ND(block_index);
     if (ret == kErrorCodeOk) {
       return block_index;
     }
+    return 0;
+
     ASSERT_ND(ret == kErrorCodeLockRequested);
     uint32_t my_tail_int =
       xct::McsRwLock::to_tail_int(static_cast<uint32_t>(adaptor_.get_my_id()), block_index);
@@ -640,10 +669,24 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return block_index;
     }
     return 0;
+  */
   }
   McsBlockIndex acquire_try_rw_reader(McsRwLock* lock) {
-    // This is a bit special, we do an async acquire without timeout
-    // and check only once and cancel if didn't get the lock.
+    // This is a bit special, we do an async acquire with a very short timeout:
+    // giving 0 timeout might cause unnecessary cancelling because of delay in
+    // lock granting from reader predecessor. Note that there is a delay even if
+    // there are only readers, the last requester has to wait for its predecessor
+    // to notify about the granting of the lock.
+    McsBlockIndex block_index = 0;
+    auto ret = acquire_reader_lock(lock, &block_index, 10);
+    ASSERT_ND(ret == kErrorCodeOk || ret == kErrorCodeLockCancelled);
+    ASSERT_ND(block_index);
+    if (ret == kErrorCodeOk) {
+      return block_index;
+    }
+    return 0;
+
+    /* The old version that uses 0 timeout:
     McsBlockIndex block_index = 0;
     auto ret = acquire_reader_lock(lock, &block_index, McsRwExtendedBlock::kTimeoutZero);
     ASSERT_ND(ret == kErrorCodeOk || ret == kErrorCodeLockRequested);
@@ -660,6 +703,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       return block_index;
     }
     return 0;
+    */
   }
   void release_rw_reader(McsRwLock* lock, McsBlockIndex block_index) {
     release_reader_lock(lock, block_index);
