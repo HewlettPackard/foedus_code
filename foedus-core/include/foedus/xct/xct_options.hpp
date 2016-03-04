@@ -49,6 +49,7 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
     kDefaultEpochAdvanceIntervalMs = 20,
     kMcsImplementationTypeSimple = 0,
     kMcsImplementationTypeExtended = 1,
+    kDefaultHotThreshold = 256,  // OCC by default (for test cases and benchamrks that don't set it)
   };
 
   /**
@@ -118,6 +119,18 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * @ref RLL
    */
   bool        enable_retrospective_lock_list_;
+
+  /**
+   * @brief When we construct Retrospective Lock List (RLL) after aborts, we add
+   * read-locks on records whose hotness exceeds this value.
+   * @details
+   * This value should be a bit lower than the threshold we trigger read-locks
+   * without RLL (StorageOptions::hot_threshold_). Otherwise, the next run might often
+   * take a read-lock the RLL discarded due to a concurrent abort, which might violate canonical
+   * order.
+   * @ref RLL
+   */
+  uint16_t    hot_threshold_for_retrospective_lock_list_;
 
   /**
    * @brief Whether precommit always releases all locks that violate canonical mode before

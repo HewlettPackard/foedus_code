@@ -82,6 +82,9 @@ DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 DEFINE_int32(hot_threshold, -1, "Threshold to determine hot/cold pages,"
   " 0 (always hot, 2PL) - 256 (always cold, OCC).");
+DEFINE_int32(rll_relative_threshold, -1, "Relative threshold to determine hot/cold pages in RLL,"
+  " This value + hot_threshold becomes hot_threshold_for_retrospective_lock_list_."
+  " Note: Most likely this value should be negative.");
 
 // YCSB-specific options
 DEFINE_string(workload, "F", "YCSB workload; choose A/B/C/D/E/F.");
@@ -295,6 +298,10 @@ int driver_main(int argc, char **argv) {
   }
   options.storage_.hot_threshold_ = FLAGS_hot_threshold;
   std::cout << "Hot record threshold: " << options.storage_.hot_threshold_ << std::endl;
+  options.xct_.hot_threshold_for_retrospective_lock_list_
+    = options.storage_.hot_threshold_ + FLAGS_rll_relative_threshold;
+  std::cout << "RLL hot threshold: "
+    << options.xct_.hot_threshold_for_retrospective_lock_list_ << std::endl;
 
   options.xct_.force_canonical_xlocks_in_precommit_ = FLAGS_force_canonical_xlocks_in_precommit;
   options.xct_.enable_retrospective_lock_list_ = FLAGS_enable_retrospective_lock_list;
