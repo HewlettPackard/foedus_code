@@ -298,8 +298,9 @@ int driver_main(int argc, char **argv) {
   }
   options.storage_.hot_threshold_ = FLAGS_hot_threshold;
   std::cout << "Hot record threshold: " << options.storage_.hot_threshold_ << std::endl;
+
   options.xct_.hot_threshold_for_retrospective_lock_list_
-    = options.storage_.hot_threshold_ + FLAGS_rll_relative_threshold;
+    = std::max<int>(0, options.storage_.hot_threshold_ + FLAGS_rll_relative_threshold);
   std::cout << "RLL hot threshold: "
     << options.xct_.hot_threshold_for_retrospective_lock_list_ << std::endl;
 
