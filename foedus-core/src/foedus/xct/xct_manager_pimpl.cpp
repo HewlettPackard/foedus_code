@@ -1113,7 +1113,7 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   // So, we might revist this choice.
   if (engine_->get_options().xct_.enable_retrospective_lock_list_) {
     const uint32_t hot_threashold = engine_->get_options().storage_.hot_threshold_;
-    const uint32_t conservative_threashold = (hot_threashold < 1U ? 0 : 1U);
+    const uint32_t conservative_threashold = (hot_threashold < 1U ? 0 : hot_threashold - 1U);
     current_xct.get_retrospective_lock_list()->construct(context, conservative_threashold);
   } else {
     current_xct.get_retrospective_lock_list()->clear_entries();
