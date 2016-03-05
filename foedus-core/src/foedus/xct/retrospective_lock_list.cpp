@@ -519,7 +519,7 @@ ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
   }
   ASSERT_ND(lock_entry->mcs_block_);
   ASSERT_ND(lock_entry->is_locked());
-  *last_locked_pos = pos;
+  *last_locked_pos = std::max(pos, *last_locked_pos);
   return kErrorCodeOk;
 }
 
