@@ -115,6 +115,8 @@ DEFINE_bool(sort_load_keys, true, "Whether to sort the keys before loading.");
 DEFINE_bool(sort_keys, true, "Whether to sort the keys used in workload F");
 DEFINE_bool(distinct_keys, true, "Whether to make every key under access is different");
 
+DEFINE_int32(extra_table_size, 0, "How many records to load in a second static user table.");
+
 DEFINE_bool(force_canonical_xlocks_in_precommit, true,
   "Whether precommit always releases all locks that violate canonical mode before taking X-locks");
 DEFINE_bool(enable_retrospective_lock_list, true, "Whether to use RLL after aborts");
@@ -194,8 +196,12 @@ YcsbClientChannel* get_channel(Engine* engine) {
 // + CACHELINE_SIZE: 2nd worker's local key counter
 // + CACHELINE_SIZE: 3rd worker's local key counter
 // ... and so on...
-uint32_t YcsbClientChannel::peek_local_key_counter(Engine* engine, uint32_t worker_id) {
-  return get_local_key_counter(engine, worker_id)->key_counter_;
+uint32_t YcsbClientChannel::peek_local_user_key_counter(Engine* engine, uint32_t worker_id) {
+  return get_local_key_counter(engine, worker_id)->user_key_counter_;
+}
+
+uint32_t YcsbClientChannel::peek_local_extra_key_counter(Engine* engine, uint32_t worker_id) {
+  return get_local_key_counter(engine, worker_id)->extra_key_counter_;
 }
 
 PerWorkerCounter* get_local_key_counter(Engine* engine, uint32_t worker_id) {
@@ -384,6 +390,7 @@ ErrorStack YcsbDriver::run() {
     COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
 
+  workload.extra_table_size_ = FLAGS_extra_table_size;
   workload.reps_per_tx_ = FLAGS_reps_per_tx;
   workload.distinct_keys_ = FLAGS_distinct_keys;
 
@@ -397,6 +404,7 @@ ErrorStack YcsbDriver::run() {
     << " rmw additional reads: " << workload.rmw_additional_reads_
     << " operations per transaction: " << workload.reps_per_tx_
     << " use distinct keys: " << workload.distinct_keys_
+    << " extra table size: " << workload.extra_table_size_
     << " zipfian theta: " << FLAGS_zipfian_theta;
 
   // Create an empty table
@@ -411,6 +419,9 @@ ErrorStack YcsbDriver::run() {
     // Don't support expanding record so far... *1.5 should be more than enough
     meta.set_capacity(initial_table_size * 1.5, kHashPreferredRecordsPerBin);
   }
+  storage::hash::HashMetadata extra_meta("ycsb_extra_table");
+  // We don't grow this table
+  extra_meta.set_capacity(FLAGS_extra_table_size, kHashPreferredRecordsPerBin);
 #else
   LOG(INFO) << "Use masstree storage";
   storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
@@ -419,28 +430,48 @@ ErrorStack YcsbDriver::run() {
   }
   meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
   meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
+
+  storage::masstree::MasstreeMetadata extra_meta("ycsb_extra_table", 100);
+  extra_meta.snapshot_drop_volatile_pages_btree_levels_ = 0;
+  extra_meta.snapshot_drop_volatile_pages_layer_threshold_ = 8;
 #endif
 
   // Keep volatile pages
   meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
+  extra_meta.snapshot_thresholds_.snapshot_keep_threshold_ = 0xFFFFFFFFU;
   COERCE_ERROR(engine_->get_storage_manager()->create_storage(&meta, &ep));
-  auto initial_records_per_thread = initial_table_size / total_thread_count;
+  COERCE_ERROR(engine_->get_storage_manager()->create_storage(&extra_meta, &ep));
+  auto initial_user_records_per_thread = initial_table_size / total_thread_count;
+  auto extra_records_per_thread = FLAGS_extra_table_size / total_thread_count;
   auto* thread_pool = engine_->get_thread_pool();
   // One loader per node
   std::vector< thread::ImpersonateSession > load_sessions;
   for (uint16_t node = 0; node < options.thread_.group_count_; node++) {
     YcsbLoadTask::Inputs inputs;
     inputs.load_node_ = node;
-    if (initial_records_per_thread == 0) {
-      // Let one thread in one node load them all if we don't
-      // have at least one record per thread (note, not per loader).
-      // FIXME(tzwang): worth it to spread records as widely as possible?
-      inputs.records_per_thread_ = initial_table_size;
-      inputs.spread_ = false;
+    if (initial_user_records_per_thread == 0) {
+      if (node == 0) {
+        // Let one thread in one node load them all if we don't
+        // have at least one record per thread (note, not per loader).
+        // FIXME(tzwang): worth it to spread records as widely as possible?
+        inputs.user_records_per_thread_ = initial_table_size;
+        inputs.user_table_spread_ = false;
+      }
     } else {
-      inputs.records_per_thread_ = initial_records_per_thread;
-      inputs.spread_ = true;
+      inputs.user_records_per_thread_ = initial_user_records_per_thread;
+      inputs.user_table_spread_ = true;
     }
+
+    if (extra_records_per_thread == 0) {
+      if (node == 0) {
+        inputs.extra_records_per_thread_ = FLAGS_extra_table_size;
+        inputs.extra_table_spread_ = false;
+      }
+    } else {
+      inputs.extra_records_per_thread_ = extra_records_per_thread;
+      inputs.extra_table_spread_ = true;
+    }
+
     inputs.sort_load_keys_ = FLAGS_sort_load_keys;
     thread::ImpersonateSession load_session;
     bool ret = thread_pool->impersonate_on_numa_node(
@@ -449,7 +480,7 @@ ErrorStack YcsbDriver::run() {
       LOG(FATAL) << "Couldn't impersonate";
     }
     load_sessions.emplace_back(std::move(load_session));
-    if (initial_records_per_thread == 0) {
+    if (initial_user_records_per_thread == 0 && extra_records_per_thread == 0) {
       break;
     }
   }
@@ -502,17 +533,27 @@ ErrorStack YcsbDriver::run() {
       inputs.random_inserts_ = FLAGS_random_inserts;
       inputs.sort_keys_ = FLAGS_sort_keys;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
-      if (initial_records_per_thread == 0) {
+      if (initial_user_records_per_thread == 0) {
         if (node == 0 && ordinal == 0) {
-          inputs.local_key_counter_->key_counter_ = initial_table_size;
+          inputs.local_key_counter_->user_key_counter_ = initial_table_size;
         } else {
-          inputs.local_key_counter_->key_counter_ = 0;
+          inputs.local_key_counter_->user_key_counter_ = 0;
         }
       } else {
-        inputs.local_key_counter_->key_counter_ = initial_records_per_thread;
+        inputs.local_key_counter_->user_key_counter_ = initial_user_records_per_thread;
+      }
+      if (extra_records_per_thread == 0) {
+        if (node == 0 && ordinal == 0) {
+          inputs.local_key_counter_->extra_key_counter_ = FLAGS_extra_table_size;
+        } else {
+          inputs.local_key_counter_->extra_key_counter_ = 0;
+        }
+      } else {
+        inputs.local_key_counter_->extra_key_counter_ = extra_records_per_thread;
       }
       inputs.workload_ = workload;
       inputs.initial_table_size_ = initial_table_size;
+      inputs.extra_table_size_ = FLAGS_extra_table_size;
       bool ret = thread_pool->impersonate_on_numa_node(
         node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
       if (!ret) {

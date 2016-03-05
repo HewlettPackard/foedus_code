@@ -83,8 +83,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   xct_manager_ = engine_->get_xct_manager();
 #ifdef YCSB_HASH_STORAGE
   user_table_ = engine_->get_storage_manager()->get_hash("ycsb_user_table");
+  extra_table_ = engine_->get_storage_manager()->get_hash("ycsb_extra_table");
 #else
   user_table_ = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
+  extra_table_ = engine_->get_storage_manager()->get_masstree("ycsb_extra_table");
 #endif
   channel_ = get_channel(engine_);
   // TODO(tzwang): so far we only support homogeneous systems: each processor has exactly the same
@@ -92,8 +94,26 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   // figure out how many cores we have (basically by adding individual core counts up).
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
 
-  std::vector<YcsbKey> access_keys;
-  access_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+  std::vector<YcsbKey> user_keys;
+  std::vector<YcsbKey> all_extra_keys;
+  user_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+  all_extra_keys.reserve(workload_.extra_table_size_);
+
+  // Prepare keys for the extra table (if non-empty), this contains all keys of the (small) table,
+  // won't change
+  if (workload_.extra_table_size_) {
+    for (int32_t i = 0; i < workload_.extra_table_size_; i++) {
+      auto hi = i / workload_.extra_table_size_;
+      auto lo = i % workload_.extra_table_size_;
+      YcsbKey k = build_key(hi, lo);
+      all_extra_keys.push_back(k);
+    }
+  }
+
+  if (sort_keys_) {
+    std::sort(all_extra_keys.begin(), all_extra_keys.end());
+  }
+  ASSERT_ND((int32_t)all_extra_keys.size() == workload_.extra_table_size_);
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -108,21 +128,23 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     uint64_t scan_length_rnd_seed = rnd_scan_length_select_.get_current_seed();
 
     // Get x different keys first
-    if (access_keys.size() == 0) {
+    if (user_keys.size() == 0) {
       for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
         YcsbKey k = build_rmw_key();
         if (workload_.distinct_keys_) {
-          while (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
+          while (std::find(user_keys.begin(), user_keys.end(), k) != user_keys.end()) {
             k = build_rmw_key();
           }
         }
-        access_keys.push_back(k);
+        user_keys.push_back(k);
       }
+
       if (sort_keys_) {
-        std::sort(access_keys.begin(), access_keys.end());
+        std::sort(user_keys.begin(), user_keys.end());
       }
     }
-    ASSERT_ND((int32_t)access_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+    ASSERT_ND(
+      (int32_t)user_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
 
     // abort-retry loop
     while (!is_stop_requested()) {
@@ -134,10 +156,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
           YcsbKey key;
           uint32_t high = worker_id_;
-          uint32_t* low = &local_key_counter_->key_counter_;
+          uint32_t* low = &local_key_counter_->user_key_counter_;
           if (random_inserts_) {
             high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
-            low = &(get_local_key_counter(engine_, high)->key_counter_);
+            low = &(get_local_key_counter(engine_, high)->user_key_counter_);
           }
           ret = do_insert(build_key(worker_id_, *low));
           // Only increment the key counter if committed to avoid holes in the key space and
@@ -155,14 +177,14 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       } else {
         if (xct_type <= workload_.read_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_read(access_keys[reps]);
+            ret = do_read(user_keys[reps]);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
         } else if (xct_type <= workload_.update_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_update(access_keys[reps]);
+            ret = do_update(user_keys[reps]);
             if (ret != kErrorCodeOk) {
               break;
             }
@@ -175,7 +197,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
             auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
             increment_total_scans();
-            ret = do_scan(access_keys[reps], nrecs);
+            ret = do_scan(user_keys[reps], nrecs);
             if (ret != kErrorCodeOk) {
               break;
             }
@@ -183,14 +205,24 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 #endif
         } else {  // read-modify-write
           for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
-            ret = do_rmw(access_keys[i]);
+            ret = do_rmw(&user_table_, user_keys[i]);
+            if (ret != kErrorCodeOk) {
+              break;
+            }
+          }
+          // XXX(tzwang): originally we wanted to have a hot table and read all records from it
+          // and then choose several to write. Now we have this variant very similar to Orthrus':
+          // RMW all the (hot) extra records in this table.
+          ASSERT_ND(workload_.extra_table_size_ == (int32_t)all_extra_keys.size());
+          for (auto& k : all_extra_keys) {
+            ret = do_rmw(&extra_table_, k);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
           if (ret == kErrorCodeOk) {
             for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
-              ret = do_read(access_keys[workload_.reps_per_tx_ + i]);
+              ret = do_read(user_keys[workload_.reps_per_tx_ + i]);
               if (ret != kErrorCodeOk) {
                 break;
               }
@@ -205,7 +237,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         ret = xct_manager_->precommit_xct(context_, &commit_epoch);
         if (ret == kErrorCodeOk) {
           ASSERT_ND(!context->is_running_xct());
-          access_keys.clear();
+          user_keys.clear();
           break;
         }
       } else {
@@ -289,7 +321,13 @@ ErrorCode YcsbClientTask::do_update(const YcsbKey& key) {
   return kErrorCodeOk;
 }
 
-ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
+ErrorCode YcsbClientTask::do_rmw(
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashStorage* table,
+#else
+  storage::masstree::MasstreeStorage* table,
+#endif
+  const YcsbKey& key) {
   YcsbRecord r;
 
   // Read
@@ -299,7 +337,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
 #else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
-    CHECK_ERROR_CODE(user_table_.get_record(
+    CHECK_ERROR_CODE(table->get_record(
       context_,
       key.ptr(),
       key.size(),
@@ -310,7 +348,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
-    CHECK_ERROR_CODE(user_table_.get_record_part(
+    CHECK_ERROR_CODE(table->get_record_part(
       context_,
       key.ptr(),
       key.size(),
@@ -324,7 +362,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
   if (write_all_fields_) {
     r = YcsbRecord('w');
     CHECK_ERROR_CODE(
-      user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
+      table->overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
   } else {
     // Randomly pick one filed to update
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
@@ -332,7 +370,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
     char* f = r.get_field(field);
     YcsbRecord::initialize_field(f);  // modify the field
     CHECK_ERROR_CODE(
-      user_table_.overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
+      table->overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
   }
   return kErrorCodeOk;
 }

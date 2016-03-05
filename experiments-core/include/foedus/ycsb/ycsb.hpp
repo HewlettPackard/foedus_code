@@ -86,9 +86,10 @@ const assorted::FixedString<kKeyPrefixLength> kKeyPrefix("user");
 const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 chars for numbers
 
 struct PerWorkerCounter {
-  uint32_t key_counter_;
+  uint32_t user_key_counter_;
+  uint32_t extra_key_counter_;
   /** padding to occupy its own cacheline. */
-  char padding_[assorted::kCachelineSize - sizeof(uint32_t)];
+  char padding_[assorted::kCachelineSize - sizeof(uint32_t) * 2];
 };
 
 struct YcsbKey {
@@ -139,7 +140,8 @@ struct YcsbClientChannel {
   void uninitialize() {
     start_rendezvous_.uninitialize();
   }
-  uint32_t peek_local_key_counter(Engine* engine, uint32_t worker_id);
+  uint32_t peek_local_user_key_counter(Engine* engine, uint32_t worker_id);
+  uint32_t peek_local_extra_key_counter(Engine* engine, uint32_t worker_id);
 
   soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint16_t> exit_nodes_;
@@ -172,7 +174,8 @@ struct YcsbWorkload {
       rmw_percent_(rmw_percent),
       rmw_additional_reads_(0),
       reps_per_tx_(1),
-      distinct_keys_(true) {}
+      distinct_keys_(true),
+      extra_table_size_(0) {}
 
   YcsbWorkload() {}
   int16_t insert_percent() const { return insert_percent_; }
@@ -200,23 +203,38 @@ struct YcsbWorkload {
   int32_t rmw_additional_reads_;
   int32_t reps_per_tx_;
   bool distinct_keys_;
+  int32_t extra_table_size_;
 };
 
 class YcsbLoadTask {
  public:
   struct Inputs {
     uint64_t load_node_;
-    uint64_t records_per_thread_;
+    uint64_t user_records_per_thread_;
+    uint64_t extra_records_per_thread_;
     bool sort_load_keys_;
-    bool spread_;
+    bool user_table_spread_;
+    bool extra_table_spread_;
   };
   YcsbLoadTask() : rnd_(48357) {}
   ErrorStack run(
     thread::Thread* context,
     uint16_t node,
-    uint64_t records_per_thread,
+    uint64_t user_records_per_thread,
+    uint64_t extra_records_per_thread,
     bool sort_load_keys,
-    bool spread);
+    bool user_table_spread,
+    bool extra_table_spread);
+  ErrorStack load_table(
+    thread::Thread* context,
+    std::vector<YcsbKey>& keys,
+#ifndef YCSB_HASH_STORAGE
+    storage::masstree::MasstreeStorage* table);
+#else
+    storage::hash::HashStorage* table);
+#endif
+
+
  private:
   assorted::UniformRandom rnd_;
 };
@@ -232,6 +250,7 @@ class YcsbClientTask {
     bool random_inserts_;
     bool sort_keys_;
     uint64_t initial_table_size_;
+    uint64_t extra_table_size_;
     PerWorkerCounter* local_key_counter_;
     Inputs() {}
   };
@@ -260,6 +279,7 @@ class YcsbClientTask {
       random_inserts_(inputs.random_inserts_),
       sort_keys_(inputs.sort_keys_),
       initial_table_size_(inputs.initial_table_size_),
+      extra_table_size_(inputs.extra_table_size_),
       outputs_(outputs),
       local_key_counter_(inputs.local_key_counter_),
       zipfian_theta_(inputs.zipfian_theta_),
@@ -286,6 +306,7 @@ class YcsbClientTask {
   bool random_inserts_;
   bool sort_keys_;
   uint64_t initial_table_size_;
+  uint64_t extra_table_size_;
   Outputs* outputs_;
   PerWorkerCounter* local_key_counter_;
   double zipfian_theta_;
@@ -295,8 +316,10 @@ class YcsbClientTask {
   xct::XctManager* xct_manager_;
 #ifdef YCSB_HASH_STORAGE
   storage::hash::HashStorage user_table_;
+  storage::hash::HashStorage extra_table_;
 #else
   storage::masstree::MasstreeStorage user_table_;
+  storage::masstree::MasstreeStorage extra_table_;
 #endif
   YcsbClientChannel *channel_;
 
@@ -320,7 +343,7 @@ class YcsbClientTask {
   YcsbKey& build_rus_key(uint32_t total_thread_count) {
     // Choose a high-bits field first. Then take a look at that worker's local counter
     auto high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
-    auto cnt = channel_->peek_local_key_counter(engine_, high);
+    auto cnt = channel_->peek_local_user_key_counter(engine_, high);
     // The load should have inserted at least one record on behalf of this worker
     ASSERT_ND(cnt > 0);
     auto low = rnd_record_select_.uniform_within(0, cnt - 1);
@@ -329,10 +352,23 @@ class YcsbClientTask {
 
   YcsbKey& build_rmw_key() {
     auto key_seq = rnd_record_select_.uniform_within(0, initial_table_size_ - 1);
-    auto cnt = local_key_counter_->key_counter_;
+    auto cnt = local_key_counter_->user_key_counter_;
     if (cnt == 0) {
       // Unbalanced load, see the only loader's counter
-      cnt = channel_->peek_local_key_counter(engine_, 0);
+      cnt = channel_->peek_local_user_key_counter(engine_, 0);
+    }
+    ASSERT_ND(cnt > 0);
+    auto hi = key_seq / cnt;
+    auto lo = key_seq % cnt;
+    return build_key(hi, lo);
+  }
+
+  YcsbKey& build_extra_key() {
+    auto key_seq = rnd_record_select_.uniform_within(0, extra_table_size_ - 1);
+    auto cnt = local_key_counter_->extra_key_counter_;
+    if (cnt == 0) {
+      // Unbalanced load, see the only loader's counter
+      cnt = channel_->peek_local_extra_key_counter(engine_, 0);
     }
     ASSERT_ND(cnt > 0);
     auto hi = key_seq / cnt;
@@ -359,7 +395,13 @@ class YcsbClientTask {
   ErrorCode do_read(const YcsbKey& key);
   ErrorCode do_update(const YcsbKey& key);
   ErrorCode do_insert(const YcsbKey& key);
-  ErrorCode do_rmw(const YcsbKey& key);
+  ErrorCode do_rmw(
+#ifdef YCSB_HASH_STORAGE
+    storage::hash::HashStorage* table,
+#else
+    storage::masstree::MasstreeStorage* table,
+#endif
+    const YcsbKey& key);
 #ifndef YCSB_HASH_STORAGE
   ErrorCode do_scan(const YcsbKey& start_key, uint64_t nrecs);
 #endif
