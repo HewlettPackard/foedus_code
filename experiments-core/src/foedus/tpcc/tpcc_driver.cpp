@@ -91,8 +91,15 @@ DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 99' in limits.conf");
 DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
-DEFINE_int32(hot_threshold, -1, "Threshold to determine hot/cold pages,"
-  " 0 (always hot, 2PL) - 256 (always cold, OCC).");
+
+// A bit different from YCSB experiment.
+// We don't vary many things in this TPCC experiment, so we just represent the configurations
+// by just one parameter.
+DEFINE_int32(hcc_policy, 0, "Specifies configurations about HCC/MOCC."
+  " default: 0 (MOCC, RLL-on, threshold 50)"
+  " 1 (OCC, RLL-off, threshold 256)"
+  " 2 (PCC, RLL-off, threshold 0)"
+);
 
 #ifdef OLAP_MODE
 DEFINE_bool(dirty_read, false, "[Experimental] Whether to use dirty-read isolation level."
@@ -617,13 +624,37 @@ int driver_main(int argc, char **argv) {
     options.soc_.soc_type_ = kChildLocalSpawned;
   }
 
-  if (FLAGS_hot_threshold > 256) {
-    std::cout << "Hot page threshold is too large: " << FLAGS_hot_threshold
-      << ". Choose a value between 0 and 256 (inclusive)." << std::endl;
-    return 1;
+  switch (FLAGS_hcc_policy) {
+    case 0:
+      // " default: 0 (MOCC, RLL-on, threshold 50)"
+      options.storage_.hot_threshold_ = 50;
+      options.xct_.hot_threshold_for_retrospective_lock_list_ = 45;
+      options.xct_.enable_retrospective_lock_list_ = true;
+      options.xct_.force_canonical_xlocks_in_precommit_ = true;
+      // No options about paralell locks. we use simple locks in this experiment
+      break;
+    case 1:
+      // " 1 (OCC, RLL-off, threshold 256)"
+      options.storage_.hot_threshold_ = 256;
+      options.xct_.hot_threshold_for_retrospective_lock_list_ = 256;
+      options.xct_.enable_retrospective_lock_list_ = false;
+      options.xct_.force_canonical_xlocks_in_precommit_ = true;
+      break;
+    case 2:
+      // " 2 (PCC, RLL-off, threshold 0)"
+      options.storage_.hot_threshold_ = 0;
+      options.xct_.hot_threshold_for_retrospective_lock_list_ = 0;
+      options.xct_.enable_retrospective_lock_list_ = false;
+      options.xct_.force_canonical_xlocks_in_precommit_ = true;
+      break;
+    default:
+      LOG(FATAL) << "Unknown hcc_policy value:" << FLAGS_hcc_policy;
   }
-  options.storage_.hot_threshold_ = FLAGS_hot_threshold;
-  std::cout << "Hot record threshold: " << options.storage_.hot_threshold_ << std::endl;
+  std::cout
+    << "hcc_policy value:" << FLAGS_hcc_policy
+    << ", Hot record threshold: " << options.storage_.hot_threshold_
+    << ", RLL:" << options.xct_.enable_retrospective_lock_list_
+    << std::endl;
 
   TpccDriver::Result result;
   {
