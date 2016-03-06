@@ -8,7 +8,7 @@ fork_workers=true
 
 for hcc_policy in 0 1 2
 do
-  for rep in 0 # 1 2 3 4 5 6 7 8 9
+  for rep in 0 1 2 3 4 5 6 7 8 9
   do
     echo "hcc_policy=$hcc_policy, rep=$rep/10..."
     # be careful.
