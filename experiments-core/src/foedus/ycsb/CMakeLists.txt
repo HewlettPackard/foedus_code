@@ -22,10 +22,6 @@ configure_file(run_dl580.sh run_dl580.sh COPYONLY)
 configure_file(run_hp840.sh run_hp840.sh COPYONLY)
 configure_file(run_common.sh run_common.sh COPYONLY)
 configure_file(config_ycsb.sh config_ycsb.sh COPYONLY)
-configure_file(config_ycsb_f.sh config_ycsb_f.sh COPYONLY)
-configure_file(run_ycsb_f_dl580.sh run_ycsb_f_dl580.sh COPYONLY)
-configure_file(run_ycsb_f_dh.sh run_ycsb_f_dh.sh COPYONLY)
-
 
 configure_file(run_ycsb_f_ro_common.sh run_ycsb_f_ro_common.sh COPYONLY)
 configure_file(run_ycsb_f_gh_ro.sh run_ycsb_f_gh_ro.sh COPYONLY)

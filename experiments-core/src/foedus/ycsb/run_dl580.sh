@@ -12,5 +12,5 @@ fork_workers=true
 null_log_device=true
 high_priority=false # To set this to true, you must add "yourname - rtprio 99" to limits.conf
 
-. config_ycsb.sh
+. config_ycsb.sh "A"
 . run_common.sh
