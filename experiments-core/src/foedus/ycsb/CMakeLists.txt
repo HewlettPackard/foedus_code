@@ -30,9 +30,12 @@ configure_file(run_ycsb_f_dl580_ro.sh run_ycsb_f_dl580_ro.sh COPYONLY)
 configure_file(run_ycsb_f_z820_ro.sh run_ycsb_f_z820_ro.sh COPYONLY)
 
 configure_file(run_ycsb_f_rw_common.sh run_ycsb_f_rw_common.sh COPYONLY)
+configure_file(run_ycsb_f_tt_common.sh run_ycsb_f_tt_common.sh COPYONLY)
 configure_file(run_ycsb_f_gh_rw.sh run_ycsb_f_gh_rw.sh COPYONLY)
+configure_file(run_ycsb_f_gh_tt.sh run_ycsb_f_gh_tt.sh COPYONLY)
 configure_file(run_ycsb_f_dh_rw.sh run_ycsb_f_dh_rw.sh COPYONLY)
 configure_file(run_ycsb_f_dl580_rw.sh run_ycsb_f_dl580_rw.sh COPYONLY)
+configure_file(run_ycsb_f_dl580_tt.sh run_ycsb_f_dl580_tt.sh COPYONLY)
 configure_file(run_ycsb_f_z820_rw.sh run_ycsb_f_z820_rw.sh COPYONLY)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../../../summarizej.sh summarizej.sh COPYONLY)
