@@ -35,6 +35,7 @@ for hot_threshold in 0 10 256; do # 126 256; do
       reps_per_tx=0
       for reads in $normal_accesses; do
         rmw_additional_reads=$reads
+        . run_common.sh
       done
     done
   done
