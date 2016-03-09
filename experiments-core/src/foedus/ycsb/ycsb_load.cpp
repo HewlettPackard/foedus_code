@@ -187,7 +187,7 @@ ErrorStack YcsbLoadTask::run(
 
 ErrorStack YcsbLoadTask::load_table(
   thread::Thread* context,
-  std::vector<YcsbKey>& keys,
+  const std::vector<YcsbKey>& keys,
 #ifndef YCSB_HASH_STORAGE
   storage::masstree::MasstreeStorage* table) {
 #else

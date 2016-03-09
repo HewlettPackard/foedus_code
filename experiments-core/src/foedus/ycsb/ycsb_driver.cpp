@@ -116,6 +116,8 @@ DEFINE_bool(sort_keys, true, "Whether to sort the keys used in workload F");
 DEFINE_bool(distinct_keys, true, "Whether to make every key under access is different");
 
 DEFINE_int32(extra_table_size, 0, "How many records to load in a second static user table.");
+DEFINE_int32(extra_table_reads, 0, "How many reads to do in the extra table.");
+DEFINE_int32(extra_table_rmws, 0, "How many RMWs to do in the extra table.");
 
 DEFINE_bool(force_canonical_xlocks_in_precommit, true,
   "Whether precommit always releases all locks that violate canonical mode before taking X-locks");
@@ -382,6 +384,8 @@ ErrorStack YcsbDriver::run() {
   } else if (FLAGS_workload == "F") {
     workload = YcsbWorkloadF;
     workload.rmw_additional_reads_ = FLAGS_rmw_additional_reads;
+    workload.extra_table_rmws_ = FLAGS_extra_table_rmws;
+    workload.extra_table_reads_ = FLAGS_extra_table_reads;
   } else if (FLAGS_workload == "G") {
     workload = YcsbWorkloadG;
   } else if (FLAGS_workload == "H") {

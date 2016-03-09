@@ -177,7 +177,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       } else {
         if (xct_type <= workload_.read_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_read(user_keys[reps]);
+            ret = do_read(&user_table_, user_keys[reps]);
             if (ret != kErrorCodeOk) {
               break;
             }
@@ -204,28 +204,48 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           }
 #endif
         } else {  // read-modify-write
-          for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
+          // We handle accesses to the extra table here as well.
+          // Do RMWs first, then reads
+          for (int32_t i = 0; i < workload_.reps_per_tx_; ++i) {
             ret = do_rmw(&user_table_, user_keys[i]);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
-          // XXX(tzwang): originally we wanted to have a hot table and read all records from it
-          // and then choose several to write. Now we have this variant very similar to Orthrus':
-          // RMW all the (hot) extra records in this table.
-          ASSERT_ND(workload_.extra_table_size_ == (int32_t)all_extra_keys.size());
-          for (auto& k : all_extra_keys) {
-            ret = do_rmw(&extra_table_, k);
+
+          if (ret != kErrorCodeOk) {
+            continue;
+          }
+
+          // shuffle keys
+          std::random_shuffle(all_extra_keys.begin(), all_extra_keys.end());
+
+          for (int32_t i = 0; i < workload_.extra_table_rmws_; ++i) {
+            ret = do_rmw(&extra_table_, all_extra_keys[i]);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
-          if (ret == kErrorCodeOk) {
-            for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
-              ret = do_read(user_keys[workload_.reps_per_tx_ + i]);
-              if (ret != kErrorCodeOk) {
-                break;
-              }
+
+          if (ret != kErrorCodeOk) {
+            continue;
+          }
+
+          for (int32_t i = 0; i < workload_.extra_table_reads_; ++i) {
+            ret = do_read(&extra_table_, all_extra_keys[i]);
+            if (ret != kErrorCodeOk) {
+              break;
+            }
+          }
+
+          if (ret != kErrorCodeOk) {
+            continue;
+          }
+
+          for (int32_t i = 0; i < workload_.rmw_additional_reads_; ++i) {
+            ret = do_read(&user_table_, user_keys[workload_.reps_per_tx_ + i]);
+            if (ret != kErrorCodeOk) {
+              break;
             }
           }
         }
@@ -285,7 +305,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   return kRetOk;
 }
 
-ErrorCode YcsbClientTask::do_read(const YcsbKey& key) {
+ErrorCode YcsbClientTask::do_read(
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashStorage* table,
+#else
+  storage::masstree::MasstreeStorage* table,
+#endif
+  const YcsbKey& key) {
   YcsbRecord r;
   if (read_all_fields_) {
 #ifdef YCSB_HASH_STORAGE
@@ -293,12 +319,12 @@ ErrorCode YcsbClientTask::do_read(const YcsbKey& key) {
 #else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
-    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len, true));
+    CHECK_ERROR_CODE(table->get_record(context_, key.ptr(), key.size(), &r, &payload_len, true));
   } else {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
-    CHECK_ERROR_CODE(user_table_.get_record_part(context_,
+    CHECK_ERROR_CODE(table->get_record_part(context_,
       key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength, true));
   }
   return kErrorCodeOk;

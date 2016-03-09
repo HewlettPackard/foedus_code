@@ -175,7 +175,9 @@ struct YcsbWorkload {
       rmw_additional_reads_(0),
       reps_per_tx_(1),
       distinct_keys_(true),
-      extra_table_size_(0) {}
+      extra_table_size_(0),
+      extra_table_rmws_(0),
+      extra_table_reads_(0) {}
 
   YcsbWorkload() {}
   int16_t insert_percent() const { return insert_percent_; }
@@ -204,6 +206,8 @@ struct YcsbWorkload {
   int32_t reps_per_tx_;
   bool distinct_keys_;
   int32_t extra_table_size_;
+  int32_t extra_table_rmws_;
+  int32_t extra_table_reads_;
 };
 
 class YcsbLoadTask {
@@ -227,7 +231,7 @@ class YcsbLoadTask {
     bool extra_table_spread);
   ErrorStack load_table(
     thread::Thread* context,
-    std::vector<YcsbKey>& keys,
+    const std::vector<YcsbKey>& keys,
 #ifndef YCSB_HASH_STORAGE
     storage::masstree::MasstreeStorage* table);
 #else
@@ -392,7 +396,13 @@ class YcsbClientTask {
   uint64_t increment_total_scans() const { return ++outputs_->total_scans_; }
 
   ErrorStack do_xct(const YcsbWorkload workload_desc);
-  ErrorCode do_read(const YcsbKey& key);
+  ErrorCode do_read(
+#ifdef YCSB_HASH_STORAGE
+    storage::hash::HashStorage* table,
+#else
+    storage::masstree::MasstreeStorage* table,
+#endif
+    const YcsbKey& key);
   ErrorCode do_update(const YcsbKey& key);
   ErrorCode do_insert(const YcsbKey& key);
   ErrorCode do_rmw(
