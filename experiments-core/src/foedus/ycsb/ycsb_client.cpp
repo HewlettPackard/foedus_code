@@ -95,25 +95,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
 
   std::vector<YcsbKey> user_keys;
-  std::vector<YcsbKey> all_extra_keys;
+  std::vector<YcsbKey> extra_keys;
   user_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
-  all_extra_keys.reserve(workload_.extra_table_size_);
-
-  // Prepare keys for the extra table (if non-empty), this contains all keys of the (small) table,
-  // won't change
-  if (workload_.extra_table_size_) {
-    for (int32_t i = 0; i < workload_.extra_table_size_; i++) {
-      auto hi = i / workload_.extra_table_size_;
-      auto lo = i % workload_.extra_table_size_;
-      YcsbKey k = build_key(hi, lo);
-      all_extra_keys.push_back(k);
-    }
-  }
-
-  if (sort_keys_) {
-    std::sort(all_extra_keys.begin(), all_extra_keys.end());
-  }
-  ASSERT_ND((int32_t)all_extra_keys.size() == workload_.extra_table_size_);
+  extra_keys.reserve(workload_.extra_table_rmws_ + workload_.extra_table_reads_);
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -145,6 +129,23 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
     }
     ASSERT_ND(
       (int32_t)user_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+
+    if (extra_keys.size() == 0) {
+      for (int32_t i = 0; i < workload_.extra_table_rmws_ + workload_.extra_table_reads_; ++i) {
+        YcsbKey k = build_extra_key();
+        if (workload_.distinct_keys_) {
+          while (std::find(extra_keys.begin(), extra_keys.end(), k) != extra_keys.end()) {
+            k = build_extra_key();
+          }
+        }
+        extra_keys.push_back(k);
+      }
+    }
+
+    if (sort_keys_) {
+      std::sort(extra_keys.begin(), extra_keys.end());
+    }
+    ASSERT_ND((int32_t)extra_keys.size() == workload_.extra_table_rmws_ + workload_.extra_table_reads_);
 
     // abort-retry loop
     while (!is_stop_requested()) {
@@ -209,48 +210,34 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           for (int32_t i = 0; i < workload_.reps_per_tx_; ++i) {
             ret = do_rmw(&user_table_, user_keys[i]);
             if (ret != kErrorCodeOk) {
-              break;
+              goto finish;
             }
           }
-
-          if (ret != kErrorCodeOk) {
-            continue;
-          }
-
-          // shuffle keys
-          std::random_shuffle(all_extra_keys.begin(), all_extra_keys.end());
 
           for (int32_t i = 0; i < workload_.extra_table_rmws_; ++i) {
-            ret = do_rmw(&extra_table_, all_extra_keys[i]);
+            ret = do_rmw(&extra_table_, extra_keys[i]);
             if (ret != kErrorCodeOk) {
-              break;
+              goto finish;
             }
-          }
-
-          if (ret != kErrorCodeOk) {
-            continue;
           }
 
           for (int32_t i = 0; i < workload_.extra_table_reads_; ++i) {
-            ret = do_read(&extra_table_, all_extra_keys[i]);
+            ret = do_read(&extra_table_, extra_keys[workload_.extra_table_rmws_ + i]);
             if (ret != kErrorCodeOk) {
-              break;
+              goto finish;
             }
-          }
-
-          if (ret != kErrorCodeOk) {
-            continue;
           }
 
           for (int32_t i = 0; i < workload_.rmw_additional_reads_; ++i) {
             ret = do_read(&user_table_, user_keys[workload_.reps_per_tx_ + i]);
             if (ret != kErrorCodeOk) {
-              break;
+              goto finish;
             }
           }
         }
       }
 
+    finish:
       // Done with data access, try to commit
       Epoch commit_epoch;
       if (ret == kErrorCodeOk) {
@@ -258,6 +245,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         if (ret == kErrorCodeOk) {
           ASSERT_ND(!context->is_running_xct());
           user_keys.clear();
+          extra_keys.clear();
           break;
         }
       } else {

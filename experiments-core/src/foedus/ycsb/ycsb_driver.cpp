@@ -367,8 +367,18 @@ ErrorStack YcsbDriver::run() {
       initial_table_size -= remainder;
     }
   }
-  LOG(INFO) << "Requested table size: " << FLAGS_initial_table_size
+  LOG(INFO) << "Requested user table size: " << FLAGS_initial_table_size
     << ", will load " << initial_table_size << " records";
+
+  int64_t extra_table_size = FLAGS_extra_table_size;
+  if (extra_table_size > total_thread_count) {
+    auto remainder = extra_table_size % total_thread_count;
+    if (remainder) {
+      extra_table_size -= remainder;
+    }
+  }
+  LOG(INFO) << "Requested extra table size: " << FLAGS_extra_table_size
+    << ", will load " << extra_table_size << " records";
 
   YcsbWorkload workload;
   if (FLAGS_workload == "A") {
@@ -394,7 +404,7 @@ ErrorStack YcsbDriver::run() {
     COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
 
-  workload.extra_table_size_ = FLAGS_extra_table_size;
+  workload.extra_table_size_ = extra_table_size;
   workload.reps_per_tx_ = FLAGS_reps_per_tx;
   workload.distinct_keys_ = FLAGS_distinct_keys;
 
@@ -409,6 +419,8 @@ ErrorStack YcsbDriver::run() {
     << " operations per transaction: " << workload.reps_per_tx_
     << " use distinct keys: " << workload.distinct_keys_
     << " extra table size: " << workload.extra_table_size_
+    << " extra table rmws: " << workload.extra_table_rmws_
+    << " extra table reads: " << workload.extra_table_reads_
     << " zipfian theta: " << FLAGS_zipfian_theta;
 
   // Create an empty table
@@ -425,7 +437,7 @@ ErrorStack YcsbDriver::run() {
   }
   storage::hash::HashMetadata extra_meta("ycsb_extra_table");
   // We don't grow this table
-  extra_meta.set_capacity(FLAGS_extra_table_size, kHashPreferredRecordsPerBin);
+  extra_meta.set_capacity(extra_table_size, kHashPreferredRecordsPerBin);
 #else
   LOG(INFO) << "Use masstree storage";
   storage::masstree::MasstreeMetadata meta("ycsb_user_table", 100);
@@ -446,7 +458,7 @@ ErrorStack YcsbDriver::run() {
   COERCE_ERROR(engine_->get_storage_manager()->create_storage(&meta, &ep));
   COERCE_ERROR(engine_->get_storage_manager()->create_storage(&extra_meta, &ep));
   auto initial_user_records_per_thread = initial_table_size / total_thread_count;
-  auto extra_records_per_thread = FLAGS_extra_table_size / total_thread_count;
+  auto extra_records_per_thread = extra_table_size / total_thread_count;
   auto* thread_pool = engine_->get_thread_pool();
   // One loader per node
   std::vector< thread::ImpersonateSession > load_sessions;
@@ -468,7 +480,7 @@ ErrorStack YcsbDriver::run() {
 
     if (extra_records_per_thread == 0) {
       if (node == 0) {
-        inputs.extra_records_per_thread_ = FLAGS_extra_table_size;
+        inputs.extra_records_per_thread_ = extra_table_size;
         inputs.extra_table_spread_ = false;
       }
     } else {
@@ -548,7 +560,7 @@ ErrorStack YcsbDriver::run() {
       }
       if (extra_records_per_thread == 0) {
         if (node == 0 && ordinal == 0) {
-          inputs.local_key_counter_->extra_key_counter_ = FLAGS_extra_table_size;
+          inputs.local_key_counter_->extra_key_counter_ = extra_table_size;
         } else {
           inputs.local_key_counter_->extra_key_counter_ = 0;
         }
@@ -557,7 +569,7 @@ ErrorStack YcsbDriver::run() {
       }
       inputs.workload_ = workload;
       inputs.initial_table_size_ = initial_table_size;
-      inputs.extra_table_size_ = FLAGS_extra_table_size;
+      inputs.extra_table_size_ = extra_table_size;
       bool ret = thread_pool->impersonate_on_numa_node(
         node, "ycsb_client_task", &inputs, sizeof(inputs), &session);
       if (!ret) {
