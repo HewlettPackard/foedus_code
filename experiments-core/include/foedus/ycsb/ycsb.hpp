@@ -294,6 +294,10 @@ class YcsbClientTask {
 
   ErrorStack run(thread::Thread* context);
 
+  uint32_t select_random_record(uint32_t max) {
+    return rnd_record_select_.uniform_within(0, max);
+  }
+
   bool is_stop_requested() const {
     return channel_->stop_flag_.load();
   }
