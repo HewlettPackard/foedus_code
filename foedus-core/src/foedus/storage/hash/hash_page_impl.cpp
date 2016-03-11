@@ -105,13 +105,12 @@ void HashDataPage::initialize_snapshot_page(
   protected_set_bin_shifts(bin_shifts);
 }
 
-DataPageSlotIndex HashDataPage::search_key(
+DataPageSlotIndex HashDataPage::search_key_physical(
   HashValue hash,
   const BloomFilterFingerprint& fingerprint,
   const void* key,
   uint16_t key_length,
-  uint16_t record_count,
-  xct::XctId* observed) const {
+  uint16_t record_count) const {
   // invariant checks
   ASSERT_ND(hash == hashinate(key, key_length));
   ASSERT_ND(DataPageBloomFilter::extract_fingerprint(hash) == fingerprint);
@@ -128,6 +127,10 @@ DataPageSlotIndex HashDataPage::search_key(
     if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length) {
       continue;
     }
+    // although this is a physical-only search, we can avoid being_written/moved cases.
+    //  being_written: guaranteed to go away soon, so no drawback to wait here.
+    //  moved: once set, guaranteed to remain. so we can safely skip it.
+    //         but, remember, it might be NOW being moved, which caller must take care.
     xct::XctId xid = s.tid_.xct_id_.spin_while_being_written();
     if (xid.is_moved()) {
       // not so rare. this happens.
@@ -137,7 +140,6 @@ DataPageSlotIndex HashDataPage::search_key(
 
     const char* data = record_from_offset(s.offset_);
     if (s.key_length_ == key_length && std::memcmp(data, key, key_length) == 0) {
-      *observed = xid;
       return i;
     }
     // hash matched, but key didn't match? wow, that's rare

@@ -324,7 +324,49 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     const HashCombo& combo,
     HashDataPage** bin_head);
 
-  /** return value of locate_record() */
+  /**
+   * @brief return value of locate_record().
+   * @details
+   * @par Notes on XID, MOCC Locking, read-set, and "physical_only"
+   * This object also contains \e observed_, which is guaranteed to be the XID at or before
+   * the return from locate_record(). There is a notable contract here.
+   * When locking in MOCC kicks in, we want to make sure we return the value of XID \e after
+   * the lock to eliminate a chance of false verification failure.
+   * However, this means we need to take lock and register read-set \e within locate_record().
+   * This caused us headaches for the following reason.
+   *
+   * @par Logical vs Physical search in hash pages
+   * \e Physically finding a record for given key in our hash page has the following guarantees.
+   * \li When it finds a record, the record was at least at some point a valid
+   * (non-moved/non-being-written) record of the given key.
+   * \li When it doesn't find any record, the page(s) at least at some point didn't contain
+   * any valid record of the given key.
+   *
+   * On the other hand, it still allows the following behaviors:
+   * \li The found record is now being moved or modified.
+   * \li The page or its next page(s) is now newly inserting a physical record of the given key.
+   *
+   * \e Logically finding a record provides additional guarantee to protect against the above
+   * at pre-commit time. It additionally takes read-set, page-version set, or even MOCC locks.
+   *
+   * @par locate_record(): Logical or Physical
+   * We initially designed locate_record() as a physical-only search operation
+   * separated from logical operations (e.g., get_record/overwrite_record, or the caller).
+   * Separation makes each of them simpler and more flexible.
+   * The logical side can separately decide, using an operation-specific logic, whether it
+   * will add the XID observed in locate_record() to read-set or not.
+   * The physical side (locate_record()) can be dumb simple, too.
+   *
+   * But, seems like this is now unavoidable.
+   * Hence now locate_record() is a logical operation.
+   * To allow the caller to choose what to do logically, we receive
+   * a paramter \e physical_only. When false, locate_record \e might take logical lock and add
+   * the XID to readset, hence what locate_record() observed is protected.
+   * When true, locate_record never takes lock or adds it to readset.
+   * It just physically locates a record that was at least at some point a valid record.
+   * In this case,
+   * the caller is responsible to do appropriate thing to protect from concurrent modifications.
+   */
   struct RecordLocation {
     /** Address of the slot. null if not found. */
     HashDataPage::Slot* slot_;
@@ -334,6 +376,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
      * TID as of locate_record() identifying the record.
      * guaranteed to be not is_moved (then automatically retried), though the \b current
      * TID might be now moved, in which case pre-commit will catch it.
+     * See the class comment.
      */
     xct::XctId observed_;
 
@@ -342,6 +385,13 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
       record_ = nullptr;
       observed_.data_ = 0;
     }
+
+    void populate(
+      DataPageSlotIndex index,
+      const void* key,
+      uint16_t key_length,
+      const HashCombo& combo,
+      HashDataPage* page);
   };
 
   /**
@@ -349,22 +399,41 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
    * create a new one if not exists (only when for_write).
    * @param[in] context Thread context
    * @param[in] for_write Whether we are seeking the record to modify
+   * @param[in] physical_only If true, we skip observing XID and registering readset
+   * in a finalized fashion, see RecordLocation.
    * @param[in] create_if_notfound Whether we will create a new physical record if not exists
    * @param[in] create_payload_length If this method creates a physical record, it makes sure
    * the record can accomodate at least this size of payload.
    * @param[in] combo Hash values. Also the result of this method.
    * @param[in] bin_head Pointer to the first data page of the bin.
    * @param[out] result Information on the found slot.
+   * @param[out] read_set_address If this method took a read-set on the returned record,
+   * points to the corresponding read-set. Otherwise nullptr.
    * @pre bin_head->get_bin() == combo.bin_
    * @pre bin_head != nullptr
    * @pre bin_head must be volatile page if for_write
    * @details
-   * If the exact record is not found, this method protects the result by adding page version set.
-   * Delete/update are just done in that case.
+   * If the exact record is not found, this method protects the result by adding page version set
+   * if physical_only is false.
    * If create_if_notfound is true (an insert case), this method creates a new physical record for
    * the key with a deleted-state as a system transaction.
+   * @see RecordLocation
    */
   ErrorCode   locate_record(
+    thread::Thread* context,
+    bool for_write,
+    bool physical_only,
+    bool create_if_notfound,
+    uint16_t create_payload_length,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* bin_head,
+    RecordLocation* result,
+    xct::ReadXctAccess** read_set_address);
+
+  /** locate_record()'s physical_only version. Invoke this rather than locate_record directly */
+  ErrorCode   locate_record_physical_only(
     thread::Thread* context,
     bool for_write,
     bool create_if_notfound,
@@ -373,29 +442,81 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     HashDataPage* bin_head,
+    RecordLocation* result) {
+    xct::ReadXctAccess* dummy;
+    return locate_record(
+      context,
+      for_write,
+      true,
+      create_if_notfound,
+      create_payload_length,
+      key,
+      key_length,
+      combo,
+      bin_head,
+      result,
+      &dummy);  // physical-only search doesn't care read-set protection
+  }
+  /** locate_record()'s logical+physical version. Invoke this rather than locate_record directly */
+  ErrorCode   locate_record_logical(
+    thread::Thread* context,
+    bool for_write,
+    bool create_if_notfound,
+    uint16_t create_payload_length,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* bin_head,
+    RecordLocation* result,
+    xct::ReadXctAccess** read_set_address) {
+    return locate_record(
+      context,
+      for_write,
+      false,
+      create_if_notfound,
+      create_payload_length,
+      key,
+      key_length,
+      combo,
+      bin_head,
+      result,
+      read_set_address);
+  }
+
+  /** Simpler version of locate_record for when we are in snapshot world. */
+  ErrorCode locate_record_in_snapshot(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* bin_head,
     RecordLocation* result);
 
-  ErrorCode   reserve_record(
+  /**
+   * Subroutine of locate_record() to create/migrate a physical record of the given key in the page
+   * or its next pages.
+   * This method has the following possible outcomes:
+   * \li Created a new physical record of the key in the given page or its next pages.
+   * \li Did nothing because we found an existing record of the key in the given page or its next
+   * pages.
+   *
+   * In either case, new_location returns the index of the record, thus it's never a kSlotNotFound.
+   *
+   * This method is \e physical-only. It doesn't add any read-set or take logical record locks.
+   * Thus, even \e seemingly right after calling this method, you might find the new_location
+   * points to a moved record. It might happen. The caller is responsible to do a logical
+   * lock/readset etc and retries if necessary. But, this method does guarantee that the
+   * new_location points to a record of the given key that was at least at some point valid.
+   */
+  ErrorCode   locate_record_reserve_physical(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     const HashCombo& combo,
     uint16_t payload_length,
-    HashDataPage* page,
+    HashDataPage** page_in_out,
     uint16_t examined_records,
-    RecordLocation* result);
-
-  /**
-   * subroutine in locate_record() and reserve_record() to look for the key in one page.
-   * result returns null pointers if not found, \b assuming the record_count.
-   */
-  void search_key_in_a_page(
-    const void* key,
-    uint16_t key_length,
-    const HashCombo& combo,
-    HashDataPage* page,
-    uint16_t record_count,
-    RecordLocation* result);
+    DataPageSlotIndex* new_location);
 
   /**
    * @brief Moves a physical record to a later position.

@@ -172,21 +172,23 @@ ErrorCode HashStoragePimpl::get_record(
   uint16_t* payload_capacity,
   bool read_only) {
   HashDataPage* bin_head;
-  CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
+  CHECK_ERROR_CODE(locate_bin(context, !read_only, combo, &bin_head));
   if (!bin_head) {
     return kErrorCodeStrKeyNotFound;  // protected by pointer set, so we are done
   }
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(
+  xct::ReadXctAccess* read_set;
+  CHECK_ERROR_CODE(locate_record_logical(
     context,
-    false,
+    !read_only,
     false,
     0,
     key,
     key_length,
     combo,
     bin_head,
-    &location));
+    &location,
+    &read_set));
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   }
@@ -201,13 +203,6 @@ ErrorCode HashStoragePimpl::get_record(
     return kErrorCodeStrTooSmallPayloadBuffer;
   }
 
-  xct::Xct& cur_xct = context->get_current_xct();
-  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-    context,
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_,
-    read_only));
   *payload_capacity = payload_length;
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset, payload_length);
@@ -224,38 +219,33 @@ ErrorCode HashStoragePimpl::get_record_part(
   uint16_t payload_count,
   bool read_only) {
   HashDataPage* bin_head;
-  CHECK_ERROR_CODE(locate_bin(context, false, combo, &bin_head));
+  CHECK_ERROR_CODE(locate_bin(context, !read_only, combo, &bin_head));
   if (!bin_head) {
     return kErrorCodeStrKeyNotFound;  // protected by pointer set, so we are done
   }
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(
+  xct::ReadXctAccess* read_set;
+  CHECK_ERROR_CODE(locate_record_logical(
     context,
-    false,
+    !read_only,
     false,
     0,
     key,
     key_length,
     combo,
     bin_head,
-    &location));
+    &location,
+    &read_set));
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   }
 
-  xct::Xct& cur_xct = context->get_current_xct();
   uint16_t payload_length = location.slot_->payload_length_;
   if (payload_length < payload_offset + payload_count) {
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
     return kErrorCodeStrTooShortPayload;
   }
 
-  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-    context,
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_,
-    read_only));
   uint16_t key_offset = location.slot_->get_aligned_key_length();
   std::memcpy(payload, location.record_ + key_offset + payload_offset, payload_count);
   return kErrorCodeOk;
@@ -283,80 +273,88 @@ ErrorCode HashStoragePimpl::insert_record(
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
-  RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(
-    context,
-    true,
-    true,
-    physical_payload_hint,
-    key,
-    key_length,
-    combo,
-    bin_head,
-    &location));
 
-  // we create if not exists, these are surely non-null
-  ASSERT_ND(location.slot_);
-  ASSERT_ND(location.record_);
-
-  // but, that record might be not logically deleted
-  xct::Xct& cur_xct = context->get_current_xct();
-  while (!location.observed_.is_deleted() || payload_count > location.slot_->get_max_payload()) {
-    if (!location.observed_.is_deleted()) {
-      CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-        context,
-        get_id(),
-        location.observed_,
-        &location.slot_->tid_,
-        false));
-      return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
-    }
-
-    ASSERT_ND(payload_count > location.slot_->get_max_payload());
-    // The physical record is too short. It will trigger a record expansion, which is a
-    // system transaction (logically does nothing!) to migrate this deleted record.
-    HashDataPage* cur_page = reinterpret_cast<HashDataPage*>(to_page(location.slot_));
-    ASSERT_ND(!cur_page->header().snapshot_);
-    ASSERT_ND(cur_page->bloom_filter().contains(combo.fingerprint_));
-    DataPageSlotIndex cur_index = cur_page->to_slot_index(location.slot_);
-    ASSERT_ND(cur_page->get_slot_address(cur_index) == location.slot_);
-    DVLOG(2) << "Record expansion triggered. payload_count=" << payload_count
-      << ", current max=" << location.slot_->get_max_payload()
-      << ", size hint=" << physical_payload_hint;
-
-    CHECK_ERROR_CODE(migrate_record(
+  while (true) {  // we might retry due to migrate_record. not that often, tho.
+    RecordLocation location;
+    xct::ReadXctAccess* read_set;
+    CHECK_ERROR_CODE(locate_record_logical(
       context,
+      true,
+      true,
+      physical_payload_hint,
       key,
       key_length,
       combo,
-      cur_page,
-      cur_index,
-      physical_payload_hint,
-      &location));
+      bin_head,
+      &location,
+      &read_set));
+
+    // we create if not exists, these are surely non-null
     ASSERT_ND(location.slot_);
     ASSERT_ND(location.record_);
-    DVLOG(2) << "Expanded record!";
-    // continue with while because the moved location might be again moved or now deleted.
+
+    // but, that record might be not logically deleted
+    xct::Xct& cur_xct = context->get_current_xct();
+
+    if (!location.observed_.is_deleted()) {
+      return kErrorCodeStrKeyAlreadyExists;  // protected by the read set
+    }
+
+    if (payload_count > location.slot_->get_max_payload()) {
+      // The physical record is too short. It will trigger a record expansion, which is a
+      // system transaction (logically does nothing!) to migrate this deleted record.
+      HashDataPage* cur_page = reinterpret_cast<HashDataPage*>(to_page(location.slot_));
+      ASSERT_ND(!cur_page->header().snapshot_);
+      ASSERT_ND(cur_page->bloom_filter().contains(combo.fingerprint_));
+      DataPageSlotIndex cur_index = cur_page->to_slot_index(location.slot_);
+      ASSERT_ND(cur_page->get_slot_address(cur_index) == location.slot_);
+      DVLOG(2) << "Record expansion triggered. payload_count=" << payload_count
+        << ", current max=" << location.slot_->get_max_payload()
+        << ", size hint=" << physical_payload_hint;
+
+      CHECK_ERROR_CODE(migrate_record(
+        context,
+        key,
+        key_length,
+        combo,
+        cur_page,
+        cur_index,
+        physical_payload_hint,
+        &location));
+      ASSERT_ND(location.slot_);
+      ASSERT_ND(location.record_);
+      DVLOG(2) << "Expanded record!";
+      // continue with while because the moved location might be again moved or now deleted.
+      continue;
+    }
+
+    uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
+    HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
+      context->get_thread_log_buffer().reserve_new_log(log_length));
+    log_entry->populate(
+      get_id(),
+      key,
+      key_length,
+      get_bin_bits(),
+      combo.hash_,
+      payload,
+      payload_count);
+
+    // If we took a read-set, we should 'relate' the write set with it.
+    if (read_set) {
+      return cur_xct.add_related_write_set(
+        read_set,
+        &location.slot_->tid_,
+        location.record_,
+        log_entry);
+    } else {
+      return cur_xct.add_to_write_set(
+        get_id(),
+        &location.slot_->tid_,
+        location.record_,
+        log_entry);
+    }
   }
-
-  uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
-  HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
-    context->get_thread_log_buffer().reserve_new_log(log_length));
-  log_entry->populate(
-    get_id(),
-    key,
-    key_length,
-    get_bin_bits(),
-    combo.hash_,
-    payload,
-    payload_count);
-
-  return context->get_current_xct().add_to_read_and_write_set(
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_,
-    location.record_,
-    log_entry);
 }
 
 ErrorCode HashStoragePimpl::delete_record(
@@ -368,7 +366,8 @@ ErrorCode HashStoragePimpl::delete_record(
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(
+  xct::ReadXctAccess* read_set;
+  CHECK_ERROR_CODE(locate_record_logical(
     context,
     true,
     false,
@@ -377,7 +376,8 @@ ErrorCode HashStoragePimpl::delete_record(
     key_length,
     combo,
     bin_head,
-    &location));
+    &location,
+    &read_set));
 
   xct::Xct& cur_xct = context->get_current_xct();
   if (!location.slot_) {
@@ -397,12 +397,21 @@ ErrorCode HashStoragePimpl::delete_record(
     context->get_thread_log_buffer().reserve_new_log(log_length));
   log_entry->populate(get_id(), key, key_length, get_bin_bits(), combo.hash_);
 
-  return context->get_current_xct().add_to_read_and_write_set(
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_,
-    location.record_,
-    log_entry);
+  // If we took a read-set, we should 'relate' the write set with it.
+  if (read_set) {
+    return cur_xct.add_related_write_set(
+      read_set,
+      &location.slot_->tid_,
+      location.record_,
+      log_entry);
+  } else {
+    return cur_xct.add_to_read_and_write_set(
+      get_id(),
+      location.observed_,
+      &location.slot_->tid_,
+      location.record_,
+      log_entry);
+  }
 }
 
 ErrorCode HashStoragePimpl::upsert_record(
@@ -423,103 +432,118 @@ ErrorCode HashStoragePimpl::upsert_record(
   HashDataPage* bin_head;
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
-  RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(
-    context,
-    true,
-    true,
-    physical_payload_hint,
-    key,
-    key_length,
-    combo,
-    bin_head,
-    &location));
+  xct::Xct& cur_xct = context->get_current_xct();
 
-  // we create if not exists, these are surely non-null
-  ASSERT_ND(location.slot_);
-  ASSERT_ND(location.record_);
-
-  // Whether currently deleted or not, migrate it to make sure the record is long enough.
-  while (payload_count > location.slot_->get_max_payload()) {
-    HashDataPage* cur_page = reinterpret_cast<HashDataPage*>(to_page(location.slot_));
-    ASSERT_ND(!cur_page->header().snapshot_);
-    ASSERT_ND(cur_page->bloom_filter().contains(combo.fingerprint_));
-    DataPageSlotIndex cur_index = cur_page->to_slot_index(location.slot_);
-    ASSERT_ND(cur_page->get_slot_address(cur_index) == location.slot_);
-    DVLOG(2) << "Record expansion triggered. payload_count=" << payload_count
-      << ", current max=" << location.slot_->get_max_payload()
-      << ", size hint=" << physical_payload_hint;
-
-    CHECK_ERROR_CODE(migrate_record(
+  while (true) {  // we might retry due to migrate_record. not that often, tho.
+    RecordLocation location;
+    xct::ReadXctAccess* read_set;
+    CHECK_ERROR_CODE(locate_record_logical(
       context,
+      true,
+      true,
+      physical_payload_hint,
       key,
       key_length,
       combo,
-      cur_page,
-      cur_index,
-      physical_payload_hint,
-      &location));
+      bin_head,
+      &location,
+      &read_set));
+
+    // we create if not exists, these are surely non-null
     ASSERT_ND(location.slot_);
     ASSERT_ND(location.record_);
-    DVLOG(2) << "Expanded record!";
-  }
 
-  ASSERT_ND(payload_count <= location.slot_->get_max_payload());
-  HashCommonLogType* log_common;
-  if (location.observed_.is_deleted()) {
-    // If it's a deleted record, this turns to be a plain insert.
-    uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
-    HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
-      context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate(
-      get_id(),
-      key,
-      key_length,
-      get_bin_bits(),
-      combo.hash_,
-      payload,
-      payload_count);
-    log_common = log_entry;
-  } else if (location.slot_->payload_length_ == payload_count) {
-    // If it's not changing payload size of existing record, we can conver it to an overwrite,
-    // which is more efficient
-    uint16_t log_length = HashUpdateLogType::calculate_log_length(key_length, payload_count);
-    HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
-      context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate(
-      get_id(),
-      key,
-      key_length,
-      get_bin_bits(),
-      combo.hash_,
-      payload,
-      0,
-      payload_count);
-    log_common = log_entry;
-  } else {
-    // If not, this is an update operation.
-    uint16_t log_length = HashUpdateLogType::calculate_log_length(key_length, payload_count);
-    HashUpdateLogType* log_entry = reinterpret_cast<HashUpdateLogType*>(
-      context->get_thread_log_buffer().reserve_new_log(log_length));
-    log_entry->populate(
-      get_id(),
-      key,
-      key_length,
-      get_bin_bits(),
-      combo.hash_,
-      payload,
-      payload_count);
-    log_common = log_entry;
-  }
+    // Whether currently deleted or not, migrate it to make sure the record is long enough.
+    if (payload_count > location.slot_->get_max_payload()) {
+      HashDataPage* cur_page = reinterpret_cast<HashDataPage*>(to_page(location.slot_));
+      ASSERT_ND(!cur_page->header().snapshot_);
+      ASSERT_ND(cur_page->bloom_filter().contains(combo.fingerprint_));
+      DataPageSlotIndex cur_index = cur_page->to_slot_index(location.slot_);
+      ASSERT_ND(cur_page->get_slot_address(cur_index) == location.slot_);
+      DVLOG(2) << "Record expansion triggered. payload_count=" << payload_count
+        << ", current max=" << location.slot_->get_max_payload()
+        << ", size hint=" << physical_payload_hint;
 
-  // In either case, this operation depends on the TID of the record,
-  // so read_and_write_set.
-  return context->get_current_xct().add_to_read_and_write_set(
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_,
-    location.record_,
-    log_common);
+      CHECK_ERROR_CODE(migrate_record(
+        context,
+        key,
+        key_length,
+        combo,
+        cur_page,
+        cur_index,
+        physical_payload_hint,
+        &location));
+      ASSERT_ND(location.slot_);
+      ASSERT_ND(location.record_);
+      DVLOG(2) << "Expanded record!";
+      continue;
+    }
+
+    ASSERT_ND(payload_count <= location.slot_->get_max_payload());
+    HashCommonLogType* log_common;
+    if (location.observed_.is_deleted()) {
+      // If it's a deleted record, this turns to be a plain insert.
+      uint16_t log_length = HashInsertLogType::calculate_log_length(key_length, payload_count);
+      HashInsertLogType* log_entry = reinterpret_cast<HashInsertLogType*>(
+        context->get_thread_log_buffer().reserve_new_log(log_length));
+      log_entry->populate(
+        get_id(),
+        key,
+        key_length,
+        get_bin_bits(),
+        combo.hash_,
+        payload,
+        payload_count);
+      log_common = log_entry;
+    } else if (location.slot_->payload_length_ == payload_count) {
+      // If it's not changing payload size of existing record, we can conver it to an overwrite,
+      // which is more efficient
+      uint16_t log_length = HashUpdateLogType::calculate_log_length(key_length, payload_count);
+      HashOverwriteLogType* log_entry = reinterpret_cast<HashOverwriteLogType*>(
+        context->get_thread_log_buffer().reserve_new_log(log_length));
+      log_entry->populate(
+        get_id(),
+        key,
+        key_length,
+        get_bin_bits(),
+        combo.hash_,
+        payload,
+        0,
+        payload_count);
+      log_common = log_entry;
+    } else {
+      // If not, this is an update operation.
+      uint16_t log_length = HashUpdateLogType::calculate_log_length(key_length, payload_count);
+      HashUpdateLogType* log_entry = reinterpret_cast<HashUpdateLogType*>(
+        context->get_thread_log_buffer().reserve_new_log(log_length));
+      log_entry->populate(
+        get_id(),
+        key,
+        key_length,
+        get_bin_bits(),
+        combo.hash_,
+        payload,
+        payload_count);
+      log_common = log_entry;
+    }
+
+    // In either case, this operation depends on the TID of the record,
+    // So, if we took a read-set, we should 'relate' the write set with it.
+    if (read_set) {
+      return cur_xct.add_related_write_set(
+        read_set,
+        &location.slot_->tid_,
+        location.record_,
+        log_common);
+    } else {
+      return cur_xct.add_to_read_and_write_set(
+        get_id(),
+        location.observed_,
+        &location.slot_->tid_,
+        location.record_,
+        log_common);
+    }
+  }
 }
 
 ErrorCode HashStoragePimpl::overwrite_record(
@@ -534,7 +558,8 @@ ErrorCode HashStoragePimpl::overwrite_record(
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(
+  xct::ReadXctAccess* read_set;
+  CHECK_ERROR_CODE(locate_record_logical(
     context,
     true,
     false,
@@ -543,27 +568,16 @@ ErrorCode HashStoragePimpl::overwrite_record(
     key_length,
     combo,
     bin_head,
-    &location));
+    &location,
+    &read_set));
 
   xct::Xct& cur_xct = context->get_current_xct();
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   } else if (location.observed_.is_deleted()) {
-    CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-      context,
-      get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + payload_count) {
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
-    CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-      context,
-      get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      false));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
 
@@ -580,12 +594,23 @@ ErrorCode HashStoragePimpl::overwrite_record(
     payload_offset,
     payload_count);
 
-  return context->get_current_xct().add_to_read_and_write_set(
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_,
-    location.record_,
-    log_entry);
+  // overwrite_record is apparently a blind-write, but actually it's not.
+  // we depend on the fact that the record was not deleted/moved! so,
+  // this still has a related/dependent read-set
+  if (read_set) {
+    return cur_xct.add_related_write_set(
+      read_set,
+      &location.slot_->tid_,
+      location.record_,
+      log_entry);
+  } else {
+    return cur_xct.add_to_read_and_write_set(
+      get_id(),
+      location.observed_,
+      &location.slot_->tid_,
+      location.record_,
+      log_entry);
+  }
 }
 
 template <typename PAYLOAD>
@@ -600,7 +625,8 @@ ErrorCode HashStoragePimpl::increment_record(
   CHECK_ERROR_CODE(locate_bin(context, true, combo, &bin_head));
   ASSERT_ND(bin_head);
   RecordLocation location;
-  CHECK_ERROR_CODE(locate_record(
+  xct::ReadXctAccess* read_set;
+  CHECK_ERROR_CODE(locate_record_logical(
     context,
     true,
     false,
@@ -609,27 +635,16 @@ ErrorCode HashStoragePimpl::increment_record(
     key_length,
     combo,
     bin_head,
-    &location));
+    &location,
+    &read_set));
 
   xct::Xct& cur_xct = context->get_current_xct();
   if (!location.slot_) {
     return kErrorCodeStrKeyNotFound;  // protected by page version set, so we are done
   } else if (location.observed_.is_deleted()) {
-    CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-      context,
-      get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      false));
     return kErrorCodeStrKeyNotFound;  // protected by the read set
   } else if (location.slot_->payload_length_ < payload_offset + sizeof(PAYLOAD)) {
     LOG(WARNING) << "short record " << combo;  // probably this is a rare error. so warn.
-    CHECK_ERROR_CODE(cur_xct.add_to_read_set(
-      context,
-      get_id(),
-      location.observed_,
-      &location.slot_->tid_,
-      false));
     return kErrorCodeStrTooShortPayload;  // protected by the read set
   }
 
@@ -652,12 +667,20 @@ ErrorCode HashStoragePimpl::increment_record(
     payload_offset,
     sizeof(PAYLOAD));
 
-  return context->get_current_xct().add_to_read_and_write_set(
-    get_id(),
-    location.observed_,
-    &location.slot_->tid_,
-    location.record_,
-    log_entry);
+  if (read_set) {
+    return cur_xct.add_related_write_set(
+      read_set,
+      &location.slot_->tid_,
+      location.record_,
+      log_entry);
+  } else {
+    return cur_xct.add_to_read_and_write_set(
+      get_id(),
+      location.observed_,
+      &location.slot_->tid_,
+      location.record_,
+      log_entry);
+  }
 }
 
 ErrorCode HashStoragePimpl::get_root_page(
@@ -950,11 +973,23 @@ ErrorCode HashStoragePimpl::locate_bin(
   return kErrorCodeOk;
 }
 
-ErrorCode HashStoragePimpl::locate_record(
+/** used only from locate_record() */
+inline void HashStoragePimpl::RecordLocation::populate(
+  DataPageSlotIndex index,
+  const void* key,
+  uint16_t key_length,
+  const HashCombo& combo,
+  HashDataPage* page) {
+  ASSERT_ND(page->compare_slot_key(index, combo.hash_, key, key_length));
+  slot_ = page->get_slot_address(index);
+  record_ = page->record_from_offset(slot_->offset_);
+  observed_ = slot_->tid_.xct_id_.spin_while_being_written();
+  ASSERT_ND(!observed_.is_being_written());
+  ASSERT_ND(observed_.is_valid());
+}
+
+ErrorCode HashStoragePimpl::locate_record_in_snapshot(
   thread::Thread* context,
-  bool for_write,
-  bool create_if_notfound,
-  uint16_t create_payload_length,
   const void* key,
   uint16_t key_length,
   const HashCombo& combo,
@@ -962,10 +997,69 @@ ErrorCode HashStoragePimpl::locate_record(
   RecordLocation* result) {
   ASSERT_ND(bin_head);
   ASSERT_ND(bin_head->get_bin() == combo.bin_);
-  ASSERT_ND(!for_write || !bin_head->header().snapshot_);  // for_write implies volatile page
-  ASSERT_ND(for_write || !create_if_notfound);  // create_if_notfound implies for_write
-  bool in_snapshot = bin_head->header().snapshot_;
+  ASSERT_ND(bin_head->header().snapshot_);
   result->clear();
+  // Snapshot version doesn't need any of the concerns above. Easy!
+  // Just physically search and follow to next page.
+  HashDataPage* page = bin_head;
+  while (true) {
+    const uint16_t record_count = page->get_record_count();
+    const DataPageSlotIndex index = page->search_key_physical(
+      combo.hash_,
+      combo.fingerprint_,
+      key,
+      key_length,
+      record_count);
+    if (index != kSlotNotFound) {
+      // found! this is final in snapshot page
+      result->populate(index, key, key_length, combo, page);
+      ASSERT_ND(!result->observed_.is_moved());
+      return kErrorCodeOk;
+    }
+
+    // Definitely not in this page, now on to next page.
+    DualPagePointer* next_page = page->next_page_address();
+    // then we are in snapshot world. no race.
+    ASSERT_ND(next_page->volatile_pointer_.is_null());
+    SnapshotPagePointer pointer = next_page->snapshot_pointer_;
+    if (pointer) {
+      Page* next;
+      CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(pointer, &next));
+      ASSERT_ND(next->get_header().snapshot_);
+      page = reinterpret_cast<HashDataPage*>(next);
+    } else {
+      // it's snapshot world. the result is final, we are done.
+      return kErrorCodeOk;
+    }
+  }
+}
+
+ErrorCode HashStoragePimpl::locate_record(
+  thread::Thread* context,
+  bool for_write,
+  bool physical_only,
+  bool create_if_notfound,
+  uint16_t create_payload_length,
+  const void* key,
+  uint16_t key_length,
+  const HashCombo& combo,
+  HashDataPage* bin_head,
+  RecordLocation* result,
+  xct::ReadXctAccess** read_set_address) {
+  ASSERT_ND(bin_head);
+  ASSERT_ND(bin_head->get_bin() == combo.bin_);
+  ASSERT_ND(read_set_address);
+  ASSERT_ND(for_write || !create_if_notfound);  // create_if_notfound implies for_write
+
+  *read_set_address = nullptr;
+
+  // Snapshot case is way easier. Separtely handle that case.
+  if (bin_head->header().snapshot_) {
+    ASSERT_ND(!for_write);
+    ASSERT_ND(!create_if_notfound);
+    return locate_record_in_snapshot(context, key, key_length, combo, bin_head, result);
+  }
+
   xct::Xct& current_xct = context->get_current_xct();
 
   // in hash storage, we maintain only bin_head's stat. it's enough
@@ -975,135 +1069,155 @@ ErrorCode HashStoragePimpl::locate_record(
 
   HashDataPage* page = bin_head;
   while (true) {
-    // this search is NOT protected by lock/fence etc _at this point_.
-    // we will check it again later.
-    uint16_t record_count = page->get_record_count();
-    search_key_in_a_page(key, key_length, combo, page, record_count, result);
-    if (result->record_) {
-      return kErrorCodeOk;  // found!
+    // Start with a physical-only search. We will re-check our observation below.
+    const uint16_t record_count = page->get_record_count();
+    const DataPageSlotIndex index = page->search_key_physical(
+      combo.hash_,
+      combo.fingerprint_,
+      key,
+      key_length,
+      record_count);
+    if (index != kSlotNotFound) {
+      // found! but it might be now being logically moved/deleted.
+      result->populate(index, key, key_length, combo, page);
+      if (physical_only) {
+        return kErrorCodeOk;  // we don't care. the caller is responsible
+      } else {
+        // [Logical check]: Re-read XID in a finalized fashion. If we found it "moved",
+        // then we retry from the search.
+        // After here, TID will be changed when moved, which pre-commit will catch.
+        CHECK_ERROR_CODE(current_xct.on_record_read(
+          for_write,
+          &result->slot_->tid_,
+          &result->observed_,
+          read_set_address));
+        if (UNLIKELY(result->observed_.is_moved())) {
+          LOG(INFO) << "Interesting. The record has been just moved";
+          *read_set_address = nullptr;
+          continue;
+        }
+        return kErrorCodeOk;
+      }
     }
 
     // Apparently not in this page, now on to next page. We have to be a bit careful
     // in this case. Non-null next page means this page is already static, but we
     // have to make sure we confirmed it in a right order.
     DualPagePointer* next_page = page->next_page_address();
-    if (in_snapshot) {
-      // then we are in snapshot world. no race.
-      ASSERT_ND(next_page->volatile_pointer_.is_null());
-      ASSERT_ND(!for_write);
-      ASSERT_ND(!create_if_notfound);
-      SnapshotPagePointer pointer = next_page->snapshot_pointer_;
-      if (pointer) {
-        Page* next;
-        CHECK_ERROR_CODE(context->find_or_read_a_snapshot_page(pointer, &next));
-        ASSERT_ND(next->get_header().snapshot_);
-        page = reinterpret_cast<HashDataPage*>(next);
-      } else {
-        // it's snapshot world. the result is final, we are done.
-        return kErrorCodeOk;
-      }
-    } else {
-      // we are in volatile page, there might be a race!
-      PageVersionStatus page_status = page->header().page_version_.status_;
-      assorted::memory_fence_consume();  // from now on, page_status is the ground truth here.
-      // check a few things after the fence.
-      // invariant: we never move on to next page without guaranteeing that this page does not
-      // contain a physical non-moved record with the key.
 
-      // did someone insert a new record at this moment?
-      uint16_t record_count_again = page->get_record_count();
-      if (UNLIKELY(record_count != record_count_again)) {
-        LOG(INFO) << "Interesting. concurrent insertion just happend to the page";
-        assorted::memory_fence_consume();
-        continue;  // just retry to make it sure. this is rare.
-      }
+    // we are in volatile page, there might be a race!
+    PageVersionStatus page_status = page->header().page_version_.status_;
+    assorted::memory_fence_consume();  // from now on, page_status is the ground truth here.
+    // check a few things after the fence.
+    // invariant: we never move on to next page without guaranteeing that this page does not
+    // contain a physical non-moved record with the key.
 
-      // did someone install a new page at this moment?
-      if (UNLIKELY(!page_status.has_next_page() && !next_page->volatile_pointer_.is_null())) {
-        LOG(INFO) << "Interesting. concurrent next-page installation just happend to the page";
-        assorted::memory_fence_consume();
-        continue;  // just retry to make it sure. this is rare.
-      }
+    // did someone insert a new record at this moment?
+    uint16_t record_count_again = page->get_record_count();
+    if (UNLIKELY(record_count != record_count_again)) {
+      LOG(INFO) << "Interesting. concurrent insertion just happend to the page";
+      assorted::memory_fence_consume();
+      continue;  // just retry to make it sure. this is rare.
+    }
 
-      if (next_page->volatile_pointer_.is_null()) {
-        // no next page.
-        if (create_if_notfound) {
-          // this is the tail page, so let's insert it here.
-          // we do that as a system transaction.
-          ASSERT_ND(for_write);
-          CHECK_ERROR_CODE(reserve_record(
-            context,
-            key,
-            key_length,
-            combo,
-            create_payload_length,
-            page,
-            record_count,
-            result));
-          ASSERT_ND(result->slot_);
-          ASSERT_ND(result->record_);
-          return kErrorCodeOk;
+    // did someone install a new page at this moment?
+    if (UNLIKELY(!page_status.has_next_page() && !next_page->volatile_pointer_.is_null())) {
+      LOG(INFO) << "Interesting. concurrent next-page installation just happend to the page";
+      assorted::memory_fence_consume();
+      continue;  // just retry to make it sure. this is rare.
+    }
+
+    if (next_page->volatile_pointer_.is_null()) {
+      // no next page.
+      if (create_if_notfound) {
+        // this is the tail page, so let's insert it here.
+        // we do that as a system transaction.
+        ASSERT_ND(for_write);
+        DataPageSlotIndex new_location;
+        CHECK_ERROR_CODE(locate_record_reserve_physical(
+          context,
+          key,
+          key_length,
+          combo,
+          create_payload_length,
+          &page,
+          record_count,
+          &new_location));
+        ASSERT_ND(new_location != kSlotNotFound);  // contract of the above method
+        // The returned location is not logically protected... yet.
+        result->populate(new_location, key, key_length, combo, page);
+        if (physical_only) {
+          return kErrorCodeOk;  // we don't care. the caller is responsible
         } else {
-          // we have to take version set because someone might
-          // insert a new record/next-page later.
-          CHECK_ERROR_CODE(current_xct.add_to_page_version_set(
-            &page->header().page_version_,
-            page_status));
+          // [Logical check]: Re-read XID in a finalized fashion. If we found it "moved",
+          // then we retry from the search.
+          CHECK_ERROR_CODE(current_xct.on_record_read(
+            true,
+            &result->slot_->tid_,
+            &result->observed_,
+            read_set_address));
+          if (UNLIKELY(result->observed_.is_moved())) {
+            LOG(INFO) << "Interesting. The record has been just moved after creation!";
+            *read_set_address = nullptr;
+            continue;
+          }
           return kErrorCodeOk;
         }
       } else {
-        page = context->resolve_cast<HashDataPage>(next_page->volatile_pointer_);
+        // "NotFound" result. To finalize it,
+        // we have to take version set because someone might
+        // insert a new record/next-page later.
+        result->clear();
+        if (physical_only) {
+          return kErrorCodeOk;  // we don't care. the caller is responsible
+        } else {
+          // [Logical check]: Remember the page_status we observed as of checking record count
+          // and verify it at commit time.
+          CHECK_ERROR_CODE(current_xct.add_to_page_version_set(
+            &page->header().page_version_,
+            page_status));
+          // in this case, read_set_address is still nult.
+          ASSERT_ND(*read_set_address == nullptr);
+          return kErrorCodeOk;
+        }
       }
+    } else {
+      page = context->resolve_cast<HashDataPage>(next_page->volatile_pointer_);
+      ASSERT_ND(!page->header().snapshot_);
     }
   }
 }
 
-
-void HashStoragePimpl::search_key_in_a_page(
-  const void* key,
-  uint16_t key_length,
-  const HashCombo& combo,
-  HashDataPage* page,
-  uint16_t record_count,
-  RecordLocation* result) {
-  result->clear();
-  xct::XctId observed;
-  DataPageSlotIndex index = page->search_key(
-    combo.hash_,
-    combo.fingerprint_,
-    key,
-    key_length,
-    record_count,
-    &observed);
-  ASSERT_ND(!observed.is_being_written());
-
-  if (index < record_count) {
-    // found! in this case we don't need to check it again. we are already sure
-    // this record contains the exact key. Though it might be logically deleted.
-    ASSERT_ND(page->compare_slot_key(index, combo.hash_, key, key_length));
-    ASSERT_ND(!observed.is_moved());  // that's the contract of search_key()
-    HashDataPage::Slot* slot = page->get_slot_address(index);
-    result->slot_ = slot;
-    result->record_ = page->record_from_offset(slot->offset_);
-    result->observed_ = observed;
-    assorted::memory_fence_consume();  // finalize observed BEFORE doing logical things.
-    // after here, TID must be changed to move the record, which pre-commit will catch.
-  }
-}
-
-
-ErrorCode HashStoragePimpl::reserve_record(
+ErrorCode HashStoragePimpl::locate_record_reserve_physical(
   thread::Thread* context,
   const void* key,
   uint16_t key_length,
   const HashCombo& combo,
   uint16_t payload_length,
-  HashDataPage* page,
+  HashDataPage** page_in_out,
   uint16_t examined_records,
-  RecordLocation* result) {
+  DataPageSlotIndex* new_location) {
+  ASSERT_ND(new_location);
+
+  HashDataPage* page = *page_in_out;
   ASSERT_ND(!page->header().snapshot_);
+#ifndef NDEBUG
+  // examined_records is the count of records the caller has examined
+  // _and_ found no matching records. Because keys in our hash pages are immutable,
+  // there still must not be a record of the given key up to that slot.
+  ASSERT_ND(examined_records <= page->get_record_count());
+  DataPageSlotIndex re_examined = page->search_key_physical(
+      combo.hash_,
+      combo.fingerprint_,
+      key,
+      key_length,
+      examined_records);  // do not check newer records
+  ASSERT_ND(re_examined == kSlotNotFound);
+#endif  // NDEBUG
+
+  *new_location = kSlotNotFound;
   while (true) {
-    // lock the page first so that there is no race.
+    // lock the page first so that there is no race on new keys.
     PageVersionLockScope scope(context, &page->header().page_version_);
     if (UNLIKELY(page->get_record_count() != examined_records)) {
       // oh, someone has just inserted something. let's check it again
@@ -1113,23 +1227,33 @@ ErrorCode HashStoragePimpl::reserve_record(
 
       // in this case, we can skip the first examined_records records, but
       // this is rare. let's scan it again and do sanity check
-      search_key_in_a_page(key, key_length, combo, page, new_count, result);
-      if (result->record_) {
-        // the found slot is AFTER examined_records, otherwise we should have found it earlier.
-        ASSERT_ND(result->slot_ <= page->get_slot_address(examined_records));
-        LOG(INFO) << "Interesting, the key has been just inserted!";
-        return kErrorCodeOk;  // found!
-      }
 
-      // still no match, go on.
-      examined_records = new_count;
+      // We took the page lock, so physical-only search is enough.
+      DataPageSlotIndex index = page->search_key_physical(
+        combo.hash_,
+        combo.fingerprint_,
+        key,
+        key_length,
+        new_count);
+      if (index != kSlotNotFound) {
+        // the found slot must be AFTER examined_records, otherwise we should have found it earlier.
+        LOG(INFO) << "Interesting, the key has been just inserted!";
+        ASSERT_ND(index >= examined_records);
+        *new_location = index;
+        return kErrorCodeOk;
+      } else {
+        // still no match, go on.
+        examined_records = new_count;
+      }
     }
 
     if (!page->next_page().volatile_pointer_.is_null()) {
       DVLOG(0) << "Interesting, there is a new next page after locking the page.";
       page = context->resolve_cast<HashDataPage>(page->next_page().volatile_pointer_);
+      *page_in_out = page;
       examined_records = 0;
-      continue;  // just goes on to next page
+      ASSERT_ND(!page->header().snapshot_);
+      continue;
     }
 
     // do we have enough room in this page?
@@ -1141,7 +1265,9 @@ ErrorCode HashStoragePimpl::reserve_record(
 
       // just goes on to the newly created next page
       page = next;
+      *page_in_out = page;
       examined_records = 0;
+      ASSERT_ND(!page->header().snapshot_);
       continue;
     }
 
@@ -1153,17 +1279,10 @@ ErrorCode HashStoragePimpl::reserve_record(
       key_length,
       payload_length);
     ASSERT_ND(index == examined_records);
-    result->slot_ = page->get_slot_address(index);
-    result->record_ = page->record_from_offset(result->slot_->offset_);
-    result->observed_ = result->slot_->tid_.xct_id_;
-    // as we still have page lock, we are sure the TID is still the one we installed.
-    ASSERT_ND(result->observed_.is_deleted());
-    ASSERT_ND(!result->observed_.is_moved());
+    *new_location = index;
     return kErrorCodeOk;
   }
 }
-
-
 
 xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record(
   xct::RwLockableXctId* old_address,
@@ -1212,10 +1331,21 @@ xct::TrackMovedRecordResult HashStoragePimpl::track_moved_record_search(
   while (true) {
     ASSERT_ND(!page->header().snapshot_);
     ASSERT_ND(page->next_page_address()->snapshot_pointer_ == 0);
-    uint16_t record_count = page->get_record_count();
-    search_key_in_a_page(key, key_length, combo, page, record_count, &result);
-    if (result.record_) {
-      return xct::TrackMovedRecordResult(&result.slot_->tid_, result.record_);
+    const uint16_t record_count = page->get_record_count();
+
+    // Tracking happens in commit phase, so we don't need further logical readset/lock things.
+    // This is just to locate the new address. So, physical_only search.
+    // (which might miss a new record being inserted, but it's just a bit conservative abort)
+    DataPageSlotIndex index = page->search_key_physical(
+      combo.hash_,
+      combo.fingerprint_,
+      key,
+      key_length,
+      record_count);
+    if (index != kSlotNotFound) {
+      HashDataPage::Slot* slot = page->get_slot_address(index);
+      char* payload = page->record_from_offset(slot->offset_);
+      return xct::TrackMovedRecordResult(&slot->tid_, payload);
     }
 
     // we must meet the same invariant as usual case. a bit simpler, though
@@ -1275,7 +1405,7 @@ ErrorCode HashStoragePimpl::migrate_record(
     // corresponds to rel-barrier while setting is_moved flag.
     assorted::memory_fence_acquire();  // could be consume, but whatever
     RecordLocation location;
-    CHECK_ERROR_CODE(locate_record(
+    CHECK_ERROR_CODE(locate_record_physical_only(
       context,
       true,
       false,

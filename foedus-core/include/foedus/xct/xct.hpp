@@ -60,7 +60,7 @@ class Xct {
     kMaxPageVersionSets = 1024,
   };
 
-  Xct(Engine* engine, thread::ThreadId thread_id);
+  Xct(Engine* engine, thread::Thread* context, thread::ThreadId thread_id);
 
   // No copy
   Xct(const Xct& other) CXX11_FUNC_DELETE;
@@ -122,6 +122,7 @@ class Xct {
   IsolationLevel      get_isolation_level() const { return isolation_level_; }
   /** Returns the ID of this transaction, but note that it is not issued until commit time! */
   const XctId&        get_id() const { return id_; }
+  thread::Thread*     get_thread_context() { return context_; }
   thread::ThreadId    get_thread_id() const { return thread_id_; }
   uint32_t            get_pointer_set_size() const { return pointer_set_size_; }
   uint32_t            get_page_version_set_size() const { return page_version_set_size_; }
@@ -198,6 +199,71 @@ class Xct {
     storage::PageVersionStatus observed);
 
   /**
+   * @brief The general logic invoked for every record read.
+   * @param[in] intended_for_write Hints whether the record will be written after this read
+   * @param[in,out] tid_address The record's TID address
+   * @param[out] observed_xid Returns the observed XID. See below for more details.
+   * @param[out] read_set_address If this method took a read-set, points to
+   * the read-set record. nullptr if it didn't.
+   * @return The only possible error is read-set full.
+   * @pre tid_address != nullptr && observed_xid != nullptr
+   * @pre tid_address must be pointing to somewhere in an aligned data page.
+   * We reinterpret_cast the address to acquire the enclosing page and its header.
+   * @post returns error code, or !observed_xid->is_being_written().
+   * @details
+   * You must call this method \b BEFORE reading the data, otherwise it violates the
+   * commit protocol.
+   * This method does a few things listed below:
+   *
+   * @par Observes XID
+   * Observes XID in the TID and spins until we at least observe an XID that is
+   * !observed_xid->is_being_written(). However, remember that concurrent threads might
+   * write the data and XID after this method leaves. If you want to make sure your "read"
+   * is strictly as of one time point, you must call this method in a loop.
+   * In terms of serializability, you don't need it because commit protocol will catch it.
+   *
+   * @par Takes lock(s) recommended by RLL or temperature stat.
+   * This happens only when MOCC is on, and the page is a volatile page.
+   * This method might take a PCC-like lock on this record, and also other locks
+   * to keep the transaction in canonical mode.
+   *
+   * @par Add to read set
+   * This happens only when the transaction has higher isolation level (serializable),
+   * and the page is a volatile page. To protect the read, we add the observed XID and
+   * the address to read set of this transaction.
+   */
+  ErrorCode           on_record_read(
+    bool intended_for_write,
+    RwLockableXctId* tid_address,
+    XctId* observed_xid,
+    ReadXctAccess** read_set_address);
+  /** Shortcut for a case when you don't need observed_xid/read_set_address back */
+  ErrorCode           on_record_read(
+    bool intended_for_write,
+    RwLockableXctId* tid_address) {
+    XctId dummy_xctid;
+    ReadXctAccess* dummy_read_set;
+    return on_record_read(intended_for_write, tid_address, &dummy_xctid, &dummy_read_set);
+  }
+  /**
+   * subroutine of on_record_read() to take lock(s).
+   */
+  void on_record_read_take_locks_if_needed(bool intended_for_write, RwLockableXctId* tid_address);
+
+  /**
+   * Registers a write-set related to an existing read-set.
+   * This is typically invoked after on_record_read(), which returns the read-set address.
+   * @note so far you can't reigster more than one write-set to a read-set.
+   * but, registering related read/write sets are just for performance. correctness is
+   * guaranteed even if they are not registered as "related".
+   */
+  ErrorCode           add_related_write_set(
+    ReadXctAccess* related_read_set,
+    RwLockableXctId* tid_address,
+    char* payload_address,
+    log::RecordLogType* log_entry);
+
+  /**
    * @brief Add the given record to the read set of this transaction.
    * @details
    * You must call this method \b BEFORE reading the data, otherwise it violates the
@@ -213,7 +279,8 @@ class Xct {
   ErrorCode           add_to_read_set_force(
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    RwLockableXctId* owner_id_address);
+    RwLockableXctId* owner_id_address,
+    ReadXctAccess** read_set_address);
 
   /**
    * @brief Add the given record to the write set of this transaction.
@@ -302,6 +369,10 @@ class Xct {
 
  private:
   Engine* const engine_;
+  /**
+   * The thread that holds this object, or a back pointer.
+   */
+  thread::Thread* const context_;
 
   /** Thread that owns this transaction. */
   const thread::ThreadId thread_id_;

@@ -37,7 +37,8 @@
 
 namespace foedus {
 namespace xct {
-Xct::Xct(Engine* engine, thread::ThreadId thread_id) : engine_(engine), thread_id_(thread_id) {
+Xct::Xct(Engine* engine, thread::Thread* context, thread::ThreadId thread_id)
+  : engine_(engine), context_(context), thread_id_(thread_id) {
   id_ = XctId();
   active_ = false;
   read_set_ = nullptr;
@@ -220,12 +221,117 @@ ErrorCode Xct::add_to_page_version_set(
   return kErrorCodeOk;
 }
 
+ErrorCode Xct::on_record_read(
+  bool intended_for_write,
+  RwLockableXctId* tid_address,
+  XctId* observed_xid,
+  ReadXctAccess** read_set_address) {
+  ASSERT_ND(tid_address);
+  ASSERT_ND(observed_xid);
+  ASSERT_ND(read_set_address);
+  const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(tid_address));
+  const storage::StorageId storage_id = page->get_header().storage_id_;
+  ASSERT_ND(storage_id != 0);
+
+  *read_set_address = nullptr;
+  if (page->get_header().snapshot_) {
+    // Snapshot page is immutable.
+    // No read-set, lock, or check for being_written flag needed.
+    *observed_xid = tid_address->xct_id_;
+    ASSERT_ND(!observed_xid->is_being_written());
+    return kErrorCodeOk;
+  } else if (isolation_level_ != kSerializable) {
+    // No read-set or read-locks needed in non-serializable transactions.
+    // Also no point to conservatively take write-locks recommended by RLL
+    // because we don't take any read locks in these modes, so the
+    // original SILO's write-lock protocol is enough and abort-free.
+    ASSERT_ND(isolation_level_ == kDirtyRead || isolation_level_ == kSnapshot);
+    *observed_xid = tid_address->xct_id_.spin_while_being_written();
+    ASSERT_ND(!observed_xid->is_being_written());
+    return kErrorCodeOk;
+  }
+
+  const auto& resolver = context_->get_global_volatile_page_resolver();
+  storage::assert_within_valid_volatile_page(resolver, tid_address);
+
+  // This is a serializable transaction, and we are reading a record from a volatile page.
+  // We might take a pessimisitic lock for the record, which is our MOCC protocol.
+  // However, we need to do this _before_ observing XctId. Otherwise there is a
+  // chance of aborts even with the lock.
+  on_record_read_take_locks_if_needed(intended_for_write, tid_address);
+
+  *observed_xid = tid_address->xct_id_.spin_while_being_written();
+  ASSERT_ND(!observed_xid->is_being_written());
+  assorted::memory_fence_consume();  // following reads must happen *after* this read
+
+  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, *observed_xid, tid_address, read_set_address));
+  return kErrorCodeOk;
+}
+
+void Xct::on_record_read_take_locks_if_needed(
+  bool intended_for_write,
+  RwLockableXctId* tid_address) {
+  const auto& resolver = context_->get_global_volatile_page_resolver();
+  storage::assert_within_valid_volatile_page(resolver, tid_address);
+
+  const UniversalLockId lock_id = xct_id_to_universal_lock_id(resolver, tid_address);
+  LockListPosition rll_pos = kLockListPositionInvalid;
+  bool lets_take_lock = false;
+  if (!retrospective_lock_list_.is_empty()) {
+    // RLL is set, which means the previous run aborted for race.
+    // binary-search for each read-set is not cheap, but in this case better than aborts.
+    // So, let's see if we should take the lock.
+    rll_pos = retrospective_lock_list_.binary_search(lock_id);
+    if (rll_pos != kLockListPositionInvalid) {
+      ASSERT_ND(retrospective_lock_list_.get_array()[rll_pos].universal_lock_id_ == lock_id);
+      DVLOG(1) << "RLL recommends to take lock on this record!";
+      lets_take_lock = true;
+    }
+  }
+
+  if (!lets_take_lock && tid_address->is_hot(context_)) {
+    lets_take_lock = true;
+  }
+
+  if (lets_take_lock) {
+    LockMode mode = intended_for_write ? kWriteLock : kReadLock;
+    LockListPosition cll_pos = current_lock_list_.get_or_add_entry(tid_address, mode);
+    LockEntry* cll_entry = current_lock_list_.get_entry(cll_pos);
+    if (cll_entry->is_enough()) {
+      return;  // already had the lock
+    }
+
+    ErrorCode lock_ret;
+    if (rll_pos == kLockListPositionInvalid) {
+      // Then, this is a single read-lock to take.
+      lock_ret = current_lock_list_.try_or_acquire_single_lock(context_, cll_pos);
+      // TODO(Hideaki) The above locks unconditionally in canonnical mode. Even in non-canonical,
+      // when it returns kErrorCodeXctLockAbort AND we haven't taken any write-lock yet,
+      // we might still want a retry here.. but it has pros/cons. Revisit later.
+    } else {
+      // Then we should take all locks before this too.
+      lock_ret = current_lock_list_.try_or_acquire_multiple_locks(context_, cll_pos);
+    }
+
+    if (lock_ret != kErrorCodeOk) {
+      ASSERT_ND(lock_ret == kErrorCodeXctLockAbort);
+      DVLOG(0) << "Failed to take some of the lock that might be beneficial later"
+        << ". We still go on because the locks here are not mandatory.";
+      // At this point, no point to be advised by RLL any longer.
+      // Let's clear it, and let's give-up all incomplete locks in CLL.
+      context_->mcs_giveup_all_current_locks_after(kNullUniversalLockId);
+      retrospective_lock_list_.clear_entries();
+    }
+  }
+}
+
 ErrorCode Xct::add_to_read_set(
   thread::Thread* context,
   storage::StorageId storage_id,
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
   bool read_only) {
+  // TODO this method should go away
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(observed_owner_id.is_valid());
@@ -242,7 +348,8 @@ ErrorCode Xct::add_to_read_set(
     storage::assert_within_valid_volatile_page(resolver, owner_id_address);
   }
 
-  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
+  ReadXctAccess* dummy;
+  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address, &dummy));
 
   // We might take a pessimisitic lock for the record, which is our MOCC protocol.
   // However, we might want to do this _before_ observing XctId. Otherwise there is a
@@ -304,20 +411,24 @@ ErrorCode Xct::add_to_read_set(
 ErrorCode Xct::add_to_read_set_force(
   storage::StorageId storage_id,
   XctId observed_owner_id,
-  RwLockableXctId* owner_id_address) {
+  RwLockableXctId* owner_id_address,
+  ReadXctAccess** read_set_address) {
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(!observed_owner_id.is_being_written());
+  ASSERT_ND(read_set_address);
   if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
     return kErrorCodeXctReadSetOverflow;
   }
   // if the next-layer bit is ON, the record is not logically a record, so why we are adding
   // it to read-set? we should have already either aborted or retried in this case.
   ASSERT_ND(!observed_owner_id.is_next_layer());
-  read_set_[read_set_size_].storage_id_ = storage_id;
-  read_set_[read_set_size_].owner_id_address_ = owner_id_address;
-  read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
-  read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
+  ReadXctAccess* entry = read_set_ + read_set_size_;
+  *read_set_address = entry;
+  entry->storage_id_ = storage_id;
+  entry->owner_id_address_ = owner_id_address;
+  entry->observed_owner_id_ = observed_owner_id;
+  entry->related_write_ = nullptr;
   ++read_set_size_;
   return kErrorCodeOk;
 }
@@ -370,14 +481,42 @@ ErrorCode Xct::add_to_read_and_write_set(
   auto* read = read_set_ + read_set_size_;
   // in this method, we force to add a read set because it's critical to confirm that
   // the physical record we write to is still the one we found.
+  ReadXctAccess* dummy;
   CHECK_ERROR_CODE(add_to_read_set_force(
     storage_id,
     observed_owner_id,
-    owner_id_address));
+    owner_id_address,
+    &dummy));
   ASSERT_ND(read->owner_id_address_ == owner_id_address);
   read->related_write_ = write;
   write->related_read_ = read;
   ASSERT_ND(read->related_write_->related_read_ == read);
+  ASSERT_ND(write->related_read_->related_write_ == write);
+  ASSERT_ND(write->log_entry_ == log_entry);
+  ASSERT_ND(write->owner_id_address_ == owner_id_address);
+  ASSERT_ND(write_set_size_ > 0);
+  return kErrorCodeOk;
+}
+
+ErrorCode Xct::add_related_write_set(
+  ReadXctAccess* related_read_set,
+  RwLockableXctId* tid_address,
+  char* payload_address,
+  log::RecordLogType* log_entry) {
+  ASSERT_ND(related_read_set);
+  ASSERT_ND(tid_address);
+#ifndef NDEBUG
+  log::invoke_assert_valid(log_entry);
+#endif  // NDEBUG
+
+  auto* write = write_set_ + write_set_size_;
+  auto storage_id = related_read_set->storage_id_;
+  auto* owner_id_address = related_read_set->owner_id_address_;
+  CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
+
+  related_read_set->related_write_ = write;
+  write->related_read_ = related_read_set;
+  ASSERT_ND(related_read_set->related_write_->related_read_ == related_read_set);
   ASSERT_ND(write->related_read_->related_write_ == write);
   ASSERT_ND(write->log_entry_ == log_entry);
   ASSERT_ND(write->owner_id_address_ == owner_id_address);

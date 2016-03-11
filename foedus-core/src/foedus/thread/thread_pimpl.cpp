@@ -65,7 +65,7 @@ ThreadPimpl::ThreadPimpl(
     snapshot_cache_hashtable_(nullptr),
     snapshot_page_pool_(nullptr),
     log_buffer_(engine, id),
-    current_xct_(engine, id),
+    current_xct_(engine, holder, id),
     snapshot_file_set_(engine),
     control_block_(nullptr),
     task_input_memory_(nullptr),

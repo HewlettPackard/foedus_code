@@ -343,7 +343,6 @@ class HashDataPage final {
    * @param[in] key full key.
    * @param[in] key_length full key length.
    * @param[in] record_count how many records this page \e supposedly contains. See below.
-   * @param[out] observed When the key is found, we save its TID to this variable
    * @return index of the slot that has the key. kSlotNotFound if not found (including
    * the case where an exactly-matched record's TID says it's "moved").
    * @invariant hash == hashinate(key, key_length)
@@ -355,14 +354,19 @@ class HashDataPage final {
    *
    * This method searches for a physical slot no matter whether the record is logically deleted.
    * However, "moved" records are completely ignored.
+   *
+   * This method is \e physical-only.
+   * The returend record might be now being modified or moved. The only contract is the
+   * returend slot (if not kSlotNotFound) points to a physical record whose key is exactly
+   * same as the given one. It is trivially guaranteed because key/hash in physical records
+   * in our hash pages are immutable.
    */
-  DataPageSlotIndex search_key(
+  DataPageSlotIndex search_key_physical(
     HashValue hash,
     const BloomFilterFingerprint& fingerprint,
     const void* key,
     uint16_t key_length,
-    uint16_t record_count,
-    xct::XctId* observed) const;
+    uint16_t record_count) const;
 
   /** returns whether the slot contains the exact key specified */
   inline bool compare_slot_key(
