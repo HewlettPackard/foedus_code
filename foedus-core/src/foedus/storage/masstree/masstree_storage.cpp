@@ -25,6 +25,7 @@
 #include "foedus/log/thread_log_buffer.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
+#include "foedus/storage/masstree/masstree_record_location.hpp"
 #include "foedus/storage/masstree/masstree_retry_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
 #include "foedus/thread/thread.hpp"
@@ -88,26 +89,19 @@ ErrorCode MasstreeStorage::get_record(
     return get_record_normalized(context, slice, payload, payload_capacity, read_only);
   }
 
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record(
     context,
     key,
     key_length,
-    false,
-    &border,
-    &index,
-    &observed));
+    !read_only,
+    &location));
   return pimpl.retrieve_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     payload,
-    payload_capacity,
-    read_only);
+    payload_capacity);
 }
 
 ErrorCode MasstreeStorage::get_record_part(
@@ -125,27 +119,20 @@ ErrorCode MasstreeStorage::get_record_part(
       context, slice, payload, payload_offset, payload_count, read_only);
   }
 
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record(
     context,
     key,
     key_length,
-    false,
-    &border,
-    &index,
-    &observed));
+    !read_only,
+    &location));
   return pimpl.retrieve_part_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     payload,
     payload_offset,
-    payload_count,
-    read_only);
+    payload_count);
 }
 
 template <typename PAYLOAD>
@@ -163,27 +150,20 @@ ErrorCode MasstreeStorage::get_record_primitive(
       context, slice, payload, payload_offset, read_only);
   }
 
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record(
     context,
     key,
     key_length,
-    false,
-    &border,
-    &index,
-    &observed));
+    !read_only,
+    &location));
   return pimpl.retrieve_part_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     payload,
     payload_offset,
-    sizeof(PAYLOAD),
-    read_only);
+    sizeof(PAYLOAD));
 }
 
 ErrorCode MasstreeStorage::get_record_normalized(
@@ -192,25 +172,18 @@ ErrorCode MasstreeStorage::get_record_normalized(
   void* payload,
   PayloadLength* payload_capacity,
   bool read_only) {
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
     context,
     key,
-    false,
-    &border,
-    &index,
-    &observed));
+    !read_only,
+    &location));
   return pimpl.retrieve_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     payload,
-    payload_capacity,
-    read_only);
+    payload_capacity);
 }
 
 ErrorCode MasstreeStorage::get_record_part_normalized(
@@ -220,26 +193,19 @@ ErrorCode MasstreeStorage::get_record_part_normalized(
   PayloadLength payload_offset,
   PayloadLength payload_count,
   bool read_only) {
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
     context,
     key,
-    false,
-    &border,
-    &index,
-    &observed));
+    !read_only,
+    &location));
   return pimpl.retrieve_part_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     payload,
     payload_offset,
-    payload_count,
-    read_only);
+    payload_count);
 }
 
 template <typename PAYLOAD>
@@ -249,26 +215,19 @@ ErrorCode MasstreeStorage::get_record_primitive_normalized(
   PAYLOAD* payload,
   PayloadLength payload_offset,
   bool read_only) {
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
     context,
     key,
-    false,
-    &border,
-    &index,
-    &observed));
+    !read_only,
+    &location));
   return pimpl.retrieve_part_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     payload,
     payload_offset,
-    sizeof(PAYLOAD),
-    read_only);
+    sizeof(PAYLOAD));
 }
 
 PayloadLength adjust_payload_hint(
@@ -302,24 +261,19 @@ ErrorCode MasstreeStorage::insert_record(
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.reserve_record(
     context,
     key,
     key_length,
     payload_count,
     physical_payload_hint,
-    &border,
-    &index,
-    &observed));
+    &location));
+  ASSERT_ND(location.is_found());  // contract of reserve_record
   return pimpl.insert_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     key,
     key_length,
     payload,
@@ -336,24 +290,19 @@ ErrorCode MasstreeStorage::insert_record_normalized(
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.reserve_record_normalized(
     context,
     key,
     payload_count,
     physical_payload_hint,
-    &border,
-    &index,
-    &observed));
+    &location));
+  ASSERT_ND(location.is_found());  // contract of reserve_record
   uint64_t be_key = assorted::htobe<uint64_t>(key);
   return pimpl.insert_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     &be_key,
     sizeof(be_key),
     payload,
@@ -370,38 +319,29 @@ ErrorCode MasstreeStorage::delete_record(
     return delete_record_normalized(context, slice);
   }
 
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record(
     context,
     key,
     key_length,
     true,
-    &border,
-    &index,
-    &observed));
-  return pimpl.delete_general(context, border, index, observed, key, key_length);
+    &location));
+  return pimpl.delete_general(context, location, key, key_length);
 }
 
 ErrorCode MasstreeStorage::delete_record_normalized(
   thread::Thread* context,
   KeySlice key) {
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
     context,
     key,
     true,
-    &border,
-    &index,
-    &observed));
+    &location));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
-  return pimpl.delete_general(
-    context, border, index, observed, &be_key, sizeof(be_key));
+  return pimpl.delete_general(context, location, &be_key, sizeof(be_key));
 }
 
 ErrorCode MasstreeStorage::upsert_record(
@@ -421,24 +361,19 @@ ErrorCode MasstreeStorage::upsert_record(
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.reserve_record(
     context,
     key,
     key_length,
     payload_count,
     physical_payload_hint,
-    &border,
-    &index,
-    &observed));
+    &location));
+  ASSERT_ND(location.is_found());  // contract of reserve_record
   return pimpl.upsert_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     key,
     key_length,
     payload,
@@ -455,24 +390,19 @@ ErrorCode MasstreeStorage::upsert_record_normalized(
     return kErrorCodeStrTooLongPayload;
   }
   physical_payload_hint = adjust_payload_hint(payload_count, physical_payload_hint);
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.reserve_record_normalized(
     context,
     key,
     payload_count,
     physical_payload_hint,
-    &border,
-    &index,
-    &observed));
+    &location));
+  ASSERT_ND(location.is_found());  // contract of reserve_record
   uint64_t be_key = assorted::htobe<uint64_t>(key);
   return pimpl.upsert_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     &be_key,
     sizeof(be_key),
     payload,
@@ -492,23 +422,17 @@ ErrorCode MasstreeStorage::overwrite_record(
     return overwrite_record_normalized(context, slice, payload, payload_offset, payload_count);
   }
 
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record(
     context,
     key,
     key_length,
     true,
-    &border,
-    &index,
-    &observed));
+    &location));
   return pimpl.overwrite_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     key,
     key_length,
     payload,
@@ -529,23 +453,17 @@ ErrorCode MasstreeStorage::overwrite_record_primitive(
     return overwrite_record_primitive_normalized<PAYLOAD>(context, slice, payload, payload_offset);
   }
 
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record(
     context,
     key,
     key_length,
     true,
-    &border,
-    &index,
-    &observed));
+    &location));
   return pimpl.overwrite_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     key,
     key_length,
     &payload,
@@ -559,23 +477,17 @@ ErrorCode MasstreeStorage::overwrite_record_normalized(
   const void* payload,
   PayloadLength payload_offset,
   PayloadLength payload_count) {
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
     context,
     key,
     true,
-    &border,
-    &index,
-    &observed));
+    &location));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
   return pimpl.overwrite_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     &be_key,
     sizeof(be_key),
     payload,
@@ -589,23 +501,17 @@ ErrorCode MasstreeStorage::overwrite_record_primitive_normalized(
   KeySlice key,
   PAYLOAD payload,
   PayloadLength payload_offset) {
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
     context,
     key,
     true,
-    &border,
-    &index,
-    &observed));
+    &location));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
   return pimpl.overwrite_general(
     context,
-    border,
-    index,
-    observed,
+    location,
     &be_key,
     sizeof(be_key),
     &payload,
@@ -626,23 +532,17 @@ ErrorCode MasstreeStorage::increment_record(
     return increment_record_normalized<PAYLOAD>(context, slice, value, payload_offset);
   }
 
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record(
     context,
     key,
     key_length,
     true,
-    &border,
-    &index,
-    &observed));
+    &location));
   return pimpl.increment_general<PAYLOAD>(
     context,
-    border,
-    index,
-    observed,
+    location,
     key,
     key_length,
     value,
@@ -655,23 +555,17 @@ ErrorCode MasstreeStorage::increment_record_normalized(
   KeySlice key,
   PAYLOAD* value,
   PayloadLength payload_offset) {
-  MasstreeBorderPage* border;
-  SlotIndex index;
-  xct::XctId observed;
   MasstreeStoragePimpl pimpl(this);
+  RecordLocation location;
   CHECK_ERROR_CODE(pimpl.locate_record_normalized(
     context,
     key,
     true,
-    &border,
-    &index,
-    &observed));
+    &location));
   uint64_t be_key = assorted::htobe<uint64_t>(key);
   return pimpl.increment_general<PAYLOAD>(
     context,
-    border,
-    index,
-    observed,
+    location,
     &be_key,
     sizeof(be_key),
     value,

@@ -193,6 +193,9 @@ struct HashBinRange {
   HashBin end_;
 };
 
+typedef uint16_t DataPageSlotIndex;
+const DataPageSlotIndex kSlotNotFound = 0xFFFFU;
+
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

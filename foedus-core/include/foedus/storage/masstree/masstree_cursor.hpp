@@ -33,6 +33,7 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
+#include "foedus/storage/masstree/masstree_record_location.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -334,7 +335,12 @@ class MasstreeCursor CXX11_FINAL {
   bool        cur_key_next_layer_;
   KeyLength   cur_key_in_layer_remainder_;
   KeySlice    cur_key_in_layer_slice_;
-  xct::XctId  cur_key_observed_owner_id_;
+  /**
+   * Like in per-record operation, now we mix logical operation into cursors.
+   * The cursor logically observes XctId, potentially taking locks or read-sets.
+   */
+  RecordLocation cur_key_location_;
+  // xct::XctId  cur_key_observed_owner_id_;
   xct::RwLockableXctId* cur_key_owner_id_address;
 
   /** full big-endian key to terminate search. allocated in transaction's local work memory */
@@ -376,9 +382,13 @@ class MasstreeCursor CXX11_FINAL {
    * It takes a stable version of the page and
    */
   ErrorCode push_route(MasstreePage* page);
-  void      fetch_cur_record(MasstreeBorderPage* page, SlotIndex record);
+  /**
+   * This is now a logical operation that might add lock/readset.
+   * You can't use this method to "peek" cur record. Be careful!
+   */
+  ErrorCode fetch_cur_record_logical(MasstreeBorderPage* page, SlotIndex record);
   void      check_end_key();
-  bool      is_cur_key_next_layer() const { return cur_key_observed_owner_id_.is_next_layer(); }
+  bool      is_cur_key_next_layer() const { return cur_key_location_.observed_.is_next_layer(); }
   KeyCompareResult compare_cur_key_aginst_search_key(KeySlice slice, uint8_t layer) const;
   KeyCompareResult compare_cur_key_aginst_end_key() const;
   KeyCompareResult compare_cur_key(

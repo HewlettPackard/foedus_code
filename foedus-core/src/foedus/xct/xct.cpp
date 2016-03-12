@@ -225,7 +225,9 @@ ErrorCode Xct::on_record_read(
   bool intended_for_write,
   RwLockableXctId* tid_address,
   XctId* observed_xid,
-  ReadXctAccess** read_set_address) {
+  ReadXctAccess** read_set_address,
+  bool no_readset_if_moved,
+  bool no_readset_if_next_layer) {
   ASSERT_ND(tid_address);
   ASSERT_ND(observed_xid);
   ASSERT_ND(read_set_address);
@@ -262,9 +264,16 @@ ErrorCode Xct::on_record_read(
 
   *observed_xid = tid_address->xct_id_.spin_while_being_written();
   ASSERT_ND(!observed_xid->is_being_written());
+
+  // check non-reversible flags and skip read-set
+  if (observed_xid->is_moved() && no_readset_if_moved) {
+    return kErrorCodeOk;
+  } else if (observed_xid->is_next_layer() && no_readset_if_next_layer) {
+    return kErrorCodeOk;
+  }
   assorted::memory_fence_consume();  // following reads must happen *after* this read
 
-  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, *observed_xid, tid_address, read_set_address));
+  CHECK_ERROR_CODE(add_to_read_set(storage_id, *observed_xid, tid_address, read_set_address));
   return kErrorCodeOk;
 }
 
@@ -326,89 +335,6 @@ void Xct::on_record_read_take_locks_if_needed(
 }
 
 ErrorCode Xct::add_to_read_set(
-  thread::Thread* context,
-  storage::StorageId storage_id,
-  XctId observed_owner_id,
-  RwLockableXctId* owner_id_address,
-  bool read_only) {
-  // TODO this method should go away
-  ASSERT_ND(storage_id != 0);
-  ASSERT_ND(owner_id_address);
-  ASSERT_ND(observed_owner_id.is_valid());
-  ASSERT_ND(!observed_owner_id.is_being_written());
-  if (isolation_level_ != kSerializable) {
-    return kErrorCodeOk;
-  }
-  const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(owner_id_address));
-  const auto& resolver = context->get_global_volatile_page_resolver();
-  if (page->get_header().snapshot_) {
-    // Snapshot page doesn't need any read-set.
-    return kErrorCodeOk;
-  } else {
-    storage::assert_within_valid_volatile_page(resolver, owner_id_address);
-  }
-
-  ReadXctAccess* dummy;
-  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address, &dummy));
-
-  // We might take a pessimisitic lock for the record, which is our MOCC protocol.
-  // However, we might want to do this _before_ observing XctId. Otherwise there is a
-  // chance of aborts even with the lock. But then more code changes. Later, later...
-
-  const UniversalLockId lock_id = xct_id_to_universal_lock_id(resolver, owner_id_address);
-  LockListPosition rll_pos = kLockListPositionInvalid;
-  bool lets_take_lock = false;
-  if (!retrospective_lock_list_.is_empty()) {
-    // RLL is set, which means the previous run aborted for race.
-    // binary-search for each read-set is not cheap, but in this case better than aborts.
-    // So, let's see if we should take the lock.
-    rll_pos = retrospective_lock_list_.binary_search(lock_id);
-    if (rll_pos != kLockListPositionInvalid) {
-      ASSERT_ND(retrospective_lock_list_.get_array()[rll_pos].universal_lock_id_ == lock_id);
-      DVLOG(1) << "RLL recommends to take lock on this record!";
-      lets_take_lock = true;
-    }
-  }
-
-  if (!lets_take_lock && owner_id_address->is_hot(context)) {
-    lets_take_lock = true;
-  }
-
-  if (lets_take_lock) {
-    LockMode mode = read_only ? kReadLock : kWriteLock;
-    LockListPosition cll_pos =
-      current_lock_list_.get_or_add_entry(owner_id_address, mode);
-    LockEntry* cll_entry = current_lock_list_.get_entry(cll_pos);
-    if (cll_entry->is_enough()) {
-      return kErrorCodeOk;  // already taken!
-    }
-
-    ErrorCode lock_ret;
-    if (rll_pos == kLockListPositionInvalid) {
-      // Then, this is a single read-lock to take.
-      lock_ret = current_lock_list_.try_or_acquire_single_lock(context, cll_pos);
-      // TODO(Hideaki) The above locks unconditionally in canonnical mode. Even in non-canonical,
-      // when it returns kErrorCodeXctLockAbort AND we haven't taken any write-lock yet,
-      // we might still want a retry here.. but it has pros/cons. Revisit later.
-    } else {
-      // Then we should take all locks before this too.
-      lock_ret = current_lock_list_.try_or_acquire_multiple_locks(context, cll_pos);
-    }
-
-    if (lock_ret != kErrorCodeOk) {
-      ASSERT_ND(lock_ret == kErrorCodeXctLockAbort);
-      DVLOG(0) << "Failed to take some of the lock that might be beneficial later"
-        << ". We still go on because the locks here are not mandatory.";
-      // At this point, no point to be advised by RLL any longer.
-      // Let's clear it, and let's give-up all incomplete locks in CLL.
-      context->mcs_giveup_all_current_locks_after(kNullUniversalLockId);
-      retrospective_lock_list_.clear_entries();
-    }
-  }
-  return kErrorCodeOk;
-}
-
-ErrorCode Xct::add_to_read_set_force(
   storage::StorageId storage_id,
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
@@ -479,10 +405,8 @@ ErrorCode Xct::add_to_read_and_write_set(
   CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
 
   auto* read = read_set_ + read_set_size_;
-  // in this method, we force to add a read set because it's critical to confirm that
-  // the physical record we write to is still the one we found.
   ReadXctAccess* dummy;
-  CHECK_ERROR_CODE(add_to_read_set_force(
+  CHECK_ERROR_CODE(add_to_read_set(
     storage_id,
     observed_owner_id,
     owner_id_address,

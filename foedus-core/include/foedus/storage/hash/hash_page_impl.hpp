@@ -129,9 +129,6 @@ class HashIntermediatePage final {
   DualPagePointer     pointers_[kHashIntermediatePageFanout];
 };
 
-typedef uint16_t DataPageSlotIndex;
-const DataPageSlotIndex kSlotNotFound = 0xFFFFU;
-
 /**
  * @brief Represents an individual data page in \ref HASH.
  * @ingroup HASH

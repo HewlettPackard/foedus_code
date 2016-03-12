@@ -205,6 +205,13 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t payload_count,
     bool read_only);
 
+
+  /** Used in the following methods */
+  ErrorCode register_record_write_log(
+    thread::Thread* context,
+    const RecordLocation& location,
+    log::RecordLogType* log_entry);
+
   /** @see foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
     thread::Thread* context,
@@ -325,76 +332,6 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     HashDataPage** bin_head);
 
   /**
-   * @brief return value of locate_record().
-   * @details
-   * @par Notes on XID, MOCC Locking, read-set, and "physical_only"
-   * This object also contains \e observed_, which is guaranteed to be the XID at or before
-   * the return from locate_record(). There is a notable contract here.
-   * When locking in MOCC kicks in, we want to make sure we return the value of XID \e after
-   * the lock to eliminate a chance of false verification failure.
-   * However, this means we need to take lock and register read-set \e within locate_record().
-   * This caused us headaches for the following reason.
-   *
-   * @par Logical vs Physical search in hash pages
-   * \e Physically finding a record for given key in our hash page has the following guarantees.
-   * \li When it finds a record, the record was at least at some point a valid
-   * (non-moved/non-being-written) record of the given key.
-   * \li When it doesn't find any record, the page(s) at least at some point didn't contain
-   * any valid record of the given key.
-   *
-   * On the other hand, it still allows the following behaviors:
-   * \li The found record is now being moved or modified.
-   * \li The page or its next page(s) is now newly inserting a physical record of the given key.
-   *
-   * \e Logically finding a record provides additional guarantee to protect against the above
-   * at pre-commit time. It additionally takes read-set, page-version set, or even MOCC locks.
-   *
-   * @par locate_record(): Logical or Physical
-   * We initially designed locate_record() as a physical-only search operation
-   * separated from logical operations (e.g., get_record/overwrite_record, or the caller).
-   * Separation makes each of them simpler and more flexible.
-   * The logical side can separately decide, using an operation-specific logic, whether it
-   * will add the XID observed in locate_record() to read-set or not.
-   * The physical side (locate_record()) can be dumb simple, too.
-   *
-   * But, seems like this is now unavoidable.
-   * Hence now locate_record() is a logical operation.
-   * To allow the caller to choose what to do logically, we receive
-   * a paramter \e physical_only. When false, locate_record \e might take logical lock and add
-   * the XID to readset, hence what locate_record() observed is protected.
-   * When true, locate_record never takes lock or adds it to readset.
-   * It just physically locates a record that was at least at some point a valid record.
-   * In this case,
-   * the caller is responsible to do appropriate thing to protect from concurrent modifications.
-   */
-  struct RecordLocation {
-    /** Address of the slot. null if not found. */
-    HashDataPage::Slot* slot_;
-    /** Address of the record. null if not found. */
-    char* record_;
-    /**
-     * TID as of locate_record() identifying the record.
-     * guaranteed to be not is_moved (then automatically retried), though the \b current
-     * TID might be now moved, in which case pre-commit will catch it.
-     * See the class comment.
-     */
-    xct::XctId observed_;
-
-    void clear() {
-      slot_ = nullptr;
-      record_ = nullptr;
-      observed_.data_ = 0;
-    }
-
-    void populate(
-      DataPageSlotIndex index,
-      const void* key,
-      uint16_t key_length,
-      const HashCombo& combo,
-      HashDataPage* page);
-  };
-
-  /**
    * @brief Usually follows locate_bin to locate the exact physical record for the key, or
    * create a new one if not exists (only when for_write).
    * @param[in] context Thread context
@@ -429,8 +366,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     HashDataPage* bin_head,
-    RecordLocation* result,
-    xct::ReadXctAccess** read_set_address);
+    RecordLocation* result);
 
   /** locate_record()'s physical_only version. Invoke this rather than locate_record directly */
   ErrorCode   locate_record_physical_only(
@@ -443,7 +379,6 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     const HashCombo& combo,
     HashDataPage* bin_head,
     RecordLocation* result) {
-    xct::ReadXctAccess* dummy;
     return locate_record(
       context,
       for_write,
@@ -454,8 +389,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
       key_length,
       combo,
       bin_head,
-      result,
-      &dummy);  // physical-only search doesn't care read-set protection
+      result);
   }
   /** locate_record()'s logical+physical version. Invoke this rather than locate_record directly */
   ErrorCode   locate_record_logical(
@@ -467,8 +401,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     HashDataPage* bin_head,
-    RecordLocation* result,
-    xct::ReadXctAccess** read_set_address) {
+    RecordLocation* result) {
     return locate_record(
       context,
       for_write,
@@ -479,8 +412,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
       key_length,
       combo,
       bin_head,
-      result,
-      read_set_address);
+      result);
   }
 
   /** Simpler version of locate_record for when we are in snapshot world. */
@@ -552,27 +484,30 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
    * The caller must call it again in that case.
    * \li Non-Contract: The new location might \b NOT have a sufficient space.
    * The caller must call it again in that case.
+   *
+   * @par Physical vs Logical
+   * This method is physical-only. Guaranteed to not take long-term-locks/read-set.
    */
-  ErrorCode migrate_record(
+  ErrorCode migrate_record_physical(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     const HashCombo& combo,
     HashDataPage* cur_page,
     DataPageSlotIndex cur_index,
-    uint16_t payload_count,
-    RecordLocation* new_location);
-  /** Subroutine of migrate_record() to implement the 4th step above. */
-  void migrate_record_move(
-    thread::Thread* context,
+    uint16_t payload_count);
+  /**
+   * Subroutine of migrate_record() to implement the 4th step above.
+   * This is a physical operation. Guaranteed to not take long-term-locks/read-set.
+   */
+  void migrate_record_move_physical(
     const void* key,
     uint16_t key_length,
     const HashCombo& combo,
     HashDataPage* cur_page,
     DataPageSlotIndex cur_index,
     HashDataPage* tail_page,
-    uint16_t payload_count,
-    RecordLocation* new_location);
+    uint16_t payload_count);
 
   /** Appends a next page to a given already-locked volatile data page. */
   ErrorCode append_next_volatile_page(

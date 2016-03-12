@@ -48,6 +48,7 @@ class   HashStorageFactory;
 class   HashStoragePimpl;
 class   HashTmpBin;
 struct  HashUpdateLogType;
+struct  RecordLocation;
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

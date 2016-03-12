@@ -205,6 +205,10 @@ class Xct {
    * @param[out] observed_xid Returns the observed XID. See below for more details.
    * @param[out] read_set_address If this method took a read-set, points to
    * the read-set record. nullptr if it didn't.
+   * @param[in] no_readset_if_moved When this is true, and if we observe an XID whose is_moved()
+   * is on, we do not add it to readset. See the comment below for more details.
+   * @param[in] no_readset_if_next_layer When this is true, and if we observe an XID whose
+   * is_next_layer() is on, we do not add it to readset. See the comment below for more details.
    * @return The only possible error is read-set full.
    * @pre tid_address != nullptr && observed_xid != nullptr
    * @pre tid_address must be pointing to somewhere in an aligned data page.
@@ -231,19 +235,41 @@ class Xct {
    * This happens only when the transaction has higher isolation level (serializable),
    * and the page is a volatile page. To protect the read, we add the observed XID and
    * the address to read set of this transaction.
+   *
+   * @par no_readset_if_moved/next_layer
+   * After invoking on_record_read(), we might find the observed TID tells that the
+   * record is now permanently out of our interest (e.g., moved/next-layer).
+   * In that case, the caller doesn't want to have the entry in read-set.
+   * These flags tell this method to not add such entries to read-set.
+   * Note that such a protocol is safe \b because moved/next-layer flags in the storage type
+   * is immutable once set, eg masstree storage only changes moved-flag off->on, not the
+   * other way around. deleted flag is mutable (can off->on->off), so we can't skip
+   * such readset. Use it appropriately according to the protcol in the storage type.
+   * If you are unsure, don't give "true" to these parameters. Having
+   * unnecessary read-sets is just a performance issue, not correctness.
    */
   ErrorCode           on_record_read(
     bool intended_for_write,
     RwLockableXctId* tid_address,
     XctId* observed_xid,
-    ReadXctAccess** read_set_address);
+    ReadXctAccess** read_set_address,
+    bool no_readset_if_moved = false,
+    bool no_readset_if_next_layer = false);
   /** Shortcut for a case when you don't need observed_xid/read_set_address back */
   ErrorCode           on_record_read(
     bool intended_for_write,
-    RwLockableXctId* tid_address) {
+    RwLockableXctId* tid_address,
+    bool no_readset_if_moved = false,
+    bool no_readset_if_next_layer = false) {
     XctId dummy_xctid;
     ReadXctAccess* dummy_read_set;
-    return on_record_read(intended_for_write, tid_address, &dummy_xctid, &dummy_read_set);
+    return on_record_read(
+      intended_for_write,
+      tid_address,
+      &dummy_xctid,
+      &dummy_read_set,
+      no_readset_if_moved ,
+      no_readset_if_next_layer);
   }
   /**
    * subroutine of on_record_read() to take lock(s).
@@ -270,13 +296,6 @@ class Xct {
    * commit protocol.
    */
   ErrorCode           add_to_read_set(
-    thread::Thread* context,
-    storage::StorageId storage_id,
-    XctId observed_owner_id,
-    RwLockableXctId* owner_id_address,
-    bool read_only);
-  /** This version always adds to read set regardless of isolation level. */
-  ErrorCode           add_to_read_set_force(
     storage::StorageId storage_id,
     XctId observed_owner_id,
     RwLockableXctId* owner_id_address,

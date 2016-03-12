@@ -28,6 +28,7 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/fwd.hpp"
 #include "foedus/cache/fwd.hpp"
+#include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/storage/fwd.hpp"
@@ -140,8 +141,9 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
 
   /**
    * Find a border node in the layer that corresponds to the given key slice.
+   * @note this method is \e physical-only. It doesn't take any long-term lock or readset.
    */
-  ErrorCode find_border(
+  ErrorCode find_border_physical(
     thread::Thread* context,
     MasstreePage* layer_root,
     uint8_t   current_layer,
@@ -155,17 +157,13 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const void* key,
     KeyLength key_length,
     bool for_writes,
-    MasstreeBorderPage** out_page,
-    SlotIndex* record_index,
-    xct::XctId* observed);
+    RecordLocation* result);
   /** Identifies page and record for the normalized key */
   ErrorCode locate_record_normalized(
     thread::Thread* context,
     KeySlice key,
     bool for_writes,
-    MasstreeBorderPage** out_page,
-    SlotIndex* record_index,
-    xct::XctId* observed);
+    RecordLocation* result);
 
   /**
    * @brief Runs a system transaction to expand the record space,
@@ -210,23 +208,22 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     MasstreeBorderPage* border,
     SlotIndex record_index);
 
+  /**
+   * Like locate_record(), this is also a logical operation.
+   */
   ErrorCode reserve_record(
     thread::Thread* context,
     const void* key,
     KeyLength key_length,
     PayloadLength payload_count,
     PayloadLength physical_payload_hint,
-    MasstreeBorderPage** out_page,
-    SlotIndex* record_index,
-    xct::XctId* observed);
+    RecordLocation* result);
   ErrorCode reserve_record_normalized(
     thread::Thread* context,
     KeySlice key,
     PayloadLength payload_count,
     PayloadLength physical_payload_hint,
-    MasstreeBorderPage** out_page,
-    SlotIndex* record_index,
-    xct::XctId* observed);
+    RecordLocation* result);
 
   /**
    * @brief A sub-routine of reserve_record()/reserve_record_normalized() to allocate a new record
@@ -253,11 +250,9 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const void* suffix,
     PayloadLength payload_count,
     PageVersionLockScope* out_page_lock,
-    MasstreeBorderPage** out_page,
-    SlotIndex* record_index,
-    xct::XctId* observed);
+    RecordLocation* result);
 
-  void      reserve_record_new_record_apply(
+  ErrorCode reserve_record_new_record_apply(
     thread::Thread* context,
     MasstreeBorderPage* target,
     SlotIndex target_index,
@@ -265,7 +260,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     KeyLength remainder_length,
     const void* suffix,
     PayloadLength payload_count,
-    xct::XctId* observed);
+    RecordLocation* result);
   /**
    * Subroutine of reserve_record() to create an initially next-layer record in border and
    * returns the new root page of the new layer.
@@ -286,28 +281,26 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   /** implementation of get_record family. use with locate_record() */
   ErrorCode retrieve_general(
     thread::Thread* context,
-    MasstreeBorderPage* border,
-    SlotIndex index,
-    xct::XctId observed,
+    const RecordLocation& location,
     void* payload,
-    PayloadLength* payload_capacity,
-    bool read_only);
+    PayloadLength* payload_capacity);
   ErrorCode retrieve_part_general(
     thread::Thread* context,
-    MasstreeBorderPage* border,
-    SlotIndex index,
-    xct::XctId observed,
+    const RecordLocation& location,
     void* payload,
     PayloadLength payload_offset,
-    PayloadLength payload_count,
-    bool read_only);
+    PayloadLength payload_count);
+
+  /** Used in the following methods */
+  ErrorCode register_record_write_log(
+    thread::Thread* context,
+    const RecordLocation& location,
+    log::RecordLogType* log_entry);
 
   /** implementation of insert_record family. use with \b reserve_record() */
   ErrorCode insert_general(
     thread::Thread* context,
-    MasstreeBorderPage* border,
-    SlotIndex index,
-    xct::XctId observed,
+    const RecordLocation& location,
     const void* be_key,
     KeyLength key_length,
     const void* payload,
@@ -316,18 +309,14 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   /** implementation of delete_record family. use with locate_record()  */
   ErrorCode delete_general(
     thread::Thread* context,
-    MasstreeBorderPage* border,
-    SlotIndex index,
-    xct::XctId observed,
+    const RecordLocation& location,
     const void* be_key,
     KeyLength key_length);
 
   /** implementation of upsert_record family. use with \b reserve_record() */
   ErrorCode upsert_general(
     thread::Thread* context,
-    MasstreeBorderPage* border,
-    SlotIndex index,
-    xct::XctId observed,
+    const RecordLocation& location,
     const void* be_key,
     KeyLength key_length,
     const void* payload,
@@ -336,9 +325,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   /** implementation of overwrite_record family. use with locate_record()  */
   ErrorCode overwrite_general(
     thread::Thread* context,
-    MasstreeBorderPage* border,
-    SlotIndex index,
-    xct::XctId observed,
+    const RecordLocation& location,
     const void* be_key,
     KeyLength key_length,
     const void* payload,
@@ -349,9 +336,7 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   template <typename PAYLOAD>
   ErrorCode increment_general(
     thread::Thread* context,
-    MasstreeBorderPage* border,
-    SlotIndex index,
-    xct::XctId observed,
+    const RecordLocation& location,
     const void* be_key,
     KeyLength key_length,
     PAYLOAD* value,

@@ -65,7 +65,7 @@ MasstreeCursor::MasstreeCursor(MasstreeStorage storage, thread::Thread* context)
   cur_key_in_layer_slice_ = 0;
   cur_key_in_layer_remainder_ = 0;
   cur_key_next_layer_ = false;
-  cur_key_observed_owner_id_.data_ = 0;
+  cur_key_location_.clear();
 
   cur_payload_length_ = 0;
 
@@ -185,7 +185,7 @@ ErrorCode MasstreeCursor::next() {
       CHECK_ERROR_CODE(proceed_pop());
       continue;
     }
-    if (is_valid_record() && cur_key_observed_owner_id_.is_deleted()) {
+    if (is_valid_record() && cur_key_location_.observed_.is_deleted()) {
       // when we follow to next layer, it is possible to locate a deleted record and stopped there.
       // in that case, we repeat it. Don't worry, in most cases we are skipping bunch of deleted
       // records at once.
@@ -229,19 +229,11 @@ ErrorCode MasstreeCursor::proceed_route_border() {
       --route->index_;
     }
     if (route->index_ < route->key_count_) {
-      fetch_cur_record(page, route->get_cur_original_index());
-      if (!route->snapshot_ && !is_cur_key_next_layer()) {
-        CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-          context_,
-          storage_.get_id(),
-          cur_key_observed_owner_id_,
-          cur_key_owner_id_address,
-          false));  // figure this out
-      }
+      CHECK_ERROR_CODE(fetch_cur_record_logical(page, route->get_cur_original_index()));
       // If it points to next-layer, we ignore deleted bit. It has no meaning for next-layer rec.
       if (is_cur_key_next_layer()) {
         CHECK_ERROR_CODE(proceed_next_layer());
-      } else if (cur_key_observed_owner_id_.is_deleted()) {
+      } else if (cur_key_location_.observed_.is_deleted()) {
         continue;
       }
       break;
@@ -472,17 +464,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   ASSERT_ND(route->key_count_ > 0);
   route->index_ = forward_cursor_ ? 0 : route->key_count_ - 1;
   SlotIndex record = route->get_original_index(route->index_);
-  fetch_cur_record(page, record);
-
-  if (!route->snapshot_ && !is_cur_key_next_layer()) {
-    CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-      context_,
-      storage_.get_id(),
-      cur_key_observed_owner_id_,
-      cur_key_owner_id_address,
-      false));  // TODO(tzwang): figure this out
-  }
-
+  CHECK_ERROR_CODE(fetch_cur_record_logical(page, record));
   if (is_cur_key_next_layer()) {
     return proceed_next_layer();
   }
@@ -529,7 +511,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_intermediate() {
 //
 /////////////////////////////////////////////////////////////////////////////////////////
 
-void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, SlotIndex record) {
+ErrorCode MasstreeCursor::fetch_cur_record_logical(MasstreeBorderPage* page, SlotIndex record) {
   // fetch everything
   ASSERT_ND(record < page->get_key_count());
   cur_key_owner_id_address = page->get_owner_id(record);
@@ -540,13 +522,18 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, SlotIndex record
       cur_key_owner_id_address);
   }
 #endif  // NDEBUG
-  cur_key_observed_owner_id_ = cur_key_owner_id_address->xct_id_.spin_while_being_written();
   KeyLength remainder = page->get_remainder_length(record);
   cur_key_in_layer_remainder_ = remainder;
   cur_key_in_layer_slice_ = page->get_slice(record);
   Layer layer = page->get_layer();
   cur_key_length_ = layer * sizeof(KeySlice) + remainder;
-  if (!is_cur_key_next_layer()) {
+
+  CHECK_ERROR_CODE(cur_key_location_.populate_logical(
+    current_xct_,
+    page,
+    record,
+    for_writes_));
+  if (!cur_key_location_.observed_.is_next_layer()) {
     cur_key_suffix_ = page->get_record(record);
     cur_payload_length_ = page->get_payload_length(record);
     cur_payload_ = page->get_record_payload(record);
@@ -555,6 +542,7 @@ void MasstreeCursor::fetch_cur_record(MasstreeBorderPage* page, SlotIndex record
     cur_payload_length_ = 0;
     cur_payload_ = nullptr;
   }
+  return kErrorCodeOk;
 }
 
 inline void MasstreeCursor::Route::setup_order() {
@@ -982,7 +970,7 @@ ErrorCode MasstreeCursor::open(
   if (is_valid_record()) {
     // locate_xxx doesn't take care of deleted record as it can't proceed to another page.
     // so, if the initially located record is a deleted record, use next() now.
-    if (cur_key_observed_owner_id_.is_deleted()) {
+    if (cur_key_location_.observed_.is_deleted()) {
       CHECK_ERROR_CODE(next());
     }
   }
@@ -1086,7 +1074,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
           // violate serializability
           continue;
         }
-        fetch_cur_record(border, record);
+        CHECK_ERROR_CODE(fetch_cur_record_logical(border, record));
         ASSERT_ND(cur_key_in_layer_slice_ >= slice);
         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
         if (result == kCurKeySmaller ||
@@ -1095,16 +1083,6 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
         }
 
         // okay, this seems to satisfy our search.
-        // we need to add this to read set. even if it's deleted.
-        // but if that's next layer pointer, don't bother. the pointer is always valid
-        if (!route->snapshot_ && !is_cur_key_next_layer()) {
-          CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-            context_,
-            storage_.get_id(),
-            cur_key_observed_owner_id_,
-            cur_key_owner_id_address,
-            false));  // TODO(tzwang): figure this out
-        }
         break;
       }
     } else {
@@ -1113,21 +1091,12 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
         if (border->get_slice(record) > slice) {
           continue;
         }
-        fetch_cur_record(border, record);
+        CHECK_ERROR_CODE(fetch_cur_record_logical(border, record));
         ASSERT_ND(cur_key_in_layer_slice_ <= slice);
         KeyCompareResult result = compare_cur_key_aginst_search_key(slice, layer);
         if (result == kCurKeyLarger ||
           (result == kCurKeyEquals && search_type_ == kBackwardExclusive)) {
           continue;
-        }
-
-        if (!route->snapshot_ && !is_cur_key_next_layer()) {
-          CHECK_ERROR_CODE(current_xct_->add_to_read_set(
-            context_,
-            storage_.get_id(),
-            cur_key_observed_owner_id_,
-            cur_key_owner_id_address,
-            false));  // TODO(tzwang): figure this out
         }
         break;
       }
@@ -1306,9 +1275,7 @@ ErrorCode MasstreeCursor::overwrite_record(
   copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
-    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
-    get_cur_index(),
-    cur_key_observed_owner_id_,
+    cur_key_location_,
     key,
     cur_key_length_,
     payload,
@@ -1325,9 +1292,7 @@ ErrorCode MasstreeCursor::overwrite_record_primitive(
   copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).overwrite_general(
     context_,
-    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
-    get_cur_index(),
-    cur_key_observed_owner_id_,
+    cur_key_location_,
     key,
     cur_key_length_,
     &payload,
@@ -1341,9 +1306,7 @@ ErrorCode MasstreeCursor::delete_record() {
   copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).delete_general(
     context_,
-    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
-    get_cur_index(),
-    cur_key_observed_owner_id_,
+    cur_key_location_,
     key,
     cur_key_length_);
 }
@@ -1355,9 +1318,7 @@ ErrorCode MasstreeCursor::increment_record(PAYLOAD* value, PayloadLength payload
   copy_combined_key(key);
   return MasstreeStoragePimpl(&storage_).increment_general<PAYLOAD>(
     context_,
-    reinterpret_cast<MasstreeBorderPage*>(get_cur_page()),
-    get_cur_index(),
-    cur_key_observed_owner_id_,
+    cur_key_location_,
     key,
     cur_key_length_,
     value,
