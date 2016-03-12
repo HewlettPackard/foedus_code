@@ -1,5 +1,7 @@
 . config_ycsb.sh "F"
 extra_table_size=0
+extra_table_reads=0
+extra_table_rmws=0
 extended_rw_lock=1
 parallel_lock=0
 force_canonical_xlocks_in_precommit=1
