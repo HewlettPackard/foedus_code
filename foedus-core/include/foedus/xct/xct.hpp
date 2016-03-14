@@ -77,6 +77,7 @@ class Xct {
   void                activate(IsolationLevel isolation_level) {
     ASSERT_ND(!active_);
     active_ = true;
+    enable_rll_for_this_xct_ = default_rll_for_this_xct_;
     isolation_level_ = isolation_level;
     pointer_set_size_ = 0;
     page_version_set_size_ = 0;
@@ -114,6 +115,12 @@ class Xct {
 
   /** Returns whether the object is an active transaction. */
   bool                is_active() const { return active_; }
+
+  bool  is_enable_rll_for_this_xct() const { return enable_rll_for_this_xct_; }
+  void  set_enable_rll_for_this_xct(bool value) { enable_rll_for_this_xct_ = value; }
+  bool  is_default_rll_for_this_xct() const { return default_rll_for_this_xct_ ; }
+  void  set_default_rll_for_this_xct(bool value) { default_rll_for_this_xct_ = value; }
+
   /** Returns if this transaction makes no writes. */
   bool                is_read_only() const {
     return write_set_size_ == 0 && lock_free_write_set_size_ == 0;
@@ -407,6 +414,29 @@ class Xct {
 
   /** Whether the object is an active transaction. */
   bool                active_;
+
+  /**
+   * @brief Whether to use Retrospective Lock List (RLL) after aborts for this transaction.
+   * @details
+   * Default value is XctOptions::enable_retrospective_lock_list_.
+   * You can overwrite the setting for the current transaction (i.e. for next transaction when
+   * this transaction aborts).
+   * This value is reset to XctOptions::enable_retrospective_lock_list_ each time a new
+   * transaction starts. So, you need to change it after every begin_xct(). To avoid it,
+   * change the system-wide default value (XctOptions::enable_retrospective_lock_list_) or
+   * overwrite the value of default_rll_for_this_xct_.
+   * @see XctOptions::enable_retrospective_lock_list_
+   * @see default_rll_for_this_xct_
+   */
+  bool                enable_rll_for_this_xct_;
+  /**
+   * A copy of XctOptions::enable_retrospective_lock_list_.
+   * enable_rll_for_this_xct_ is reset to this value at every activate().
+   * If you change this value, the effect sticks until you change it again or
+   * the next impersonation. Know what you are doing!
+   */
+  bool                default_rll_for_this_xct_;
+
 
   /**
    * How many MCS blocks we allocated in the current thread.

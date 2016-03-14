@@ -116,6 +116,8 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * @details
    * Default is true.
    * When enabled, we remember read/write-sets on abort and use it as RLL on next run.
+   * This is a system-wide setting, which can be overwritten by individual transactions.
+   * See Xct::enable_rll_for_this_xct_. In short, this is a default value for that one.
    * @ref RLL
    */
   bool        enable_retrospective_lock_list_;

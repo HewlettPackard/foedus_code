@@ -364,6 +364,12 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
   engine_ = context->get_engine();
   storages_.initialize_tables(engine_);
   xct_manager_ = engine_->get_xct_manager();
+  // During data load, we don't use RLL. The driver setting just applies to main execution.
+  // TODO(Hideaki) 20160313 This is a tentative solution for a deadlock bug!
+  // There is a deadlock when we are holding some page-lock and splitting pages.
+  // There shouldn't be a code that unconditionally takes a page-lock and I thought
+  // I changed all such cases, but seems like there still are some.
+  context->get_current_xct().set_default_rll_for_this_xct(false);
   debugging::StopWatch watch;
   CHECK_ERROR(load_tables());
   watch.stop();

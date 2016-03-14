@@ -41,6 +41,8 @@ Xct::Xct(Engine* engine, thread::Thread* context, thread::ThreadId thread_id)
   : engine_(engine), context_(context), thread_id_(thread_id) {
   id_ = XctId();
   active_ = false;
+  enable_rll_for_this_xct_ = false;
+  default_rll_for_this_xct_ = false;
   read_set_ = nullptr;
   read_set_size_ = 0;
   max_read_set_size_ = 0;
@@ -73,6 +75,8 @@ void Xct::initialize(
   memory::NumaCoreMemory:: SmallThreadLocalMemoryPieces pieces
     = core_memory->get_small_thread_local_memory_pieces();
   const XctOptions& xct_opt = engine_->get_options().xct_;
+  enable_rll_for_this_xct_ = xct_opt.enable_retrospective_lock_list_;
+  default_rll_for_this_xct_ = xct_opt.enable_retrospective_lock_list_;
   read_set_ = reinterpret_cast<ReadXctAccess*>(pieces.xct_read_access_memory_);
   read_set_size_ = 0;
   max_read_set_size_ = xct_opt.max_read_set_size_;
@@ -146,6 +150,10 @@ void Xct::issue_next_id(XctId max_xct_id, Epoch *epoch)  {
 std::ostream& operator<<(std::ostream& o, const Xct& v) {
   o << "<Xct>"
     << "<active_>" << v.is_active() << "</active_>";
+  o << "<enable_rll_for_this_xct_>" << v.is_enable_rll_for_this_xct()
+    << "</enable_rll_for_this_xct_>";
+  o << "<default_rll_for_this_xct_>" << v.is_default_rll_for_this_xct()
+    << "</default_rll_for_this_xct_>";
   if (v.is_active()) {
     o << "<id_>" << v.get_id() << "</id_>"
       << "<read_set_size>" << v.get_read_set_size() << "</read_set_size>"

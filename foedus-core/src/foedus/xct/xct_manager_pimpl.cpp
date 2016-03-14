@@ -1111,7 +1111,7 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   // One drawback is that we can't check the "cause" of the abort.
   // We should probably construct RLL only in the case of race-abort.
   // So, we might revist this choice.
-  if (engine_->get_options().xct_.enable_retrospective_lock_list_) {
+  if (current_xct.is_enable_rll_for_this_xct()) {
     const uint32_t threshold
       = engine_->get_options().xct_.hot_threshold_for_retrospective_lock_list_;
     current_xct.get_retrospective_lock_list()->construct(context, threshold);

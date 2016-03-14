@@ -76,11 +76,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
     if (root->has_foster_child()) {
       // oh, the root page needs to grow
       LOG(INFO) << "oh, the root page needs to grow";
-      WRAP_ERROR_CODE(grow_first_root(
-        context,
-        &get_first_root_pointer(),
-        &get_first_root_owner(),
-        &root));
+      WRAP_ERROR_CODE(grow_first_root(context, &root));
       // then retry
     } else {
       break;

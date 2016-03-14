@@ -126,8 +126,6 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
    */
   ErrorCode grow_first_root(
     thread::Thread* context,
-    DualPagePointer* root_pointer,
-    xct::LockableXctId* root_pointer_owner,
     MasstreeIntermediatePage** new_root);
   ErrorCode grow_non_first_root(
     thread::Thread* context,

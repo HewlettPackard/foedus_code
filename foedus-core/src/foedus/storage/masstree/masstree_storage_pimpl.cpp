@@ -94,11 +94,7 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
     ASSERT_ND(!get_first_root_owner().is_moved());
     // root page has a foster child... time for tree growth!
     MasstreeIntermediatePage* new_root;
-    CHECK_ERROR_CODE(grow_first_root(
-      context,
-      &get_first_root_pointer(),
-      &get_first_root_owner(),
-      &new_root));
+    CHECK_ERROR_CODE(grow_first_root(context, &new_root));
     if (new_root) {
       assert_aligned_page(new_root);
       page = new_root;
@@ -142,26 +138,29 @@ ErrorCode MasstreeStoragePimpl::grow_non_first_root(
 
 ErrorCode MasstreeStoragePimpl::grow_first_root(
   thread::Thread* context,
-  DualPagePointer* root_pointer,
-  xct::LockableXctId* root_pointer_owner,
   MasstreeIntermediatePage** new_root) {
   *new_root = nullptr;
+  DualPagePointer* root_pointer = get_first_root_pointer_address();
+  xct::LockableXctId* root_pointer_owner = &control_block_->first_root_owner_;
   if (root_pointer_owner->is_keylocked()) {
     DVLOG(0) << "interesting. someone else is growing the tree, so let him do that.";
     // we can move on, thanks to the master-tree invariant. tree-growth is not a mandatory
     // task to do right away
     return kErrorCodeOk;
   }
-  // Growing a root is not mandatory, so if someone else is working on it, we let him do that.
+  // The first layer's root is protected by X-only lock, which doesn't support try-lock.
+  // We must be careful to not cause deadlock in this case.
+  // Hence we unlock all locks in the current transaction in case we are running in MOCC or PCC
+  // mode. This might be a bit too conservative, but first-root grow should be a rare event.
+  context->mcs_release_all_current_locks_after(xct::kNullUniversalLockId);
   xct::McsLockScope owner_scope(context, root_pointer_owner, true, false);
 
   // McsLock doesn't have a try interface, we should got the lock directly.
   ASSERT_ND(owner_scope.is_locked());
-  if (root_pointer_owner->is_moved()) {
-    LOG(INFO) << "interesting. someone else has split the page that had a pointer"
-      " to a root page of the layer to be grown";
-    return kErrorCodeOk;  // same above.
-  }
+
+  // First root's lock is always placed in control block, thus never be moved.
+  ASSERT_ND(!root_pointer_owner->is_moved());
+
   return grow_root(context, root_pointer, new_root);
 }
 
