@@ -78,6 +78,8 @@ class Xct {
     ASSERT_ND(!active_);
     active_ = true;
     enable_rll_for_this_xct_ = default_rll_for_this_xct_;
+    hot_threshold_for_this_xct_ = default_hot_threshold_for_this_xct_;
+    rll_threshold_for_this_xct_ = default_rll_threshold_for_this_xct_;
     isolation_level_ = isolation_level;
     pointer_set_size_ = 0;
     page_version_set_size_ = 0;
@@ -120,6 +122,20 @@ class Xct {
   void  set_enable_rll_for_this_xct(bool value) { enable_rll_for_this_xct_ = value; }
   bool  is_default_rll_for_this_xct() const { return default_rll_for_this_xct_ ; }
   void  set_default_rll_for_this_xct(bool value) { default_rll_for_this_xct_ = value; }
+
+  uint16_t  get_hot_threshold_for_this_xct() const { return hot_threshold_for_this_xct_; }
+  void  set_hot_threshold_for_this_xct(uint16_t value) { hot_threshold_for_this_xct_ = value; }
+  uint16_t  get_default_hot_threshold_for_this_xct() const {
+    return default_hot_threshold_for_this_xct_ ; }
+  void  set_default_hot_threshold_for_this_xct(uint16_t value) {
+    default_hot_threshold_for_this_xct_ = value; }
+
+  uint16_t  get_rll_threshold_for_this_xct() const { return rll_threshold_for_this_xct_; }
+  void  set_rll_threshold_for_this_xct(uint16_t value) { rll_threshold_for_this_xct_ = value; }
+  uint16_t  get_default_rll_threshold_for_this_xct() const {
+    return default_rll_threshold_for_this_xct_ ; }
+  void  set_default_rll_threshold_for_this_xct(uint16_t value) {
+    default_rll_threshold_for_this_xct_ = value; }
 
   /** Returns if this transaction makes no writes. */
   bool                is_read_only() const {
@@ -436,6 +452,16 @@ class Xct {
    * the next impersonation. Know what you are doing!
    */
   bool                default_rll_for_this_xct_;
+  /**
+   * Like above, per-xct value. @see StorageOptions::hot_threshold_
+   */
+  uint16_t            hot_threshold_for_this_xct_;
+  uint16_t            default_hot_threshold_for_this_xct_;
+  /**
+   * Like above, per-xct value. @see XctOptions::hot_threshold_for_retrospective_lock_list_
+   */
+  uint16_t            rll_threshold_for_this_xct_;
+  uint16_t            default_rll_threshold_for_this_xct_;
 
 
   /**

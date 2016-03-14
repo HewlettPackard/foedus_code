@@ -184,10 +184,16 @@ void ThreadPimpl::handle_tasks() {
     if (control_block_->status_ == kWaitingForExecution) {
       control_block_->output_len_ = 0;
       control_block_->status_ = kRunningTask;
-      // Reset the default value of enable_rll_for_this_xct to system-wide setting
+
+      // Reset the default value of enable_rll_for_this_xct etc to system-wide setting
       // for every impersonation.
       current_xct_.set_default_rll_for_this_xct(
         engine_->get_options().xct_.enable_retrospective_lock_list_);
+      current_xct_.set_default_hot_threshold_for_this_xct(
+        engine_->get_options().storage_.hot_threshold_);
+      current_xct_.set_default_rll_threshold_for_this_xct(
+        engine_->get_options().xct_.hot_threshold_for_retrospective_lock_list_);
+
       const proc::ProcName& proc_name = control_block_->proc_name_;
       VLOG(0) << "Thread-" << id_ << " retrieved a task: " << proc_name;
       proc::Proc proc = nullptr;

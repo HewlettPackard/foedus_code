@@ -25,6 +25,7 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct.hpp"
 
 namespace foedus {
 namespace storage {
@@ -78,7 +79,7 @@ std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
 }
 
 bool PageHeader::contains_hot_records(thread::Thread* context) {
-  return hotness_.value_ >= context->get_engine()->get_options().storage_.hot_threshold_;
+  return hotness_.value_ >= context->get_current_xct().get_hot_threshold_for_this_xct();
 }
 
 PageVersionLockScope::PageVersionLockScope(

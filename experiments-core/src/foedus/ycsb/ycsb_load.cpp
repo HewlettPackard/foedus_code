@@ -118,12 +118,14 @@ ErrorStack YcsbLoadTask::run(
   auto extra_table = engine->get_storage_manager()->get_masstree("ycsb_extra_table");
 #endif
 
-  // During data load, we don't use RLL. The driver setting just applies to main execution.
+  // During data load, we don't use RLL/PCC. The driver setting just applies to main execution.
   // TODO(Hideaki) 20160313 This is a tentative solution for a deadlock bug!
   // There is a deadlock when we are holding some page-lock and splitting pages.
   // There shouldn't be a code that unconditionally takes a page-lock and I thought
   // I changed all such cases, but seems like there still are some.
   context->get_current_xct().set_default_rll_for_this_xct(false);
+  context->get_current_xct().set_default_hot_threshold_for_this_xct(256);
+  context->get_current_xct().set_default_rll_threshold_for_this_xct(255);
 
   // Now populate the table, round-robin for each worker id (as the high bits) in my group.
   debugging::StopWatch watch;

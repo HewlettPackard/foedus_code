@@ -1112,8 +1112,7 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
   // We should probably construct RLL only in the case of race-abort.
   // So, we might revist this choice.
   if (current_xct.is_enable_rll_for_this_xct()) {
-    const uint32_t threshold
-      = engine_->get_options().xct_.hot_threshold_for_retrospective_lock_list_;
+    const uint32_t threshold = current_xct.get_rll_threshold_for_this_xct();
     current_xct.get_retrospective_lock_list()->construct(context, threshold);
   } else {
     current_xct.get_retrospective_lock_list()->clear_entries();

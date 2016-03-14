@@ -41,8 +41,14 @@ Xct::Xct(Engine* engine, thread::Thread* context, thread::ThreadId thread_id)
   : engine_(engine), context_(context), thread_id_(thread_id) {
   id_ = XctId();
   active_ = false;
-  enable_rll_for_this_xct_ = false;
+
   default_rll_for_this_xct_ = false;
+  enable_rll_for_this_xct_ = default_rll_for_this_xct_;
+  default_hot_threshold_for_this_xct_ = storage::StorageOptions::kDefaultHotThreshold;
+  hot_threshold_for_this_xct_ = default_hot_threshold_for_this_xct_;
+  default_rll_threshold_for_this_xct_ = XctOptions::kDefaultHotThreshold;
+  rll_threshold_for_this_xct_ = default_rll_threshold_for_this_xct_;
+
   read_set_ = nullptr;
   read_set_size_ = 0;
   max_read_set_size_ = 0;
@@ -75,8 +81,14 @@ void Xct::initialize(
   memory::NumaCoreMemory:: SmallThreadLocalMemoryPieces pieces
     = core_memory->get_small_thread_local_memory_pieces();
   const XctOptions& xct_opt = engine_->get_options().xct_;
-  enable_rll_for_this_xct_ = xct_opt.enable_retrospective_lock_list_;
+
   default_rll_for_this_xct_ = xct_opt.enable_retrospective_lock_list_;
+  enable_rll_for_this_xct_ = default_rll_for_this_xct_;
+  default_hot_threshold_for_this_xct_ = engine_->get_options().storage_.hot_threshold_;
+  hot_threshold_for_this_xct_ = default_hot_threshold_for_this_xct_;
+  default_rll_threshold_for_this_xct_ = xct_opt.hot_threshold_for_retrospective_lock_list_;
+  rll_threshold_for_this_xct_ = default_rll_threshold_for_this_xct_;
+
   read_set_ = reinterpret_cast<ReadXctAccess*>(pieces.xct_read_access_memory_);
   read_set_size_ = 0;
   max_read_set_size_ = xct_opt.max_read_set_size_;
@@ -154,6 +166,12 @@ std::ostream& operator<<(std::ostream& o, const Xct& v) {
     << "</enable_rll_for_this_xct_>";
   o << "<default_rll_for_this_xct_>" << v.is_default_rll_for_this_xct()
     << "</default_rll_for_this_xct_>";
+  o << "<hot_threshold>" << v.get_hot_threshold_for_this_xct() << "</hot_threshold>";
+  o << "<default_hot_threshold>" << v.get_default_hot_threshold_for_this_xct()
+    << "</default_hot_threshold>";
+  o << "<rll_threshold>" << v.get_rll_threshold_for_this_xct() << "</rll_threshold>";
+  o << "<default_rll_threshold>" << v.get_default_rll_threshold_for_this_xct()
+    << "</default_rll_threshold>";
   if (v.is_active()) {
     o << "<id_>" << v.get_id() << "</id_>"
       << "<read_set_size>" << v.get_read_set_size() << "</read_set_size>"
