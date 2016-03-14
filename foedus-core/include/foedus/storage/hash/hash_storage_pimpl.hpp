@@ -128,6 +128,11 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   ErrorStack  verify_single_thread_intermediate(Engine* engine, HashIntermediatePage* page);
   ErrorStack  verify_single_thread_data(Engine* engine, HashDataPage* head);
 
+  /** For stupid reasons (I'm lazy!) these are defined in _debug.cpp. */
+  ErrorStack  hcc_reset_all_temperature_stat();
+  ErrorStack  hcc_reset_all_temperature_stat_intermediate(VolatilePagePointer intermediate_page_id);
+  ErrorStack  hcc_reset_all_temperature_stat_data(VolatilePagePointer head_page_id);
+
   /** These are defined in hash_storage_debug.cpp */
   ErrorStack debugout_single_thread(
     Engine* engine,

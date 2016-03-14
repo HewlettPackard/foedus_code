@@ -90,6 +90,12 @@ class StorageManagerPimpl final : public DefaultInitializable {
   template <typename STORAGE>
   ErrorStack  create_storage_and_log(const Metadata* meta, Epoch *commit_epoch);
 
+  /**
+   * Resets all volatile pages' temperature stat to be zero in the specified storage.
+   * Used only in HCC-branch.
+   */
+  ErrorStack  hcc_reset_all_temperature_stat(StorageId storage_id);
+
   xct::TrackMovedRecordResult track_moved_record(
     StorageId storage_id,
     xct::RwLockableXctId* old_address,

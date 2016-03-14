@@ -91,6 +91,12 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
   ErrorStack  verify_single_thread(thread::Thread* context);
 
   /**
+   * Resets all volatile pages' temperature stat to be zero in this storage.
+   * Used only in HCC-branch.
+   */
+  ErrorStack  hcc_reset_all_temperature_stat();
+
+  /**
    * @brief A super-expensive and single-thread only debugging feature to write out
    * gigantic human-readable texts to describe the hash storage in details.
    * @details

@@ -141,7 +141,7 @@ ErrorStack MasstreeStoragePimpl::debugout_single_thread_follow(
 }
 
 
-ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat(Engine* engine) {
+ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat() {
   LOG(INFO) << "**"
     << std::endl << "***************************************************************"
     << std::endl << "***   Reseting " << MasstreeStorage(engine_, control_block_) << "'s "
@@ -152,7 +152,7 @@ ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat(Engine* engine) 
   if (pointer.volatile_pointer_.is_null()) {
     LOG(INFO) << "No volatile pages.";
   } else {
-    CHECK_ERROR(hcc_reset_all_temperature_stat_follow(engine, pointer.volatile_pointer_));
+    CHECK_ERROR(hcc_reset_all_temperature_stat_follow(pointer.volatile_pointer_));
   }
 
   LOG(INFO) << "Done resettting";
@@ -160,9 +160,7 @@ ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat(Engine* engine) 
 }
 
 
-ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_recurse(
-  Engine* engine,
-  MasstreePage* parent) {
+ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_recurse(MasstreePage* parent) {
   uint16_t key_count = parent->get_key_count();
   if (parent->is_border()) {
     MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(parent);
@@ -170,7 +168,6 @@ ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_recurse(
     for (uint16_t i = 0; i < key_count; ++i) {
       if (casted->does_point_to_layer(i)) {
         CHECK_ERROR(hcc_reset_all_temperature_stat_follow(
-          engine,
           casted->get_next_layer(i)->volatile_pointer_));
       }
     }
@@ -178,7 +175,6 @@ ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_recurse(
     MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(parent);
     for (MasstreeIntermediatePointerIterator it(casted); it.is_valid(); it.next()) {
       CHECK_ERROR(hcc_reset_all_temperature_stat_follow(
-        engine,
         it.get_pointer().volatile_pointer_));
     }
   }
@@ -187,12 +183,11 @@ ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_recurse(
 }
 
 ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_follow(
-  Engine* engine,
   VolatilePagePointer page_id) {
   if (page_id.is_null()) {
     MasstreePage* page = reinterpret_cast<MasstreePage*>(
-      engine->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(page_id));
-    CHECK_ERROR(hcc_reset_all_temperature_stat_recurse(engine, page));
+      engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(page_id));
+    CHECK_ERROR(hcc_reset_all_temperature_stat_recurse(page));
   }
   return kRetOk;
 }

@@ -960,6 +960,53 @@ ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, Arra
   return kRetOk;
 }
 
+
+ErrorStack ArrayStorage::hcc_reset_all_temperature_stat() {
+  ArrayStoragePimpl pimpl(this);
+  return pimpl.hcc_reset_all_temperature_stat();
+}
+
+ErrorStack ArrayStoragePimpl::hcc_reset_all_temperature_stat() {
+  LOG(INFO) << "**"
+    << std::endl << "***************************************************************"
+    << std::endl << "***   Reseting " << ArrayStorage(engine_, control_block_) << "'s "
+    << std::endl << "*** temperature stat for HCC"
+    << std::endl << "***************************************************************";
+
+  DualPagePointer pointer = control_block_->root_page_pointer_;
+  if (pointer.volatile_pointer_.is_null()) {
+    LOG(INFO) << "No volatile pages.";
+  } else {
+    CHECK_ERROR(hcc_reset_all_temperature_stat_intermediate(pointer.volatile_pointer_));
+  }
+
+  LOG(INFO) << "Done resettting";
+  return kRetOk;
+}
+
+ErrorStack ArrayStoragePimpl::hcc_reset_all_temperature_stat_intermediate(
+  VolatilePagePointer intermediate_page_id) {
+  const auto& resolver = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(intermediate_page_id));
+  ASSERT_ND(page);
+  ASSERT_ND(!page->is_leaf());
+  const bool bottom = page->get_level() == 1U;
+  for (uint8_t i = 0; i < kInteriorFanout; ++i) {
+    VolatilePagePointer page_id = page->get_interior_record(i).volatile_pointer_;
+    if (page_id.is_null()) {
+      continue;
+    }
+    if (bottom) {
+      ArrayPage* leaf = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(page_id));
+      leaf->header().hotness_.reset();
+    } else {
+      CHECK_ERROR(hcc_reset_all_temperature_stat_intermediate(page_id));
+    }
+  }
+
+  return kRetOk;
+}
+
 ErrorCode ArrayStoragePimpl::follow_pointers_for_read_batch(
   thread::Thread* context,
   uint16_t batch_size,

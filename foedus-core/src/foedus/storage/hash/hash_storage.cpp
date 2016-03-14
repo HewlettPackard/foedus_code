@@ -270,6 +270,12 @@ ErrorStack HashStorage::verify_single_thread(thread::Thread* context) {
   return pimpl.verify_single_thread(context);
 }
 
+ErrorStack HashStorage::hcc_reset_all_temperature_stat() {
+  HashStoragePimpl pimpl(this);
+  return pimpl.hcc_reset_all_temperature_stat();
+}
+
+
 ErrorStack HashStorage::debugout_single_thread(
   Engine* engine,
   bool volatile_only,

@@ -368,8 +368,22 @@ void StorageManagerPimpl::create_storage_apply(const Metadata& metadata) {
   ASSERT_ND(get_storage(id)->exists());
 }
 
-
-
+ErrorStack StorageManagerPimpl::hcc_reset_all_temperature_stat(StorageId storage_id) {
+  StorageControlBlock* block = storages_ + storage_id;
+  ASSERT_ND(block->exists());
+  StorageType type = block->meta_.type_;
+  if (type == kMasstreeStorage) {
+    CHECK_ERROR(masstree::MasstreeStorage(engine_, block).hcc_reset_all_temperature_stat());
+  } else if (type == kHashStorage) {
+    CHECK_ERROR(hash::HashStorage(engine_, block).hcc_reset_all_temperature_stat());
+  } else if (type == kArrayStorage) {
+    CHECK_ERROR(array::ArrayStorage(engine_, block).hcc_reset_all_temperature_stat());
+  } else {
+    // Seq storage doesn't need it.
+    LOG(WARNING) << "This storage type doesn't need HCC counter reset. type=" << type;
+  }
+  return kRetOk;
+}
 
 // define here to allow inline
 xct::TrackMovedRecordResult StorageManager::track_moved_record(
