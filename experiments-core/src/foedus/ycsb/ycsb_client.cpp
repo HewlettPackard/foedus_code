@@ -89,6 +89,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   extra_table_ = engine_->get_storage_manager()->get_masstree("ycsb_extra_table");
 #endif
   channel_ = get_channel(engine_);
+  outputs_->cur_bucket_ = 0;
+  std::memset(outputs_->bucketed_throughputs_, 0, sizeof(outputs_->bucketed_throughputs_));
   // TODO(tzwang): so far we only support homogeneous systems: each processor has exactly the same
   // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
   // figure out how many cores we have (basically by adding individual core counts up).
@@ -96,8 +98,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
   std::vector<YcsbKey> user_keys;
   std::vector<YcsbKey> extra_keys;
-  user_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
-  extra_keys.reserve(workload_.extra_table_rmws_ + workload_.extra_table_reads_);
+  const uint32_t conservative_size
+    = workload_.reps_per_tx_
+    + workload_.rmw_additional_reads_
+    + workload_.extra_table_rmws_
+    + workload_.extra_table_reads_;
+  user_keys.reserve(conservative_size);
+  extra_keys.reserve(conservative_size);
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -105,7 +112,27 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
+
+  bool cur_flip_workload = channel_->shifted_workload_;
+  uint32_t cur_bucket_throughput = 0;
   while (!is_stop_requested()) {
+    // per every transaction (probably not too frequent), check if we are told to move on
+    if (output_bucketed_throughput_) {
+      if (outputs_->cur_bucket_ != channel_->cur_output_bucket_) {
+        // Finalize current bucket.
+        outputs_->bucketed_throughputs_[outputs_->cur_bucket_] = cur_bucket_throughput;
+        cur_bucket_throughput = 0;
+        outputs_->cur_bucket_ = channel_->cur_output_bucket_;
+
+        // Also, did we switch workload?
+        if (cur_flip_workload != channel_->shifted_workload_) {
+          cur_flip_workload = channel_->shifted_workload_;
+          std::swap(workload_.reps_per_tx_, workload_.extra_table_rmws_);
+          std::swap(workload_.rmw_additional_reads_, workload_.extra_table_reads_);
+        }
+      }
+    }
+
     uint16_t xct_type = rnd_xct_select_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_xct_select_.get_current_seed();
@@ -140,12 +167,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         }
         extra_keys.push_back(k);
       }
-    }
 
-    if (sort_keys_) {
-      std::sort(extra_keys.begin(), extra_keys.end());
+      if (sort_keys_) {
+        std::sort(extra_keys.begin(), extra_keys.end());
+      }
     }
-    ASSERT_ND((int32_t)extra_keys.size() == workload_.extra_table_rmws_ + workload_.extra_table_reads_);
+    ASSERT_ND((int32_t)extra_keys.size()
+      == workload_.extra_table_rmws_ + workload_.extra_table_reads_);
 
     // abort-retry loop
     while (!is_stop_requested()) {
@@ -283,6 +311,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       }
     }
     ++outputs_->processed_;
+    ++cur_bucket_throughput;
     if (UNLIKELY(outputs_->processed_ % (1U << 8) == 0)) {  // it's just stats. not too frequent
       outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
       outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();

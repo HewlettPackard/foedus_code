@@ -24,6 +24,7 @@
 #include <sys/wait.h>
 
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -124,11 +125,13 @@ DEFINE_bool(force_canonical_xlocks_in_precommit, true,
 DEFINE_bool(enable_retrospective_lock_list, true, "Whether to use RLL after aborts");
 DEFINE_bool(extended_rw_lock, false, "whether to use the extended RW lock implementation");
 
-// TODO(Hideaki) These are yet to be implemented in the precommit code
 DEFINE_bool(aggressive_release, true, "Enable aggressive lock-release to restore canonical mode");
 DEFINE_bool(parallel_lock, false, "whether to take locks in parallel in precommit when"
     " we are not in canonical mode, using the async-lock interface.");
 DEFINE_int32(parallel_lock_retries, 5, "How many times to try for parallel lock before giving up.");
+
+DEFINE_bool(shifting_workload, false, "whether to run the shifting workloads.");
+
 
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0,    0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0,    0);     // Workload B - 95% read, 5% update
@@ -549,6 +552,7 @@ ErrorStack YcsbDriver::run() {
       inputs.random_inserts_ = FLAGS_random_inserts;
       inputs.sort_keys_ = FLAGS_sort_keys;
       inputs.local_key_counter_ = get_local_key_counter(engine_, worker_id);
+      inputs.output_bucketed_throughput_ = FLAGS_shifting_workload;
       if (initial_user_records_per_thread == 0) {
         if (node == 0 && ordinal == 0) {
           inputs.local_key_counter_->user_key_counter_ = initial_table_size;
@@ -590,11 +594,68 @@ ErrorStack YcsbDriver::run() {
   assorted::memory_fence_release();
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
+  uint32_t sleep_interval_us = 1000000ULL;
+  constexpr uint32_t kBucketIntervalUs = 100UL;  // 100 us
+  std::unique_ptr<uint64_t> bucket_times;
+  uint64_t* bucket_times_raw = nullptr;
+  uint32_t max_bucket = 0;
+  uint32_t shift_counter = (0 + 5) / 10;
+  uint32_t reset_counter = 0;
+  if (FLAGS_shifting_workload) {
+    bucket_times.reset(new uint64_t[kMaxOutputBuckets]);
+    bucket_times_raw = bucket_times.get();
+    std::memset(bucket_times_raw, 0, sizeof(uint64_t) * kMaxOutputBuckets);
+
+    // In shifting workload, we switch to next throughput bucket for every:
+    sleep_interval_us = kBucketIntervalUs;
+  }
   while (duration.peek_elapsed_ns() < static_cast<uint64_t>(FLAGS_duration_micro) * 1000ULL) {
     // wake up for each second to show intermediate results.
     uint64_t remaining_duration = FLAGS_duration_micro - duration.peek_elapsed_ns() / 1000ULL;
-    remaining_duration = std::min<uint64_t>(remaining_duration, 1000000ULL);
+    remaining_duration = std::min<uint64_t>(remaining_duration, sleep_interval_us);
     std::this_thread::sleep_for(std::chrono::microseconds(remaining_duration));
+
+    if (FLAGS_shifting_workload) {
+      if (max_bucket >= kMaxOutputBuckets) {
+        LOG(FATAL) << "WTF. exceeded kMaxOutputBuckets. " << channel->cur_output_bucket_;
+      }
+
+      // Remember, sleep_for with short duration (100 us) is VERY inaccurate.
+      // we thus remember the timestamp of each bucket to plot a 2-D scatter chart.
+      channel->cur_output_bucket_ = max_bucket;
+      uint64_t elapsed_ns = duration.peek_elapsed_ns();
+      bucket_times_raw[max_bucket] = elapsed_ns;
+
+      // the switch/reset happens infreuqenty, so check them based on timer.
+      uint32_t new_counter = elapsed_ns / 10000000U;  // [/10ms] int
+      uint32_t new_shift_counter = (new_counter + 5) / 10;
+      uint32_t new_reset_counter = (new_counter) / 10;
+      if (new_shift_counter != shift_counter) {
+        // 0.05, 0.15, 0.25.. sec to shift wokrload
+        LOG(INFO) << "Shifts workload at now=" << elapsed_ns << "ns";
+        shift_counter = new_shift_counter;
+        channel->shifted_workload_ = !channel->shifted_workload_;
+      }
+      if (new_reset_counter != reset_counter) {
+        LOG(INFO) << "Resets HCC counter at now=" << elapsed_ns << "ns";
+        reset_counter = new_reset_counter;
+        // 0.1, 0.2.. sec to clear stat
+#ifdef YCSB_HASH_STORAGE
+        auto user_table = engine_->get_storage_manager()->get_hash("ycsb_user_table");
+        auto extra_table = engine_->get_storage_manager()->get_hash("ycsb_extra_table");
+#else
+        auto user_table = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
+        auto extra_table = engine_->get_storage_manager()->get_masstree("ycsb_extra_table");
+#endif
+        COERCE_ERROR(user_table.hcc_reset_all_temperature_stat());
+        COERCE_ERROR(extra_table.hcc_reset_all_temperature_stat());
+      }
+
+      // in shifting workload, omit the intermediate report.
+      ++max_bucket;
+      continue;
+    }
+
     Result result;
     result.duration_sec_ = static_cast<double>(duration.peek_elapsed_ns()) / 1000000000;
     result.worker_count_ = total_thread_count;
@@ -630,6 +691,11 @@ ErrorStack YcsbDriver::run() {
   result.papi_results_ = debugging::DebuggingSupports::describe_papi_counters(
     engine_->get_debug()->get_papi_counters());
   assorted::memory_fence_acquire();
+  std::unique_ptr<YcsbClientTask::Outputs> sum_buckets;
+  if (FLAGS_shifting_workload) {
+    sum_buckets.reset(new YcsbClientTask::Outputs());
+    std::memset(sum_buckets->bucketed_throughputs_, 0, sizeof(sum_buckets->bucketed_throughputs_));
+  }
   for (uint32_t i = 0; i < sessions.size(); ++i) {
     const YcsbClientTask::Outputs* output = outputs[i];
     result.workers_[i].id_ = i;
@@ -653,6 +719,11 @@ ErrorStack YcsbDriver::run() {
     result.total_scans_ += output->total_scans_;
     result.snapshot_cache_hits_ += output->snapshot_cache_hits_;
     result.snapshot_cache_misses_ += output->snapshot_cache_misses_;
+    if (FLAGS_shifting_workload) {
+      for (uint32_t j = 0; j < max_bucket; ++j) {
+        sum_buckets->bucketed_throughputs_[j] += output->bucketed_throughputs_[j];
+      }
+    }
   }
 
   LOG(INFO) << "Shutting down...";
@@ -702,6 +773,34 @@ ErrorStack YcsbDriver::run() {
   if (FLAGS_profile) {
     std::cout << "Check out the profile result: pprof --pdf [binary] tpcc.prof > prof.pdf; "
       "okular prof.pdf" << std::endl;
+  }
+
+  if (FLAGS_shifting_workload) {
+    LOG(INFO) << "Separately writing out bucketed throughputs...";
+    // The file name is always "bucketed_throughputs.tsv"
+    std::ofstream bucket_out;
+    bucket_out.open("bucketed_throughputs.tsv", std::ios_base::out | std::ios_base::trunc);
+    if (!bucket_out.is_open()) {
+      LOG(ERROR) << "Couldn't open bucketed_throughputs.tsv. os_error= " << assorted::os_error();
+    } else {
+      bucket_out << "Time\tTPS" << std::endl;
+      uint64_t prev_throughput = sum_buckets->bucketed_throughputs_[0];
+      uint64_t prev_ns = bucket_times_raw[0];
+      for (uint32_t j = 1; j < max_bucket; ++j) {
+        if (bucket_times_raw[j] == prev_ns) {
+          LOG(WARNING) << "?? 0ns elapsed?? " << prev_ns;
+          bucket_times_raw[j] = prev_ns + 1;
+        }
+        uint64_t elapsed_ns = bucket_times_raw[j] - prev_ns;
+        double tps = prev_throughput * 1000000000.0f / elapsed_ns;
+        bucket_out << (prev_ns / 1000000000.0f) << "\t" << tps << std::endl;
+        prev_throughput = sum_buckets->bucketed_throughputs_[j];
+        prev_ns = bucket_times_raw[j];
+      }
+      bucket_out.flush();
+      bucket_out.close();
+    }
+    LOG(INFO) << "Wrote bucketed throughputs.";
   }
 
   return kRetOk;

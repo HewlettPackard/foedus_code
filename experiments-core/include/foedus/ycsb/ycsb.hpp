@@ -34,6 +34,7 @@
 #include "foedus/assorted/cacheline.hpp"
 #include "foedus/assorted/endianness.hpp"
 #include "foedus/proc/proc_manager.hpp"
+#include "foedus/soc/shared_memory_repo.hpp"
 #include "foedus/soc/shared_rendezvous.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
@@ -130,12 +131,13 @@ struct YcsbRecord {
  * If the driver spawns client processes, this is allocated in shared memory.
  * This ``channel'' controls/synchoronizes worker threads.
  */
-class YcsbClientTask;
 struct YcsbClientChannel {
   void initialize(uint16_t nr_workers) {
     start_rendezvous_.initialize();
     exit_nodes_.store(nr_workers);
     stop_flag_.store(false);
+    shifted_workload_ = false;
+    cur_output_bucket_ = 0;
   }
   void uninitialize() {
     start_rendezvous_.uninitialize();
@@ -146,8 +148,23 @@ struct YcsbClientChannel {
   soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
+
+  /**
+   * Used for shifting workload experiment.
+   * false=original, true=flipped. Keep flipping.
+   * This is NOT atomically read. No need to be accurate.
+   */
+  bool shifted_workload_;
+
+  /**
+   * Also used for shifting workload experiment.
+   * The index to use for storing current throughput.
+   * This is NOT atomically read. No need to be accurate.
+   */
+  uint32_t cur_output_bucket_;
 };
 
+class YcsbClientTask;
 int driver_main(int argc, char **argv);
 ErrorStack ycsb_load_task(const proc::ProcArguments& args);
 #ifndef YCSB_HASH_STORAGE
@@ -243,6 +260,15 @@ class YcsbLoadTask {
   assorted::UniformRandom rnd_;
 };
 
+/**
+ * We store up to this number of throughput-buckets per thread.
+ * e.g., Bucket period = 1 ms, Experiment duration = 20 sec,
+ * 20 sec / 1 ms = 20,000 buckets. which \b must \b be within this number.
+ * This value must be large enough to hold the output buckets,
+ * but small enough to limit the size of Outputs struct.
+ */
+constexpr uint32_t kMaxOutputBuckets = 1U << 16;
+
 class YcsbClientTask {
  public:
   struct Inputs {
@@ -253,6 +279,11 @@ class YcsbClientTask {
     bool write_all_fields_;
     bool random_inserts_;
     bool sort_keys_;
+    /**
+     * Used for shifting workload experiment.
+     * Output throughput in granular time bucket.
+     */
+    bool output_bucketed_throughput_;
     uint64_t initial_table_size_;
     uint64_t extra_table_size_;
     PerWorkerCounter* local_key_counter_;
@@ -262,6 +293,7 @@ class YcsbClientTask {
   // Result of each worker
   struct Outputs {
     uint32_t id_;
+    uint32_t cur_bucket_;
     uint64_t processed_;
     uint64_t race_aborts_;
     uint64_t lock_aborts_;
@@ -272,6 +304,7 @@ class YcsbClientTask {
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
+    uint32_t bucketed_throughputs_[kMaxOutputBuckets];
     friend std::ostream& operator<<(std::ostream& o, const Outputs& v);
   };
 
@@ -282,6 +315,7 @@ class YcsbClientTask {
       write_all_fields_(inputs.write_all_fields_),
       random_inserts_(inputs.random_inserts_),
       sort_keys_(inputs.sort_keys_),
+      output_bucketed_throughput_(inputs.output_bucketed_throughput_),
       initial_table_size_(inputs.initial_table_size_),
       extra_table_size_(inputs.extra_table_size_),
       outputs_(outputs),
@@ -307,12 +341,14 @@ class YcsbClientTask {
 
  private:
   thread::Thread* context_;
+  // why aren't we just holding an Inputs object here?
   uint32_t worker_id_;
   YcsbWorkload workload_;
   bool read_all_fields_;
   bool write_all_fields_;
   bool random_inserts_;
   bool sort_keys_;
+  bool output_bucketed_throughput_;
   uint64_t initial_table_size_;
   uint64_t extra_table_size_;
   Outputs* outputs_;
@@ -475,6 +511,11 @@ class YcsbDriver {
  private:
   Engine* engine_;
 };
+
+static_assert(
+  sizeof(YcsbClientTask::Outputs) <= soc::ThreadMemoryAnchors::kTaskOutputMemorySize,
+  "kMaxOutputBuckets too big!");
+
 }  // namespace ycsb
 }  // namespace foedus
 
