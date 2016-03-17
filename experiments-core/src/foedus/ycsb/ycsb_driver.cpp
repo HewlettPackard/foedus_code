@@ -734,8 +734,8 @@ ErrorStack YcsbDriver::run() {
 
   channel->stop_flag_.store(true);
 
-  // Let's forcibly kill everything if it doesn't stop after 10x the experiment duration.
-  const uint64_t session_timeout_us = FLAGS_duration_micro * 10;
+  // Let's forcibly kill everything if it doesn't stop after 10x the experiment duration + 10 sec.
+  const uint64_t session_timeout_us = FLAGS_duration_micro * 10 + 10000000ULL;
   for (uint32_t i = 0; i < sessions.size(); ++i) {
     bool ended = sessions[i].wait_for(session_timeout_us);
     if (ended) {
