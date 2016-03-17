@@ -33,7 +33,7 @@ parallel_lock=false
 
 # we might adjust the following
 sort_keys=true
-duration_micro=2500000
+duration_micro=800000
 rmw_additional_reads=0
 reps_per_tx=5
 extra_table_reads=5
