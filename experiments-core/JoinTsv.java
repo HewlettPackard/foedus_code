@@ -65,8 +65,9 @@ public class JoinTsv {
       for (Pair pair : file.pairs) {
         System.out.print(pair.key);
         for (int j = 0; j < files.size(); ++j) {
-          System.out.print("\tNULL");
+          System.out.print("\t");
           if (i != j) {
+            System.out.print("NULL");
             continue;
           }
           System.out.print(pair.value);

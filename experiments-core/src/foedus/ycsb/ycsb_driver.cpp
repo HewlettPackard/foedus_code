@@ -637,17 +637,18 @@ ErrorStack YcsbDriver::run() {
         channel->shifted_workload_ = !channel->shifted_workload_;
       }
       if (new_reset_counter != reset_counter) {
+        // 0.1, 0.2.. sec to clear stat
         LOG(INFO) << "Resets HCC counter at now=" << elapsed_ns << "ns";
         reset_counter = new_reset_counter;
-        // 0.1, 0.2.. sec to clear stat
 #ifdef YCSB_HASH_STORAGE
-        auto user_table = engine_->get_storage_manager()->get_hash("ycsb_user_table");
+        // auto user_table = engine_->get_storage_manager()->get_hash("ycsb_user_table");
         auto extra_table = engine_->get_storage_manager()->get_hash("ycsb_extra_table");
 #else
-        auto user_table = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
+        // auto user_table = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
         auto extra_table = engine_->get_storage_manager()->get_masstree("ycsb_extra_table");
 #endif
-        COERCE_ERROR(user_table.hcc_reset_all_temperature_stat());
+        // No need to reset user table, which is always cold
+        // COERCE_ERROR(user_table.hcc_reset_all_temperature_stat());
         COERCE_ERROR(extra_table.hcc_reset_all_temperature_stat());
       }
 
@@ -760,6 +761,10 @@ ErrorStack YcsbDriver::run() {
 
   // wait just for a bit to avoid mixing stdout
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  if (FLAGS_shifting_workload) {
+    // Also wait a bit more to make sure the resetting is not going now
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+  }
   for (uint32_t i = 0; i < result.worker_count_; ++i) {
     LOG(INFO) << result.workers_[i];
   }
