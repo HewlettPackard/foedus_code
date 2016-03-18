@@ -595,7 +595,8 @@ ErrorStack YcsbDriver::run() {
   LOG(INFO) << "Started!";
   debugging::StopWatch duration;
   uint32_t sleep_interval_us = 1000000ULL;
-  constexpr uint32_t kBucketIntervalUs = 100UL;  // 100 us
+  constexpr uint32_t kBucketIntervalUs = 10UL;  // 10 us
+  constexpr uint64_t kSwitchIntervalUs = 10000UL;  // 10 ms
   std::unique_ptr<uint64_t> bucket_times;
   uint64_t* bucket_times_raw = nullptr;
   uint32_t max_bucket = 0;
@@ -627,18 +628,18 @@ ErrorStack YcsbDriver::run() {
       bucket_times_raw[max_bucket] = elapsed_ns;
 
       // the switch/reset happens infreuqenty, so check them based on timer.
-      uint32_t new_counter = elapsed_ns / 10000000U;  // [/10ms] int
+      uint32_t new_counter = elapsed_ns / (kSwitchIntervalUs * 100ULL);
       uint32_t new_shift_counter = (new_counter + 5) / 10;
       uint32_t new_reset_counter = (new_counter) / 10;
       if (new_shift_counter != shift_counter) {
         // 0.05, 0.15, 0.25.. sec to shift wokrload
-        LOG(INFO) << "Shifts workload at now=" << elapsed_ns << "ns";
+        LOG(INFO) << "Shifts workload at now=" << (elapsed_ns / 1000000000.0f) << "s";
         shift_counter = new_shift_counter;
         channel->shifted_workload_ = !channel->shifted_workload_;
       }
       if (new_reset_counter != reset_counter) {
         // 0.1, 0.2.. sec to clear stat
-        LOG(INFO) << "Resets HCC counter at now=" << elapsed_ns << "ns";
+        LOG(INFO) << "Resets HCC counter at now=" << (elapsed_ns / 1000000000.0f) << "s";
         reset_counter = new_reset_counter;
 #ifdef YCSB_HASH_STORAGE
         // auto user_table = engine_->get_storage_manager()->get_hash("ycsb_user_table");
