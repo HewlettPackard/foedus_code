@@ -267,7 +267,17 @@ class YcsbLoadTask {
  * This value must be large enough to hold the output buckets,
  * but small enough to limit the size of Outputs struct.
  */
-constexpr uint32_t kMaxOutputBuckets = 1U << 16;
+constexpr uint32_t kMaxOutputBuckets = 1U << 15;
+
+struct ThroughputAndAbort {
+  uint32_t throughput_;
+  uint32_t aborts_;
+  void operator+=(const ThroughputAndAbort& other) {
+    throughput_ += other.throughput_;
+    aborts_ += other.aborts_;
+  }
+};
+
 
 class YcsbClientTask {
  public:
@@ -304,7 +314,7 @@ class YcsbClientTask {
     uint64_t unexpected_aborts_;
     uint64_t snapshot_cache_hits_;
     uint64_t snapshot_cache_misses_;
-    uint32_t bucketed_throughputs_[kMaxOutputBuckets];
+    ThroughputAndAbort bucketed_throughputs_[kMaxOutputBuckets];
     friend std::ostream& operator<<(std::ostream& o, const Outputs& v);
   };
 

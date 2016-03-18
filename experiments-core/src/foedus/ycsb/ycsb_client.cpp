@@ -115,16 +115,20 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
   bool cur_flip_workload = channel_->shifted_workload_;
   uint32_t cur_bucket_throughput = 0;
+  uint32_t cur_bucket_abort = 0;
   uint32_t total_extra_ops = workload_.extra_table_rmws_+ workload_.extra_table_reads_;
   while (!is_stop_requested()) {
     // per every transaction (probably not too frequent), check if we are told to move on
     if (output_bucketed_throughput_) {
       if (outputs_->cur_bucket_ != channel_->cur_output_bucket_) {
         // Finalize current bucket.
-        outputs_->bucketed_throughputs_[outputs_->cur_bucket_] = cur_bucket_throughput;
+        outputs_->bucketed_throughputs_[outputs_->cur_bucket_] = ThroughputAndAbort {
+          cur_bucket_throughput,
+          cur_bucket_abort
+        };
         cur_bucket_throughput = 0;
+        cur_bucket_abort = 0;
         outputs_->cur_bucket_ = channel_->cur_output_bucket_;
-
       }
       // Also, did we switch workload?
       if (cur_flip_workload != channel_->shifted_workload_) {
@@ -294,9 +298,11 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
       if (ret == kErrorCodeXctRaceAbort) {
         increment_race_aborts();
+        ++cur_bucket_abort;
         continue;
       } else if (ret == kErrorCodeXctLockAbort) {
         increment_lock_aborts();
+        ++cur_bucket_abort;
         continue;
       } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
         ret == kErrorCodeXctPointerSetOverflow ||

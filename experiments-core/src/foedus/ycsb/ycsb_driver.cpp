@@ -781,28 +781,37 @@ ErrorStack YcsbDriver::run() {
 
   if (FLAGS_shifting_workload) {
     LOG(INFO) << "Separately writing out bucketed throughputs...";
-    // The file name is always "bucketed_throughputs.tsv"
-    std::ofstream bucket_out;
-    bucket_out.open("bucketed_throughputs.tsv", std::ios_base::out | std::ios_base::trunc);
-    if (!bucket_out.is_open()) {
-      LOG(ERROR) << "Couldn't open bucketed_throughputs.tsv. os_error= " << assorted::os_error();
-    } else {
-      bucket_out << "Time\tTPS" << std::endl;
-      uint64_t prev_throughput = sum_buckets->bucketed_throughputs_[0];
-      uint64_t prev_ns = bucket_times_raw[0];
-      for (uint32_t j = 1; j < max_bucket; ++j) {
-        if (bucket_times_raw[j] == prev_ns) {
-          LOG(WARNING) << "?? 0ns elapsed?? " << prev_ns;
-          bucket_times_raw[j] = prev_ns + 1;
+    // The file name is always "bucketed_throughputs.tsv" and "bucketed_aborts.tsv"
+    for (uint32_t is_tps = 0; is_tps < 2U; ++is_tps) {
+      std::ofstream out;
+      const char* filename = is_tps ? "bucketed_throughputs.tsv" : "bucketed_aborts.tsv";
+      out.open(filename, std::ios_base::out | std::ios_base::trunc);
+      if (!out.is_open()) {
+        LOG(ERROR) << "Couldn't open " << filename << ". os_error= " << assorted::os_error();
+      } else {
+        out << "Time\tValue" << std::endl;
+        uint64_t prev_value =
+          is_tps
+          ? sum_buckets->bucketed_throughputs_[0].throughput_
+          : sum_buckets->bucketed_throughputs_[0].aborts_;
+        uint64_t prev_ns = bucket_times_raw[0];
+        for (uint32_t j = 1; j < max_bucket; ++j) {
+          if (bucket_times_raw[j] == prev_ns) {
+            LOG(WARNING) << "?? 0ns elapsed?? " << prev_ns;
+            bucket_times_raw[j] = prev_ns + 1;
+          }
+          uint64_t elapsed_ns = bucket_times_raw[j] - prev_ns;
+          double value = prev_value * 1000000000.0f / elapsed_ns;
+          out << (prev_ns / 1000000000.0f) << "\t" << value << std::endl;
+          prev_value =
+            is_tps
+            ? sum_buckets->bucketed_throughputs_[j].throughput_
+            : sum_buckets->bucketed_throughputs_[j].aborts_;
+          prev_ns = bucket_times_raw[j];
         }
-        uint64_t elapsed_ns = bucket_times_raw[j] - prev_ns;
-        double tps = prev_throughput * 1000000000.0f / elapsed_ns;
-        bucket_out << (prev_ns / 1000000000.0f) << "\t" << tps << std::endl;
-        prev_throughput = sum_buckets->bucketed_throughputs_[j];
-        prev_ns = bucket_times_raw[j];
+        out.flush();
+        out.close();
       }
-      bucket_out.flush();
-      bucket_out.close();
     }
     LOG(INFO) << "Wrote bucketed throughputs.";
   }
