@@ -601,7 +601,7 @@ ErrorStack YcsbDriver::run() {
   uint64_t* bucket_times_raw = nullptr;
   uint32_t max_bucket = 0;
   uint32_t shift_counter = 0;
-  uint32_t reset_counter = 0;
+  uint32_t reset_requests = 0;
   if (FLAGS_shifting_workload) {
     bucket_times.reset(new uint64_t[kMaxOutputBuckets]);
     bucket_times_raw = bucket_times.get();
@@ -630,17 +630,16 @@ ErrorStack YcsbDriver::run() {
       // the switch/reset happens infreuqenty, so check them based on timer.
       uint32_t new_counter = elapsed_ns / (kSwitchIntervalUs * 1000ULL);
       uint32_t new_shift_counter = new_counter / 10;
-      uint32_t new_reset_counter = new_counter;
       if (new_shift_counter != shift_counter) {
         // 0.05, 0.15, 0.25.. sec to shift wokrload
         LOG(INFO) << "Shifts workload at now=" << (elapsed_ns / 1000000000.0f) << "s";
         shift_counter = new_shift_counter;
         channel->shifted_workload_ = !channel->shifted_workload_;
+        reset_requests = 10;
       }
-      if (new_reset_counter != reset_counter) {
-        // 0.1, 0.2.. sec to clear stat
+      if (reset_requests > 0) {
+        --reset_requests;
         LOG(INFO) << "Resets HCC counter at now=" << (elapsed_ns / 1000000000.0f) << "s";
-        reset_counter = new_reset_counter;
 #ifdef YCSB_HASH_STORAGE
         // auto user_table = engine_->get_storage_manager()->get_hash("ycsb_user_table");
         auto extra_table = engine_->get_storage_manager()->get_hash("ycsb_extra_table");
