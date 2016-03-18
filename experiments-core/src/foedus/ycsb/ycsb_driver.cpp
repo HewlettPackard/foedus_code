@@ -757,7 +757,14 @@ ErrorStack YcsbDriver::run() {
 #endif
     CHECK_ERROR(the_storage.debugout_single_thread(engine_));
   }
-
+  if (FLAGS_shifting_workload) {
+#ifdef YCSB_HASH_STORAGE
+    auto extra_table = engine_->get_storage_manager()->get_hash("ycsb_extra_table");
+#else
+    auto extra_table = engine_->get_storage_manager()->get_masstree("ycsb_extra_table");
+#endif
+    CHECK_ERROR(extra_table.debugout_single_thread(engine_));
+  }
   // wait just for a bit to avoid mixing stdout
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   if (FLAGS_shifting_workload) {

@@ -778,7 +778,6 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
   ReadXctAccess*    read_set = current_xct.get_read_set();
   const uint32_t    read_set_size = current_xct.get_read_set_size();
   storage::StorageManager* st = engine_->get_storage_manager();
-  bool verification_failed = false;
   for (uint32_t i = 0; i < read_set_size; ++i) {
     ASSERT_ND(read_set[i].related_write_ == nullptr);
     // let's prefetch owner_id in parallel
@@ -816,24 +815,12 @@ bool XctManagerPimpl::precommit_xct_verify_readonly(thread::Thread* context, Epo
     }
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
       DLOG(WARNING) << *context << " read set changed by other transaction. will abort";
-      // read clobbered, make it hotter
-      access.owner_id_address_->hotter(context);
-
-      // We go on to other read-sets to make them hotter, too.
-      // This might sound like a bit of wasted effort, but anyway aborts must be reasonably
-      // infrequent (otherwise we are screwed!) so this doesn't add too much.
-      // Rather, we want to quickly mark problemetic pages as hot.
-      // return false;
-      verification_failed = true;
-      continue;
+      // read clobbered
+      return false;
     }
 
     // Remembers the highest epoch observed.
     commit_epoch->store_max(access.observed_owner_id_.get_epoch());
-  }
-
-  if (verification_failed) {
-    return false;
   }
 
   // Check lock-free read-set, which is a bit simpler.
@@ -873,7 +860,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
   Xct& current_xct = context->get_current_xct();
   ReadXctAccess*          read_set = current_xct.get_read_set();
   const uint32_t          read_set_size = current_xct.get_read_set_size();
-  bool verification_failed = false;
   for (uint32_t i = 0; i < read_set_size; ++i) {
     // let's prefetch owner_id in parallel
     if (i % kReadsetPrefetchBatch == 0) {
@@ -913,11 +899,9 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
     }
 
     if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
-      access.owner_id_address_->hotter(context);
       DVLOG(1) << *context << " read set changed by other transaction. will abort";
       // same as read_only
-      verification_failed = true;
-      continue;
+      return false;
     }
 
     /*
@@ -948,10 +932,6 @@ bool XctManagerPimpl::precommit_xct_verify_readwrite(thread::Thread* context, Xc
   }
 
   // Check Page Pointer/Version
-  if (verification_failed) {
-    return false;
-  }
-
   // Check lock-free read-set, which is a bit simpler.
   LockFreeReadXctAccess* lock_free_read_set = current_xct.get_lock_free_read_set();
   const uint32_t    lock_free_read_set_size = current_xct.get_lock_free_read_set_size();
@@ -1105,6 +1085,24 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
     return kErrorCodeXctNoXct;
   }
   DVLOG(1) << *context << " Aborted transaction in thread-" << context->get_thread_id();
+
+
+  // The abort was probably due to read-set verification failure, either in lock()'s
+  // 'related_read' check or in verify(). To handle both cases at once, we re-check
+  // all read-sets here and make violating ones hotter.
+  // This might sound like a bit of wasted effort, but anyway aborts must be reasonably
+  // infrequent (otherwise we are screwed!) so this doesn't add too much.
+  // Rather, we want to make sure we surely make them hotter.
+  // Actually, I spent half a day to figure out why a page doesn't become hot despite
+  // lots of aborts! (A: lock()'s related_read check forgot to make it hotter!)
+  ReadXctAccess*          read_set = current_xct.get_read_set();
+  const uint32_t          read_set_size = current_xct.get_read_set_size();
+  for (uint32_t i = 0; i < read_set_size; ++i) {
+    ReadXctAccess& access = read_set[i];
+    if (access.observed_owner_id_ != access.owner_id_address_->xct_id_) {
+      access.owner_id_address_->hotter(context);
+    }
+  }
 
   // When we abort, whether in precommit or via user's explicit abort, we construct RLL.
   // Abort may happen due to try-failure in reads, so we now put this in here, not precommit.

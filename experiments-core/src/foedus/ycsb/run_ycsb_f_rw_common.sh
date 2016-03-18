@@ -6,7 +6,7 @@ extended_rw_lock=1
 parallel_lock=0
 force_canonical_xlocks_in_precommit=1
 
-for hot_threshold in 0 10 126 256; do
+for hot_threshold in 0 2 10 126 256; do
   for initial_table_size in 50 100 1000 10000 100000 1000000; do
     for enable_retrospective_lock_list in 0 1; do
       for rmw_additional_reads in 0 1 2 3 4 5 6 7 8 9 10; do
