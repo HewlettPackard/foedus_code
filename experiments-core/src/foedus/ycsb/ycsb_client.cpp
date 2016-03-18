@@ -188,6 +188,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       == workload_.extra_table_rmws_ + workload_.extra_table_reads_);
 
     // abort-retry loop
+    bool abort_gave_up = false;
     while (!is_stop_requested()) {
       rnd_xct_select_.set_current_seed(rnd_seed);
       rnd_scan_length_select_.set_current_seed(scan_length_rnd_seed);
@@ -299,10 +300,22 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       if (ret == kErrorCodeXctRaceAbort) {
         increment_race_aborts();
         ++cur_bucket_abort;
+        // after each abort, check if we need to move on. if so, give up.
+        // this is required to exclude "sticking" transaction after bucket/workload switch
+        if (outputs_->cur_bucket_ != channel_->cur_output_bucket_
+          || cur_flip_workload != channel_->shifted_workload_) {
+          abort_gave_up = true;
+          break;
+        }
         continue;
       } else if (ret == kErrorCodeXctLockAbort) {
         increment_lock_aborts();
         ++cur_bucket_abort;
+        if (outputs_->cur_bucket_ != channel_->cur_output_bucket_
+          || cur_flip_workload != channel_->shifted_workload_) {
+          abort_gave_up = true;
+          break;
+        }
         continue;
       } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
         ret == kErrorCodeXctPointerSetOverflow ||
@@ -325,8 +338,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         }
       }
     }
-    ++outputs_->processed_;
-    ++cur_bucket_throughput;
+    if (!abort_gave_up) {
+      ++outputs_->processed_;
+      ++cur_bucket_throughput;
+    }
     if (UNLIKELY(outputs_->processed_ % (1U << 8) == 0)) {  // it's just stats. not too frequent
       outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
       outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();
