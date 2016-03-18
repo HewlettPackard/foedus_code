@@ -115,6 +115,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
   bool cur_flip_workload = channel_->shifted_workload_;
   uint32_t cur_bucket_throughput = 0;
+  uint32_t total_extra_ops = workload_.extra_table_rmws_+ workload_.extra_table_reads_;
   while (!is_stop_requested()) {
     // per every transaction (probably not too frequent), check if we are told to move on
     if (output_bucketed_throughput_) {
@@ -124,13 +125,18 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         cur_bucket_throughput = 0;
         outputs_->cur_bucket_ = channel_->cur_output_bucket_;
 
-        // Also, did we switch workload?
-        if (cur_flip_workload != channel_->shifted_workload_) {
-          cur_flip_workload = channel_->shifted_workload_;
-          // std::swap(workload_.reps_per_tx_, workload_.rmw_additional_reads_);
-          // normal table's access is still read-only.
-          // change extra table's RMWs <-> Reads
-          std::swap(workload_.extra_table_rmws_, workload_.extra_table_reads_);
+      }
+      // Also, did we switch workload?
+      if (cur_flip_workload != channel_->shifted_workload_) {
+        cur_flip_workload = channel_->shifted_workload_;
+        // normal table's access is still read-only.
+        // change extra table's RMWs <-> Reads
+        if (cur_flip_workload) {
+          workload_.extra_table_rmws_ = total_extra_ops;
+          workload_.extra_table_reads_ = 0;
+        } else {
+          workload_.extra_table_rmws_ = 0;
+          workload_.extra_table_reads_ = total_extra_ops;
         }
       }
     }
