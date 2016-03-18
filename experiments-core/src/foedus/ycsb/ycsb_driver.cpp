@@ -820,6 +820,25 @@ ErrorStack YcsbDriver::run() {
         out.close();
       }
     }
+
+    // one more tsv that outputs accumulated throughputs
+    std::ofstream out;
+    const char* filename = "bucketed_accumulated.tsv";
+    out.open(filename, std::ios_base::out | std::ios_base::trunc);
+    if (!out.is_open()) {
+      LOG(ERROR) << "Couldn't open " << filename << ". os_error= " << assorted::os_error();
+    } else {
+      out << "Time\tValue" << std::endl;
+      uint64_t accumulated = 0;
+      for (uint32_t j = 0; j < max_bucket; ++j) {
+        accumulated += sum_buckets->bucketed_throughputs_[j].throughput_;
+        out << (bucket_times_raw[j] / 1000000000.0f) << "\t" << accumulated << std::endl;
+      }
+      out.flush();
+      out.close();
+    }
+
+
     LOG(INFO) << "Wrote bucketed throughputs.";
   }
 
