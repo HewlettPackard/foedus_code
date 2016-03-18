@@ -127,7 +127,9 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         // Also, did we switch workload?
         if (cur_flip_workload != channel_->shifted_workload_) {
           cur_flip_workload = channel_->shifted_workload_;
-          std::swap(workload_.reps_per_tx_, workload_.rmw_additional_reads_);
+          // std::swap(workload_.reps_per_tx_, workload_.rmw_additional_reads_);
+          // normal table's access is still read-only.
+          // change extra table's RMWs <-> Reads
           std::swap(workload_.extra_table_rmws_, workload_.extra_table_reads_);
         }
       }
