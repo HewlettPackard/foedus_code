@@ -596,7 +596,7 @@ ErrorStack YcsbDriver::run() {
   debugging::StopWatch duration;
   uint32_t sleep_interval_us = 1000000ULL;
   constexpr uint32_t kBucketIntervalUs = 10UL;  // 10 us
-  constexpr uint64_t kSwitchIntervalUs = 10000UL;  // 10 ms
+  constexpr uint64_t kSwitchIntervalUs = 100000UL;  // 100 ms
   std::unique_ptr<uint64_t> bucket_times;
   uint64_t* bucket_times_raw = nullptr;
   uint32_t max_bucket = 0;

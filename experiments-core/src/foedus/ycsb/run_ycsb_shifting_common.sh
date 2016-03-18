@@ -32,11 +32,11 @@ enable_retrospective_lock_list=true
 parallel_lock=false
 
 # we might adjust the following
-sort_keys=true
+sort_keys=false
 duration_micro=300000
 rmw_additional_reads=0
-reps_per_tx=5
-extra_table_reads=5
+reps_per_tx=10
+extra_table_reads=1
 extra_table_rmws=0
 extra_table_size=10
 initial_table_size=1000000

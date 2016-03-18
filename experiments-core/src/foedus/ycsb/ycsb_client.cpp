@@ -127,8 +127,8 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         // Also, did we switch workload?
         if (cur_flip_workload != channel_->shifted_workload_) {
           cur_flip_workload = channel_->shifted_workload_;
-          std::swap(workload_.reps_per_tx_, workload_.extra_table_rmws_);
-          std::swap(workload_.rmw_additional_reads_, workload_.extra_table_reads_);
+          std::swap(workload_.reps_per_tx_, workload_.rmw_additional_reads_);
+          std::swap(workload_.extra_table_rmws_, workload_.extra_table_reads_);
         }
       }
     }
@@ -234,13 +234,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 #endif
         } else {  // read-modify-write
           // We handle accesses to the extra table here as well.
-          // Do RMWs first, then reads
-          for (int32_t i = 0; i < workload_.reps_per_tx_; ++i) {
-            ret = do_rmw(&user_table_, user_keys[i]);
-            if (ret != kErrorCodeOk) {
-              goto finish;
-            }
-          }
+          // Do Extra first, then normal. Do RMWs first, then reads
 
           for (int32_t i = 0; i < workload_.extra_table_rmws_; ++i) {
             ret = do_rmw(&extra_table_, extra_keys[i]);
@@ -251,6 +245,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
           for (int32_t i = 0; i < workload_.extra_table_reads_; ++i) {
             ret = do_read(&extra_table_, extra_keys[workload_.extra_table_rmws_ + i]);
+            if (ret != kErrorCodeOk) {
+              goto finish;
+            }
+          }
+
+          for (int32_t i = 0; i < workload_.reps_per_tx_; ++i) {
+            ret = do_rmw(&user_table_, user_keys[i]);
             if (ret != kErrorCodeOk) {
               goto finish;
             }
