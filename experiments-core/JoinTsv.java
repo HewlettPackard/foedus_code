@@ -33,7 +33,8 @@ public class JoinTsv {
 		TsvContent(File file) throws IOException {
       name = file.getName();
 			try (BufferedReader reader = new BufferedReader(new FileReader(file), 1 << 16)) {
-        System.out.println(file.getPath() + " header:" + reader.readLine());
+        String header = reader.readLine();
+        // System.out.println(file.getPath() + " header:" + header);
 				for (String line = reader.readLine(); line != null; line = reader.readLine()) {
           double key = Double.parseDouble(line.substring(0, line.indexOf('\t')));
           double value = Double.parseDouble(line.substring(line.indexOf('\t') + 1));
@@ -41,7 +42,7 @@ public class JoinTsv {
 				}
 			}
 
-			System.out.println(file.getPath() + " had " + pairs.size() + " lines");
+			// System.out.println(file.getPath() + " had " + pairs.size() + " lines");
 		}
 	}
 	

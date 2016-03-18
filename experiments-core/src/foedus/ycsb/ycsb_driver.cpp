@@ -601,7 +601,6 @@ ErrorStack YcsbDriver::run() {
   uint64_t* bucket_times_raw = nullptr;
   uint32_t max_bucket = 0;
   uint32_t shift_counter = 0;
-  uint32_t reset_requests = 0;
   if (FLAGS_shifting_workload) {
     bucket_times.reset(new uint64_t[kMaxOutputBuckets]);
     bucket_times_raw = bucket_times.get();
@@ -635,10 +634,10 @@ ErrorStack YcsbDriver::run() {
         LOG(INFO) << "Shifts workload at now=" << (elapsed_ns / 1000000000.0f) << "s";
         shift_counter = new_shift_counter;
         channel->shifted_workload_ = !channel->shifted_workload_;
-        reset_requests = 10;
       }
-      if (reset_requests > 0) {
-        --reset_requests;
+      // no need to reset when we change read -> rmws.
+      bool should_reset = (!channel->shifted_workload_) && (max_bucket % 10 == 0);
+      if (should_reset) {
         LOG(INFO) << "Resets HCC counter at now=" << (elapsed_ns / 1000000000.0f) << "s";
 #ifdef YCSB_HASH_STORAGE
         // auto user_table = engine_->get_storage_manager()->get_hash("ycsb_user_table");
