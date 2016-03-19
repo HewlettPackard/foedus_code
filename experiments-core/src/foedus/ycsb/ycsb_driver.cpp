@@ -825,11 +825,15 @@ ErrorStack YcsbDriver::run() {
             value = prev_value * 1000000000.0f / elapsed_ns;
           } else {
             // abort-ratio case simply gets abort-ratio from the previous entry itself
-            value =
-              static_cast<double>(sum_buckets->bucketed_throughputs_[j - 1].aborts_)
-              /
-              (sum_buckets->bucketed_throughputs_[j - 1].throughput_
-              + sum_buckets->bucketed_throughputs_[j - 1].aborts_);
+            if (sum_buckets->bucketed_throughputs_[j - 1].aborts_ == 0) {  // avoid nan
+              value = 0;
+            } else {
+              value =
+                static_cast<double>(sum_buckets->bucketed_throughputs_[j - 1].aborts_)
+                /
+                (sum_buckets->bucketed_throughputs_[j - 1].throughput_
+                + sum_buckets->bucketed_throughputs_[j - 1].aborts_);
+            }
           }
           out << (prev_ns / 1000000000.0f) << "\t" << value << std::endl;
           if (type == 0U) {
