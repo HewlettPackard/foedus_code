@@ -59,6 +59,7 @@ do
   env CPUPROFILE_FREQUENCY=1 ./ycsb_hash $options &> "$result_dir/ycsb_hash.$machine_shortname.h$hot_threshold.log"
   mv bucketed_throughputs.tsv "$result_dir/bucketed_throughputs_hash_h$hot_threshold.tsv"
   mv bucketed_aborts.tsv "$result_dir/bucketed_aborts_hash_h$hot_threshold.tsv"
+  mv bucketed_ratio.tsv "$result_dir/bucketed_ratio_hash_h$hot_threshold.tsv"
   mv bucketed_accumulated.tsv "$result_dir/bucketed_accumulated_hash_h$hot_threshold.tsv"
 done
 

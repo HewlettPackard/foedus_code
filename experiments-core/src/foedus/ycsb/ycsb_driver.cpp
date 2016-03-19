@@ -789,18 +789,30 @@ ErrorStack YcsbDriver::run() {
   if (FLAGS_shifting_workload) {
     LOG(INFO) << "Separately writing out bucketed throughputs...";
     // The file name is always "bucketed_throughputs.tsv" and "bucketed_aborts.tsv"
-    for (uint32_t is_tps = 0; is_tps < 2U; ++is_tps) {
+    const char* filenames[] = {
+      "bucketed_throughputs.tsv",
+      "bucketed_aborts.tsv",
+      "bucketed_ratio.tsv",
+    };
+    for (uint32_t type = 0; type < 3U; ++type) {
       std::ofstream out;
-      const char* filename = is_tps ? "bucketed_throughputs.tsv" : "bucketed_aborts.tsv";
+      const char* filename = filenames[type];
       out.open(filename, std::ios_base::out | std::ios_base::trunc);
       if (!out.is_open()) {
         LOG(ERROR) << "Couldn't open " << filename << ". os_error= " << assorted::os_error();
       } else {
         out << "Time\tValue" << std::endl;
-        uint64_t prev_value =
-          is_tps
-          ? sum_buckets->bucketed_throughputs_[0].throughput_
-          : sum_buckets->bucketed_throughputs_[0].aborts_;
+        uint64_t prev_value;
+        switch (type) {
+          case 0U:
+            prev_value = sum_buckets->bucketed_throughputs_[0].throughput_;
+            break;
+          case 1U:
+            prev_value = sum_buckets->bucketed_throughputs_[0].aborts_;
+            break;
+          default:
+            prev_value = 0;
+        }
         uint64_t prev_ns = bucket_times_raw[0];
         for (uint32_t j = 1; j < max_bucket; ++j) {
           if (bucket_times_raw[j] == prev_ns) {
@@ -808,12 +820,23 @@ ErrorStack YcsbDriver::run() {
             bucket_times_raw[j] = prev_ns + 1;
           }
           uint64_t elapsed_ns = bucket_times_raw[j] - prev_ns;
-          double value = prev_value * 1000000000.0f / elapsed_ns;
+          double value;
+          if (type == 0U || type == 1U) {
+            value = prev_value * 1000000000.0f / elapsed_ns;
+          } else {
+            // abort-ratio case simply gets abort-ratio from the previous entry itself
+            value =
+              static_cast<double>(sum_buckets->bucketed_throughputs_[j - 1].aborts_)
+              /
+              (sum_buckets->bucketed_throughputs_[j - 1].throughput_
+              + sum_buckets->bucketed_throughputs_[j - 1].aborts_);
+          }
           out << (prev_ns / 1000000000.0f) << "\t" << value << std::endl;
-          prev_value =
-            is_tps
-            ? sum_buckets->bucketed_throughputs_[j].throughput_
-            : sum_buckets->bucketed_throughputs_[j].aborts_;
+          if (type == 0U) {
+            prev_value = sum_buckets->bucketed_throughputs_[j].throughput_;
+          } else if (type == 1U) {
+            prev_value = sum_buckets->bucketed_throughputs_[j].aborts_;
+          }
           prev_ns = bucket_times_raw[j];
         }
         out.flush();
