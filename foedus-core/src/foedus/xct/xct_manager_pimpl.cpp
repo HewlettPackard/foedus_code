@@ -385,12 +385,7 @@ ErrorCode XctManagerPimpl::precommit_xct_readwrite(thread::Thread* context, Epoc
   DVLOG(1) << *context << " Committing read-write";
   XctId max_xct_id;
   max_xct_id.set(Epoch::kEpochInitialDurable, 1);  // TODO(Hideaki) not quite..
-  ErrorCode lock_ret;
-  if (context->get_engine()->get_options().xct_.parallel_lock_) {
-    lock_ret = precommit_xct_parallel_lock(context, &max_xct_id);
-  } else {
-    lock_ret = precommit_xct_lock(context, &max_xct_id);  // Phase 1
-  }
+  ErrorCode lock_ret = precommit_xct_lock(context, &max_xct_id);  // Phase 1
   if (lock_ret != kErrorCodeOk) {
     return lock_ret;
   }
@@ -538,131 +533,6 @@ ErrorCode XctManagerPimpl::precommit_xct_lock_batch_track_moved(thread::Thread* 
     LOG(INFO) << "Tracked " << moved_count << " moved records in precommit_xct_lock."
       << " That's a lot. maybe this is a batch-loading transaction?";
   }
-  return kErrorCodeOk;
-}
-
-ErrorCode XctManagerPimpl::precommit_xct_parallel_lock(thread::Thread* context, XctId* max_xct_id) {
-  Xct& current_xct = context->get_current_xct();
-  WriteXctAccess* write_set = current_xct.get_write_set();
-  uint32_t        write_set_size = current_xct.get_write_set_size();
-  CurrentLockList* cll = current_xct.get_current_lock_list();
-  DVLOG(1) << *context << " #write_sets=" << write_set_size << ", addr=" << write_set;
-  const uint32_t parallel_lock_retries
-    = context->get_engine()->get_options().xct_.parallel_lock_retries_;
-
-#ifndef NDEBUG
-  // Initially, write-sets must be ordered by the insertion order.
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(write_set[i].write_set_ordinal_ == i);
-    // Because of RLL, the write-set might or might not already have a corresponding lock
-  }
-#endif  // NDEBUG
-
-moved_retry:
-  CHECK_ERROR_CODE(precommit_xct_lock_batch_track_moved(context));
-  precommit_xct_sort_access(context);
-
-  // TODO(Hideaki) Because of how the new locks work, I'm not sure the prefetch still helps.
-  // Previously it did, but not significant either, so let's disable for now and revisit this later.
-  // we have to access the owner_id's pointed address. let's prefetch them in parallel
-  // for (uint32_t i = 0; i < write_set_size; ++i) {
-  //   assorted::prefetch_cacheline(write_set[i].owner_id_address_);
-  // }
-
-  // Create entries in CLL for all write sets. At this point they are not locked yet.
-  cll->batch_insert_write_placeholders(write_set, write_set_size);
-
-  ASSERT_ND(current_xct.assert_related_read_write());
-  // Note: one alterantive is to sequentailly iterate over write-set and CLL,
-  // both of which are sorted. It will be faster, but probably not that different
-  // unless we have a large number of locks. For now binary_search each time.
-
-  // Now we have sent out all lock requests, loop over them to check status.
-  uint32_t async_lock_tries = 0;
-async_lock_retry:
-  bool all_locked = true;
-  for (CurrentLockListIteratorForWriteSet it(write_set, cll, write_set_size);
-        it.is_valid();
-        it.next_writes()) {
-    // for multiple writes on one record, only the first one (write_cur_pos_) takes the lock
-    WriteXctAccess* entry = write_set + it.write_cur_pos_;
-
-    LockListPosition lock_pos = it.cll_pos_;
-    ASSERT_ND(lock_pos != kLockListPositionInvalid);  // we have put placeholders for all!
-    LockEntry* lock_entry = cll->get_array() + lock_pos;
-    ASSERT_ND(lock_entry->lock_ == entry->owner_id_address_);
-    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
-    if (lock_entry->taken_mode_ == kWriteLock) {
-      DVLOG(2) << "Yay, already taken. Probably Thanks to RLL or try succeeded directly?";
-    } else {
-      if (lock_entry->taken_mode_ == kReadLock) {
-        // first-time upgrade, an update-my-own-read case?
-        ASSERT_ND(lock_entry->mcs_block_);
-        ASSERT_ND(lock_entry->is_locked());
-        ASSERT_ND(!lock_entry->is_enough());
-        cll->try_async_single_lock(context, lock_pos);  // this guy will do the "upgrade"
-      } else if (lock_entry->mcs_block_ == 0) {
-        ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
-        ASSERT_ND(!lock_entry->is_locked());
-        ASSERT_ND(!lock_entry->is_enough());
-        // Send out lock requests
-        cll->try_async_single_lock(context, lock_pos);
-      }
-      ASSERT_ND(lock_entry->mcs_block_);
-      if (lock_entry->taken_mode_ != kWriteLock) {
-        if (!cll->retry_async_single_lock(context, lock_pos)) {
-          all_locked = false;
-          continue;
-        } else {
-          ASSERT_ND(lock_entry->taken_mode_ == kWriteLock);
-          ASSERT_ND(lock_entry->is_locked());
-        }
-      }
-    }
-
-    if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
-      // Because we invoked precommit_xct_lock_batch_track_moved beforehand,
-      // this happens only when a concurrent thread again split some of the overlapping page.
-      // Though rare, it happens. In that case redo the procedure.
-      LOG(INFO) << "Someone has split the page and moved our record after we check. Retry..";
-      goto moved_retry;
-    }
-
-    ASSERT_ND(lock_entry->is_enough());
-    ASSERT_ND(!entry->owner_id_address_->is_moved());
-    ASSERT_ND(!entry->owner_id_address_->is_next_layer());
-    ASSERT_ND(entry->owner_id_address_->is_keylocked());
-    max_xct_id->store_max(entry->owner_id_address_->xct_id_);
-
-    // If we have to abort, we should abort early to not waste time.
-    // Thus, we check related read sets right here.
-    // For other writes of the same record, too.
-    for (uint32_t rec = it.write_cur_pos_; rec < it.write_next_pos_; ++rec) {
-      WriteXctAccess* r = write_set + rec;
-      ASSERT_ND(entry->owner_id_address_ == r->owner_id_address_);
-      ASSERT_ND(entry->owner_lock_id_ == r->owner_lock_id_);
-      if (r->related_read_) {
-        ASSERT_ND(r->related_read_->owner_id_address_ == r->owner_id_address_);
-        if (r->owner_id_address_->xct_id_ != r->related_read_->observed_owner_id_) {
-          return kErrorCodeXctRaceAbort;
-        }
-      }
-    }
-  }
-
-  if (!all_locked) {
-    if (++async_lock_tries < parallel_lock_retries) {
-      goto async_lock_retry;
-    }
-    return kErrorCodeXctLockAbort;
-  }
-
-  DVLOG(1) << *context << " locked write set";
-#ifndef NDEBUG
-  for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(write_set[i].owner_id_address_->is_keylocked());
-  }
-#endif  // NDEBUG
   return kErrorCodeOk;
 }
 

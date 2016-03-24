@@ -1,6 +1,5 @@
 . config_ycsb.sh "F"
 extended_rw_lock=1
-parallel_lock=0
 force_canonical_xlocks_in_precommit=1
 initial_table_size=1000000
 

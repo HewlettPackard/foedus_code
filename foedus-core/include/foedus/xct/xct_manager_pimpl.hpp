@@ -156,7 +156,6 @@ class XctManagerPimpl final : public DefaultInitializable {
    * After phase 2, we take memory fence.
    */
   ErrorCode   precommit_xct_lock(thread::Thread* context, XctId* max_xct_id);
-  ErrorCode   precommit_xct_parallel_lock(thread::Thread* context, XctId* max_xct_id);
   /**
    * Subroutine of precommit_xct_lock to track \e most of moved records in write-set.
    * We initially did it per-record while we take a lock, but then we need lots of

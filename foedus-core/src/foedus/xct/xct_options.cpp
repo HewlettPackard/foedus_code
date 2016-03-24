@@ -29,8 +29,6 @@ XctOptions::XctOptions() {
   enable_retrospective_lock_list_ = false;  // TODO(Hideaki) tentative!
   hot_threshold_for_retrospective_lock_list_ = kDefaultHotThreshold;
   force_canonical_xlocks_in_precommit_ = true;  // TODO(Hideaki) tentative!
-  parallel_lock_ = false;
-  parallel_lock_retries_ = 5;
   mcs_implementation_type_ = kMcsImplementationTypeSimple;
 }
 
@@ -44,8 +42,6 @@ ErrorStack XctOptions::load(tinyxml2::XMLElement* element) {
   EXTERNALIZE_LOAD_ELEMENT(element, enable_retrospective_lock_list_);
   EXTERNALIZE_LOAD_ELEMENT(element, hot_threshold_for_retrospective_lock_list_);
   EXTERNALIZE_LOAD_ELEMENT(element, force_canonical_xlocks_in_precommit_);
-  EXTERNALIZE_LOAD_ELEMENT(element, parallel_lock_);
-  EXTERNALIZE_LOAD_ELEMENT(element, parallel_lock_retries_);
   EXTERNALIZE_LOAD_ELEMENT(element, mcs_implementation_type_);
   return kRetOk;
 }
@@ -84,10 +80,6 @@ ErrorStack XctOptions::save(tinyxml2::XMLElement* element) const {
   EXTERNALIZE_SAVE_ELEMENT(element, force_canonical_xlocks_in_precommit_,
     "Whether precommit always releases all locks that violate canonical mode before"
     " taking X-locks.");
-  EXTERNALIZE_SAVE_ELEMENT(element, parallel_lock_,
-    "Whether precommit should use the async locking interface when taking X-locks.");
-  EXTERNALIZE_SAVE_ELEMENT(element, parallel_lock_retries_,
-    "How many times to try for parallel lock before giving up.");
   EXTERNALIZE_SAVE_ELEMENT(element, mcs_implementation_type_,
     "Defines which implementation of MCS locks to use for RW locks."
     " So far we allow kMcsImplementationTypeSimple and kMcsImplementationTypeExtended.");

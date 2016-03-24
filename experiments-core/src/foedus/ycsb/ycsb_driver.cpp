@@ -126,9 +126,6 @@ DEFINE_bool(enable_retrospective_lock_list, true, "Whether to use RLL after abor
 DEFINE_bool(extended_rw_lock, false, "whether to use the extended RW lock implementation");
 
 DEFINE_bool(aggressive_release, true, "Enable aggressive lock-release to restore canonical mode");
-DEFINE_bool(parallel_lock, false, "whether to take locks in parallel in precommit when"
-    " we are not in canonical mode, using the async-lock interface.");
-DEFINE_int32(parallel_lock_retries, 5, "How many times to try for parallel lock before giving up.");
 
 DEFINE_bool(shifting_workload, false, "whether to run the shifting workloads.");
 
@@ -317,21 +314,16 @@ int driver_main(int argc, char **argv) {
 
   options.xct_.force_canonical_xlocks_in_precommit_ = FLAGS_force_canonical_xlocks_in_precommit;
   options.xct_.enable_retrospective_lock_list_ = FLAGS_enable_retrospective_lock_list;
-  options.xct_.parallel_lock_ = FLAGS_parallel_lock;
-  options.xct_.parallel_lock_retries_ = FLAGS_parallel_lock_retries;
   if (FLAGS_extended_rw_lock) {
     options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeExtended;
   } else {
     options.xct_.mcs_implementation_type_ = xct::XctOptions::kMcsImplementationTypeSimple;
   }
-  // TODO(Hideaki) Some option and its implementation for aggressive_release/parallel_lock
   std::cout
     << "force_canonical_xlocks_in_precommit: " << FLAGS_force_canonical_xlocks_in_precommit
     << " enable_retrospective_lock_list: " << FLAGS_enable_retrospective_lock_list
     << " mcs_implementation_type_: " << options.xct_.mcs_implementation_type_
     << " aggressive_release: " << FLAGS_aggressive_release
-    << " parallel_lock: " << FLAGS_parallel_lock
-    << " parallel_lock_retries: " << FLAGS_parallel_lock_retries
     << std::endl;
 
   std::cout << "sort keys before accessing: " << FLAGS_sort_keys << std::endl;

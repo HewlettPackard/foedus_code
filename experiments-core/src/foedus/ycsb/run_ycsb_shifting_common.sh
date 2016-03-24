@@ -27,7 +27,6 @@ zipfian_theta=0
 null_log_device=true
 extended_rw_lock=true
 enable_retrospective_lock_list=true
-parallel_lock=false
 
 # we might adjust the following
 sort_keys=false
@@ -41,7 +40,7 @@ initial_table_size=1000000
 
 for hot_threshold in 0 1 2 4 8 10 13 20 25
 do
-  options="-thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -loggers_per_node=$loggers_per_node -volatile_pool_size=$volatile_pool_size -log_buffer_mb=$log_buffer_mb -duration_micro=$duration_micro -workload=$workload -max_scan_length=$max_scan_length -read_all_fields=$read_all_fields -write_all_fields=$write_all_fields -initial_table_size=$initial_table_size -random_inserts=$random_inserts -ordered_inserts=$ordered_inserts -sort_load_keys=$sort_load_keys -fork_workers=$fork_workers -verify_loaded_data=$verify_loaded_data -zipfian_theta=$zipfian_theta -rmw_additional_reads=$rmw_additional_reads -reps_per_tx=$reps_per_tx -null_log_device=$null_log_device -hot_threshold=$hot_threshold -sort_keys=$sort_keys -extended_rw_lock=$extended_rw_lock -enable_retrospective_lock_list=$enable_retrospective_lock_list -parallel_lock=$parallel_lock -extra_table_size=$extra_table_size -extra_table_rmws=$extra_table_rmws -extra_table_reads=$extra_table_reads -shifting_workload=true"
+  options="-thread_per_node=$thread_per_node -numa_nodes=$numa_nodes -snapshot_pool_size=$snapshot_pool_size -reducer_buffer_size=$reducer_buffer_size -loggers_per_node=$loggers_per_node -volatile_pool_size=$volatile_pool_size -log_buffer_mb=$log_buffer_mb -duration_micro=$duration_micro -workload=$workload -max_scan_length=$max_scan_length -read_all_fields=$read_all_fields -write_all_fields=$write_all_fields -initial_table_size=$initial_table_size -random_inserts=$random_inserts -ordered_inserts=$ordered_inserts -sort_load_keys=$sort_load_keys -fork_workers=$fork_workers -verify_loaded_data=$verify_loaded_data -zipfian_theta=$zipfian_theta -rmw_additional_reads=$rmw_additional_reads -reps_per_tx=$reps_per_tx -null_log_device=$null_log_device -hot_threshold=$hot_threshold -sort_keys=$sort_keys -extended_rw_lock=$extended_rw_lock -enable_retrospective_lock_list=$enable_retrospective_lock_list -extra_table_size=$extra_table_size -extra_table_rmws=$extra_table_rmws -extra_table_reads=$extra_table_reads -shifting_workload=true"
   # This overwrites the options.txt each time, but not a big issue
   echo $options > $result_dir/options.txt
 
