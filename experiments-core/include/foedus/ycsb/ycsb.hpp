@@ -136,6 +136,7 @@ struct YcsbClientChannel {
     start_rendezvous_.initialize();
     exit_nodes_.store(nr_workers);
     stop_flag_.store(false);
+    shift_ack_count_.store(0);
     shifted_workload_ = false;
     cur_output_bucket_ = 0;
   }
@@ -148,6 +149,14 @@ struct YcsbClientChannel {
   soc::SharedRendezvous start_rendezvous_;
   std::atomic<uint16_t> exit_nodes_;
   std::atomic<bool> stop_flag_;
+
+  /**
+   * For smoother shift, each thread increments this value after
+   * observing a different shifted_workload_ value.
+   * The main thread resets statistics after observing all workers
+   * ack-ed.
+   */
+  std::atomic<uint16_t> shift_ack_count_;
 
   /**
    * Used for shifting workload experiment.

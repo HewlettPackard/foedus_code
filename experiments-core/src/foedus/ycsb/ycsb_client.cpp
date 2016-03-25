@@ -142,6 +142,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           workload_.extra_table_rmws_ = 0;
           workload_.extra_table_reads_ = total_extra_ops;
         }
+        ++channel_->shift_ack_count_;
       }
     }
 

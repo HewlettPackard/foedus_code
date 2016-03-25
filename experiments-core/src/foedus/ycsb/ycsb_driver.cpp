@@ -625,7 +625,18 @@ ErrorStack YcsbDriver::run() {
         // 0.05, 0.15, 0.25.. sec to shift wokrload
         LOG(INFO) << "Shifts workload at now=" << (elapsed_ns / 1000000000.0f) << "s";
         shift_counter = new_shift_counter;
+        ASSERT_ND(channel->shift_ack_count_.load() == 0);
         channel->shifted_workload_ = !channel->shifted_workload_;
+
+        // for smoother shift, we delay resetting the statistics until we observe
+        // all workers shifted workload.
+        if (!channel->shifted_workload_) {
+          // We don't want to cause huge contention on the counter. let's put some sleep.
+          while (channel->shift_ack_count_.load() < sessions.size()) {
+            std::this_thread::sleep_for(std::chrono::microseconds(2));
+          }
+          channel->shift_ack_count_.store(0);
+        }
       }
       // no need to reset when we change read -> rmws.
       bool should_reset = (!channel->shifted_workload_) && (max_bucket % 10 == 0);
