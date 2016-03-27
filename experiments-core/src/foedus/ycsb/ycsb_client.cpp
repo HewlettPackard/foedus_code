@@ -24,6 +24,7 @@
 #include <sys/wait.h>
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -142,7 +143,12 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           workload_.extra_table_rmws_ = 0;
           workload_.extra_table_reads_ = total_extra_ops;
         }
-        ++channel_->shift_ack_count_;
+        // a rendezvous barrier
+        ++channel_->shift_ack_count_;  // seq_cst!
+        while (channel_->shift_done_.load() == false) {
+          std::this_thread::sleep_for(std::chrono::microseconds(2));
+          continue;
+        }
       }
     }
 
