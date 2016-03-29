@@ -811,8 +811,8 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
 
   memory::PagePoolOffset offsets[3];
   CHECK_ERROR_CODE(grab_free_pages(context, 3, offsets));
-  memory::NumaCoreMemory* memory = context->get_thread_memory();
-  memory::PagePoolOffset work_offset = offsets[2];
+  memory::PagePoolOffset work_offset = offsets[2];  // just work space. released after use
+  memory::AutoVolatilePageReleaseScope auto_release(context->get_thread_memory(), work_offset);
 
   // from now on no failure possible.
   // it might be a sorted insert.
@@ -904,7 +904,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   foster_fence_ = new_foster_fence;
-  assorted::memory_fence_release();
+  assorted::memory_fence_seq_cst();
   // invoking set_moved is the point we announce all of these changes. take fence to make it right
   set_moved();
 
@@ -913,7 +913,6 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
     << " key count: " << static_cast<int>(key_count)
     << "->" << get_key_count()
     << (no_record_split ? " no record split" : " usual split");
-  memory->release_free_volatile_page(work_offset);
 
   verify_separators();
   return kErrorCodeOk;
@@ -929,8 +928,8 @@ ErrorCode MasstreeIntermediatePage::split_foster_no_adopt(thread::Thread* contex
 
   memory::PagePoolOffset offsets[3];
   CHECK_ERROR_CODE(grab_free_pages(context, 3, offsets));
-  memory::NumaCoreMemory* memory = context->get_thread_memory();
-  memory::PagePoolOffset work_offset = offsets[2];
+  memory::PagePoolOffset work_offset = offsets[2];  // just work space. released after use
+  memory::AutoVolatilePageReleaseScope auto_release(context->get_thread_memory(), work_offset);
 
   // from now on no failure possible.
   KeySlice new_foster_fence;
@@ -976,10 +975,8 @@ ErrorCode MasstreeIntermediatePage::split_foster_no_adopt(thread::Thread* contex
   }
 
   foster_fence_ = new_foster_fence;
-  assorted::memory_fence_release();
+  assorted::memory_fence_seq_cst();
   set_moved();
-
-  memory->release_free_volatile_page(work_offset);
 
   verify_separators();
   return kErrorCodeOk;
