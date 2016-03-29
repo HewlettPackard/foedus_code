@@ -626,6 +626,7 @@ ErrorStack YcsbDriver::run() {
         LOG(INFO) << "Shifts workload at now=" << (elapsed_ns / 1000000000.0f) << "s";
         shift_counter = new_shift_counter;
         ASSERT_ND(channel->shift_ack_count_.load() == 0);
+        channel->shift_done_.store(false);  // seq_cst!
         channel->shifted_workload_ = !channel->shifted_workload_;
 
         // for smoother shift, we delay resetting the statistics until we observe
@@ -634,11 +635,7 @@ ErrorStack YcsbDriver::run() {
         while (channel->shift_ack_count_.load() < sessions.size()) {
           std::this_thread::sleep_for(std::chrono::microseconds(2));
         }
-        channel->shift_ack_count_.store(0);
-      }
-      // no need to reset when we change read -> rmws.
-      bool should_reset = (!channel->shifted_workload_) && (max_bucket % 10 == 0);
-      if (should_reset) {
+
         LOG(INFO) << "Resets HCC counter at now=" << (elapsed_ns / 1000000000.0f) << "s";
 #ifdef YCSB_HASH_STORAGE
         // auto user_table = engine_->get_storage_manager()->get_hash("ycsb_user_table");
@@ -650,6 +647,9 @@ ErrorStack YcsbDriver::run() {
         // No need to reset user table, which is always cold
         // COERCE_ERROR(user_table.hcc_reset_all_temperature_stat());
         COERCE_ERROR(extra_table.hcc_reset_all_temperature_stat());
+
+        channel->shift_ack_count_.store(0);
+        channel->shift_done_.store(true);  // seq_cst!
       }
 
       // in shifting workload, omit the intermediate report.

@@ -254,7 +254,12 @@ ErrorStack overwrite_task(const proc::ProcArguments& args) {
 
   uint64_t data3;
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-  WRAP_ERROR_CODE(masstree.get_record_primitive_normalized<uint64_t>(context, key, &data3, 0, true));
+  WRAP_ERROR_CODE(masstree.get_record_primitive_normalized<uint64_t>(
+    context,
+    key,
+    &data3,
+    0,
+    true));
   EXPECT_EQ(data2, data3);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 

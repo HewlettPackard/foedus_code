@@ -139,6 +139,7 @@ struct YcsbClientChannel {
     shift_ack_count_.store(0);
     shifted_workload_ = false;
     cur_output_bucket_ = 0;
+    shift_done_.store(false);
   }
   void uninitialize() {
     start_rendezvous_.uninitialize();
@@ -163,7 +164,7 @@ struct YcsbClientChannel {
    * false=original, true=flipped. Keep flipping.
    * This is NOT atomically read. No need to be accurate.
    */
-  bool shifted_workload_;
+  std::atomic<bool> shifted_workload_;
 
   /**
    * Also used for shifting workload experiment.
@@ -171,6 +172,15 @@ struct YcsbClientChannel {
    * This is NOT atomically read. No need to be accurate.
    */
   uint32_t cur_output_bucket_;
+
+  char filler_[256];
+
+  /**
+   * Paired with shift_ack_count_ to implement a rendezvous barrier.
+   * each worker spins until this becomes true.
+   * in a different cacheline otherwise it will be a terrible pingpong.
+   */
+  std::atomic<bool> shift_done_;
 };
 
 class YcsbClientTask;

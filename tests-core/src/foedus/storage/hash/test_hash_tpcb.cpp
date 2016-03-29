@@ -262,7 +262,12 @@ class RunTpcbTask {
       WRAP_ERROR_CODE(branches.increment_record(context, branch_id, &branch_balance_new, 0));
       branch_balance_old = branch_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(branches.get_record_primitive(context, branch_id, &branch_balance_old, 0, false));
+      WRAP_ERROR_CODE(branches.get_record_primitive(
+        context,
+        branch_id,
+        &branch_balance_old,
+        0,
+        false));
       branch_balance_new = branch_balance_old + amount;
       WRAP_ERROR_CODE(branches.overwrite_record_primitive(
         context,
@@ -287,7 +292,12 @@ class RunTpcbTask {
     int64_t teller_balance_old = -1, teller_balance_new;
     uint64_t teller_branch_id = 0;
     if (use_increment) {
-      WRAP_ERROR_CODE(tellers.get_record_primitive(context, teller_id, &teller_branch_id, 0, false));
+      WRAP_ERROR_CODE(tellers.get_record_primitive(
+        context,
+        teller_id,
+        &teller_branch_id,
+        0,
+        false));
       teller_balance_new = amount;
       WRAP_ERROR_CODE(tellers.increment_record(
         context,
@@ -296,7 +306,12 @@ class RunTpcbTask {
         sizeof(uint64_t)));
       teller_balance_old = teller_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(tellers.get_record_primitive(context, teller_id, &teller_branch_id, 0, false));
+      WRAP_ERROR_CODE(tellers.get_record_primitive(
+        context,
+        teller_id,
+        &teller_branch_id,
+        0,
+        false));
       WRAP_ERROR_CODE(tellers.get_record_primitive(
         context,
         teller_id,
@@ -329,7 +344,12 @@ class RunTpcbTask {
     int64_t account_balance_old = -1, account_balance_new;
     uint64_t account_branch_id = 0;
     if (use_increment) {
-      WRAP_ERROR_CODE(accounts.get_record_primitive(context, account_id, &account_branch_id, 0, false));
+      WRAP_ERROR_CODE(accounts.get_record_primitive(
+        context,
+        account_id,
+        &account_branch_id,
+        0,
+        false));
       account_balance_new = amount;
       WRAP_ERROR_CODE(accounts.increment_record(
         context,
@@ -338,7 +358,12 @@ class RunTpcbTask {
         sizeof(uint64_t)));
       account_balance_old = account_balance_new - amount;
     } else if (use_primitive_accessors) {
-      WRAP_ERROR_CODE(accounts.get_record_primitive(context, account_id, &account_branch_id, 0, false));
+      WRAP_ERROR_CODE(accounts.get_record_primitive(
+        context,
+        account_id,
+        &account_branch_id,
+        0,
+        false));
       WRAP_ERROR_CODE(accounts.get_record_primitive(
         context,
         account_id,

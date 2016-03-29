@@ -289,7 +289,12 @@ class RunTpcbTask {
     } else {
       BranchData branch;
       uint16_t capacity = sizeof(branch);
-      WRAP_ERROR_CODE(branches.get_record_normalized(context, nm(branch_id), &branch, &capacity, false));
+      WRAP_ERROR_CODE(branches.get_record_normalized(
+        context,
+        nm(branch_id),
+        &branch,
+        &capacity,
+        false));
       branch_balance_old = branch.branch_balance_;
       branch_balance_new = branch_balance_old + amount;
       WRAP_ERROR_CODE(branches.overwrite_record_normalized(
@@ -339,7 +344,12 @@ class RunTpcbTask {
     } else {
       TellerData teller;
       uint16_t capacity = sizeof(teller);
-      WRAP_ERROR_CODE(tellers.get_record_normalized(context, nm(teller_id), &teller, &capacity, false));
+      WRAP_ERROR_CODE(tellers.get_record_normalized(
+        context,
+        nm(teller_id),
+        &teller,
+        &capacity,
+        false));
       teller_branch_id = teller.branch_id_;
       teller_balance_old = teller.teller_balance_;
       teller_balance_new = teller_balance_old + amount;
