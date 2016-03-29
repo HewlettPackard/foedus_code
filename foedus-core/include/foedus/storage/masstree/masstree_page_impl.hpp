@@ -390,6 +390,21 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice searching_slice,
     MasstreePage* child);
 
+  /**
+   * @brief Subroutine of adopt_from_child() called when child has foster twin, one of which has
+   * empty range.
+   * @details
+   * When we are splitting a page just to compact/expand records,
+   * it's possible that one of the foster children have empty range (low-fence==high-fence)
+   * In such a case, adoption is trivial; just replace the current pointer with non-empty one.
+   * @note In case of a race, this method might do nothing. The caller is expected to
+   * retry the search, which will eventually see a non-moved child.
+   */
+  void adopt_from_child_compaction(
+    thread::Thread* context,
+    uint8_t minipage_index,
+    uint8_t pointer_index,
+    MasstreePage* child);
 
   /**
    * Appends a new poiner and separator in an existing mini page, used only by snapshot composer.
@@ -406,8 +421,29 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void      append_minipage_snapshot(KeySlice low_fence, SnapshotPagePointer pointer);
   /** Whether this page is full of poiters, used only by snapshot composer (or when no race) */
   bool      is_full_snapshot() const;
-  /** Retrieves separators defining the index, used only by snapshot composer (or when no race) */
+  /** Retrieves separators defining the index, used only by snapshot composer, thus no race */
   void      extract_separators_snapshot(
+    uint8_t index,
+    uint8_t index_mini,
+    KeySlice* separator_low,
+    KeySlice* separator_high) const {
+    ASSERT_ND(header_.snapshot_);
+    extract_separators_common(index, index_mini, separator_low, separator_high);
+  }
+  /**
+   * Retrieves separators defining the index, used for volatile page, which requires
+   * appropriate locks or retries by the caller. The caller must be careful!
+   */
+  void      extract_separators_volatile(
+    uint8_t index,
+    uint8_t index_mini,
+    KeySlice* separator_low,
+    KeySlice* separator_high) const {
+    ASSERT_ND(!header_.snapshot_);
+    extract_separators_common(index, index_mini, separator_low, separator_high);
+  }
+  /** Retrieves separators defining the index, used only by snapshot composer (or when no race) */
+  void      extract_separators_common(
     uint8_t index,
     uint8_t index_mini,
     KeySlice* separator_low,
@@ -1592,13 +1628,12 @@ inline void MasstreeIntermediatePage::append_minipage_snapshot(
   set_key_count(key_count + 1);
 }
 
-inline void MasstreeIntermediatePage::extract_separators_snapshot(
+inline void MasstreeIntermediatePage::extract_separators_common(
   uint8_t index,
   uint8_t index_mini,
   KeySlice* separator_low,
   KeySlice* separator_high) const {
   ASSERT_ND(!is_border());
-  ASSERT_ND(header_.snapshot_);
   uint8_t key_count = get_key_count();
   ASSERT_ND(index <= key_count);
   const MasstreeIntermediatePage::MiniPage& minipage = get_minipage(index);

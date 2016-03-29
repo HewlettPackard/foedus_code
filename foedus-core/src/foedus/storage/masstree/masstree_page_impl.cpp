@@ -1184,80 +1184,18 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
       return kErrorCodeOk;
     }
 
-
-    // TASK(Hideaki) let's make this a function.
     KeySlice separator_low;
     KeySlice separator_high;
-    if (pointer_index == 0) {
-      if (minipage_index == 0) {
-        separator_low = low_fence_;
-      } else {
-        separator_low = separators_[minipage_index - 1U];
-      }
-    } else {
-      separator_low = minipage.separators_[pointer_index - 1U];
-    }
-    if (pointer_index == minipage.key_count_) {
-      if (minipage_index == key_count) {
-        separator_high = high_fence_;
-      } else {
-        separator_high = separators_[minipage_index];
-      }
-    } else {
-      separator_high = minipage.separators_[pointer_index];
-    }
+    extract_separators_volatile(minipage_index, pointer_index, &separator_low, &separator_high);
     if (searching_slice < separator_low || searching_slice > separator_high) {
       VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
       return kErrorCodeOk;
     }
   }
 
-  // When we are splitting a page just to compact/expand records,
-  // it's possible that one of the foster children have empty range (low-fence==high-fence)
-  // In such a case, adoption is trivial; just replace the current pointer with non-empty one.
-  if (UNLIKELY(child->get_low_fence() == child->get_foster_fence())
-    || UNLIKELY(child->get_high_fence() == child->get_foster_fence())) {
-    VLOG(0) << "Adopting from a child page that contains an empty-range page. This happens when"
-      << " record compaction/expansion created a page without a record.";
-
-    PageVersionLockScope scope_child(context, child->get_version_address());
-    if (child->get_version().is_retired()) {
-      VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
-      return kErrorCodeOk;  // retry
-    }
-
-    VolatilePagePointer nonempty_grandchild_pointer;
-    MasstreePage* empty_grandchild;
-    if (child->get_low_fence() == child->get_foster_fence()) {
-      nonempty_grandchild_pointer = child->get_foster_major();
-      empty_grandchild
-        = context->resolve_cast<MasstreePage>(child->get_foster_minor());
-    } else {
-      nonempty_grandchild_pointer = child->get_foster_minor();
-      empty_grandchild
-        = context->resolve_cast<MasstreePage>(child->get_foster_major());
-    }
-    ASSERT_ND(empty_grandchild->get_low_fence() == empty_grandchild->get_high_fence());
-
-    minipage.pointers_[pointer_index].volatile_pointer_ = nonempty_grandchild_pointer;
-    assorted::memory_fence_release();
-
-    scope_child.set_changed();
-    child->set_retired();
-
-    // The only thread that might be retiring this empty page must be in this function,
-    // holding a page-lock in scope_child. Thus we don't need a lock in empty_grandchild.
-    ASSERT_ND(!empty_grandchild->is_locked());  // none else holding lock on it
-    // and we can safely retire the page. We do not use set_retired because is_moved() is false
-    // It's a special retirement path.
-    empty_grandchild->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
-    context->collect_retired_volatile_page(
-      construct_volatile_page_pointer(empty_grandchild->header().page_id_));
-
-    context->collect_retired_volatile_page(
-      construct_volatile_page_pointer(child->header().page_id_));
-
-    verify_separators();
+  if (child->get_low_fence() == child->get_foster_fence()
+    || child->get_high_fence() == child->get_foster_fence()) {
+    adopt_from_child_compaction(context, minipage_index, pointer_index, child);
     return kErrorCodeOk;
   }
 
@@ -1375,6 +1313,60 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   return kErrorCodeOk;
 }
 
+void MasstreeIntermediatePage::adopt_from_child_compaction(
+  thread::Thread* context,
+  uint8_t minipage_index,
+  uint8_t pointer_index,
+  MasstreePage* child) {
+  ASSERT_ND(is_locked());
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(child->is_moved());
+  ASSERT_ND(child->get_low_fence() == child->get_foster_fence()
+    || child->get_high_fence() == child->get_foster_fence());
+  VLOG(0) << "Adopting from a child page that contains an empty-range page. This happens when"
+    << " record compaction/expansion created a page without a record.";
+
+  PageVersionLockScope scope_child(context, child->get_version_address());
+  if (child->get_version().is_retired()) {
+    VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
+    return;  // the caller will retry anyway, so we are done.
+  }
+
+  VolatilePagePointer nonempty_grandchild_pointer;
+  MasstreePage* empty_grandchild;
+  if (child->get_low_fence() == child->get_foster_fence()) {
+    nonempty_grandchild_pointer = child->get_foster_major();
+    empty_grandchild = context->resolve_cast<MasstreePage>(child->get_foster_minor());
+  } else {
+    nonempty_grandchild_pointer = child->get_foster_minor();
+    empty_grandchild = context->resolve_cast<MasstreePage>(child->get_foster_major());
+  }
+  ASSERT_ND(empty_grandchild->get_low_fence() == empty_grandchild->get_high_fence());
+
+  MiniPage& minipage = get_minipage(minipage_index);
+  ASSERT_ND(child
+    == context->resolve_cast<MasstreePage>(minipage.pointers_[pointer_index].volatile_pointer_));
+  minipage.pointers_[pointer_index].volatile_pointer_ = nonempty_grandchild_pointer;
+  assorted::memory_fence_seq_cst();
+
+  scope_child.set_changed();
+  ASSERT_ND(!child->is_retired());
+  child->set_retired();
+
+  // The only thread that might be retiring this empty page must be in this function,
+  // holding a page-lock in scope_child. Thus we don't need a lock in empty_grandchild.
+  ASSERT_ND(!empty_grandchild->is_locked());  // none else holding lock on it
+  // and we can safely retire the page. We do not use set_retired because is_moved() is false
+  // It's a special retirement path.
+  empty_grandchild->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(empty_grandchild->header().page_id_));
+
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(child->header().page_id_));
+
+  verify_separators();
+}
 
 void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   thread::Thread* context,
