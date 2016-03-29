@@ -377,18 +377,28 @@ class MasstreeIntermediatePage final : public MasstreePage {
 
   /**
    * @brief Adopts a foster-child of given child as an entry in this page.
-   * @pre this and child pages are volatile pages (snapshot pages don't have foster child,
+   * @pre this page is a volatile page (snapshot pages don't have foster child,
    * so this is always trivially guaranteed).
    * @details
+   * Terminology here:
+   * \li "this" : An intermediate page trying to adopt a new pointer.
+   * \li "child" : A genuine child of "this" that is responsible for searching_slice
+   * and is moved (=has foster twins)
+   * \li "grandchildren" : Foster twins of "child". Minor and major grandchildren.
+   *
+   * Before the adoption, this contains a pointer to child.
+   * After successful adoption, it will contain pointers to grandchild-minor and grandchild-major.
+   * A pointer to grandchild-minor will replace that of child, and the pointer to grandchild-major
+   * is newly inserted to this.
+   * The pointer to child will be removed and the child will be marked as "retired" (will be valid
+   * for a while for concurrent transactions that observed the pointer).
+   *
    * This method doesn't assume this and other pages are locked.
    * So, when we lock child, we might find out that the foster child is already adopted.
    * In that case, and in other cases where adoption is impossible, we do nothing.
-   * This method can also cause split.
+   * This method can also cause split in this.
    */
-  ErrorCode adopt_from_child(
-    thread::Thread* context,
-    KeySlice searching_slice,
-    MasstreePage* child);
+  ErrorCode adopt_from_child(thread::Thread* context, KeySlice searching_slice);
 
   /**
    * @brief Subroutine of adopt_from_child() called when child has foster twin, one of which has

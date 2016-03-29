@@ -1164,35 +1164,61 @@ ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
 
 ErrorCode MasstreeIntermediatePage::adopt_from_child(
   thread::Thread* context,
-  KeySlice searching_slice,
-  MasstreePage* child) {
-  ASSERT_ND(!is_retired());
-  PageVersionLockScope scope(context, get_version_address());
+  KeySlice searching_slice) {
+  ASSERT_ND(!header().snapshot_);
+  ASSERT_ND(within_fences(searching_slice));
+
+  // The caller of this method reads and follows pointers without latch or fences
+  // because reads/traversals must be lock-free and as efficient as possible.
+  // This method must make sure we are replacing the right pointer with adopted pointer(s).
+
+  // What are not guaranteed:
+  //  a1. this is still a non-moved, non-retired page.
+  //  a2. child is still a child of this: it might be now replaced with its foster children.
+  //  a3. child is still at the same place in this as we observed before.
+  //  a4. child is a moved page, which needs adoption.
+  // We need to make sure each of them AFTER locking (of course, adopt is not lock-free).
+  // So many pitfalls, oh the joy of lock-free programming.
+  // We note that this is still much simpler than the original Masstree, thanks to foster-twin!
+
+  PageVersionLockScope scope(context, get_version_address());  // involves atomic op, thus membar
+  // After the above lock, "this" page is fixed, but not its descendants yet.
+  // rule out a1
   if (is_moved()) {
     VLOG(0) << "Interesting. concurrent thread has already split this node? retry";
     return kErrorCodeOk;
   }
 
-  uint8_t key_count = get_key_count();
-  auto minipage_index = find_minipage(searching_slice);
+  // rule out a2-4. we do NOT receive child and rather re-search it for this.
+  const auto key_count = get_key_count();
+  const auto minipage_index = find_minipage(searching_slice);
   MiniPage& minipage = get_minipage(minipage_index);
-  auto pointer_index = minipage.find_pointer(searching_slice);
+  const auto pointer_index = minipage.find_pointer(searching_slice);
   ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
-  {
-    if (minipage_index > key_count || pointer_index > minipage.key_count_) {
-      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
-      return kErrorCodeOk;
-    }
-
-    KeySlice separator_low;
-    KeySlice separator_high;
-    extract_separators_volatile(minipage_index, pointer_index, &separator_low, &separator_high);
-    if (searching_slice < separator_low || searching_slice > separator_high) {
-      VLOG(0) << "Interesting. there seems some change in this interior page. retry adoption";
-      return kErrorCodeOk;
-    }
+  if (minipage_index > key_count || pointer_index > minipage.key_count_) {
+    VLOG(0) << "Interesting 1. there seems some change in this interior page. retry adoption";
+    return kErrorCodeOk;
   }
 
+  const auto child_volatile_pointer = minipage.pointers_[pointer_index].volatile_pointer_;
+  if (child_volatile_pointer.is_null()) {
+    VLOG(0) << "Interesting 2. there seems some change in this interior page. retry adoption";
+    return kErrorCodeOk;
+  }
+
+  MasstreePage* child = context->resolve_cast<MasstreePage>(child_volatile_pointer);
+  ASSERT_ND(!child->header().snapshot_);
+  if (!child->within_fences(searching_slice)) {
+    VLOG(0) << "Interesting 3. there seems some change in this interior page. retry adoption";
+    return kErrorCodeOk;
+  }
+
+  if (!child->is_moved()) {
+    VLOG(0) << "Interesting 4. there seems some change in this interior page. retry adoption";
+    return kErrorCodeOk;
+  }
+
+  // If we are adopting a compact/expand case, it's a bit easier. handle it in separate func
   if (child->get_low_fence() == child->get_foster_fence()
     || child->get_high_fence() == child->get_foster_fence()) {
     adopt_from_child_compaction(context, minipage_index, pointer_index, child);
@@ -1220,6 +1246,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     if (key_count == minipage_index && minipage.key_count_ == pointer_index) {
       // this strongly suggests that it's a sorted insert. let's do that.
       adopt_from_child_norecord_first_level(context, minipage_index, child);
+      return kErrorCodeOk;  // retry to re-calculate indexes
     } else {
       // in this case, we locally rebalance.
       CHECK_ERROR_CODE(local_rebalance(context));
@@ -1297,7 +1324,7 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
 
     // we increase key count after above, with fence, so that concurrent transactions
     // never see an empty slot.
-    assorted::memory_fence_release();
+    assorted::memory_fence_seq_cst();
     ++minipage.key_count_;
     ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
     ASSERT_ND(minipage.key_count_ == mini_key_count + 1);

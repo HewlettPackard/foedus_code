@@ -391,10 +391,7 @@ retry_from_layer_root:
         retried_count = 0;
         if (next->has_foster_child() && !cur->is_moved()) {
           // oh, the page has foster child, so we should adopt it.
-          CHECK_ERROR_CODE(page->adopt_from_child(
-            context,
-            slice,
-            next));
+          CHECK_ERROR_CODE(page->adopt_from_child(context, slice));
           continue;  // we could keep going with a few cautions, but retrying is simpler.
         }
         cur = next;
