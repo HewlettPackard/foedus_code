@@ -82,13 +82,32 @@ class MasstreeCursor CXX11_FINAL {
    */
   struct Route {
     enum MovedPageSearchStatus {
-      kNotMovedPage = 0,
+      /**
+       * This means \e either was_stably_moved() is false or it's intermediate page, in which
+       * case we don't neeed to follow foster twins. If it's a border page whose
+       * was_stably_moved() returns true, the status might be one of the followings.
+       */
+      kNone = 0,
       kMovedPageSearchedNeither = 1,
       kMovedPageSearchedOne = 2,
       kMovedPageSearchedBoth = 3,
     };
     MasstreePage* page_;
-    /** version as of getting calculating order_. */
+    /**
+     * version as of calculating order_.
+     * We also guarantee that we retrieved key_count_ and key_count_mini_ \e as-of OR \e after
+     * this version.
+     *
+     * Q: Why it could be "after"?
+     * A: When we find that an intermediate page now has more separators,
+     * we need to re-search (rebase) in the page. In that case, the only thing we care
+     * is key_count_ and key_count_mini_. Version number of intermediate pages has no effect
+     * .. except is_moved(). But, even in that case, intermediate page has an invariant that
+     * we can just search in the old page. Thus, in either case, we don't update stable_
+     * but only re-retrieve key_count_ and key_count_mini_.
+     *
+     * @invariant Once constructed this Route object, stable_ is immutable. We won't update it.
+     */
     PageVersionStatus stable_;
     /** index in ordered keys. in interior, same. */
     SlotIndex index_;
@@ -134,6 +153,12 @@ class MasstreeCursor CXX11_FINAL {
     bool    is_valid_record() const ALWAYS_INLINE {
       return index_ < key_count_;
     }
+    /**
+     * In almost all places of the cursor code, we check is_moved() only on the stable version
+     * so that the cursor can consistently decide whether to follow foster-twins or not.
+     * So, we shouldn't have any "is_moved" in the file other than this.
+     */
+    bool    was_stably_moved() const { return stable_.is_moved(); }
     void setup_order();
   };
   enum SearchType {
@@ -379,7 +404,7 @@ class MasstreeCursor CXX11_FINAL {
 
   /**
    * This method is the only place we \e increment route_count_ to push an entry to routes_.
-   * It takes a stable version of the page and
+   * It takes a stable version of the page and pushes it the routes_.
    */
   ErrorCode push_route(MasstreePage* page);
   /**
@@ -425,7 +450,7 @@ class MasstreeCursor CXX11_FINAL {
     return end_key_length_ == kKeyLengthExtremum;
   }
 
-  ErrorCode follow_foster(KeySlice slice);
+  ErrorCode follow_foster_border(KeySlice slice);
   void extract_separators(KeySlice* separator_low, KeySlice* separator_high) const ALWAYS_INLINE;
 
   // locate_xxx is for initial search

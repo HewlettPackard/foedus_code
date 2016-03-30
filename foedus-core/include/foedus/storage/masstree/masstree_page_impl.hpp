@@ -78,10 +78,22 @@ class MasstreePage {
       header_.get_page_type() == kMasstreeIntermediatePageType);
     return header_.get_page_type() == kMasstreeBorderPageType;
   }
+  /**
+   * An empty-range page, either intermediate or border, never has any entries.
+   * Such a page exists for short duration after a special page-split for
+   * record compaction/expansion and page restructuring.
+   * Such a page always appears as one of foster-twins: it will be never adopted to be a real child.
+   * Also guaranteed to not have any foster twins under it.
+   * Wan safely skip such a page while following foster twins.
+   */
+  bool                is_empty_range() const ALWAYS_INLINE { return low_fence_ == high_fence_; }
   KeySlice            get_low_fence() const ALWAYS_INLINE { return low_fence_; }
   KeySlice            get_high_fence() const ALWAYS_INLINE { return high_fence_; }
   bool                is_high_fence_supremum() const ALWAYS_INLINE {
     return high_fence_ == kSupremumSlice;
+  }
+  bool                is_high_fence_infimum() const ALWAYS_INLINE {
+    return low_fence_ == kInfimumSlice;
   }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
   VolatilePagePointer get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
@@ -365,10 +377,14 @@ class MasstreeIntermediatePage final : public MasstreePage {
    * the given child to one of them.
    * @param[in] context Thread context
    * @param[in,out] trigger_child the child page that has a foster child which caused this split.
+   * @param[in,out] trigger_child_lock trigger_child must be already locked with this scope.
    * @pre !header_.snapshot_ (split happens to only volatile pages)
    * @pre is_locked() (the page must be locked)
    */
-  ErrorCode split_foster_and_adopt(thread::Thread* context, MasstreePage* trigger_child);
+  ErrorCode split_foster_and_adopt(
+    thread::Thread* context,
+    MasstreePage* trigger_child,
+    PageVersionLockScope* trigger_child_lock);
   /**
    * same as split_foster_and_adopt() except this does not adopt the new page, and
    * ignores the possibility of no-record-split.
@@ -498,7 +514,8 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void adopt_from_child_norecord_first_level(
     thread::Thread* context,
     uint8_t minipage_index,
-    MasstreePage* child);
+    MasstreePage* child,
+    PageVersionLockScope* child_lock);
 };
 
 /**

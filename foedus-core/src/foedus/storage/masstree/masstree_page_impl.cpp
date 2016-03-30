@@ -786,7 +786,8 @@ void MasstreeBorderPage::split_foster_migrate_records(
 /////////////////////////////////////////////////////////////////////////////////////
 ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   thread::Thread* context,
-  MasstreePage* trigger_child) {
+  MasstreePage* trigger_child,
+  PageVersionLockScope* trigger_child_lock) {
   // similar to border page's split, but simpler in a few places because
   // 1) intermediate page doesn't have owner_id for each pointer (no lock concerns).
   // 2) intermediate page is already completely sorted.
@@ -798,14 +799,12 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   ASSERT_ND(foster_twin_[0].is_null() && foster_twin_[1].is_null());  // same as !is_moved()
   debugging::RdtscWatch watch;
 
-  PageVersionLockScope trigger_scope(context, trigger_child->get_version_address());
   if (trigger_child->is_retired()) {
     VLOG(0) << "Interesting. this child is now retired, so someone else has already adopted.";
     return kErrorCodeOk;  // fine. the goal is already achieved
   }
 
   uint8_t key_count = get_key_count();
-  ASSERT_ND(key_count == kMaxIntermediateSeparators);
   DVLOG(1) << "Splitting an intermediate page... ";
   verify_separators();
 
@@ -897,7 +896,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
 
   if (no_record_split) {
     // trigger_child is retired.
-    trigger_scope.set_changed();
+    trigger_child_lock->set_changed();
     trigger_child->set_retired();
     context->collect_retired_volatile_page(
       construct_volatile_page_pointer(trigger_child->header().page_id_));
@@ -1218,126 +1217,102 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
     return kErrorCodeOk;
   }
 
+  // now lock the child.
+  PageVersionLockScope scope_child(context, child->get_version_address());
+  if (child->get_version().is_retired()) {
+    VLOG(0) << "Interesting 5. concurrent inserts already adopted. retry";
+    return kErrorCodeOk;  // retry
+  }
+  // this is guaranteed because these flag are immutable once set.
+  ASSERT_ND(child->is_moved());
+  ASSERT_ND(child->has_foster_child());
+  ASSERT_ND(!child->get_foster_minor().is_null());
+  ASSERT_ND(!child->get_foster_major().is_null());
+
+  // Okay, checked all of them.
+  // Child is still a genuine child of this that needs adoption.
+  // We adopt child's foster_major as a new pointer,
+  // also adopt child's foster_minor as a replacement of child, making child retired.
+  MasstreePage* grandchild_minor = context->resolve_cast<MasstreePage>(child->get_foster_minor());
+  ASSERT_ND(grandchild_minor->get_low_fence() == child->get_low_fence());
+  ASSERT_ND(grandchild_minor->get_high_fence() == child->get_foster_fence());
+  MasstreePage* grandchild_major = context->resolve_cast<MasstreePage>(child->get_foster_major());
+  ASSERT_ND(grandchild_major->get_low_fence() == child->get_foster_fence());
+  ASSERT_ND(grandchild_major->get_high_fence() == child->get_high_fence());
+  ASSERT_ND(!grandchild_minor->header().snapshot_);
+  ASSERT_ND(!grandchild_major->header().snapshot_);
+
+  const KeySlice new_separator = child->get_foster_fence();
+  const VolatilePagePointer minor_pointer = child->get_foster_minor();
+  const VolatilePagePointer major_pointer = child->get_foster_major();
+
+  // Now, how do we accommodate the new pointer?
   // If we are adopting a compact/expand case, it's a bit easier. handle it in separate func
-  if (child->get_low_fence() == child->get_foster_fence()
-    || child->get_high_fence() == child->get_foster_fence()) {
+  if (child->get_low_fence() == new_separator || child->get_high_fence() == new_separator) {
     adopt_from_child_compaction(context, minipage_index, pointer_index, child);
     return kErrorCodeOk;
   }
 
-  if (minipage.key_count_ == kMaxIntermediateMiniSeparators) {
-    // oh, then we also have to do rebalance
-    // at this point we have to lock the whole page
-    scope.set_changed();
-    ASSERT_ND(key_count <= kMaxIntermediateSeparators);
-    if (key_count == kMaxIntermediateSeparators) {
-      // even that is impossible. let's split the whole page
-      CHECK_ERROR_CODE(split_foster_and_adopt(context, child));
-      return kErrorCodeOk;  // retry to re-calculate indexes. it's simpler
-    }
+  // Can we simply append the new pointer either as a new minipage at the end of this page
+  // or as a new separator at the end of a minipage? Then we don't need major change.
+  // We simply append without any change, which is easy to make right.
+  if (minipage.key_count_ == pointer_index) {
+    if (minipage.key_count_ < kMaxIntermediateMiniSeparators) {
+      // We can append a new separator at the end of the minipage.
+      ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
+      ASSERT_ND(pointer_index == 0 || minipage.separators_[pointer_index - 1] < new_separator);
+      minipage.separators_[pointer_index] = new_separator;
+      minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
+      minipage.pointers_[pointer_index + 1].volatile_pointer_ = major_pointer;
 
-    ASSERT_ND(key_count < kMaxIntermediateSeparators);
-    // okay, it's possible to create a new first-level entry.
-    // there are a few ways to do this.
-    // 1) rebalance the whole page. in many cases this achieves the best layout for upcoming
-    // inserts. so basically we do this.
-    // 2) append to the end. this is very efficient if the inserts are sorted.
-    // quite similar to the "no-record split" optimization in border page.
-    if (key_count == minipage_index && minipage.key_count_ == pointer_index) {
-      // this strongly suggests that it's a sorted insert. let's do that.
-      adopt_from_child_norecord_first_level(context, minipage_index, child);
-      return kErrorCodeOk;  // retry to re-calculate indexes
+      // we don't have to adopt the foster-minor because that's the child page itself,
+      // but we have to switch the pointer
+      minipage.pointers_[pointer_index].snapshot_pointer_ = 0;
+      minipage.pointers_[pointer_index].volatile_pointer_ = minor_pointer;
+
+      // we increase key count after above, with fence, so that concurrent transactions
+      // never see an empty slot.
+      assorted::memory_fence_seq_cst();
+      ++minipage.key_count_;
+      ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
+
+      // the ex-child page now retires.
+      scope_child.set_changed();
+      child->set_retired();
+      context->collect_retired_volatile_page(
+        construct_volatile_page_pointer(child->header().page_id_));
+      verify_separators();
+      return kErrorCodeOk;
     } else {
-      // in this case, we locally rebalance.
-      CHECK_ERROR_CODE(local_rebalance(context));
+      // The minipage is full.. is the minipage the last one?
+      if (key_count == minipage_index && key_count < kMaxIntermediateSeparators) {
+        // We can add it as a new minipage
+        adopt_from_child_norecord_first_level(context, minipage_index, child, &scope_child);
+        return kErrorCodeOk;
+      }
     }
-    return kErrorCodeOk;  // retry to re-calculate indexes
   }
 
-  // okay, then most likely this is minipage-local. good
-  uint8_t mini_key_count = minipage.key_count_;
-  if (mini_key_count == kMaxIntermediateMiniSeparators) {
-    VLOG(0) << "Interesting. concurrent inserts prevented adoption. retry";
-    return kErrorCodeOk;  // retry
+  // In all other cases, we split this page.
+  // We initially had more complex code to do in-page rebalance and
+  // in-minipage "shifting", but got some bugs. Pulled out too many hairs.
+  // Let's keep it simple. If we really observe bottleneck here, we can reconsider.
+  // Splitting is way more robust because it changes nothing in this existing page.
+  // It just places new foster-twin pointers.
+    CHECK_ERROR_CODE(split_foster_and_adopt(context, child, &scope_child));
+    /*
+  if (key_count == kMaxIntermediateSeparators
+    && minipage.key_count_ == kMaxIntermediateMiniSeparators) {
+    CHECK_ERROR_CODE(split_foster_and_adopt(context, child, &scope_child));
+  } else {
+    // However, if the page is not truly full, we try to avoid making too many
+    // intermediate pages. We do empty-split where one of the new foster twins would
+    // have an empty range just like record-expantion/compaction split in border pages./
+    // TODO
   }
+  */
 
-  // now lock the child.
-  {
-    PageVersionLockScope scope_child(context, child->get_version_address());
-    if (child->get_version().is_retired()) {
-      VLOG(0) << "Interesting. concurrent inserts already adopted. retry";
-      return kErrorCodeOk;  // retry
-    }
-    // this is guaranteed because these flag are immutable once set.
-    ASSERT_ND(child->is_moved());
-    ASSERT_ND(child->has_foster_child());
-    ASSERT_ND(!child->get_foster_minor().is_null());
-    ASSERT_ND(!child->get_foster_major().is_null());
-    // we adopt child's foster_major as a new pointer,
-    // also adopt child's foster_minor as a replacement of child, making child retired.
-    MasstreePage* grandchild_minor = context->resolve_cast<MasstreePage>(child->get_foster_minor());
-    ASSERT_ND(grandchild_minor->get_low_fence() == child->get_low_fence());
-    ASSERT_ND(grandchild_minor->get_high_fence() == child->get_foster_fence());
-    MasstreePage* grandchild_major = context->resolve_cast<MasstreePage>(child->get_foster_major());
-    ASSERT_ND(grandchild_major->get_low_fence() == child->get_foster_fence());
-    ASSERT_ND(grandchild_major->get_high_fence() == child->get_high_fence());
-    ASSERT_ND(!grandchild_minor->header().snapshot_);
-    ASSERT_ND(!grandchild_major->header().snapshot_);
-
-    KeySlice new_separator = child->get_foster_fence();
-    VolatilePagePointer minor_pointer;
-    minor_pointer.word = grandchild_minor->header().page_id_;
-    VolatilePagePointer major_pointer;
-    major_pointer.word = grandchild_major->header().page_id_;
-
-    // now we are sure we can adopt the child's foster twin.
-    ASSERT_ND(pointer_index <= mini_key_count);
-    ASSERT_ND(pointer_index == minipage.find_pointer(searching_slice));
-    if (pointer_index == mini_key_count) {
-      // this means we are appending at the end. no need for split flag.
-      DVLOG(1) << "Adopt without split. lucky. sequential inserts?";
-    } else {
-      // we have to shift elements.
-      DVLOG(1) << "Adopt with splits.";
-      std::memmove(
-        minipage.separators_ + pointer_index + 1,
-        minipage.separators_ + pointer_index,
-        sizeof(KeySlice) * (mini_key_count - pointer_index));
-      std::memmove(
-        minipage.pointers_ + pointer_index + 2,
-        minipage.pointers_ + pointer_index + 1,
-        sizeof(DualPagePointer) * (mini_key_count - pointer_index));
-    }
-
-    ASSERT_ND(!minipage.pointers_[pointer_index].is_both_null());
-    ASSERT_ND(pointer_index == 0 || minipage.separators_[pointer_index - 1] < new_separator);
-    minipage.separators_[pointer_index] = new_separator;
-    minipage.pointers_[pointer_index + 1].snapshot_pointer_ = 0;
-    minipage.pointers_[pointer_index + 1].volatile_pointer_ = major_pointer;
-
-    // we don't have to adopt the foster-minor because that's the child page itself,
-    // but we have to switch the pointer
-    minor_pointer.components.mod_count
-      = minipage.pointers_[pointer_index].volatile_pointer_.components.mod_count + 1;
-    minipage.pointers_[pointer_index].snapshot_pointer_ = 0;
-    minipage.pointers_[pointer_index].volatile_pointer_ = minor_pointer;
-
-    // we increase key count after above, with fence, so that concurrent transactions
-    // never see an empty slot.
-    assorted::memory_fence_seq_cst();
-    ++minipage.key_count_;
-    ASSERT_ND(minipage.key_count_ <= kMaxIntermediateMiniSeparators);
-    ASSERT_ND(minipage.key_count_ == mini_key_count + 1);
-
-    // the ex-child page now retires.
-    scope_child.set_changed();
-    child->set_retired();
-    context->collect_retired_volatile_page(
-      construct_volatile_page_pointer(child->header().page_id_));
-    verify_separators();
-  }
-
-  return kErrorCodeOk;
+  return kErrorCodeOk;  // retry to re-calculate indexes. it's simpler
 }
 
 void MasstreeIntermediatePage::adopt_from_child_compaction(
@@ -1398,11 +1373,11 @@ void MasstreeIntermediatePage::adopt_from_child_compaction(
 void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   thread::Thread* context,
   uint8_t minipage_index,
-  MasstreePage* child) {
+  MasstreePage* child,
+  PageVersionLockScope* child_lock) {
   ASSERT_ND(is_locked());
   // note that we have to lock from parent to child. otherwise deadlock possible.
   MiniPage& minipage = get_minipage(minipage_index);
-  PageVersionLockScope scope_child(context, child->get_version_address());
   if (child->get_version().is_retired()) {
     VLOG(0) << "Interesting. concurrent thread has already adopted? retry";
     return;
@@ -1411,7 +1386,7 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   ASSERT_ND(child->has_foster_child());
 
   DVLOG(0) << "Great, sorted insert. No-split adopt";
-  scope_child.set_changed();
+  child_lock->set_changed();
   MasstreePage* grandchild_minor
     = reinterpret_cast<MasstreePage*>(context->resolve(child->get_foster_minor()));
   ASSERT_ND(grandchild_minor->get_low_fence() == child->get_low_fence());
