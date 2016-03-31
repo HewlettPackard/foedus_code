@@ -226,30 +226,36 @@ void MasstreeIntermediatePage::release_pages_recursive_parallel(Engine* engine) 
 void MasstreeIntermediatePage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
-  if (header_.page_version_.is_moved()) {
-    for (int i = 0; i < 2; ++i) {
-      ASSERT_ND(!foster_twin_[i].is_null());
-      MasstreeIntermediatePage* p =
-        reinterpret_cast<MasstreeIntermediatePage*>(page_resolver.resolve_offset(foster_twin_[i]));
-      p->release_pages_recursive(page_resolver, batch);
-      foster_twin_[i].word = 0;
-    }
-  } else {
-    uint16_t key_count = get_key_count();
-    ASSERT_ND(key_count <= kMaxIntermediateSeparators);
-    for (uint8_t i = 0; i < key_count + 1; ++i) {
-      MiniPage& minipage = get_minipage(i);
-      uint16_t mini_count = minipage.key_count_;
-      ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
-      for (uint8_t j = 0; j < mini_count + 1; ++j) {
-        VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
-        if (pointer.components.offset != 0) {
-          MasstreePage* child = reinterpret_cast<MasstreePage*>(
-            page_resolver.resolve_offset(pointer));
-          child->release_pages_recursive_common(page_resolver, batch);
+  if (!is_empty_range()) {
+    if (header_.page_version_.is_moved()) {
+      for (int i = 0; i < 2; ++i) {
+        ASSERT_ND(!foster_twin_[i].is_null());
+        MasstreeIntermediatePage* p =
+          reinterpret_cast<MasstreeIntermediatePage*>(
+            page_resolver.resolve_offset(foster_twin_[i]));
+        p->release_pages_recursive(page_resolver, batch);
+        foster_twin_[i].word = 0;
+      }
+    } else {
+      uint16_t key_count = get_key_count();
+      ASSERT_ND(key_count <= kMaxIntermediateSeparators);
+      for (uint8_t i = 0; i < key_count + 1; ++i) {
+        MiniPage& minipage = get_minipage(i);
+        uint16_t mini_count = minipage.key_count_;
+        ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
+        for (uint8_t j = 0; j < mini_count + 1; ++j) {
+          VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
+          if (pointer.components.offset != 0) {
+            MasstreePage* child = reinterpret_cast<MasstreePage*>(
+              page_resolver.resolve_offset(pointer));
+            child->release_pages_recursive_common(page_resolver, batch);
+          }
         }
       }
     }
+  } else {
+    ASSERT_ND(!is_moved());
+    ASSERT_ND(get_key_count() == 0);
   }
 
   VolatilePagePointer volatile_id;

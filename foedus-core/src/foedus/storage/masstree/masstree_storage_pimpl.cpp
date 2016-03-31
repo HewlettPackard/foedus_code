@@ -224,14 +224,27 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   MasstreePage* root = reinterpret_cast<MasstreePage*>(
     resolver.resolve_offset(root_pointer->volatile_pointer_));
   if (root->get_layer() == 0) {
-    LOG(INFO) << "growing B-tree in first layer! " << get_name();
+    if (root->get_foster_fence() == kSupremumSlice) {
+      // This happens often. Let's not write out too many logs
+      DVLOG(0) << "B-tree first-root had compaction/restructure. " << get_name();
+    } else {
+      LOG(INFO) << "growing B-tree in first layer! " << get_name();
+    }
   } else {
-    DVLOG(0) << "growing B-tree in non-first layer " << get_name();
+    if (root->get_foster_fence() == kSupremumSlice) {
+      DVLOG(1) << "B-tree non-first-root had compaction/restructure. " << get_name();
+    } else {
+      DVLOG(0) << "growing B-tree in non-first layer " << get_name();
+    }
   }
 
   PageVersionLockScope scope(context, root->get_version_address());
   if (root->is_retired() || !root->has_foster_child()) {
-    LOG(INFO) << "interesting. someone else has already grown B-tree";
+    if (root->get_foster_fence() == kSupremumSlice) {
+      DVLOG(0) << "interesting. someone else has already grown B-tree";
+    } else {
+      LOG(INFO) << "interesting. someone else has already grown B-tree";
+    }
     return kErrorCodeOk;  // retry. most likely we will see a new pointer
   }
 

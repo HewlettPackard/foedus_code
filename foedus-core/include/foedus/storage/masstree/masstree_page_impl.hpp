@@ -1195,7 +1195,13 @@ class MasstreeBorderPage final : public MasstreePage {
  */
 struct MasstreeIntermediatePointerIterator final {
   explicit MasstreeIntermediatePointerIterator(const MasstreeIntermediatePage* page)
-    : page_(page), index_(0), index_mini_(0) {}
+    : page_(page), index_(0), index_mini_(0) {
+      if (page->is_empty_range()) {
+        // Empty-range page has zero pointers, which is special.
+        ASSERT_ND(!page->header().snapshot_);
+        index_ = 1;  // so that initial is_valid returns false.
+      }
+    }
 
   void next() {
     if (!is_valid()) {

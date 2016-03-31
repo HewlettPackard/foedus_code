@@ -75,17 +75,9 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
   cur->prefetch_general();
   while (!cur->is_border()) {
     ASSERT_ND(cur->within_fences(slice));
-    if (UNLIKELY(cur->has_foster_child())) {
-      // follow one of foster-twin.
-      if (cur->within_foster_minor(slice)) {
-        cur = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(cur->get_foster_minor()));
-      } else {
-        cur = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(cur->get_foster_major()));
-      }
-      ASSERT_ND(cur->within_fences(slice));
-      continue;
-    }
-
+    // We do NOT follow foster-twins here.
+    // Foster-twins are sooner or later adopted, and Master-Tree invariant for intermediate page
+    // guarantees that we can just read the old page. no need to follow foster-twins.
     const MasstreeIntermediatePage* page = reinterpret_cast<const MasstreeIntermediatePage*>(cur);
     uint8_t minipage_index = page->find_minipage(slice);
     const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(minipage_index);

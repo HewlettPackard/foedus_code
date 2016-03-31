@@ -82,6 +82,13 @@ ErrorStack MasstreeStoragePimpl::debugout_single_thread_recurse(
     LOG(INFO) << "Reached write-out max. skip the following";
     return kRetOk;
   }
+  // Implementation note:
+  // So far we don't follow foster-twins in debugout_xxx, so this is irrelevant.
+  // However, if we change it later to follow foster-twins,
+  // do not forget about empty-range intermediate pages that only appear as foster twins.
+  // Empty-range border pages are fine. We just see zero records.
+  // Foster-twins are sooner or later adopted, and Master-Tree invariant for intermediate page
+  // guarantees that we can just read the old page. no need to follow foster-twins.
 
   LOG(INFO) << *parent;
   uint16_t key_count = parent->get_key_count();
