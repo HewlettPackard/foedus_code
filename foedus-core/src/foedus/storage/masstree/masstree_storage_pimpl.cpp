@@ -104,6 +104,9 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
     }
   }
 
+  ASSERT_ND(page->get_layer() == 0);
+  ASSERT_ND(page->get_low_fence() == kInfimumSlice);
+  ASSERT_ND(page->get_high_fence() == kSupremumSlice);
   *root = page;
   return kErrorCodeOk;
 }
@@ -203,7 +206,7 @@ void MasstreeStoragePimpl::grow_root_compaction(
   root->set_retired();
 
   // The only thread that might be retiring this empty page must be in this function,
-  // holding a page-lock in scope_child. Thus we don't need a lock in empty_grandchild.
+  // holding a page-lock in root_lock. Thus we don't need a lock in empty_grandchild.
   ASSERT_ND(!empty_child->is_locked());  // none else holding lock on it
   // and we can safely retire the page. We do not use set_retired because is_moved() is false
   // It's a special retirement path.
