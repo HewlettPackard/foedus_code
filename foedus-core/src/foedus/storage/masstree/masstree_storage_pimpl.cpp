@@ -223,10 +223,21 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
   MasstreePage* root = reinterpret_cast<MasstreePage*>(
     resolver.resolve_offset(root_pointer->volatile_pointer_));
+
+  PageVersionLockScope scope(context, root->get_version_address());
+  if (root->is_retired() || !root->has_foster_child()) {
+    if (root->get_foster_fence() == kSupremumSlice) {
+      DVLOG(1) << "interesting. someone else has already adopted compacted/restructured root";
+    } else {
+      VLOG(0) << "interesting. someone else has already grown B-tree";
+    }
+    return kErrorCodeOk;  // retry. most likely we will see a new pointer
+  }
+
   if (root->get_layer() == 0) {
     if (root->get_foster_fence() == kSupremumSlice) {
       // This happens often. Let's not write out too many logs
-      DVLOG(0) << "B-tree first-root had compaction/restructure. " << get_name();
+      DVLOG(1) << "B-tree first-root had compaction/restructure. " << get_name();
     } else {
       LOG(INFO) << "growing B-tree in first layer! " << get_name();
     }
@@ -236,16 +247,6 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     } else {
       DVLOG(0) << "growing B-tree in non-first layer " << get_name();
     }
-  }
-
-  PageVersionLockScope scope(context, root->get_version_address());
-  if (root->is_retired() || !root->has_foster_child()) {
-    if (root->get_foster_fence() == kSupremumSlice) {
-      DVLOG(0) << "interesting. someone else has already grown B-tree";
-    } else {
-      LOG(INFO) << "interesting. someone else has already grown B-tree";
-    }
-    return kErrorCodeOk;  // retry. most likely we will see a new pointer
   }
 
   ASSERT_ND(root->is_locked());
