@@ -802,6 +802,7 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   ASSERT_ND(!header_.snapshot_);
   ASSERT_ND(is_locked());
   ASSERT_ND(!is_moved());
+  ASSERT_ND(!is_empty_range());
   ASSERT_ND(foster_twin_[0].is_null() && foster_twin_[1].is_null());  // same as !is_moved()
   debugging::RdtscWatch watch;
 
@@ -1372,8 +1373,8 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   // this is guaranteed because these flag are immutable once set.
   ASSERT_ND(child->is_moved());
   ASSERT_ND(child->has_foster_child());
-  ASSERT_ND(!child->get_foster_minor().is_null());
-  ASSERT_ND(!child->get_foster_major().is_null());
+  ASSERT_ND(!child->is_foster_minor_null());
+  ASSERT_ND(!child->is_foster_major_null());
 
   // Okay, checked all of them.
   // Child is still a genuine child of this that needs adoption.
@@ -1526,6 +1527,8 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   }
   ASSERT_ND(child->is_moved());
   ASSERT_ND(child->has_foster_child());
+  ASSERT_ND(child->get_foster_fence() != child->get_low_fence());
+  ASSERT_ND(child->get_foster_fence() != child->get_high_fence());
 
   DVLOG(0) << "Great, sorted insert. No-split adopt";
   child_lock->set_changed();
@@ -1533,10 +1536,12 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
     = reinterpret_cast<MasstreePage*>(context->resolve(child->get_foster_minor()));
   ASSERT_ND(grandchild_minor->get_low_fence() == child->get_low_fence());
   ASSERT_ND(grandchild_minor->get_high_fence() == child->get_foster_fence());
+  ASSERT_ND(!grandchild_minor->is_empty_range());
   MasstreePage* grandchild_major
     = reinterpret_cast<MasstreePage*>(context->resolve(child->get_foster_major()));
   ASSERT_ND(grandchild_major->get_low_fence() == child->get_foster_fence());
   ASSERT_ND(grandchild_major->get_high_fence() == child->get_high_fence());
+  ASSERT_ND(!grandchild_major->is_empty_range());
 
   KeySlice new_separator = child->get_foster_fence();
   VolatilePagePointer minor_pointer = child->get_foster_minor();
@@ -1587,6 +1592,7 @@ MasstreePage* MasstreePage::track_foster_child(
   MasstreePage* cur_page = this;
   while (cur_page->is_moved()) {
     ASSERT_ND(cur_page->has_foster_child());
+    ASSERT_ND(!cur_page->is_empty_range());
     if (cur_page->within_foster_minor(slice)) {
       ASSERT_ND(!cur_page->within_foster_major(slice));
       cur_page = reinterpret_cast<MasstreePage*>(
@@ -1596,6 +1602,7 @@ MasstreePage* MasstreePage::track_foster_child(
       cur_page = reinterpret_cast<MasstreePage*>(
         resolver.resolve_offset(cur_page->get_foster_major()));
     }
+    ASSERT_ND(!cur_page->is_empty_range());
   }
   return cur_page;
 }
@@ -1627,8 +1634,8 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   // the slice and key length is enough to identify the record.
   ASSERT_ND(is_moved());
   ASSERT_ND(has_foster_child());
-  ASSERT_ND(!get_foster_minor().is_null());
-  ASSERT_ND(!get_foster_major().is_null());
+  ASSERT_ND(!is_foster_minor_null());
+  ASSERT_ND(!is_foster_major_null());
   const char* suffix = get_record(original_index);
   KeySlice slice = get_slice(original_index);
 

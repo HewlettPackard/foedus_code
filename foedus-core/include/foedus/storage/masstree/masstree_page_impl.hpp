@@ -96,8 +96,8 @@ class MasstreePage {
     return low_fence_ == kInfimumSlice;
   }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
-  bool                has_foster_minor() const ALWAYS_INLINE { return !foster_twin_[0].is_null(); }
-  bool                has_foster_major() const ALWAYS_INLINE { return !foster_twin_[1].is_null(); }
+  bool  is_foster_minor_null() const ALWAYS_INLINE { return foster_twin_[0].is_null(); }
+  bool  is_foster_major_null() const ALWAYS_INLINE { return foster_twin_[1].is_null(); }
   VolatilePagePointer get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
   VolatilePagePointer get_foster_major() const ALWAYS_INLINE { return foster_twin_[1]; }
 

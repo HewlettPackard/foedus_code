@@ -1845,7 +1845,7 @@ ErrorStack MasstreeComposeContext::close_level_grow_subtree(
   uint8_t cur_btree_level = 0;
   for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
     MasstreePage* page = get_page(cur);
-    ASSERT_ND(page->get_foster_minor().is_null());
+    ASSERT_ND(page->is_foster_minor_null());
     FenceAndPointer child;
     child.pointer_ = page_id_base_ + cur;
     child.low_fence_ = page->get_low_fence();
@@ -1906,13 +1906,13 @@ ErrorStack MasstreeComposeContext::pushup_non_root() {
   bool is_head = true;
   for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
     MasstreePage* page = get_page(cur);
-    ASSERT_ND(page->get_foster_minor().is_null());
+    ASSERT_ND(page->is_foster_minor_null());
     SnapshotPagePointer pointer = page_id_base_ + cur;
     KeySlice low_fence = page->get_low_fence();
     ASSERT_ND(cur != last->head_ || low_fence == last->low_fence_);  // first entry's low_fence
     ASSERT_ND(cur != last->tail_ || page->get_high_fence() == last->high_fence_);  // tail's high
-    ASSERT_ND(cur != last->tail_ || page->get_foster_major().is_null());  // iff tail, has no next
-    ASSERT_ND(cur == last->tail_ || !page->get_foster_major().is_null());
+    ASSERT_ND(cur != last->tail_ || page->is_foster_major_null());  // iff tail, has no next
+    ASSERT_ND(cur == last->tail_ || !page->is_foster_major_null());
     cur = page->get_foster_major().components.offset;
     page->set_foster_major_offset_unsafe(0);  // no longer needed
 

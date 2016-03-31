@@ -1043,8 +1043,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
     }
     ASSERT_ND(!border->has_foster_child());
     ASSERT_ND(!border->is_moved());
-    ASSERT_ND(border->get_foster_major().is_null());
-    ASSERT_ND(border->get_foster_minor().is_null());
+    ASSERT_ND(border->is_foster_major_null());
+    ASSERT_ND(border->is_foster_minor_null());
     ASSERT_ND(border->within_fences(key));
 
     // because we never go on to second layer in this case, it's either a full match or not-found
@@ -1096,8 +1096,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
     ASSERT_ND(out_page_lock->version_ == border->get_version_address());
     ASSERT_ND(border->is_locked());
     ASSERT_ND(!border->is_moved());
-    ASSERT_ND(border->get_foster_major().is_null());
-    ASSERT_ND(border->get_foster_minor().is_null());
+    ASSERT_ND(border->is_foster_major_null());
+    ASSERT_ND(border->is_foster_minor_null());
     SlotIndex count = border->get_key_count();
     bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
     if (early_split || !border->can_accomodate(count, remainder, payload_count)) {
@@ -1191,8 +1191,8 @@ ErrorCode MasstreeStoragePimpl::reserve_record_next_layer(
   MasstreePage** out_page) {
   ASSERT_ND(border->is_locked());
   ASSERT_ND(!border->is_moved());
-  ASSERT_ND(border->get_foster_major().is_null());
-  ASSERT_ND(border->get_foster_minor().is_null());
+  ASSERT_ND(border->is_foster_major_null());
+  ASSERT_ND(border->is_foster_minor_null());
   SlotIndex count = border->get_key_count();
   bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
   if (!early_split && border->can_accomodate(count, sizeof(KeySlice), sizeof(DualPagePointer))) {

@@ -82,17 +82,17 @@ ErrorStack verify_page_basic(
   CHECK_AND_ASSERT(page->is_high_fence_supremum() == high_fence.supremum_);
   CHECK_AND_ASSERT(
     (page->is_moved() && page->has_foster_child()
-      && !page->get_foster_major().is_null() && !page->get_foster_minor().is_null()) ||
+      && !page->is_foster_major_null() && !page->is_foster_minor_null()) ||
     (!page->is_moved() && !page->has_foster_child()
-      && page->get_foster_major().is_null() && page->get_foster_minor().is_null()));
+      && page->is_foster_major_null() && page->is_foster_minor_null()));
 
-  if (!page->get_foster_major().is_null()) {
+  if (!page->is_foster_major_null()) {
     CHECK_AND_ASSERT(!page->header().snapshot_);
     CHECK_AND_ASSERT(!context->resolve(page->get_foster_major())->get_header().snapshot_);
     CHECK_AND_ASSERT(context->resolve(page->get_foster_major())->get_header().get_page_type()
       == page_type);
   }
-  if (!page->get_foster_minor().is_null()) {
+  if (!page->is_foster_minor_null()) {
     CHECK_AND_ASSERT(!page->header().snapshot_);
     CHECK_AND_ASSERT(!context->resolve(page->get_foster_minor())->get_header().snapshot_);
     CHECK_AND_ASSERT(context->resolve(page->get_foster_minor())->get_header().get_page_type()

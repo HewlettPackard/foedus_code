@@ -54,20 +54,24 @@ void describe_masstree_page_common(std::ostream* o_ptr, const MasstreePage& v) {
 std::ostream& operator<<(std::ostream& o, const MasstreeIntermediatePage& v) {
   o << "<MasstreeIntermediatePage>";
   describe_masstree_page_common(&o, v);
-  for (uint16_t i = 0; i <= v.get_key_count(); ++i) {
-    const MasstreeIntermediatePage::MiniPage& minipage = v.get_minipage(i);
-    KeySlice minipage_low = i == 0 ? v.get_low_fence() : v.get_separator(i - 1);
-    o << std::endl << "  <Minipage index=\"" << static_cast<int>(i)
-      << "\" low=\"" << assorted::Hex(minipage_low, 16)
-      << "\" count=\"" << static_cast<int>(minipage.key_count_)
-      << "\">";
-    for (uint16_t j = 0; j <= minipage.key_count_; ++j) {
-      o << std::endl << "    <Pointer index=\"" << static_cast<int>(j)
-        << "\" low=\""
-          << assorted::Hex(j == 0 ? minipage_low : minipage.separators_[j - 1], 16)
-        << "\">" << minipage.pointers_[j] << "</Pointer>";
+  if (v.is_empty_range()) {
+    o << "<EmptyRangePage />";
+  } else {
+    for (uint16_t i = 0; i <= v.get_key_count(); ++i) {
+      const MasstreeIntermediatePage::MiniPage& minipage = v.get_minipage(i);
+      KeySlice minipage_low = i == 0 ? v.get_low_fence() : v.get_separator(i - 1);
+      o << std::endl << "  <Minipage index=\"" << static_cast<int>(i)
+        << "\" low=\"" << assorted::Hex(minipage_low, 16)
+        << "\" count=\"" << static_cast<int>(minipage.key_count_)
+        << "\">";
+      for (uint16_t j = 0; j <= minipage.key_count_; ++j) {
+        o << std::endl << "    <Pointer index=\"" << static_cast<int>(j)
+          << "\" low=\""
+            << assorted::Hex(j == 0 ? minipage_low : minipage.separators_[j - 1], 16)
+          << "\">" << minipage.pointers_[j] << "</Pointer>";
+      }
+      o << std::endl << "  </Minipage>";
     }
-    o << std::endl << "  </Minipage>";
   }
   o << "</MasstreeIntermediatePage>";
   return o;
