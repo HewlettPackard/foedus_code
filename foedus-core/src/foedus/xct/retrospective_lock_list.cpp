@@ -294,6 +294,10 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
   ASSERT_ND(capacity_ >= read_set_size + write_set_size);
 
   last_active_entry_ = kLockListPositionInvalid;
+  if (read_set_size == 0 && write_set_size == 0) {
+    return;
+  }
+
   for (uint32_t i = 0; i < read_set_size; ++i) {
     RwLockableXctId* lock = read_set[i].owner_id_address_;
     storage::Page* page = storage::to_page(lock);
@@ -325,6 +329,7 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
   // Now, the entries are not sorted and we might have duplicates.
   // Sort them, and merge entries for the same record.
   // std::set? no joke. we can't afford heap allocation here.
+  ASSERT_ND(last_active_entry_ != kLockListPositionInvalid);
   std::sort(array_ + 1U, array_ + last_active_entry_ + 1U);
   LockListPosition prev_pos = 1U;
   uint32_t merged_count = 0U;

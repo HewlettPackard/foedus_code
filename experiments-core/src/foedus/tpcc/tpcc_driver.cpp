@@ -95,7 +95,7 @@ DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.")
 // A bit different from YCSB experiment.
 // We don't vary many things in this TPCC experiment, so we just represent the configurations
 // by just one parameter.
-DEFINE_int32(hcc_policy, 0, "Specifies configurations about HCC/MOCC."
+DEFINE_int32(hcc_policy, 1, "Specifies configurations about HCC/MOCC."
   " default: 0 (MOCC, RLL-on, threshold 50)"
   " 1 (OCC, RLL-off, threshold 256)"
   " 2 (PCC, RLL-off, threshold 0)"
