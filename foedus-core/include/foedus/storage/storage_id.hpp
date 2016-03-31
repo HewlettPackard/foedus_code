@@ -217,7 +217,7 @@ union VolatilePagePointer {
     components.mod_count = mod_count;
     components.offset = offset;
   }
-  bool is_equivalent(const VolatilePagePointer& other) {
+  bool is_equivalent(const VolatilePagePointer& other) const {
     return components.numa_node == other.components.numa_node
       && components.offset == other.components.offset;
   }

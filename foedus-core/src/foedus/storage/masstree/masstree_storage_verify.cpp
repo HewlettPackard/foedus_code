@@ -109,17 +109,27 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_intermediate(
   CHECK_ERROR(
     verify_page_basic(context, page, kMasstreeIntermediatePageType, low_fence, high_fence));
 
+  if (page->is_empty_range()) {
+    CHECK_AND_ASSERT(page->get_key_count() == 0);
+    CHECK_AND_ASSERT(!page->is_moved());
+    return kRetOk;
+  }
+
   if (page->is_moved()) {
+    auto* minor = context->resolve_cast<MasstreeIntermediatePage>(page->get_foster_minor());
+    auto* major = context->resolve_cast<MasstreeIntermediatePage>(page->get_foster_major());
+    // If major is empty-range, the minor might be supremum
+    bool is_minor_supremum = high_fence.supremum_ && page->get_foster_fence() == kSupremumSlice;
     CHECK_ERROR(verify_single_thread_intermediate(
       context,
       low_fence,
-      HighFence(page->get_foster_fence(), false),
-      context->resolve_cast<MasstreeIntermediatePage>(page->get_foster_minor())));
+      HighFence(page->get_foster_fence(), is_minor_supremum),
+      minor));
     CHECK_ERROR(verify_single_thread_intermediate(
       context,
       page->get_foster_fence(),
       high_fence,
-      context->resolve_cast<MasstreeIntermediatePage>(page->get_foster_major())));
+      major));
     return kRetOk;
   }
 
@@ -210,16 +220,20 @@ ErrorStack MasstreeStoragePimpl::verify_single_thread_border(
   CHECK_AND_ASSERT(page->is_consecutive_inserts() == sorted);
 
   if (page->is_moved()) {
+    auto* minor = context->resolve_cast<MasstreeBorderPage>(page->get_foster_minor());
+    auto* major = context->resolve_cast<MasstreeBorderPage>(page->get_foster_major());
+    // If major is empty-range, the minor might be supremum
+    bool is_minor_supremum = high_fence.supremum_ && page->get_foster_fence() == kSupremumSlice;
     CHECK_ERROR(verify_single_thread_border(
       context,
       low_fence,
-      HighFence(page->get_foster_fence(), false),
-      context->resolve_cast<MasstreeBorderPage>(page->get_foster_minor())));
+      HighFence(page->get_foster_fence(), is_minor_supremum),
+      minor));
     CHECK_ERROR(verify_single_thread_border(
       context,
       page->get_foster_fence(),
       high_fence,
-      context->resolve_cast<MasstreeBorderPage>(page->get_foster_major())));
+      major));
     return kRetOk;
   }
 

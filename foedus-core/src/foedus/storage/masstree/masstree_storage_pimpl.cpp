@@ -164,6 +164,57 @@ ErrorCode MasstreeStoragePimpl::grow_first_root(
   return grow_root(context, root_pointer, new_root);
 }
 
+void MasstreeStoragePimpl::grow_root_compaction(
+  thread::Thread* context,
+  MasstreePage* root,
+  DualPagePointer* root_pointer,
+  MasstreeIntermediatePage** new_root,
+  PageVersionLockScope* root_lock) {
+  // Analogous to what MasstreeIntermediatePage::adopt_from_child_compaction() does.
+  ASSERT_ND(root->is_locked());
+  ASSERT_ND(root_lock->block_);
+  ASSERT_ND(root->is_moved());
+  ASSERT_ND(!root->is_retired());
+  ASSERT_ND(root->get_low_fence() == root->get_foster_fence()
+    || root->get_high_fence() == root->get_foster_fence());
+  DVLOG(0) << "Trivial grow-root with dummy page split";
+
+  VolatilePagePointer nonempty_child_pointer;
+  MasstreeIntermediatePage* empty_child;
+  if (root->get_low_fence() == root->get_foster_fence()) {
+    nonempty_child_pointer = root->get_foster_major();
+    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_minor());
+  } else {
+    nonempty_child_pointer = root->get_foster_minor();
+    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_major());
+  }
+  ASSERT_ND(empty_child->is_empty_range());
+  ASSERT_ND(root
+    == context->resolve_cast<MasstreeIntermediatePage>(root_pointer->volatile_pointer_));
+  root_pointer->volatile_pointer_ = nonempty_child_pointer;
+  // Interestingly, no need to change snapshot pointer at all. It is logically the same thing.
+
+  *new_root = context->resolve_cast<MasstreeIntermediatePage>(nonempty_child_pointer);
+  assorted::memory_fence_seq_cst();
+
+  // the old root page AND the empty pages are now retired
+  root_lock->set_changed();
+  ASSERT_ND(!root->is_retired());
+  root->set_retired();
+
+  // The only thread that might be retiring this empty page must be in this function,
+  // holding a page-lock in scope_child. Thus we don't need a lock in empty_grandchild.
+  ASSERT_ND(!empty_child->is_locked());  // none else holding lock on it
+  // and we can safely retire the page. We do not use set_retired because is_moved() is false
+  // It's a special retirement path.
+  empty_child->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(empty_child->header().page_id_));
+
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(root->header().page_id_));
+}
+
 ErrorCode MasstreeStoragePimpl::grow_root(
   thread::Thread* context,
   DualPagePointer* root_pointer,
@@ -187,6 +238,15 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   ASSERT_ND(root->is_locked());
   ASSERT_ND(root->has_foster_child());
   memory::NumaCoreMemory* memory = context->get_thread_memory();
+
+  // Just like MasstreeIntermediatePage::adopt_from_child(), grow_root also has
+  // a trivial and frequent "quick path": one of the foster twins is an "empty-range" page.
+  // In that case, we can just replace the existing pointer with a pointer to the non-empty page.
+  if (root->get_low_fence() == root->get_foster_fence()
+    || root->get_foster_fence() == root->get_high_fence()) {
+    grow_root_compaction(context, root, root_pointer, new_root, &scope);
+    return kErrorCodeOk;
+  }
 
   memory::PagePoolOffset offset = memory->grab_free_volatile_page();
   if (offset == 0) {
@@ -242,6 +302,9 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     LOG(INFO) << "Root of first layer is logically unchanged by grow_root, so the snapshot"
       << " pointer is unchanged. value=" << root_pointer->snapshot_pointer_;
   } else {
+    // TASK(Hideaki) I forgot why we need to reset this for non-first root.
+    // Isn't it also true for non-first root that it's logically equivalent?
+    // Let's revisit later.
     root_pointer->snapshot_pointer_ = 0;
   }
   ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==

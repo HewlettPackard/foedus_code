@@ -136,6 +136,12 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     thread::Thread* context,
     DualPagePointer* root_pointer,
     MasstreeIntermediatePage** new_root);
+  void grow_root_compaction(
+    thread::Thread* context,
+    MasstreePage* root,
+    DualPagePointer* root_pointer,
+    MasstreeIntermediatePage** new_root,
+    PageVersionLockScope* root_lock);
 
   /**
    * Find a border node in the layer that corresponds to the given key slice.

@@ -392,6 +392,17 @@ class MasstreeIntermediatePage final : public MasstreePage {
   ErrorCode split_foster_no_adopt(thread::Thread* context);
 
   /**
+   * Similar to split_foster_and_adopt(), but this version creates a dummy foster with empty
+   * range on right side, and just re-structures this page onto left foster twin.
+   * In other words, this is compaction/restructure that is done in another page in RCU fashion.
+   * @pre this is not fully full.
+   */
+  ErrorCode split_foster_compact_adopt(
+    thread::Thread* context,
+    MasstreePage* trigger_child,
+    PageVersionLockScope* trigger_child_lock);
+
+  /**
    * @brief Adopts a foster-child of given child as an entry in this page.
    * @pre this page is a volatile page (snapshot pages don't have foster child,
    * so this is always trivially guaranteed).
@@ -430,7 +441,8 @@ class MasstreeIntermediatePage final : public MasstreePage {
     thread::Thread* context,
     uint8_t minipage_index,
     uint8_t pointer_index,
-    MasstreePage* child);
+    MasstreePage* child,
+    PageVersionLockScope* child_lock);
 
   /**
    * Appends a new poiner and separator in an existing mini page, used only by snapshot composer.
@@ -516,6 +528,18 @@ class MasstreeIntermediatePage final : public MasstreePage {
     uint8_t minipage_index,
     MasstreePage* child,
     PageVersionLockScope* child_lock);
+
+  /**
+   * Unlike split_foster_decide_strategy(), this one is used for a dummy split
+   * where one of the foster twins receives all entries.
+   * We also adopt the foster twins of trigger_child at the same time,
+   * replacing the existing pointer to trigger_child with its foster-minor,
+   * and adding a new pointer to its foster-major.
+   * @pre this page is not fully full. In that case, we shouldn't have triggered this type of split.
+   */
+  void split_foster_compact_strategy(
+    const MasstreePage* trigger_child,
+    IntermediateSplitStrategy* out) const;
 };
 
 /**
