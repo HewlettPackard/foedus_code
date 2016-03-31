@@ -439,18 +439,21 @@ retry_from_layer_root:
     assert_aligned_page(cur);
     ASSERT_ND(cur->get_layer() == current_layer);
     ASSERT_ND(cur->within_fences(slice));
-    if (UNLIKELY(cur->has_foster_child())) {
-      // follow one of foster-twin.
-      if (cur->within_foster_minor(slice)) {
-        cur = reinterpret_cast<MasstreePage*>(context->resolve(cur->get_foster_minor()));
-      } else {
-        cur = reinterpret_cast<MasstreePage*>(context->resolve(cur->get_foster_major()));
-      }
-      ASSERT_ND(cur->within_fences(slice));
-      continue;
-    }
-
     if (cur->is_border()) {
+      // We follow foster-twins only in border pages.
+      // In intermediate pages, Master-Tree invariant tells us that we don't have to.
+      // Furthermore, if we do, we need to handle the case of empty-range intermediate pages.
+      // Rather we just do this only in border pages.
+      if (UNLIKELY(cur->has_foster_child())) {
+        // follow one of foster-twin.
+        if (cur->within_foster_minor(slice)) {
+          cur = reinterpret_cast<MasstreePage*>(context->resolve(cur->get_foster_minor()));
+        } else {
+          cur = reinterpret_cast<MasstreePage*>(context->resolve(cur->get_foster_major()));
+        }
+        ASSERT_ND(cur->within_fences(slice));
+        continue;
+      }
       *border = reinterpret_cast<MasstreeBorderPage*>(cur);
       return kErrorCodeOk;
     } else {
