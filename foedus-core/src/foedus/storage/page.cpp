@@ -135,16 +135,11 @@ void assert_within_valid_volatile_page_impl(
   ASSERT_ND(!page->get_header().snapshot_);
 
   VolatilePagePointer vpp = construct_volatile_page_pointer(page->get_header().page_id_);
-  const uint64_t node = vpp.components.numa_node;
-  const uintptr_t base = reinterpret_cast<uintptr_t>(resolver.bases_[node]);
-
-  ASSERT_ND(base);
-  ASSERT_ND(node < resolver.numa_node_count_);
+  ASSERT_ND(vpp.components.numa_node < resolver.numa_node_count_);
   ASSERT_ND(vpp.get_offset() >= resolver.begin_);
   ASSERT_ND(vpp.get_offset() < resolver.end_);
 
-  const uintptr_t same_address = base + vpp.get_offset() * kPageSize;
-  const Page* same_page = reinterpret_cast<const Page*>(same_address);
+  const Page* same_page = resolver.resolve_offset_newpage(vpp);
   ASSERT_ND(same_page->get_header().page_id_ == page->get_header().page_id_);
   ASSERT_ND(!same_page->get_header().snapshot_);
   /// Ah, oh, finally realized why I occasionally hit assertions here.
