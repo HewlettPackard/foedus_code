@@ -58,7 +58,7 @@ namespace hash {
 ErrorStack HashStoragePimpl::drop() {
   LOG(INFO) << "Uninitializing an hash-storage " << get_name();
 
-  if (control_block_->root_page_pointer_.volatile_pointer_.components.offset) {
+  if (!control_block_->root_page_pointer_.volatile_pointer_.is_null()) {
     // release volatile pages
     const memory::GlobalVolatilePageResolver& page_resolver
       = engine_->get_memory_manager()->get_global_volatile_page_resolver();
@@ -105,7 +105,9 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
 
   // small number of root pages. we should at least have that many free pages.
   // so far grab all of them from node 0. no round robbin
-  memory::PagePool* pool = engine_->get_memory_manager()->get_node_memory(0)->get_volatile_pool();
+  const uint16_t kTheNode = 0;
+  memory::PagePool* pool
+    = engine_->get_memory_manager()->get_node_memory(kTheNode)->get_volatile_pool();
   const memory::LocalPageResolver &local_resolver = pool->get_resolver();
 
   // allocate only the root page
@@ -115,11 +117,7 @@ ErrorStack HashStoragePimpl::create(const HashMetadata& metadata) {
   HashIntermediatePage* root_page = reinterpret_cast<HashIntermediatePage*>(
     local_resolver.resolve_offset_newpage(root_offset));
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
-  control_block_->root_page_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
-    0,
-    0,
-    0,
-    root_offset);
+  control_block_->root_page_pointer_.volatile_pointer_.set(kTheNode, root_offset);
   root_page->initialize_volatile_page(
     get_id(),
     control_block_->root_page_pointer_.volatile_pointer_,
@@ -728,18 +726,14 @@ ErrorCode HashStoragePimpl::follow_page_bin_head(
         memory::NumaCoreMemory* core_memory = context->get_thread_memory();
         const memory::LocalPageResolver& local_resolver
           = context->get_local_volatile_page_resolver();
-        memory::PagePoolOffset offset = core_memory->grab_free_volatile_page();
-        if (UNLIKELY(offset == 0)) {
+        VolatilePagePointer head_page_id = core_memory->grab_free_volatile_page_pointer();
+        const auto offset = head_page_id.get_offset();
+        if (UNLIKELY(head_page_id.is_null())) {
           return kErrorCodeMemoryNoFreePages;
         }
 
         HashDataPage* head_page
           = reinterpret_cast<HashDataPage*>(local_resolver.resolve_offset_newpage(offset));
-        VolatilePagePointer head_page_id = combine_volatile_page_pointer(
-          context->get_numa_node(),
-          0,
-          0,
-          offset);
         storage::Page* snapshot_head;
         ErrorCode code = context->find_or_read_a_snapshot_page(snapshot_pointer, &snapshot_head);
         if (code != kErrorCodeOk) {
@@ -764,19 +758,15 @@ ErrorCode HashStoragePimpl::follow_page_bin_head(
             }
 
             DVLOG(1) << "Following next-link in hash data pages. Hopefully it's not that long..";
-            memory::PagePoolOffset next_offset = core_memory->grab_free_volatile_page();
-            if (UNLIKELY(next_offset == 0)) {
+            VolatilePagePointer next_page_id = core_memory->grab_free_volatile_page_pointer();
+            memory::PagePoolOffset next_offset = next_page_id.get_offset();
+            if (UNLIKELY(next_page_id.is_null())) {
               // we have to release preceding pages too
               last_error = kErrorCodeMemoryNoFreePages;
               break;
             }
             HashDataPage* next_page
               = reinterpret_cast<HashDataPage*>(local_resolver.resolve_offset_newpage(next_offset));
-            VolatilePagePointer next_page_id = combine_volatile_page_pointer(
-              context->get_numa_node(),
-              0,
-              0,
-              next_offset);
             // immediately install because:
             // 1) we don't have any race here, 2) we need to follow them to release on error.
             DualPagePointer* target = cur_page->next_page_address();
@@ -828,7 +818,7 @@ ErrorCode HashStoragePimpl::follow_page_bin_head(
             ASSERT_ND(!cur_id.is_null());
             // retrieve next_id BEFORE releasing (revoking) cur page.
             VolatilePagePointer next_id = cur->next_page().volatile_pointer_;
-            core_memory->release_free_volatile_page(cur_id.components.offset);
+            core_memory->release_free_volatile_page(cur_id.get_offset());
             if (next_id.is_null()) {
               break;
             }
@@ -1429,19 +1419,13 @@ ErrorCode HashStoragePimpl::append_next_volatile_page(
   ASSERT_ND(page->get_record_count() > 0);
 
   DVLOG(2) << "Volatile HashDataPage is full. Adding a next page..";
-  memory::PagePoolOffset new_page_offset
-    = context->get_thread_memory()->grab_free_volatile_page();
-  if (UNLIKELY(new_page_offset == 0)) {
+  VolatilePagePointer new_pointer = context->get_thread_memory()->grab_free_volatile_page_pointer();
+  if (UNLIKELY(new_pointer.is_null())) {
     *next_page = nullptr;
     return kErrorCodeMemoryNoFreePages;
   }
 
-  HashDataPage* next = context->resolve_newpage_cast<HashDataPage>(new_page_offset);
-  VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-    context->get_numa_node(),
-    0,
-    0,
-    new_page_offset);
+  HashDataPage* next = context->resolve_newpage_cast<HashDataPage>(new_pointer.get_offset());
   HashBin bin = page->get_bin();
   next->initialize_volatile_page(
     get_id(),

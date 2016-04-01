@@ -295,8 +295,9 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   // copy from snapshot version
   storage::Page* snapshot_page;
   CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, &snapshot_page));
-  memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
-  if (UNLIKELY(offset == 0)) {
+  storage::VolatilePagePointer volatile_pointer = core_memory_->grab_free_volatile_page_pointer();
+  const auto offset = volatile_pointer.get_offset();
+  if (UNLIKELY(volatile_pointer.is_null())) {
     return kErrorCodeMemoryNoFreePages;
   }
   ASSERT_ND(offset < local_volatile_page_resolver_.end_);
@@ -305,11 +306,6 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   // We copied from a snapshot page, so the snapshot flag is on.
   ASSERT_ND(page->get_header().snapshot_);
   page->get_header().snapshot_ = false;  // now it's volatile
-  storage::VolatilePagePointer volatile_pointer = storage::combine_volatile_page_pointer(
-    numa_node_,
-    0,
-    0,
-    offset);
   page->get_header().page_id_ = volatile_pointer.word;  // and correct page ID
 
   *installed_page = place_a_new_volatile_page(offset, pointer);
@@ -321,13 +317,10 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
   storage::DualPagePointer* pointer) {
   while (true) {
     storage::VolatilePagePointer cur_pointer = pointer->volatile_pointer_;
-    storage::VolatilePagePointer new_pointer = storage::combine_volatile_page_pointer(
-      numa_node_,
-      0,
-      cur_pointer.components.mod_count + 1,
-      new_offset);
+    storage::VolatilePagePointer new_pointer;
+    new_pointer.set(numa_node_, new_offset);
     // atomically install it.
-    if (cur_pointer.components.offset == 0 &&
+    if (cur_pointer.is_null() &&
       assorted::raw_atomic_compare_exchange_strong<uint64_t>(
         &(pointer->volatile_pointer_.word),
         &(cur_pointer.word),
@@ -336,10 +329,10 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
       return local_volatile_page_resolver_.resolve_offset_newpage(new_offset);
       break;
     } else {
-      if (cur_pointer.components.offset != 0) {
+      if (!cur_pointer.is_null()) {
         // someone else has installed it!
         VLOG(0) << "Interesting. Lost race to install a volatile page. ver-b. Thread-" << id_
-          << ", local offset=" << new_offset << " winning offset=" << cur_pointer.components.offset;
+          << ", local offset=" << new_offset << " winning=" << cur_pointer;
         core_memory_->release_free_volatile_page(new_offset);
         storage::Page* placed_page = global_volatile_page_resolver_.resolve_offset(cur_pointer);
         ASSERT_ND(placed_page->get_header().snapshot_ == false);
@@ -427,7 +420,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
   bool followed_snapshot = false;
   if (pointer->snapshot_pointer_ == 0) {
-    if (volatile_pointer.components.offset == 0) {
+    if (volatile_pointer.is_null()) {
       // both null, so the page is not created yet.
       if (tolerate_null_pointer) {
         *page = nullptr;
@@ -443,8 +436,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         ASSERT_ND(offset < local_volatile_page_resolver_.end_);
         storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
         storage::VolatilePagePointer new_page_id;
-        new_page_id.components.numa_node = numa_node_;
-        new_page_id.components.offset = offset;
+        new_page_id.set(numa_node_, offset);
         storage::VolatilePageInitArguments args = {
           holder_,
           new_page_id,
@@ -464,7 +456,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
     }
   } else {
     // if there is a snapshot page, we have a few more choices.
-    if (volatile_pointer.components.offset != 0) {
+    if (!volatile_pointer.is_null()) {
       // we have a volatile page, which is guaranteed to be latest
       *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
     } else if (will_modify) {
@@ -573,8 +565,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
           }
           storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
           storage::VolatilePagePointer new_page_id;
-          new_page_id.components.numa_node = numa_node_;
-          new_page_id.components.offset = offset;
+          new_page_id.set(numa_node_, offset);
           storage::VolatilePageInitArguments args = {
             holder_,
             new_page_id,
@@ -632,8 +623,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_write_batch(
       }
       storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
       storage::VolatilePagePointer new_page_id;
-      new_page_id.components.numa_node = numa_node_;
-      new_page_id.components.offset = offset;
+      new_page_id.set(numa_node_, offset);
       storage::VolatilePageInitArguments args = {
         holder_,
         new_page_id,
@@ -791,7 +781,7 @@ void ThreadPimpl::collect_retired_volatile_page(storage::VolatilePagePointer ptr
   if (chunk->full()) {
     flush_retired_volatile_page(node, current_epoch, chunk);
   }
-  chunk->push_back(ptr.components.offset, safe_epoch);
+  chunk->push_back(ptr.get_offset(), safe_epoch);
 }
 
 void ThreadPimpl::flush_retired_volatile_page(

@@ -299,17 +299,12 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* contex
   ASSERT_ND(new_children.size() >= original_children.size());
 
   memory::NumaCoreMemory* memory = context->get_thread_memory();
-  memory::PagePoolOffset new_offset = memory->grab_free_volatile_page();
-  if (new_offset == 0) {
+  VolatilePagePointer new_pointer = memory->grab_free_volatile_page_pointer();
+  if (new_pointer.is_null()) {
     return ERROR_STACK(kErrorCodeMemoryNoFreePages);
   }
   // from now on no failure (we grabbed a free page).
 
-  VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-    context->get_numa_node(),
-    kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
-    get_first_root_pointer().volatile_pointer_.components.mod_count + 1,
-    new_offset);
   MasstreeIntermediatePage* new_root
     = context->resolve_newpage_cast<MasstreeIntermediatePage>(new_pointer);
   new_root->initialize_volatile_page(

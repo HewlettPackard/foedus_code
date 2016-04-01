@@ -179,11 +179,14 @@ const uint8_t kVolatilePointerFlagSwappable = 0x02;
  * @brief Represents a pointer to a volatile page with modification count for preventing ABA.
  * @ingroup STORAGE
  * @details
- * The high 32 bit is a set of flags while the low 32 bit is the offset.
- * The high 32 bit consits of the following information:
+ * The high 32 bit is for now sparsely used while the low 32 bit is the offset.
+ * The high 32 bit so far uses only the first 8 bits:
  *  \li 8-bit NUMA node ID (foedus::thread::ThreadGroupId)
- *  \li 8-bit flags for concurrency control
- *  \li 16-bit modification counter
+ *  \li Unused 8-bit field
+ *  \li Unused 16-bit field
+ * We initially had some flags and mofidication count within a pointer, but not used so far.
+ * We might later use it.
+ *
  * The offset has to be at least 32 bit (4kb * 2^32=16TB per NUMA node).
  * @todo This might become just a typedef of uint64_t rather than union.
  * union data type is a bit unfriendly to some standard classes.
@@ -193,34 +196,30 @@ union VolatilePagePointer {
 
   struct Components {
     uint8_t                 numa_node;
-    uint8_t                 flags;
-    uint16_t                mod_count;
+    uint8_t                 unused1;
+    uint16_t                unused2;
     memory::PagePoolOffset  offset;
-
-    /**
-     * Whether this volatile page pointer might be dynamically changed except:
-     *  \li null -> valid pointer (installing a new volatile version, this happens anyways)
-     *  \li valid pointer -> null (drop after snapshot thread, which stops the world before it)
-     *
-     * In other words, this flag says whether valid pointer -> another valid pointer can happen.
-     * Such a swap can happen only in root page pointers of \ref MASSTREE so far.
-     * Pointers to the root pages of any layer have this flag on.
-     */
-    bool is_swappable() const { return flags & kVolatilePointerFlagSwappable; }
   } components;
 
+  memory::PagePoolOffset get_offset() const { return components.offset; }
+  /**
+   * This is used only in special places (snapshot composer).
+   * You should almost always use set(), thus named unsafe.
+   */
+  void set_offset_unsafe(memory::PagePoolOffset offset) { components.offset = offset; }
   bool is_null() const { return components.offset == 0; }
   void clear() { word = 0; }
-  void set(uint8_t numa_node, uint8_t flags, uint16_t mod_count, memory::PagePoolOffset offset) {
+  void set(uint8_t numa_node, memory::PagePoolOffset offset) {
     components.numa_node = numa_node;
-    components.flags = flags;
-    components.mod_count = mod_count;
+    components.unused1 = 0;
+    components.unused2 = 0;
     components.offset = offset;
   }
   bool is_equivalent(const VolatilePagePointer& other) const {
-    return components.numa_node == other.components.numa_node
-      && components.offset == other.components.offset;
+    // Now that we got rid of unused flags/mod_count, this is simply a word comparison.
+    return word  == other.word;
   }
+  friend std::ostream& operator<<(std::ostream& o, const VolatilePagePointer& v);
 };
 void describe_volatile_pointer(std::ostream* o, VolatilePagePointer pointer);
 
@@ -231,14 +230,9 @@ inline VolatilePagePointer construct_volatile_page_pointer(uint64_t word) {
 }
 inline VolatilePagePointer combine_volatile_page_pointer(
   uint8_t numa_node,
-  uint8_t flags,
-  uint16_t mod_count,
   memory::PagePoolOffset offset) {
   VolatilePagePointer ret;
-  ret.components.numa_node = numa_node;
-  ret.components.flags = flags;
-  ret.components.mod_count = mod_count;
-  ret.components.offset = offset;
+  ret.set(numa_node, offset);
   return ret;
 }
 
@@ -303,7 +297,7 @@ struct DualPagePointer {
   }
 
   bool is_both_null() const {
-    return snapshot_pointer_ == 0 && volatile_pointer_.components.offset == 0;
+    return snapshot_pointer_ == 0 && volatile_pointer_.is_null();
   }
 
   SnapshotPagePointer snapshot_pointer_;

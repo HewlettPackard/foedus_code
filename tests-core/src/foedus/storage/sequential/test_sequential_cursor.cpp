@@ -390,7 +390,7 @@ ErrorStack scan_task_impl(
         VolatilePagePointer page_id;
         page_id.word = page->header().page_id_;
         node = page_id.components.numa_node;
-        EXPECT_GT(page_id.components.offset, 0);
+        EXPECT_GT(page_id.get_offset(), 0);
 
         // volatile sequential page is guaranteed to contain only one epoch
         single_epoch = page->get_first_record_epoch();

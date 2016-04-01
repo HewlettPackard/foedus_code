@@ -295,7 +295,8 @@ ErrorCode SequentialCursor::init_states() {
           state.volatile_cur_pages_.push_back(nullptr);
           continue;
         }
-        VolatilePagePointer pointer = combine_volatile_page_pointer(node_id, 0, 0, offset);
+        VolatilePagePointer pointer;
+        pointer.set(node_id, offset);
         SequentialPage* page = resolve_volatile(pointer);
         if (page->get_record_count() > 0 && page->get_first_record_epoch() >= to_epoch_) {
           // even the first record has too-new epoch, no chance. safe to ignore this thread.

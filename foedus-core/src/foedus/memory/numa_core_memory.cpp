@@ -42,6 +42,7 @@ NumaCoreMemory::NumaCoreMemory(
   : engine_(engine),
     node_memory_(node_memory),
     core_id_(core_id),
+    numa_node_(thread::decompose_numa_node(core_id)),
     core_local_ordinal_(thread::decompose_numa_local_ordinal(core_id)),
     free_volatile_pool_chunk_(nullptr),
     free_snapshot_pool_chunk_(nullptr),
@@ -52,7 +53,7 @@ NumaCoreMemory::NumaCoreMemory(
     retrospective_lock_list_capacity_(0),
     volatile_pool_(nullptr),
     snapshot_pool_(nullptr) {
-  ASSERT_ND(thread::decompose_numa_node(core_id_) == node_memory->get_numa_node());
+  ASSERT_ND(numa_node_ == node_memory->get_numa_node());
   ASSERT_ND(core_id_ == thread::compose_thread_id(node_memory->get_numa_node(),
                           core_local_ordinal_));
 }
@@ -199,6 +200,11 @@ PagePoolOffset NumaCoreMemory::grab_free_volatile_page() {
   }
   ASSERT_ND(!free_volatile_pool_chunk_->empty());
   return free_volatile_pool_chunk_->pop_back();
+}
+storage::VolatilePagePointer NumaCoreMemory::grab_free_volatile_page_pointer() {
+  storage::VolatilePagePointer ret;
+  ret.set(numa_node_, grab_free_volatile_page());
+  return ret;
 }
 void NumaCoreMemory::release_free_volatile_page(PagePoolOffset offset) {
   if (UNLIKELY(free_volatile_pool_chunk_->full())) {

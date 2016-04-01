@@ -234,10 +234,7 @@ storage::VolatilePagePointer RoundRobinPageGrabBatch::grab() {
   }
 
   storage::VolatilePagePointer ret;
-  ret.components.numa_node = current_node_;
-  ret.components.flags = 0;
-  ret.components.mod_count = 0;
-  ret.components.offset = chunk_.pop_back();
+  ret.set(current_node_, chunk_.pop_back());
   return ret;
 }
 
@@ -284,10 +281,7 @@ storage::VolatilePagePointer DivvyupPageGrabBatch::grab(thread::ThreadGroupId no
     }
   }
   storage::VolatilePagePointer ret;
-  ret.components.numa_node = node;
-  ret.components.flags = 0;
-  ret.components.mod_count = 0;
-  ret.components.offset = chunks_[node].pop_back();
+  ret.set(node, chunks_[node].pop_back());
   return ret;
 }
 

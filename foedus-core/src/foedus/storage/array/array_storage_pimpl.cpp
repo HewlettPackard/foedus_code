@@ -208,13 +208,13 @@ void ArrayStoragePimpl::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& resolver,
   memory::PageReleaseBatch* batch,
   VolatilePagePointer volatile_page_id) {
-  ASSERT_ND(volatile_page_id.components.offset != 0);
+  ASSERT_ND(!volatile_page_id.is_null());
   ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(volatile_page_id));
   if (!page->is_leaf()) {
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {
       DualPagePointer &child_pointer = page->get_interior_record(i);
       VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
-      if (child_page_id.components.offset != 0) {
+      if (!child_page_id.is_null()) {
         // then recurse
         release_pages_recursive(resolver, batch, child_page_id);
         child_pointer.volatile_pointer_.word = 0;
@@ -950,7 +950,7 @@ ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, Arra
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {
       DualPagePointer &child_pointer = page->get_interior_record(i);
       VolatilePagePointer page_id = child_pointer.volatile_pointer_;
-      if (page_id.components.offset != 0) {
+      if (!page_id.is_null()) {
         // then recurse
         ArrayPage* child_page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(page_id));
         CHECK_ERROR(verify_single_thread(context, child_page));

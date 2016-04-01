@@ -466,7 +466,7 @@ inline void assert_valid_volatile_page(const Page* page, uint32_t offset) {
   ASSERT_ND(type < kDummyLastPageType);
   VolatilePagePointer pointer;
   pointer.word = page->get_header().page_id_;
-  ASSERT_ND(pointer.components.offset == offset);
+  ASSERT_ND(pointer.get_offset() == offset);
 #endif  // NDEBUG
 }
 

@@ -165,7 +165,7 @@ class MasstreePage {
   /** As the name suggests, this should be used only by composer. foster twin should be immutable */
   void              set_foster_major_offset_unsafe(memory::PagePoolOffset offset) ALWAYS_INLINE {
     ASSERT_ND(header_.snapshot_);
-    foster_twin_[1].components.offset = offset;
+    foster_twin_[1].set_offset_unsafe(offset);
   }
   /** As the name suggests, this should be used only by composer. fence should be immutable */
   void              set_high_fence_unsafe(KeySlice high_fence) ALWAYS_INLINE {

@@ -27,6 +27,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/memory_id.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
 
@@ -72,6 +73,10 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * Instead, The caller MUST check if the returned page is zero or not.
    */
   PagePoolOffset  grab_free_volatile_page();
+  /**
+   * Wrapper for grab_free_volatile_page().
+   */
+  storage::VolatilePagePointer grab_free_volatile_page_pointer();
   /** Same, except it's for snapshot page */
   PagePoolOffset  grab_free_snapshot_page();
   /** Returns one free volatile page to \b local page pool. */
@@ -127,6 +132,10 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * Global ID of the NUMA core this memory is allocated for.
    */
   const foedus::thread::ThreadId core_id_;
+  /**
+   * The NUMA node this memory is allocated for.
+   */
+  const foedus::thread::ThreadGroupId     numa_node_;
 
   /**
    * Local ordinal of the NUMA core this memory is allocated for.

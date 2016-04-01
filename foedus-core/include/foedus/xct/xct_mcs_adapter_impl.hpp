@@ -170,8 +170,8 @@ constexpr uint32_t kMcsMockDataPageFiller
  */
 struct McsMockDataPage {
   void init(storage::StorageId dummy_storage_id, uint16_t node_id, uint32_t in_node_index) {
-    storage::VolatilePagePointer page_id
-      = storage::combine_volatile_page_pointer(node_id, 0, 0, in_node_index);
+    storage::VolatilePagePointer page_id;
+    page_id.set(node_id, in_node_index);
     header_.init_volatile(page_id, dummy_storage_id, storage::kArrayPageType);
     for (uint32_t i = 0; i < kMcsMockDataPageLocksPerPage; ++i) {
       tid_[i].reset();

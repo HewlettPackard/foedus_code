@@ -50,8 +50,8 @@ storage::array::ArrayPage* prepare_dummy_page(
   storage::array::ArrayPage* dummy_page
     = reinterpret_cast<storage::array::ArrayPage*>(
         context->get_local_volatile_page_resolver().resolve_offset_newpage(offset));
-  storage::VolatilePagePointer page_id
-    = storage::combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
+  storage::VolatilePagePointer page_id;
+  page_id.set(context->get_numa_node(), offset);
   storage::array::ArrayRange dummy_range(0, 128);
   dummy_page->initialize_volatile_page(
     Epoch(1U),

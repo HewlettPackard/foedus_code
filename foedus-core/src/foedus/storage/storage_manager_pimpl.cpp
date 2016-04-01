@@ -118,7 +118,7 @@ ErrorStack StorageManagerPimpl::initialize_read_latest_snapshot() {
       ASSERT_ND(!exists(snapshot_block.meta_.name_));
       block->initialize();
       block->root_page_pointer_.snapshot_pointer_ = snapshot_block.meta_.root_snapshot_page_id_;
-      block->root_page_pointer_.volatile_pointer_.components.offset = 0;
+      block->root_page_pointer_.volatile_pointer_.clear();
 
       block->meta_.type_ = snapshot_block.meta_.type_;
       switch (snapshot_block.meta_.type_) {

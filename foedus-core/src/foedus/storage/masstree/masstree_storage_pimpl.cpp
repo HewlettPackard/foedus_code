@@ -55,7 +55,7 @@ xct::TrackMovedRecordResult MasstreeStorage::track_moved_record(
 ErrorStack MasstreeStoragePimpl::drop() {
   LOG(INFO) << "Uninitializing a masstree-storage " << get_name();
 
-  if (control_block_->root_page_pointer_.volatile_pointer_.components.offset) {
+  if (!control_block_->root_page_pointer_.volatile_pointer_.is_null()) {
     // release volatile pages
     const memory::GlobalVolatilePageResolver& page_resolver
       = engine_->get_memory_manager()->get_global_volatile_page_resolver();
@@ -265,18 +265,13 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     return kErrorCodeOk;
   }
 
-  memory::PagePoolOffset offset = memory->grab_free_volatile_page();
-  if (offset == 0) {
+  VolatilePagePointer new_pointer = memory->grab_free_volatile_page_pointer();
+  if (new_pointer.is_null()) {
     return kErrorCodeMemoryNoFreePages;
   }
 
   // from here no failure possible
   scope.set_changed();
-  VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-    context->get_numa_node(),
-    kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
-    root_pointer->volatile_pointer_.components.mod_count + 1,
-    offset);
   *new_root = reinterpret_cast<MasstreeIntermediatePage*>(
     resolver.resolve_offset_newpage(new_pointer));
   (*new_root)->initialize_volatile_page(
@@ -299,13 +294,11 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   mini_page.key_count_ = 1;
   mini_page.pointers_[0].snapshot_pointer_ = 0;
   mini_page.pointers_[0].volatile_pointer_.word = left_page->header().page_id_;
-  mini_page.pointers_[0].volatile_pointer_.components.flags = 0;
   ASSERT_ND(reinterpret_cast<Page*>(left_page) ==
     context->get_global_volatile_page_resolver().resolve_offset(
       mini_page.pointers_[0].volatile_pointer_));
   mini_page.pointers_[1].snapshot_pointer_ = 0;
   mini_page.pointers_[1].volatile_pointer_.word = right_page->header().page_id_;
-  mini_page.pointers_[1].volatile_pointer_.components.flags = 0;
   ASSERT_ND(reinterpret_cast<Page*>(right_page) ==
     context->get_global_volatile_page_resolver().resolve_offset(
       mini_page.pointers_[1].volatile_pointer_));
@@ -353,11 +346,7 @@ ErrorStack MasstreeStoragePimpl::load_empty() {
     local_resolver.resolve_offset_newpage(root_offset));
   control_block_->first_root_owner_.lock_.reset();
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
-  control_block_->root_page_pointer_.volatile_pointer_ = combine_volatile_page_pointer(
-    kDummyNode,
-    kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
-    0,
-    root_offset);
+  control_block_->root_page_pointer_.volatile_pointer_.set(kDummyNode, root_offset);
   root_page->initialize_volatile_page(
     get_id(),
     control_block_->root_page_pointer_.volatile_pointer_,
@@ -372,7 +361,8 @@ ErrorStack MasstreeStoragePimpl::load_empty() {
   ASSERT_ND(child_offset);
   MasstreeBorderPage* child_page = reinterpret_cast<MasstreeBorderPage*>(
     local_resolver.resolve_offset_newpage(child_offset));
-  VolatilePagePointer child_pointer = combine_volatile_page_pointer(kDummyNode, 0, 0, child_offset);
+  VolatilePagePointer child_pointer;
+  child_pointer.set(kDummyNode, child_offset);
   child_page->initialize_volatile_page(get_id(), child_pointer, 0, kInfimumSlice, kSupremumSlice);
   root_page->get_minipage(0).pointers_[0].snapshot_pointer_ = 0;
   root_page->get_minipage(0).pointers_[0].volatile_pointer_ = child_pointer;
@@ -411,7 +401,6 @@ ErrorStack MasstreeStoragePimpl::load(const StorageControlBlock& snapshot_block)
       &volatile_pointer,
       reinterpret_cast<Page**>(&volatile_root)));
     CHECK_ERROR(fileset.uninitialize());
-    volatile_pointer.components.flags = kVolatilePointerFlagSwappable;
     control_block_->root_page_pointer_.volatile_pointer_ = volatile_pointer;
   } else {
     LOG(INFO) << "This is an empty masstree: " << get_meta();
@@ -595,7 +584,7 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
     resolver.resolve_offset_newpage(offset));
   DualPagePointer pointer;
   pointer.snapshot_pointer_ = 0;
-  pointer.volatile_pointer_ = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
+  pointer.volatile_pointer_.set(context->get_numa_node(), offset);
 
   xct::RwLockableXctId* parent_lock = parent->get_owner_id(parent_index);
 
@@ -637,7 +626,7 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
     assorted::memory_fence_release();
     parent_lock->xct_id_.set_next_layer();  // which also turns off delete-bit
 
-    ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.offset == offset);
+    ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.get_offset() == offset);
     ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.numa_node
       == context->get_numa_node());
 
@@ -1252,7 +1241,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_next_layer_apply(
     resolver.resolve_offset_newpage(offset));
   DualPagePointer pointer;
   pointer.snapshot_pointer_ = 0;
-  pointer.volatile_pointer_ = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offset);
+  pointer.volatile_pointer_.set(context->get_numa_node(), offset);
 
   // initialize the root page by copying the record
   root->initialize_volatile_page(

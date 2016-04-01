@@ -40,7 +40,7 @@ UniversalLockId to_universal_lock_id(
   ASSERT_ND(!page_header.snapshot_);
   storage::VolatilePagePointer vpp(storage::construct_volatile_page_pointer(page_header.page_id_));
   const uint64_t node = vpp.components.numa_node;
-  const uint64_t page_index = vpp.components.offset;
+  const uint64_t page_index = vpp.get_offset();
   const uint64_t in_page_offset = lock_ptr % storage::kPageSize;
 
   // See assert_within_valid_volatile_page() why we can't do these assertions.
@@ -52,8 +52,8 @@ UniversalLockId to_universal_lock_id(
   // We thus calculate UniversalLockId purely from PageId in the page header and in_page_offset.
   // Thus, actually this function uses resolver only for assertions (so far)!
   ASSERT_ND(node < resolver.numa_node_count_);
-  ASSERT_ND(vpp.components.offset >= resolver.begin_);
-  ASSERT_ND(vpp.components.offset < resolver.end_);
+  ASSERT_ND(vpp.get_offset() >= resolver.begin_);
+  ASSERT_ND(vpp.get_offset() < resolver.end_);
   return (node << 48) | (page_index * storage::kPageSize + in_page_offset);
 }
 

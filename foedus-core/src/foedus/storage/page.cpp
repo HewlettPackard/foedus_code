@@ -140,10 +140,10 @@ void assert_within_valid_volatile_page_impl(
 
   ASSERT_ND(base);
   ASSERT_ND(node < resolver.numa_node_count_);
-  ASSERT_ND(vpp.components.offset >= resolver.begin_);
-  ASSERT_ND(vpp.components.offset < resolver.end_);
+  ASSERT_ND(vpp.get_offset() >= resolver.begin_);
+  ASSERT_ND(vpp.get_offset() < resolver.end_);
 
-  const uintptr_t same_address = base + vpp.components.offset * kPageSize;
+  const uintptr_t same_address = base + vpp.get_offset() * kPageSize;
   const Page* same_page = reinterpret_cast<const Page*>(same_address);
   ASSERT_ND(same_page->get_header().page_id_ == page->get_header().page_id_);
   ASSERT_ND(!same_page->get_header().snapshot_);

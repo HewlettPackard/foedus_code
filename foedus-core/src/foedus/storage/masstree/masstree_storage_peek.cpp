@@ -127,8 +127,8 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
   VolatilePagePointer pointer = border->get_next_layer(rec)->volatile_pointer_;
   if (UNLIKELY(pointer.is_null()
     || pointer.components.numa_node >= resolver.numa_node_count_
-    || pointer.components.offset < resolver.begin_
-    || pointer.components.offset >= resolver.end_)) {
+    || pointer.get_offset() < resolver.begin_
+    || pointer.get_offset() >= resolver.end_)) {
     LOG(INFO) << "Encountered invalid page during peeking. Gives up finding a page boundary hint";
     return kErrorCodeOk;
   }
@@ -213,8 +213,8 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
     // even if boundary < args.from_ because it's a *low*-fence.
     if (needs_recurse && !pointer.is_null()) {
       if (LIKELY(pointer.components.numa_node < resolver.numa_node_count_
-        && pointer.components.offset >= resolver.begin_
-        && pointer.components.offset < resolver.end_)) {
+        && pointer.get_offset() >= resolver.begin_
+        && pointer.get_offset() < resolver.end_)) {
         const MasstreeIntermediatePage* next
           = reinterpret_cast<const MasstreeIntermediatePage*>(resolver.resolve_offset(pointer));
         if (next->is_border()) {

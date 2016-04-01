@@ -270,7 +270,7 @@ void HashIntermediatePage::release_pages_recursive_parallel(Engine* engine) {
     std::vector<std::thread> threads;
     for (uint8_t i = 0; i < kHashIntermediatePageFanout; ++i) {
       VolatilePagePointer pointer = pointers_[i].volatile_pointer_;
-      if (pointer.components.offset != 0) {
+      if (!pointer.is_null()) {
         threads.emplace_back(release_parallel, engine, pointer);
       }
     }
@@ -283,7 +283,7 @@ void HashIntermediatePage::release_pages_recursive_parallel(Engine* engine) {
     volatile_id.word = header().page_id_;
     memory::PagePool* pool = engine->get_memory_manager()->get_node_memory(
       volatile_id.components.numa_node)->get_volatile_pool();
-    pool->release_one(volatile_id.components.offset);
+    pool->release_one(volatile_id.get_offset());
   }
 }
 
@@ -292,7 +292,7 @@ void HashIntermediatePage::release_pages_recursive(
   memory::PageReleaseBatch* batch) {
   for (uint8_t i = 0; i < kHashIntermediatePageFanout; ++i) {
     VolatilePagePointer pointer = pointers_[i].volatile_pointer_;
-    if (pointer.components.offset != 0) {
+    if (!pointer.is_null()) {
       Page* page = page_resolver.resolve_offset(pointer);
       if (get_level() == 0) {
         HashDataPage* child = reinterpret_cast<HashDataPage*>(page);
@@ -305,7 +305,7 @@ void HashIntermediatePage::release_pages_recursive(
         ASSERT_ND(child->get_level() + 1U == get_level());
         child->release_pages_recursive(page_resolver, batch);
       }
-      pointer.components.offset = 0;
+      pointer.clear();
     }
   }
 
@@ -317,13 +317,13 @@ void HashIntermediatePage::release_pages_recursive(
 void HashDataPage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
-  if (next_page_.volatile_pointer_.components.offset != 0) {
+  if (!next_page_.volatile_pointer_.is_null()) {
     HashDataPage* next = reinterpret_cast<HashDataPage*>(
       page_resolver.resolve_offset(next_page_.volatile_pointer_));
     ASSERT_ND(next->header().get_in_layer_level() == 0);
     ASSERT_ND(next->get_bin() == get_bin());
     next->release_pages_recursive(page_resolver, batch);
-    next_page_.volatile_pointer_.components.offset = 0;
+    next_page_.volatile_pointer_.clear();
   }
 
   VolatilePagePointer volatile_id;

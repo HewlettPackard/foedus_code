@@ -206,7 +206,7 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
           CHECK_ERROR_CODE(handler(page));
 
           VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-          memory::PagePoolOffset offset = next_pointer.components.offset;
+          memory::PagePoolOffset offset = next_pointer.get_offset();
           if (offset != 0) {
             page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
           } else {

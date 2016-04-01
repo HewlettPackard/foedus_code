@@ -205,7 +205,7 @@ void MasstreeIntermediatePage::release_pages_recursive_parallel(Engine* engine) 
       ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
       for (uint8_t j = 0; j < mini_count + 1; ++j) {
         VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
-        if (pointer.components.offset != 0) {
+        if (!pointer.is_null()) {
           threads.emplace_back(release_parallel, engine, pointer);
         }
       }
@@ -220,7 +220,7 @@ void MasstreeIntermediatePage::release_pages_recursive_parallel(Engine* engine) 
   volatile_id.word = header().page_id_;
   memory::PagePool* pool = engine->get_memory_manager()->get_node_memory(
     volatile_id.components.numa_node)->get_volatile_pool();
-  pool->release_one(volatile_id.components.offset);
+  pool->release_one(volatile_id.get_offset());
 }
 
 void MasstreeIntermediatePage::release_pages_recursive(
@@ -245,7 +245,7 @@ void MasstreeIntermediatePage::release_pages_recursive(
         ASSERT_ND(mini_count <= kMaxIntermediateMiniSeparators);
         for (uint8_t j = 0; j < mini_count + 1; ++j) {
           VolatilePagePointer pointer = minipage.pointers_[j].volatile_pointer_;
-          if (pointer.components.offset != 0) {
+          if (!pointer.is_null()) {
             MasstreePage* child = reinterpret_cast<MasstreePage*>(
               page_resolver.resolve_offset(pointer));
             child->release_pages_recursive_common(page_resolver, batch);
@@ -409,9 +409,9 @@ ErrorCode MasstreeBorderPage::split_foster(
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
-    foster_twin_[i].set(context->get_numa_node(), 0, 0, offsets[i]);
-    VolatilePagePointer new_page_id
-      = combine_volatile_page_pointer(context->get_numa_node(), 0, 0, offsets[i]);
+    VolatilePagePointer new_page_id;
+    new_page_id.set(context->get_numa_node(), offsets[i]);
+    foster_twin_[i] = new_page_id;
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
       new_page_id,
@@ -845,9 +845,9 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
-    foster_twin_[i].set(context->get_numa_node(), 0, 0, offsets[i]);
-    VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-      context->get_numa_node(), 0, 0, offsets[i]);
+    VolatilePagePointer new_pointer;
+    new_pointer.set(context->get_numa_node(), offsets[i]);
+    foster_twin_[i] = new_pointer;
 
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
@@ -958,10 +958,10 @@ ErrorCode MasstreeIntermediatePage::split_foster_compact_adopt(
   MasstreeIntermediatePage* twin[2];
   xct::McsBlockIndex twin_locks[2];
   for (int i = 0; i < 2; ++i) {
+    VolatilePagePointer new_pointer;
+    new_pointer.set(context->get_numa_node(), offsets[i]);
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
       resolver.resolve_offset_newpage(offsets[i]));
-    VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-      context->get_numa_node(), 0, 0, offsets[i]);
     foster_twin_[i] = new_pointer;
 
     twin[i]->initialize_volatile_page(
@@ -1035,9 +1035,9 @@ ErrorCode MasstreeIntermediatePage::split_foster_no_adopt(thread::Thread* contex
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
-    foster_twin_[i].set(context->get_numa_node(), 0, 0, offsets[i]);
-    VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-      context->get_numa_node(), 0, 0, offsets[i]);
+    VolatilePagePointer new_pointer;
+    new_pointer.set(context->get_numa_node(), offsets[i]);
+    foster_twin_[i] = new_pointer;
 
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
@@ -1567,7 +1567,6 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
 
   // also handle foster-twin if it's border page
   DualPagePointer& old_pointer = minipage.pointers_[minipage.key_count_];
-  minor_pointer.components.mod_count = old_pointer.volatile_pointer_.components.mod_count + 1;
   old_pointer.snapshot_pointer_ = 0;
   old_pointer.volatile_pointer_ = minor_pointer;
   // the ex-child page is now thrown away.
