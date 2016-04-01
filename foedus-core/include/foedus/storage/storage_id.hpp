@@ -205,7 +205,7 @@ struct VolatilePagePointer {
    * You should almost always use set(), thus named unsafe.
    */
   void set_offset_unsafe(memory::PagePoolOffset offset) {
-    word = (word & 0xFFFFFFFF00000000ULL) | offset;
+    set(get_numa_node(), offset);
   }
   bool is_null() const { return get_offset() == 0; }
   void clear() { word = 0; }
