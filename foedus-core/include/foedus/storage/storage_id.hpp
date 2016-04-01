@@ -188,38 +188,41 @@ const uint8_t kVolatilePointerFlagSwappable = 0x02;
  * We might later use it.
  *
  * The offset has to be at least 32 bit (4kb * 2^32=16TB per NUMA node).
- * @todo This might become just a typedef of uint64_t rather than union.
+ * @note Initially this was a union, but became just a uint64_t.
  * union data type is a bit unfriendly to some standard classes.
  */
-union VolatilePagePointer {
+struct VolatilePagePointer {
   uint64_t        word;
 
-  struct Components {
-    uint8_t                 numa_node;
-    uint8_t                 unused1;
-    uint16_t                unused2;
-    memory::PagePoolOffset  offset;
-  } components;
+  VolatilePagePointer() : word(0) {}
+  explicit VolatilePagePointer(uint64_t the_word) : word(the_word) {}
+  VolatilePagePointer(const VolatilePagePointer& other) : word(other.word) {}
 
-  uint8_t                get_numa_node() const { return components.numa_node; }
-  memory::PagePoolOffset get_offset() const { return components.offset; }
+  uint8_t                get_numa_node() const { return static_cast<uint8_t>(word >> 32); }
+  memory::PagePoolOffset get_offset() const { return static_cast<uint32_t>(word & 0xFFFFFFFFULL); }
   /**
    * This is used only in special places (snapshot composer).
    * You should almost always use set(), thus named unsafe.
    */
-  void set_offset_unsafe(memory::PagePoolOffset offset) { components.offset = offset; }
-  bool is_null() const { return components.offset == 0; }
+  void set_offset_unsafe(memory::PagePoolOffset offset) {
+    word = (word & 0xFFFFFFFF00000000ULL) | offset;
+  }
+  bool is_null() const { return get_offset() == 0; }
   void clear() { word = 0; }
   void set(uint8_t numa_node, memory::PagePoolOffset offset) {
-    components.numa_node = numa_node;
-    components.unused1 = 0;
-    components.unused2 = 0;
-    components.offset = offset;
+    word = (static_cast<uint64_t>(numa_node) << 32) | offset;
   }
   bool is_equivalent(const VolatilePagePointer& other) const {
     // Now that we got rid of unused flags/mod_count, this is simply a word comparison.
-    return word  == other.word;
+    return word == other.word;
   }
+  bool operator==(const VolatilePagePointer& other) const {
+    return word == other.word;
+  }
+  bool operator!=(const VolatilePagePointer& other) const {
+    return word != other.word;
+  }
+
   friend std::ostream& operator<<(std::ostream& o, const VolatilePagePointer& v);
 };
 void describe_volatile_pointer(std::ostream* o, VolatilePagePointer pointer);
