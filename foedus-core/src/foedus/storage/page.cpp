@@ -139,7 +139,7 @@ void assert_within_valid_volatile_page_impl(
   ASSERT_ND(vpp.get_offset() >= resolver.begin_);
   ASSERT_ND(vpp.get_offset() < resolver.end_);
 
-  const Page* same_page = resolver.resolve_offset_newpage(vpp);
+  const Page* same_page = resolver.resolve_offset(vpp);
   ASSERT_ND(same_page->get_header().page_id_ == page->get_header().page_id_);
   ASSERT_ND(!same_page->get_header().snapshot_);
   /// Ah, oh, finally realized why I occasionally hit assertions here.
