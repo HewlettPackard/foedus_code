@@ -460,15 +460,15 @@ struct McsRwExtendedBlock {
     return read_pred_flags() & kPredFlagGranted;
   }
   inline bool next_flag_is_direct_granted() {
-    auto f = (read_next_flags() & kSuccFlagMask);
+    uint32_t f = (read_next_flags() & kSuccFlagMask);
     return f == kSuccFlagDirectGranted;
   }
   inline bool next_flag_is_leaving_granted() {
-    auto f = (read_next_flags() & kSuccFlagMask);
+    uint32_t f = (read_next_flags() & kSuccFlagMask);
     return f == kSuccFlagLeavingGranted;
   }
   inline bool next_flag_is_granted() {
-    auto f = (read_next_flags() & kSuccFlagMask);
+    uint32_t f = (read_next_flags() & kSuccFlagMask);
     return f == kSuccFlagLeavingGranted || f == kSuccFlagDirectGranted;
   }
   inline bool next_flag_is_leaving() {
@@ -871,7 +871,7 @@ const uint64_t kMaxXctOrdinal       = (1ULL << 24) - 1U;
  * @details
  * Unlike what [TU13] Sec 4.2 defines, FOEDUS's TID is 128 bit to contain more information.
  * XctId represents a half (64bit) of TID that is used to represent persistent status of the record,
- * such as record versions. The locking-mechanism part is separated to another half; CombinedLock.
+ * such as record versions. The locking-mechanism part is separated to another half; McsLock.
  *
  * @par Bit Assignments
  * <table>
@@ -1065,8 +1065,8 @@ struct XctId {
  * It's not a negligible size, but still compact. Also, 16-bytes sometimes reduce false cacheline
  * sharing (well, then you might ask making it 64 bytes... but that's too much).
  *
- * @par CombinedLock and XctId
- * CombinedLock provides the locking mechanism, namely MCS locking.
+ * @par McsLock and XctId
+ * McsLock provides the locking mechanism, namely MCS locking.
  * XctId provides the record version information protected by the lock.
  *
  * @par POD

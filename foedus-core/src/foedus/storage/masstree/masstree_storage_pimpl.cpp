@@ -641,6 +641,7 @@ ErrorCode MasstreeStoragePimpl::follow_page(
   bool for_writes,
   storage::DualPagePointer* pointer,
   MasstreePage** page) {
+  ASSERT_ND(!pointer->is_both_null());
   return context->follow_page_pointer(
     nullptr,  // masstree doesn't create a new page except splits.
     false,  // so, there is no null page possible

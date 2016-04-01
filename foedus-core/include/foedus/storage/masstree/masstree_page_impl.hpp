@@ -173,10 +173,6 @@ class MasstreePage {
     high_fence_ = high_fence;
   }
 
-  MasstreePage* track_foster_child(
-    KeySlice slice,
-    const memory::GlobalVolatilePageResolver& resolver);
-
   /** defined in masstree_page_debug.cpp. */
   friend std::ostream& operator<<(std::ostream& o, const MasstreePage& v);
 
@@ -518,7 +514,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
 
   MiniPage            mini_pages_[10];  // +384 * 10 -> 4096
 
-  ErrorCode local_rebalance(thread::Thread* context);
   void split_foster_decide_strategy(IntermediateSplitStrategy* out) const;
   void split_foster_migrate_records(
     const IntermediateSplitStrategy &strategy,
@@ -1189,6 +1184,10 @@ class MasstreeBorderPage final : public MasstreePage {
     thread::Thread* context,
     SlotIndex key_count,
     xct::McsBlockIndex* out_blocks);
+
+  MasstreeBorderPage* track_foster_child(
+    KeySlice slice,
+    const memory::GlobalVolatilePageResolver& resolver);
 };
 
 /**

@@ -1261,49 +1261,6 @@ void MasstreeIntermediatePage::verify_separators() const {
 
 /////////////////////////////////////////////////////////////////////////////////////
 ///
-///                      Interior node's Local Rebalance
-///
-/////////////////////////////////////////////////////////////////////////////////////
-
-ErrorCode MasstreeIntermediatePage::local_rebalance(thread::Thread* context) {
-  ASSERT_ND(!header_.snapshot_);
-  ASSERT_ND(!is_moved());
-  ASSERT_ND(!is_retired());
-  ASSERT_ND(is_locked());
-  debugging::RdtscWatch watch;
-
-  uint8_t key_count = get_key_count();
-  DVLOG(1) << "Rebalancing an intermediate page... ";
-
-  memory::NumaCoreMemory* memory = context->get_thread_memory();
-  memory::PagePoolOffset work_offset = memory->grab_free_volatile_page();
-  if (work_offset == 0) {
-    return kErrorCodeMemoryNoFreePages;
-  }
-
-  // from now on no failure possible.
-  // reuse the code of split.
-  IntermediateSplitStrategy* strategy =
-    reinterpret_cast<IntermediateSplitStrategy*>(
-      context->get_local_volatile_page_resolver().resolve_offset_newpage(work_offset));
-  split_foster_decide_strategy(strategy);
-
-  // reconstruct this page.
-  uint16_t count = strategy->total_separator_count_;
-  split_foster_migrate_records(*strategy, 0, count, high_fence_);
-
-  watch.stop();
-  DVLOG(1) << "Costed " << watch.elapsed() << " cycles to rebalance a node. original"
-    << " key count: " << static_cast<int>(key_count)
-    << "->" << get_key_count()
-    << ", total separator count=" << count;
-  memory->release_free_volatile_page(work_offset);
-  verify_separators();
-  return kErrorCodeOk;
-}
-
-/////////////////////////////////////////////////////////////////////////////////////
-///
 ///                      Interior node's Adopt
 ///
 /////////////////////////////////////////////////////////////////////////////////////
@@ -1585,20 +1542,20 @@ void MasstreeIntermediatePage::adopt_from_child_norecord_first_level(
   verify_separators();
 }
 
-MasstreePage* MasstreePage::track_foster_child(
+MasstreeBorderPage* MasstreeBorderPage::track_foster_child(
   KeySlice slice,
   const memory::GlobalVolatilePageResolver& resolver) {
-  MasstreePage* cur_page = this;
+  MasstreeBorderPage* cur_page = this;
   while (cur_page->is_moved()) {
     ASSERT_ND(cur_page->has_foster_child());
     ASSERT_ND(!cur_page->is_empty_range());
     if (cur_page->within_foster_minor(slice)) {
       ASSERT_ND(!cur_page->within_foster_major(slice));
-      cur_page = reinterpret_cast<MasstreePage*>(
+      cur_page = reinterpret_cast<MasstreeBorderPage*>(
         resolver.resolve_offset(cur_page->get_foster_minor()));
     } else {
       ASSERT_ND(cur_page->within_foster_major(slice));
-      cur_page = reinterpret_cast<MasstreePage*>(
+      cur_page = reinterpret_cast<MasstreeBorderPage*>(
         resolver.resolve_offset(cur_page->get_foster_major()));
     }
     ASSERT_ND(!cur_page->is_empty_range());
@@ -1646,7 +1603,7 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record(
   const memory::GlobalVolatilePageResolver& resolver
     = engine->get_memory_manager()->get_global_volatile_page_resolver();
   while (true) {
-    cur_page = reinterpret_cast<MasstreeBorderPage*>(cur_page->track_foster_child(slice, resolver));
+    cur_page = cur_page->track_foster_child(slice, resolver);
 
     // now cur_page must be the page that contains the record.
     // the only exception is
@@ -1727,7 +1684,6 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
   ASSERT_ND(cur_page->get_layer() == next_layer);
 
   while (true) {
-    cur_page = cur_page->track_foster_child(next_slice, resolver);
     ASSERT_ND(cur_page->get_layer() == next_layer);
     ASSERT_ND(cur_page->within_fences(next_slice));
 
@@ -1752,6 +1708,8 @@ xct::TrackMovedRecordResult MasstreeBorderPage::track_moved_record_next_layer(
     // 1) again the record is being moved concurrently
     // 2) the record was moved to another layer
     MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(cur_page);
+    // we track foster child in border pages only
+    casted = casted->track_foster_child(next_slice, resolver);
     ASSERT_ND(casted != this);
     SlotIndex index = casted->find_key(next_slice, next_suffix, next_remainder);
     if (index == kBorderPageMaxSlots) {

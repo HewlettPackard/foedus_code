@@ -386,7 +386,13 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   ErrorStack  hcc_reset_all_temperature_stat_recurse(MasstreePage* parent);
   ErrorStack  hcc_reset_all_temperature_stat_follow(VolatilePagePointer page_id);
 
-  /** Thread::follow_page_pointer() for masstree */
+  /**
+   * Thread::follow_page_pointer() for masstree.
+   * Because of how masstree works, this method never creates a completely new page.
+   * In other words, always !pointer->is_both_null().
+   * It either reads an existing volatile/snapshot page or creates a volatile page
+   * from existing snapshot page.
+   */
   ErrorCode follow_page(
     thread::Thread* context,
     bool for_writes,
