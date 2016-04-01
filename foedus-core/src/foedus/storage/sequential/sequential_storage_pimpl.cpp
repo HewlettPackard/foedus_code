@@ -102,7 +102,7 @@ ErrorStack SequentialStoragePimpl::drop() {
         cur_pointer.word = page->header().page_id_;
         ASSERT_ND(page == reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
           cur_pointer.get_offset())));
-        ASSERT_ND(node == cur_pointer.components.numa_node);
+        ASSERT_ND(node == cur_pointer.get_numa_node());
         VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
         if (chunk.full()) {
           pool->release(chunk.size(), &chunk);
@@ -111,7 +111,7 @@ ErrorStack SequentialStoragePimpl::drop() {
         chunk.push_back(cur_pointer.get_offset());
 
         if (!next_pointer.is_null()) {
-          ASSERT_ND(node == next_pointer.components.numa_node);
+          ASSERT_ND(node == next_pointer.get_numa_node());
           page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
             next_pointer.get_offset()));
         } else {
@@ -131,11 +131,11 @@ ErrorStack SequentialStoragePimpl::drop() {
     memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager()->get_node_memory(node);
     memory::PagePool* pool = memory->get_volatile_pool();
     if (!control_block_->head_pointer_pages_[p].is_null()) {
-      ASSERT_ND(control_block_->head_pointer_pages_[p].components.numa_node == node);
+      ASSERT_ND(control_block_->head_pointer_pages_[p].get_numa_node() == node);
       pool->release_one(control_block_->head_pointer_pages_[p].get_offset());
     }
     if (!control_block_->tail_pointer_pages_[p].is_null()) {
-      ASSERT_ND(control_block_->tail_pointer_pages_[p].components.numa_node == node);
+      ASSERT_ND(control_block_->tail_pointer_pages_[p].get_numa_node() == node);
       pool->release_one(control_block_->tail_pointer_pages_[p].get_offset());
     }
   }

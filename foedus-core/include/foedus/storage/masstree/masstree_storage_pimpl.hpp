@@ -110,7 +110,9 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   StorageId           get_id()    const { return control_block_->meta_.id_; }
   const StorageName&  get_name()  const { return control_block_->meta_.name_; }
   const MasstreeMetadata& get_meta()  const { return control_block_->meta_; }
-  DualPagePointer& get_first_root_pointer() { return control_block_->root_page_pointer_; }
+  const DualPagePointer& get_first_root_pointer() const {
+    return control_block_->root_page_pointer_;
+  }
   DualPagePointer* get_first_root_pointer_address() { return &control_block_->root_page_pointer_; }
   xct::LockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
 

@@ -282,7 +282,7 @@ void HashIntermediatePage::release_pages_recursive_parallel(Engine* engine) {
     VolatilePagePointer volatile_id;
     volatile_id.word = header().page_id_;
     memory::PagePool* pool = engine->get_memory_manager()->get_node_memory(
-      volatile_id.components.numa_node)->get_volatile_pool();
+      volatile_id.get_numa_node())->get_volatile_pool();
     pool->release_one(volatile_id.get_offset());
   }
 }

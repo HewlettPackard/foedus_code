@@ -322,7 +322,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* contex
 
   // set the new first-root pointer.
   assorted::memory_fence_release();
-  get_first_root_pointer().volatile_pointer_.word = new_pointer.word;
+  get_first_root_pointer_address()->volatile_pointer_ = new_pointer;
   // first-root snapshot pointer is unchanged.
 
   // old root page and the direct children are now retired

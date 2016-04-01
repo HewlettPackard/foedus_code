@@ -201,6 +201,7 @@ union VolatilePagePointer {
     memory::PagePoolOffset  offset;
   } components;
 
+  uint8_t                get_numa_node() const { return components.numa_node; }
   memory::PagePoolOffset get_offset() const { return components.offset; }
   /**
    * This is used only in special places (snapshot composer).

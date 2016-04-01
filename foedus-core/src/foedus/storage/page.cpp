@@ -135,7 +135,7 @@ void assert_within_valid_volatile_page_impl(
   ASSERT_ND(!page->get_header().snapshot_);
 
   VolatilePagePointer vpp = construct_volatile_page_pointer(page->get_header().page_id_);
-  ASSERT_ND(vpp.components.numa_node < resolver.numa_node_count_);
+  ASSERT_ND(vpp.get_numa_node() < resolver.numa_node_count_);
   ASSERT_ND(vpp.get_offset() >= resolver.begin_);
   ASSERT_ND(vpp.get_offset() < resolver.end_);
 

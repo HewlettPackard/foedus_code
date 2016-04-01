@@ -48,7 +48,7 @@ void describe_volatile_pointer(std::ostream* o_ptr, VolatilePagePointer pointer)
     return;
   }
   o << "<VolatilePointer"
-    << " node=\"" << static_cast<int>(pointer.components.numa_node)
+    << " node=\"" << static_cast<int>(pointer.get_numa_node())
     << "\" offset=\"" << pointer.get_offset()
     << "\" />";
 }

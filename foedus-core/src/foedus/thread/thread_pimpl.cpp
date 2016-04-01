@@ -774,7 +774,7 @@ ThreadRef ThreadPimpl::get_thread_ref(ThreadId id) {
 ////////////////////////////////////////////////////////////////////////////////
 void ThreadPimpl::collect_retired_volatile_page(storage::VolatilePagePointer ptr) {
   ASSERT_ND(is_volatile_page_retired(ptr));
-  uint16_t node = ptr.components.numa_node;
+  uint16_t node = ptr.get_numa_node();
   Epoch current_epoch = engine_->get_xct_manager()->get_current_global_epoch_weak();
   Epoch safe_epoch = current_epoch.one_more().one_more();
   memory::PagePoolOffsetAndEpochChunk* chunk = core_memory_->get_retired_volatile_pool_chunk(node);

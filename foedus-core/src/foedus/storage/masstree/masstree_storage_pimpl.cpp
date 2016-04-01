@@ -46,29 +46,11 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
-// Defines MasstreeStorage methods so that we can inline implementation calls
-xct::TrackMovedRecordResult MasstreeStorage::track_moved_record(
-  xct::RwLockableXctId* old_address,
-  xct::WriteXctAccess* write_set) {
-  return MasstreeStoragePimpl(this).track_moved_record(old_address, write_set);
-}
-ErrorStack MasstreeStoragePimpl::drop() {
-  LOG(INFO) << "Uninitializing a masstree-storage " << get_name();
-
-  if (!control_block_->root_page_pointer_.volatile_pointer_.is_null()) {
-    // release volatile pages
-    const memory::GlobalVolatilePageResolver& page_resolver
-      = engine_->get_memory_manager()->get_global_volatile_page_resolver();
-    // first root is guaranteed to be an intermediate page
-    MasstreeIntermediatePage* first_root = reinterpret_cast<MasstreeIntermediatePage*>(
-      page_resolver.resolve_offset(control_block_->root_page_pointer_.volatile_pointer_));
-    first_root->release_pages_recursive_parallel(engine_);
-    control_block_->root_page_pointer_.volatile_pointer_.word = 0;
-  }
-
-  return kRetOk;
-}
-
+/////////////////////////////////////////////////////////////////////////////
+///
+///  Root-node related, such as a method to retrieve 1st-root, to grow, etc.
+///
+/////////////////////////////////////////////////////////////////////////////
 ErrorCode MasstreeStoragePimpl::get_first_root(
   thread::Thread* context,
   bool for_write,
@@ -86,6 +68,9 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
     0));
 
   assert_aligned_page(page);
+  ASSERT_ND(page->get_layer() == 0);
+  ASSERT_ND(page->get_low_fence() == kInfimumSlice);
+  ASSERT_ND(page->get_high_fence() == kSupremumSlice);
   ASSERT_ND(!for_write || !page->header().snapshot_);
 
   if (UNLIKELY(page->has_foster_child())) {
@@ -93,7 +78,7 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
     ASSERT_ND(!get_first_root_owner().is_deleted());
     ASSERT_ND(!get_first_root_owner().is_moved());
     // root page has a foster child... time for tree growth!
-    MasstreeIntermediatePage* new_root;
+    MasstreeIntermediatePage* new_root = nullptr;
     CHECK_ERROR_CODE(grow_first_root(context, &new_root));
     if (new_root) {
       assert_aligned_page(new_root);
@@ -158,7 +143,7 @@ ErrorCode MasstreeStoragePimpl::grow_first_root(
   context->mcs_release_all_current_locks_after(xct::kNullUniversalLockId);
   xct::McsLockScope owner_scope(context, root_pointer_owner, true, false);
 
-  // McsLock doesn't have a try interface, we should got the lock directly.
+  // McsLock doesn't have a try interface, we got the lock directly.
   ASSERT_ND(owner_scope.is_locked());
 
   // First root's lock is always placed in control block, thus never be moved.
@@ -166,58 +151,6 @@ ErrorCode MasstreeStoragePimpl::grow_first_root(
 
   return grow_root(context, root_pointer, new_root);
 }
-
-void MasstreeStoragePimpl::grow_root_compaction(
-  thread::Thread* context,
-  MasstreePage* root,
-  DualPagePointer* root_pointer,
-  MasstreeIntermediatePage** new_root,
-  PageVersionLockScope* root_lock) {
-  // Analogous to what MasstreeIntermediatePage::adopt_from_child_compaction() does.
-  ASSERT_ND(root->is_locked());
-  ASSERT_ND(root_lock->block_);
-  ASSERT_ND(root->is_moved());
-  ASSERT_ND(!root->is_retired());
-  ASSERT_ND(root->get_low_fence() == root->get_foster_fence()
-    || root->get_high_fence() == root->get_foster_fence());
-  DVLOG(0) << "Trivial grow-root with dummy page split";
-
-  VolatilePagePointer nonempty_child_pointer;
-  MasstreeIntermediatePage* empty_child;
-  if (root->get_low_fence() == root->get_foster_fence()) {
-    nonempty_child_pointer = root->get_foster_major();
-    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_minor());
-  } else {
-    nonempty_child_pointer = root->get_foster_minor();
-    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_major());
-  }
-  ASSERT_ND(empty_child->is_empty_range());
-  ASSERT_ND(root
-    == context->resolve_cast<MasstreeIntermediatePage>(root_pointer->volatile_pointer_));
-  root_pointer->volatile_pointer_ = nonempty_child_pointer;
-  // Interestingly, no need to change snapshot pointer at all. It is logically the same thing.
-
-  *new_root = context->resolve_cast<MasstreeIntermediatePage>(nonempty_child_pointer);
-  assorted::memory_fence_seq_cst();
-
-  // the old root page AND the empty pages are now retired
-  root_lock->set_changed();
-  ASSERT_ND(!root->is_retired());
-  root->set_retired();
-
-  // The only thread that might be retiring this empty page must be in this function,
-  // holding a page-lock in root_lock. Thus we don't need a lock in empty_grandchild.
-  ASSERT_ND(!empty_child->is_locked());  // none else holding lock on it
-  // and we can safely retire the page. We do not use set_retired because is_moved() is false
-  // It's a special retirement path.
-  empty_child->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
-  context->collect_retired_volatile_page(
-    construct_volatile_page_pointer(empty_child->header().page_id_));
-
-  context->collect_retired_volatile_page(
-    construct_volatile_page_pointer(root->header().page_id_));
-}
-
 ErrorCode MasstreeStoragePimpl::grow_root(
   thread::Thread* context,
   DualPagePointer* root_pointer,
@@ -306,8 +239,8 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   ASSERT_ND(!(*new_root)->is_border());
 
   // Let's install a pointer to the new root page
-  assorted::memory_fence_release();
-  root_pointer->volatile_pointer_.word = new_pointer.word;
+  assorted::memory_fence_seq_cst();  // must be after populating the new_root.
+  root_pointer->volatile_pointer_ = new_pointer;
   if (root->get_layer() == 0) {
     LOG(INFO) << "Root of first layer is logically unchanged by grow_root, so the snapshot"
       << " pointer is unchanged. value=" << root_pointer->snapshot_pointer_;
@@ -327,6 +260,85 @@ ErrorCode MasstreeStoragePimpl::grow_root(
     construct_volatile_page_pointer(root->header().page_id_));
   return kErrorCodeOk;
 }
+
+
+void MasstreeStoragePimpl::grow_root_compaction(
+  thread::Thread* context,
+  MasstreePage* root,
+  DualPagePointer* root_pointer,
+  MasstreeIntermediatePage** new_root,
+  PageVersionLockScope* root_lock) {
+  // Analogous to what MasstreeIntermediatePage::adopt_from_child_compaction() does.
+  ASSERT_ND(root->is_locked());
+  ASSERT_ND(root_lock->block_);
+  ASSERT_ND(root->is_moved());
+  ASSERT_ND(!root->is_retired());
+  ASSERT_ND(root->get_low_fence() == root->get_foster_fence()
+    || root->get_high_fence() == root->get_foster_fence());
+  DVLOG(0) << "Trivial grow-root with dummy page split";
+
+  VolatilePagePointer nonempty_child_pointer;
+  MasstreeIntermediatePage* empty_child;
+  if (root->get_low_fence() == root->get_foster_fence()) {
+    nonempty_child_pointer = root->get_foster_major();
+    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_minor());
+  } else {
+    nonempty_child_pointer = root->get_foster_minor();
+    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_major());
+  }
+  ASSERT_ND(empty_child->is_empty_range());
+  ASSERT_ND(root
+    == context->resolve_cast<MasstreeIntermediatePage>(root_pointer->volatile_pointer_));
+  // Interestingly, no need to change snapshot pointer at all. It is logically the same thing.
+
+  *new_root = context->resolve_cast<MasstreeIntermediatePage>(nonempty_child_pointer);
+  ASSERT_ND((*new_root)->get_low_fence() == kInfimumSlice);
+  ASSERT_ND((*new_root)->get_high_fence() == kSupremumSlice);
+
+  assorted::memory_fence_seq_cst();
+  root_pointer->volatile_pointer_ = nonempty_child_pointer;
+  assorted::memory_fence_seq_cst();
+
+  // the old root page AND the empty pages are now retired
+  root_lock->set_changed();
+  ASSERT_ND(!root->is_retired());
+  root->set_retired();
+
+  // The only thread that might be retiring this empty page must be in this function,
+  // holding a page-lock in root_lock. Thus we don't need a lock in empty_grandchild.
+  ASSERT_ND(!empty_child->is_locked());  // none else holding lock on it
+  // and we can safely retire the page. We do not use set_retired because is_moved() is false
+  // It's a special retirement path.
+  empty_child->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(empty_child->header().page_id_));
+
+  context->collect_retired_volatile_page(
+    construct_volatile_page_pointer(root->header().page_id_));
+}
+
+/////////////////////////////////////////////////////////////////////////////
+///
+///  Storage-wide operations, such as drop, create, etc
+///
+/////////////////////////////////////////////////////////////////////////////
+ErrorStack MasstreeStoragePimpl::drop() {
+  LOG(INFO) << "Uninitializing a masstree-storage " << get_name();
+
+  if (!control_block_->root_page_pointer_.volatile_pointer_.is_null()) {
+    // release volatile pages
+    const memory::GlobalVolatilePageResolver& page_resolver
+      = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+    // first root is guaranteed to be an intermediate page
+    MasstreeIntermediatePage* first_root = reinterpret_cast<MasstreeIntermediatePage*>(
+      page_resolver.resolve_offset(control_block_->root_page_pointer_.volatile_pointer_));
+    first_root->release_pages_recursive_parallel(engine_);
+    control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  }
+
+  return kRetOk;
+}
+
 ErrorStack MasstreeStoragePimpl::load_empty() {
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
   control_block_->root_page_pointer_.volatile_pointer_.word = 0;
@@ -412,6 +424,11 @@ ErrorStack MasstreeStoragePimpl::load(const StorageControlBlock& snapshot_block)
   return kRetOk;
 }
 
+/////////////////////////////////////////////////////////////////////////////
+///
+///  Record-wise or page-wise operations
+///
+/////////////////////////////////////////////////////////////////////////////
 inline ErrorCode MasstreeStoragePimpl::find_border_physical(
   thread::Thread* context,
   MasstreePage* layer_root,
@@ -627,7 +644,7 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
     parent_lock->xct_id_.set_next_layer();  // which also turns off delete-bit
 
     ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.get_offset() == offset);
-    ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.components.numa_node
+    ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_.get_numa_node()
       == context->get_numa_node());
 
     // change ordinal just to let concurrent transactions get aware
@@ -1521,6 +1538,13 @@ ErrorCode MasstreeStoragePimpl::increment_general(
     sizeof(PAYLOAD));
   border->header().stat_last_updater_node_ = context->get_numa_node();
   return register_record_write_log(context, location, log_entry);
+}
+
+// Defines MasstreeStorage methods so that we can inline implementation calls
+xct::TrackMovedRecordResult MasstreeStorage::track_moved_record(
+  xct::RwLockableXctId* old_address,
+  xct::WriteXctAccess* write_set) {
+  return MasstreeStoragePimpl(this).track_moved_record(old_address, write_set);
 }
 
 inline xct::TrackMovedRecordResult MasstreeStoragePimpl::track_moved_record(

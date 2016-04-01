@@ -347,7 +347,7 @@ struct PageHeader CXX11_FINAL {
     key_count_ = 0;
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
-    stat_last_updater_node_ = page_id.components.numa_node;
+    stat_last_updater_node_ = page_id.get_numa_node();
     hotness_.reset();
     page_version_.reset();
   }

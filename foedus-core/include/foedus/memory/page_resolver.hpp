@@ -121,13 +121,13 @@ struct GlobalVolatilePageResolver CXX11_FINAL {
     storage::Page* page = resolve_offset_newpage(numa_node, offset);
     // this is NOT a new page, so we have sanity checks
     storage::assert_valid_volatile_page(page, offset);
-    ASSERT_ND(storage::construct_volatile_page_pointer(page->get_header().page_id_).
-      components.numa_node == numa_node);
+    ASSERT_ND(storage::construct_volatile_page_pointer(page->get_header().page_id_).get_numa_node()
+      == numa_node);
     return page;
   }
   /** Resolves volatile page ID to storage::Page*. */
   storage::Page* resolve_offset(storage::VolatilePagePointer page_pointer) const ALWAYS_INLINE {
-    return resolve_offset(page_pointer.components.numa_node, page_pointer.get_offset());
+    return resolve_offset(page_pointer.get_numa_node(), page_pointer.get_offset());
   }
 
   /** As the name suggests, this version is for new pages, which don't have sanity checks. */
@@ -144,7 +144,7 @@ struct GlobalVolatilePageResolver CXX11_FINAL {
   storage::Page* resolve_offset_newpage(
     storage::VolatilePagePointer page_pointer) const ALWAYS_INLINE {
     return resolve_offset_newpage(
-      page_pointer.components.numa_node,
+      page_pointer.get_numa_node(),
       page_pointer.get_offset());
   }
 

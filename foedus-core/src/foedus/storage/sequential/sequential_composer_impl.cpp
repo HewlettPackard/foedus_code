@@ -349,7 +349,7 @@ Composer::DropResult SequentialComposer::drop_volatiles(
         // okay, drop this
         memory::PagePoolOffset next = head->next_page().volatile_pointer_.get_offset();
         ASSERT_ND(next != offset);
-        ASSERT_ND(next == 0 || head->next_page().volatile_pointer_.components.numa_node == node);
+        ASSERT_ND(next == 0 || head->next_page().volatile_pointer_.get_numa_node() == node);
         args.drop(engine_, combine_volatile_page_pointer(node, offset));
         if (next == 0) {
           // it was the tail

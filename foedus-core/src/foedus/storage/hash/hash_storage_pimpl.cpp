@@ -814,7 +814,7 @@ ErrorCode HashStoragePimpl::follow_page_bin_head(
           HashDataPage* cur = head_page;
           while (true) {
             VolatilePagePointer cur_id = construct_volatile_page_pointer(cur->header().page_id_);
-            ASSERT_ND(cur_id.components.numa_node == context->get_numa_node());
+            ASSERT_ND(cur_id.get_numa_node() == context->get_numa_node());
             ASSERT_ND(!cur_id.is_null());
             // retrieve next_id BEFORE releasing (revoking) cur page.
             VolatilePagePointer next_id = cur->next_page().volatile_pointer_;

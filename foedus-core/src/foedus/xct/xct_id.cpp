@@ -39,7 +39,7 @@ UniversalLockId to_universal_lock_id(
   const auto& page_header = page->get_header();
   ASSERT_ND(!page_header.snapshot_);
   storage::VolatilePagePointer vpp(storage::construct_volatile_page_pointer(page_header.page_id_));
-  const uint64_t node = vpp.components.numa_node;
+  const uint64_t node = vpp.get_numa_node();
   const uint64_t page_index = vpp.get_offset();
   const uint64_t in_page_offset = lock_ptr % storage::kPageSize;
 

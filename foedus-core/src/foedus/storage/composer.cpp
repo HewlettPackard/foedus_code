@@ -114,7 +114,7 @@ void Composer::drop_root_volatile(const Composer::DropVolatilesArguments& args) 
 void Composer::DropVolatilesArguments::drop(
   Engine* engine,
   VolatilePagePointer pointer) const {
-  uint16_t node = pointer.components.numa_node;
+  uint16_t node = pointer.get_numa_node();
   ASSERT_ND(node < engine->get_soc_count());
   ASSERT_ND(!pointer.is_null());
 #ifndef NDEBUG
