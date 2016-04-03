@@ -18,11 +18,11 @@
 #ifndef FOEDUS_ASSORTED_SPIN_UNTIL_IMPL_HPP_
 #define FOEDUS_ASSORTED_SPIN_UNTIL_IMPL_HPP_
 
+#include <valgrind.h>
+
 #ifndef NDEBUG
 #include <glog/logging.h>
 #endif  // NDEBUG
-
-#include <valgrind/valgrind.h>
 
 #include "foedus/assorted/assorted_func.hpp"
 
