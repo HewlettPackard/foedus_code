@@ -29,6 +29,7 @@
 #include "foedus/epoch.hpp"
 #include "foedus/test_common.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/spin_until_impl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -69,6 +70,7 @@ struct Runner {
 
   void sleep_enough() {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    assorted::yield_if_valgrind();
   }
 
   void init() {
@@ -231,7 +233,7 @@ struct Runner {
 
   /**
    * This one is a bit different from others.
-   * Here we intentially let it fail by taking locks
+   * Here we intentionally let it fail by taking locks
    * in non-canonical mode. We just confirm that
    * "try" won't cause a deadlock then.
    *
@@ -342,6 +344,7 @@ struct Runner {
               ret.acquired_ = true;
               break;
             }
+            assorted::yield_if_valgrind();
           }
         }
         if (ret.acquired_) {
@@ -377,6 +380,7 @@ struct Runner {
               ret.acquired_ = true;
               break;
             }
+            assorted::yield_if_valgrind();
           }
         }
         if (ret.acquired_) {
@@ -413,6 +417,7 @@ struct Runner {
                 ret.acquired_ = true;
                 break;
               }
+              assorted::yield_if_valgrind();
             }
           }
           if (ret.acquired_) {
@@ -437,6 +442,7 @@ struct Runner {
                 ret.acquired_ = true;
                 break;
               }
+              assorted::yield_if_valgrind();
             }
           }
           if (ret.acquired_) {

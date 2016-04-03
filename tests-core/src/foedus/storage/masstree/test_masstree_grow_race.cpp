@@ -251,9 +251,9 @@ void run_test() {
     std::cout << "This testcase takes too long on Valgrind. exit" << std::endl;
     return;
   }
-  if (test_core_count > 100U) {
+  if (test_core_count > 20U) {
     std::cout << "This testcase throttles thread count to 100." << std::endl;
-    test_core_count = 100U;
+    test_core_count = 20U;
   }
 
   uint64_t kSplitMargin = 3;  // splits require tentative pages

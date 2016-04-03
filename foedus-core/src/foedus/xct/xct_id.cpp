@@ -22,6 +22,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/assorted/raw_atomics.hpp"
+#include "foedus/assorted/spin_until_impl.hpp"
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/storage/page.hpp"
@@ -355,6 +356,49 @@ void McsOwnerlessLockScope::release() {
   }
 }
 
+/////////////////////////////////////////////////////////////////
+///
+///    McsBlock classes
+///
+/////////////////////////////////////////////////////////////////
+bool McsRwSimpleBlock::timeout_granted(int32_t timeout) {
+  if (timeout == kTimeoutNever) {
+    assorted::spin_until([this]{ return this->is_granted(); });
+    return true;
+  } else {
+    while (--timeout) {
+      if (is_granted()) {
+        return true;
+      }
+      assorted::yield_if_valgrind();
+    }
+    return is_granted();
+  }
+}
+
+bool McsRwExtendedBlock::timeout_granted(int32_t timeout) {
+  if (timeout == kTimeoutZero) {
+    return pred_flag_is_granted();
+  } else if (timeout == kTimeoutNever) {
+    assorted::spin_until([this]{ return this->pred_flag_is_granted(); });
+    ASSERT_ND(pred_flag_is_granted());
+  } else {
+    int32_t cycles = 0;
+    do {
+      if (pred_flag_is_granted()) {
+        return true;
+      }
+      assorted::yield_if_valgrind();
+    } while (++cycles < timeout);
+  }
+  return pred_flag_is_granted();
+}
+
+/////////////////////////////////////////////////////////////////
+///
+/// Debug out operators
+///
+/////////////////////////////////////////////////////////////////
 std::ostream& operator<<(std::ostream& o, const McsLock& v) {
   o << "<McsLock><locked>" << v.is_locked() << "</locked><tail_waiter>"
     << v.get_tail_waiter() << "</tail_waiter><tail_block>" << v.get_tail_waiter_block()

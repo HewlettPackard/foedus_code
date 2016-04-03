@@ -320,19 +320,7 @@ struct McsRwSimpleBlock {
     ASSERT_ND(is_reader());
     return read_state() & kStateFinalizedMask;
   }
-  inline bool timeout_granted(int32_t timeout) {
-    if (timeout == kTimeoutNever) {
-      while (!is_granted()) {}
-      return true;
-    } else {
-      while (--timeout) {
-        if (is_granted()) {
-          return true;
-        }
-      }
-      return is_granted();
-    }
-  }
+  bool timeout_granted(int32_t timeout);
   inline void set_successor_class_writer() {
     // In case the caller is a reader appending after a writer or waiting reader,
     // the requester should have already set the successor class to "reader" through by CASing
@@ -644,22 +632,7 @@ struct McsRwExtendedBlock {
     ASSERT_ND(next_flag_is_waiting());
     ASSERT_ND(is_writer());
   }
-  inline bool timeout_granted(int32_t timeout) {
-    if (timeout == kTimeoutZero) {
-      return pred_flag_is_granted();
-    } else if (timeout == kTimeoutNever) {
-      while (!pred_flag_is_granted()) {}
-      ASSERT_ND(pred_flag_is_granted());
-    } else {
-      int32_t cycles = 0;
-      do {
-        if (pred_flag_is_granted()) {
-          return true;
-        }
-      } while (++cycles < timeout);
-    }
-    return pred_flag_is_granted();
-  }
+  bool timeout_granted(int32_t timeout);
 };
 
 /**

@@ -23,6 +23,7 @@
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/spin_until_impl.hpp"
 #include "foedus/thread/thread_pimpl.hpp"  // just for explicit instantiation at the end
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_mcs_adapter_impl.hpp"
@@ -35,22 +36,10 @@ inline void assert_mcs_aligned(const void* address) {
   ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 4 == 0);
 }
 
-/**
- * Spin locally until the given condition returns true
- * @attention We initially had this method behaving like spin_while, which is opposite!
- * Note that this waits \b UNTIL the condition becomes true@
- */
+// will be removed soon. should directly call assorted::spin_until
 template <typename COND>
 void spin_until(COND spin_until_cond) {
-  DVLOG(1) << "Locally spinning...";
-  uint64_t spins = 0;
-  while (!spin_until_cond()) {
-    ++spins;
-    if ((spins & 0xFFFFFFU) == 0) {
-      assorted::spinlock_yield();
-    }
-  }
-  DVLOG(1) << "Spin ended. Spent " << spins << " spins";
+  assorted::spin_until(spin_until_cond);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1193,18 +1182,21 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(pred_block->next_flag_has_reader_successor());
     ASSERT_ND(pred_block->get_next_id() == McsRwExtendedBlock::kSuccIdSuccessorLeaving);
 
-    uint64_t expected = 0, new_next = 0;
-    do {  // preserve pred.flags
+    spin_until([pred_block, successor]{
+      uint64_t expected = 0, new_next = 0;
       expected = pred_block->get_next();
       new_next = successor | (expected & static_cast<uint64_t>(McsRwExtendedBlock::kSuccFlagMask));
       if (expected & static_cast<uint64_t>(McsRwExtendedBlock::kSuccFlagBusy)) {
         new_next |= static_cast<uint64_t>(McsRwExtendedBlock::kSuccFlagBusy);
       }
       ASSERT_ND((expected >> 32) == McsRwExtendedBlock::kSuccIdSuccessorLeaving);
-    } while (!pred_block->cas_next_weak(expected, new_next));
+      return pred_block->cas_next_weak(expected, new_next);
+    });
 
     // I believe we should do this after setting pred.id, see the comment in cancel_writer_lock.
-    while (!succ_block->cas_pred_id_strong(my_tail_int, pred)) {}
+    spin_until([succ_block, my_tail_int, pred]{
+      return succ_block->cas_pred_id_strong(my_tail_int, pred);
+    });
   }
 
   ErrorCode acquire_reader_lock_check_writer_pred(
@@ -1277,7 +1269,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
         lock->set_next_writer(next_writer_id);
         ASSERT_ND(adaptor_.get_rw_other_async_block(next_writer_id, lock));
         // also tell successor it doesn't have pred any more
-        while (!succ_block->cas_pred_id_strong(my_tail_int, 0)) {}
+        spin_until([succ_block, my_tail_int]{
+          return succ_block->cas_pred_id_strong(my_tail_int, 0);
+        });
       }
     }
     finish_release_reader_lock(lock);
@@ -1297,7 +1291,9 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       lock->cas_next_writer_strong(next_writer_id, McsRwLock::kNextWriterNone)) {
       auto* wb = adaptor_.get_rw_other_async_block(next_writer_id, lock);
       ASSERT_ND(!wb->pred_flag_is_granted());
-      while (!wb->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired)) {}
+      spin_until([wb]{
+        return wb->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired);
+      });
       ASSERT_ND(lock->nreaders() == 0);
       wb->set_pred_flag_granted();
     }
@@ -1373,6 +1369,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 
     uint32_t next_id = my_block->get_next_id();
     while (next_id == 0) {
+      assorted::yield_if_valgrind();  // TASK(Hideaki) should use spin_until(), but not trivial
       if (lock->cas_tail_weak(my_tail_int, 0)) {
         return;
       }
@@ -1388,6 +1385,7 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(!succ_block->pred_flag_is_granted());
     ASSERT_ND(succ_block->get_pred_id() != McsRwExtendedBlock::kPredIdAcquired);
     while (!succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {
+      assorted::yield_if_valgrind();  // TASK(Hideaki) also not trivial because of the assert
       ASSERT_ND(my_block->get_next_id() == next_id);
     }
     if (succ_block->is_reader()) {
@@ -1545,9 +1543,13 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(succ_block->pred_flag_is_waiting());
       lock->increment_nreaders();
       succ_block->set_pred_flag_granted();
-      while (!succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired)) {}
+      spin_until([succ_block, my_tail_int]{
+        return succ_block->cas_pred_id_strong(my_tail_int, McsRwExtendedBlock::kPredIdAcquired);
+      });
     } else {
-      while (!succ_block->cas_pred_id_strong(my_tail_int, pred)) {}
+      spin_until([succ_block, my_tail_int, pred]{
+        return succ_block->cas_pred_id_strong(my_tail_int, pred);
+      });
     }
     adaptor_.remove_rw_async_mapping(lock);
     return kErrorCodeLockCancelled;
@@ -1585,11 +1587,15 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
       ASSERT_ND(lock->get_next_writer() == xct::McsRwLock::kNextWriterNone);
       // remaining readers will use CAS on lock.nw, so we blind write
       lock->set_next_writer(next_id >> 16);  // thread id only
-      while (!succ_block->cas_pred_id_strong(my_tail_int, 0)) {}
+      spin_until([succ_block, my_tail_int]{
+        return succ_block->cas_pred_id_strong(my_tail_int, 0);
+      });
       if (lock->nreaders() == 0) {
         if (lock->cas_next_writer_strong(next_id >> 16, McsRwLock::kNextWriterNone)) {
           // ok, I'm so nice, cancelled myself and woke up a successor
-          while (!succ_block->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired)) {}
+          spin_until([succ_block]{
+            return succ_block->cas_pred_id_strong(0, McsRwExtendedBlock::kPredIdAcquired);
+          });
           succ_block->set_pred_flag_granted();
         }
       }
