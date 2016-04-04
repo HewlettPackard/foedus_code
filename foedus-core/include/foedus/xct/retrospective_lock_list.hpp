@@ -35,7 +35,7 @@ namespace xct {
 
 /**
  * @brief \b Retrospective \b Lock \b List (\b RLL) to avoid deadlocks.
- * @defgroup RLL
+ * @defgroup RLL Retrospective Lock List
  * @ingroup XCT
  * @details
  * @par What it is
@@ -389,8 +389,6 @@ class CurrentLockList {
    * @brief Create entries for all write-sets in one-shot.
    * @param[in] write_set write-sets to create placeholders for. Must be canonically sorted.
    * @param[in] write_set_size count of entries in write_set
-   * @param[in] thread context (for requesting extended rw lock and/or getting unversal lock ID).
-   * @param[in] try_async_lock whether to issue lock requests when using extended rw lock.
    * @details
    * During precommit, we must create an entry for every write-set.
    * Rather than doing it one by one, this method creates placeholder entries for all of them.
@@ -419,12 +417,6 @@ class CurrentLockList {
 
   /**
    * @brief Acquire multiple locks up to the given position in canonical order.
-   * @param[in] current_lock we retrospectively take locks before or at this lock
-   * @param[in] current_lock_mode _if_ we also take current_lock in this method, the lock mode.
-   * Ignored if this RLL doesn't contain current_lock.
-   * Also, if this RLL contains current_lock as write-lock, and current_lock_mode is Read,
-   * we ignore it and take write-lock right away. In other words, the retrospect overwrites
-   * the current need.
    * @details
    * This is invoked by the thread to keep itself in canonical mode.
    * This method is \e unconditional, meaning waits forever until we acquire the locks.

@@ -346,11 +346,11 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
    * @param[in] create_if_notfound Whether we will create a new physical record if not exists
    * @param[in] create_payload_length If this method creates a physical record, it makes sure
    * the record can accomodate at least this size of payload.
+   * @param[in] key The searching key.
+   * @param[in] key_length Byte length of the searching key.
    * @param[in] combo Hash values. Also the result of this method.
    * @param[in] bin_head Pointer to the first data page of the bin.
    * @param[out] result Information on the found slot.
-   * @param[out] read_set_address If this method took a read-set on the returned record,
-   * points to the corresponding read-set. Otherwise nullptr.
    * @pre bin_head->get_bin() == combo.bin_
    * @pre bin_head != nullptr
    * @pre bin_head must be volatile page if for_write

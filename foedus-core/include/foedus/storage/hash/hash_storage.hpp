@@ -142,6 +142,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
    * the payload. This is set whether the payload capacity was too small or not.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @details
    * When payload_capacity is smaller than the actual payload, this method returns
    * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
@@ -190,6 +192,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
    * @param[in] payload_count How many bytes we copy.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @pre payload_offset + payload_count must be within the record's actual payload size
    * (returns kErrorCodeStrTooShortPayload if not)
    */
@@ -252,6 +256,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[in] key_length Byte size of key.
    * @param[out] payload Receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
    * (returns kErrorCodeStrTooShortPayload if not)
    * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
