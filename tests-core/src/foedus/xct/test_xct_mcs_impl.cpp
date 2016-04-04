@@ -16,6 +16,7 @@
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <stdint.h>
+#include <valgrind.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
@@ -216,7 +217,8 @@ struct Runner {
     McsMockAdaptor<RW_BLOCK> adaptor(id, &context);
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     assorted::UniformRandom r(id);
-    for (uint32_t i = 0; i < 1000; ++i) {
+    constexpr uint32_t kTries = RUNNING_ON_VALGRIND ? 100 : 1000;
+    for (uint32_t i = 0; i < kTries; ++i) {
       uint32_t k = r.uniform_within(0, kKeys - 1);
       McsBlockIndex block = 0;
       if (id % 2 == 0) {
@@ -253,9 +255,9 @@ struct Runner {
     const int l1 = i_am_latter ? kThreads - 1 - id : id;
     const int l2 = i_am_latter ? id : kThreads - 1 - id;
 #ifndef NDEBUG
-    constexpr uint32_t kTries = 1000;
+    constexpr uint32_t kTries = RUNNING_ON_VALGRIND ? 100 : 1000;
 #else  // NDEBUG
-    constexpr uint32_t kTries = 10000;
+    constexpr uint32_t kTries = RUNNING_ON_VALGRIND ? 100 : 10000;
 #endif  // NDEBUG
     if (kTries * 2U >= kMaxBlocks) {
       LOG(FATAL) << "wait, too large kTries. Increase kMaxBlocks to test it";
@@ -328,7 +330,8 @@ struct Runner {
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     assorted::UniformRandom r(id);
     auto* lock = get_lock(0);
-    for (int i = 0; i < 1000; ++i) {
+    constexpr uint32_t kTries = RUNNING_ON_VALGRIND ? 100 : 1000;
+    for (uint32_t i = 0; i < kTries; ++i) {
       uint32_t timeout = r.uniform_within(0, 10000);
       if (timeout % 1000 == 0) {
         auto block_index = impl.acquire_unconditional_rw_reader(lock);
@@ -364,7 +367,8 @@ struct Runner {
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     assorted::UniformRandom r(id);
     auto* lock = get_lock(0);
-    for (int i = 0; i < 1000; ++i) {
+    constexpr uint32_t kTries = RUNNING_ON_VALGRIND ? 100 : 1000;
+    for (uint32_t i = 0; i < kTries; ++i) {
       uint32_t timeout = r.uniform_within(0, 10000);
       if (timeout % 1000 == 0) {
         auto block_index = impl.acquire_unconditional_rw_writer(lock);
@@ -400,7 +404,8 @@ struct Runner {
     McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
     assorted::UniformRandom r(id);
     auto* lock = get_lock(0);
-    for (int i = 0; i < 1000; ++i) {
+    constexpr uint32_t kTries = RUNNING_ON_VALGRIND ? 100 : 1000;
+    for (uint32_t i = 0; i < kTries; ++i) {
       uint32_t timeout = r.uniform_within(0, 10000);
       if (i % 2 == 0) {
         if (timeout % 1000 == 0) {
