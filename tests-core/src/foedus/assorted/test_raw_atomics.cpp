@@ -32,18 +32,21 @@
 namespace foedus {
 namespace assorted {
 
-const int kThreads = 6;
-const int kIterations = 20;
-const int kReps = 5;
 template <typename T>
 struct CasTestImpl {
-  explicit CasTestImpl(bool weak) : weak_(weak) {}
+  explicit CasTestImpl(bool weak)
+    : kThreads(RUNNING_ON_VALGRIND ? 2 : 6),  // on valgrind it's painfully slow
+      kIterations(RUNNING_ON_VALGRIND ? 3 : 20),
+      weak_(weak) {
+  }
   void test() {
-    static_assert(kThreads * kIterations < 127, "exceeds smallest integer");
+    if (kThreads * kIterations >= 127) {
+      std::cerr << "exceeds smallest integer" << std::endl;
+    }
     data_ = 0;
     conflicts_ = 0;
     for (int i = 0; i <= kThreads * kIterations; ++i) {
-      observed_[i] = false;
+      observed_.push_back(false);
     }
     assorted::memory_fence_release();
     for (int i = 0; i < kThreads; ++i) {
@@ -112,17 +115,20 @@ struct CasTestImpl {
     return iteration * kThreads + id + 1;
   }
 
+  const int kThreads;
+  const int kIterations;
   bool weak_;
   std::vector<std::thread> threads_;
   thread::Rendezvous start_rendezvous_;
   T data_;
   int conflicts_;
-  bool observed_[(kThreads * kIterations) / 8 * 8 + 8];
+  std::vector<bool> observed_;
 };
 template <typename T>
 struct CasTest {
   explicit CasTest(bool weak = false) : weak_(weak) {}
   void test() {
+    const int kReps = 5;
     for (int i = 0; i < kReps; ++i) {
       CasTestImpl<T> impl(weak_);
       impl.test();
