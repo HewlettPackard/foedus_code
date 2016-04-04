@@ -32,21 +32,18 @@
 namespace foedus {
 namespace assorted {
 
+const int kThreads = 6;
+const int kIterations = 20;
+const int kReps = 5;
 template <typename T>
 struct CasTestImpl {
-  explicit CasTestImpl(bool weak)
-    : kThreads(RUNNING_ON_VALGRIND ? 2 : 6),  // on valgrind it's painfully slow
-      kIterations(RUNNING_ON_VALGRIND ? 3 : 20),
-      weak_(weak) {
-  }
+  explicit CasTestImpl(bool weak) : weak_(weak) {}
   void test() {
-    if (kThreads * kIterations >= 127) {
-      std::cerr << "exceeds smallest integer" << std::endl;
-    }
+    static_assert(kThreads * kIterations < 127, "exceeds smallest integer");
     data_ = 0;
     conflicts_ = 0;
     for (int i = 0; i <= kThreads * kIterations; ++i) {
-      observed_.push_back(false);
+      observed_[i] = false;
     }
     assorted::memory_fence_release();
     for (int i = 0; i < kThreads; ++i) {
@@ -102,10 +99,7 @@ struct CasTestImpl {
           ++conflicts_;
           EXPECT_NE(prev_old, old);
           // to speed-up valgrind tests.
-          if (RUNNING_ON_VALGRIND) {
-            std::this_thread::sleep_for(std::chrono::microseconds(50));
-            assorted::spinlock_yield();
-          }
+          std::this_thread::sleep_for(std::chrono::seconds(0));
           assorted::memory_fence_acq_rel();
         }
       }
@@ -115,20 +109,23 @@ struct CasTestImpl {
     return iteration * kThreads + id + 1;
   }
 
-  const int kThreads;
-  const int kIterations;
   bool weak_;
   std::vector<std::thread> threads_;
   thread::Rendezvous start_rendezvous_;
   T data_;
   int conflicts_;
-  std::vector<bool> observed_;
+  bool observed_[(kThreads * kIterations) / 8 * 8 + 8];
 };
 template <typename T>
 struct CasTest {
   explicit CasTest(bool weak = false) : weak_(weak) {}
   void test() {
-    const int kReps = 5;
+    if (RUNNING_ON_VALGRIND) {
+      std::cout << "This test seems to take too long time on valgrind."
+        << " There is nothing interesting in this test to run on valgrind, so"
+        << " we simply skip this test." << std::endl;
+      return;
+    }
     for (int i = 0; i < kReps; ++i) {
       CasTestImpl<T> impl(weak_);
       impl.test();
