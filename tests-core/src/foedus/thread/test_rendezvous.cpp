@@ -15,6 +15,7 @@
  * HP designates this particular file as subject to the "Classpath" exception
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
+#include <valgrind.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -85,6 +86,13 @@ void many_thread() {
   }
 }
 TEST(RendezvousTest, Many) {
+  if (RUNNING_ON_VALGRIND) {
+    std::cout << "This test seems to take too long time on valgrind."
+      << " There is nothing interesting in this test to run on valgrind, so"
+      << " we simply skip this test." << std::endl;
+    return;
+  }
+
   // This tests 1) spurious wake up, 2) lost signal (spurious blocking), 3) and other anomalies.
   for (int i = 0; i < kRep; ++i) {
     many_rendezvous.push_back(new Rendezvous());
