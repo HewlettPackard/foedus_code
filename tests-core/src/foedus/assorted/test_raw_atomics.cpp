@@ -16,6 +16,7 @@
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <stdint.h>
+#include <valgrind.h>
 #include <gtest/gtest.h>
 
 #include <iostream>
@@ -98,7 +99,10 @@ struct CasTestImpl {
           ++conflicts_;
           EXPECT_NE(prev_old, old);
           // to speed-up valgrind tests.
-          std::this_thread::sleep_for(std::chrono::seconds(0));
+          if (RUNNING_ON_VALGRIND) {
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
+            assorted::spinlock_yield();
+          }
           assorted::memory_fence_acq_rel();
         }
       }
