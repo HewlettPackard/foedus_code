@@ -46,12 +46,8 @@ namespace assorted {
  *
  * @par Example
  * @code{.cpp}
- * spin_until([mcs_lock, address]{
- *  uint32_t old_int = McsLock::to_int(0, 0);
- *  return assorted::raw_atomic_compare_exchange_weak<uint32_t>(
- *    address,
- *    &old_int,
- *    kMcsGuestId);
+ * spin_until([block_address]{
+ *  return (*block_address) != 0;  // Spin until the block becomes non-zero
  * });
  * @endcode
  *

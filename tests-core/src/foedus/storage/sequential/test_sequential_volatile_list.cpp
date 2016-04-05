@@ -118,7 +118,7 @@ ErrorStack verify_result(const proc::ProcArguments& args) {
       page->get_all_records_nosync(&record_count, record_pointers, payload_lengthes);
 
       for (uint16_t rec = 0; rec < record_count; ++rec) {
-        const xct::LockableXctId* owner_id = reinterpret_cast<const xct::LockableXctId*>(
+        const xct::RwLockableXctId* owner_id = reinterpret_cast<const xct::RwLockableXctId*>(
           record_pointers[rec]);
         ASSERT_ND(!owner_id->lock_.is_locked());
         uint16_t payload_length = payload_lengthes[rec];

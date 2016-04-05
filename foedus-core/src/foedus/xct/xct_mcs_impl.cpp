@@ -33,7 +33,7 @@ namespace xct {
 
 inline void assert_mcs_aligned(const void* address) {
   ASSERT_ND(address);
-  ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 4 == 0);
+  ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 8 == 0);
 }
 
 // will be removed soon. should directly call assorted::spin_until
@@ -66,73 +66,70 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsLock* mcs_lock) {
   my_block->clear_successor_release();
   adaptor_.me_waiting()->store(true, std::memory_order_release);
   const thread::ThreadId id = adaptor_.get_my_id();
-  uint32_t desired = McsLock::to_int(id, block_index);
-  uint32_t group_tail = desired;
-  uint32_t* address = &(mcs_lock->data_);
+  McsBlockData desired(id, block_index);  // purely local copy. okay to be always relaxed.
+  McsBlockData group_tail = desired;      // purely local copy. okay to be always relaxed.
+  auto* address = &(mcs_lock->tail_);     // be careful on this one!
   assert_mcs_aligned(address);
 
-  uint32_t pred_int = 0;
+  McsBlockData pred;                      // purely local copy. okay to be always relaxed.
+  ASSERT_ND(!pred.is_valid_relaxed());
   while (true) {
     // if it's obviously locked by a guest, we should wait until it's released.
     // so far this is busy-wait, we can do sth. to prevent priority inversion later.
-    if (UNLIKELY(*address == kMcsGuestId)) {
-      spin_until([address]{
-        return assorted::atomic_load_acquire<uint32_t>(address) != kMcsGuestId;
-      });
+    if (UNLIKELY(address->is_guest_relaxed())) {
+      spin_until([address]{ return !address->is_guest_acquire(); });
     }
 
     // atomic op should imply full barrier, but make sure announcing the initialized new block.
-    ASSERT_ND(group_tail != kMcsGuestId);
-    ASSERT_ND(group_tail != 0);
-    ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != group_tail);
-    pred_int = assorted::raw_atomic_exchange<uint32_t>(address, group_tail);
-    ASSERT_ND(pred_int != group_tail);
-    ASSERT_ND(pred_int != desired);
+    ASSERT_ND(!group_tail.is_guest_relaxed());
+    ASSERT_ND(group_tail.is_valid_relaxed());
+    ASSERT_ND(address->get_word_atomic() != group_tail.word_);
+    pred.word_ = assorted::raw_atomic_exchange<uint64_t>(&address->word_, group_tail.word_);
+    ASSERT_ND(pred != group_tail);
+    ASSERT_ND(pred != desired);
 
-    if (pred_int == 0) {
+    if (!pred.is_valid_relaxed()) {
       // this means it was not locked.
       ASSERT_ND(mcs_lock->is_locked());
       DVLOG(2) << "Okay, got a lock uncontended. me=" << id;
       adaptor_.me_waiting()->store(false, std::memory_order_release);
-      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
+      ASSERT_ND(address->is_valid_atomic());
       return block_index;
-    } else if (UNLIKELY(pred_int == kMcsGuestId)) {
+    } else if (UNLIKELY(pred.is_guest_relaxed())) {
       // ouch, I don't want to keep the guest ID! return it back.
       // This also determines the group_tail of this queue
-      group_tail = assorted::raw_atomic_exchange<uint32_t>(address, kMcsGuestId);
-      ASSERT_ND(group_tail != 0 && group_tail != kMcsGuestId);
+      group_tail.word_ = assorted::raw_atomic_exchange<uint64_t>(&address->word_, kMcsGuestId);
+      ASSERT_ND(group_tail.is_valid_relaxed() && !group_tail.is_guest_relaxed());
       continue;
     } else {
       break;
     }
   }
 
-  ASSERT_ND(pred_int != 0 && pred_int != kMcsGuestId);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != kMcsGuestId);
-  McsLock old;
-  old.data_ = pred_int;
+  ASSERT_ND(pred.is_valid_relaxed() && !pred.is_guest_relaxed());
+  ASSERT_ND(address->is_valid_atomic());
+  ASSERT_ND(!address->is_guest_atomic());
   ASSERT_ND(mcs_lock->is_locked());
-  thread::ThreadId predecessor_id = old.get_tail_waiter();
+  thread::ThreadId predecessor_id = pred.get_thread_id_relaxed();
   ASSERT_ND(predecessor_id != id);
-  McsBlockIndex predecessor_block = old.get_tail_waiter_block();
+  McsBlockIndex predecessor_block = pred.get_block_relaxed();
   DVLOG(0) << "mm, contended, we have to wait.. me=" << id << " pred=" << predecessor_id;
 
   ASSERT_ND(adaptor_.me_waiting()->load());
   ASSERT_ND(adaptor_.get_other_cur_block(predecessor_id) >= predecessor_block);
   McsBlock* pred_block = adaptor_.get_ww_other_block(predecessor_id, predecessor_block);
-  ASSERT_ND(!pred_block->has_successor());
+  ASSERT_ND(!pred_block->has_successor_atomic());
 
   pred_block->set_successor_release(id, block_index);
 
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != kMcsGuestId);
+  ASSERT_ND(address->is_valid_atomic());
+  ASSERT_ND(!address->is_guest_atomic());
   spin_until([this]{ return !this->adaptor_.me_waiting()->load(std::memory_order_acquire); });
   DVLOG(1) << "Okay, now I hold the lock. me=" << id << ", ex-pred=" << predecessor_id;
   ASSERT_ND(!adaptor_.me_waiting()->load());
   ASSERT_ND(mcs_lock->is_locked());
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != kMcsGuestId);
+  ASSERT_ND(address->is_valid_atomic());
+  ASSERT_ND(!address->is_guest_atomic());
   return block_index;
 }
 
@@ -143,13 +140,14 @@ void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsLock* mcs_lock) {
   // Check objdump -d. Everything in common path should be inlined.
   // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
   assert_mcs_aligned(mcs_lock);
-  uint32_t* address = &(mcs_lock->data_);
-  assert_mcs_aligned(address);
-  spin_until([mcs_lock, address]{
-    uint32_t old_int = McsLock::to_int(0, 0);
-    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(
-      address,
-      &old_int,
+  auto* int_address = &(mcs_lock->tail_.word_);
+  assert_mcs_aligned(int_address);
+  spin_until([mcs_lock, int_address]{
+    McsBlockData old;
+    ASSERT_ND(!old.is_valid_relaxed());
+    return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+      int_address,
+      &old.word_,
       kMcsGuestId);
   });
   DVLOG(1) << "Okay, now I hold the lock. me=guest";
@@ -196,45 +194,51 @@ void McsWwImpl<ADAPTOR>::release(McsLock* mcs_lock, McsBlockIndex block_index) {
   ASSERT_ND(block_index > 0);
   ASSERT_ND(adaptor_.get_cur_block() >= block_index);
   const thread::ThreadId id = adaptor_.get_my_id();
-  const uint32_t myself = McsLock::to_int(id, block_index);
-  uint32_t* address = &(mcs_lock->data_);
+  const McsBlockData myself(id, block_index);   // purely local copy. okay to be always relaxed.
+  auto* address = &(mcs_lock->tail_);           // be careful on this one!
   McsBlock* block = adaptor_.get_ww_my_block(block_index);
-  if (!block->has_successor()) {
+  if (!block->has_successor_acquire()) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
-    uint32_t expected = myself;
+    McsBlockData expected = myself;             // purely local copy. okay to be always relaxed.
     assert_mcs_aligned(address);
-    bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, &expected, 0);
+    bool swapped
+      = assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+        &address->word_,
+        &expected.word_,
+        0);
     if (swapped) {
       // we have just unset the locked flag, but someone else might have just acquired it,
       // so we can't put assertion here.
       ASSERT_ND(id == 0 || mcs_lock->get_tail_waiter() != id);
       ASSERT_ND(expected == myself);
-      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
+      ASSERT_ND(address->copy_atomic() != myself);
       DVLOG(2) << "Okay, release a lock uncontended. me=" << id;
       return;
     }
-    ASSERT_ND(expected != 0);
-    ASSERT_ND(expected != kMcsGuestId);
+    ASSERT_ND(expected.is_valid_relaxed());
+    ASSERT_ND(!expected.is_guest_relaxed());
     DVLOG(0) << "Interesting contention on MCS release. I thought it's null, but someone has just "
       " jumped in. me=" << id << ", mcs_lock=" << *mcs_lock;
     // wait for someone else to set the successor
     ASSERT_ND(mcs_lock->is_locked());
-    if (UNLIKELY(!block->has_successor())) {
-      spin_until([block]{ return block->has_successor_atomic(); });
+    if (UNLIKELY(!block->has_successor_acquire())) {
+      spin_until([block]{ return block->has_successor_acquire(); });
     }
   }
-  thread::ThreadId successor_id = block->get_successor_thread_id();
+  // Relax: In either case above, we confirmed that block->has_successor with fences.
+  // We thus can just read in relaxed mode here.
+  thread::ThreadId successor_id = block->get_successor_thread_id_relaxed();
   DVLOG(1) << "Okay, I have a successor. me=" << id << ", succ=" << successor_id;
   ASSERT_ND(successor_id != id);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
+  ASSERT_ND(address->copy_atomic() != myself);
 
-  ASSERT_ND(adaptor_.get_other_cur_block(successor_id) >= block->get_successor_block());
+  ASSERT_ND(adaptor_.get_other_cur_block(successor_id) >= block->get_successor_block_relaxed());
   ASSERT_ND(adaptor_.other_waiting(successor_id)->load());
   ASSERT_ND(mcs_lock->is_locked());
 
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
+  ASSERT_ND(address->copy_atomic() != myself);
   adaptor_.other_waiting(successor_id)->store(false, std::memory_order_release);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
+  ASSERT_ND(address->copy_atomic() != myself);
 }
 
 template <typename ADAPTOR>
@@ -244,12 +248,14 @@ void McsWwImpl<ADAPTOR>::ownerless_release(McsLock* mcs_lock) {
   // Check objdump -d. Everything in common path should be inlined.
   // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
   assert_mcs_aligned(mcs_lock);
-  uint32_t* address = &(mcs_lock->data_);
-  assert_mcs_aligned(address);
+  auto* int_address = &(mcs_lock->tail_.word_);
+  assert_mcs_aligned(int_address);
   ASSERT_ND(mcs_lock->is_locked());
-  spin_until([address]{
-    uint32_t old_int = kMcsGuestId;
-    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(address, &old_int, 0);
+  spin_until([int_address]{
+    McsBlockData old(kMcsGuestId);
+    ASSERT_ND(old.is_valid_relaxed());
+    ASSERT_ND(old.is_guest_relaxed());
+    return assorted::raw_atomic_compare_exchange_weak<uint64_t>(int_address, &old.word_, 0);
   });
   DVLOG(1) << "Okay, guest released the lock.";
 }

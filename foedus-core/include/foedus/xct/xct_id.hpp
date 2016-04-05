@@ -152,10 +152,10 @@ const LockListPosition kLockListPositionInvalid = 0;
 /** Index in thread-local MCS block. 0 means not locked. */
 typedef uint32_t McsBlockIndex;
 /**
- * When MCS lock contains this value, this means the lock is held by a non-regular guest
- * that doesn't have a context.
+ * A special value meaning the lock is held by a non-regular guest
+ * that doesn't have a context. See the MCSg paper for more details.
  */
-const uint32_t kMcsGuestId = -1;
+const uint64_t kMcsGuestId = -1;
 
 /** Return value of acquire_async_rw. */
 struct AcquireAsyncRet {
@@ -170,43 +170,122 @@ struct AcquireAsyncRet {
   McsBlockIndex block_index_;
 };
 
+/////////////////////////////////////////////////////////////////////////////
+///
+/// Exclusive-only (WW) MCS lock classes.
+/// These are mainly used for page locks.
+///
+/////////////////////////////////////////////////////////////////////////////
 /**
- * Represents an MCS node, a pair of node-owner (thread) and its block index.
+ * Represents an exclusive-only MCS node, a pair of node-owner (thread) and its block index.
  */
-union McsNodeUnion {
-  uint64_t word;
-  struct Components {
-    uint32_t      thread_id_;
-    McsBlockIndex block_;
-  } components;
+struct McsBlockData {
+  /**
+   * The high 32-bits is thread_id, the low 32-bit is block-index.
+   * We so far need only 16-bits each, but reserved more bits for future use.
+   * We previously used union for this, but it caused many "accidentally non-access-once" bugs.
+   * We thus avoid using union. Not saying that union is wrong, but it's prone to such coding.
+   */
+  uint64_t word_;
 
-  bool is_valid() const ALWAYS_INLINE { return components.block_ != 0; }
-  bool is_valid_atomic() const ALWAYS_INLINE {
-    McsBlockIndex block = assorted::atomic_load_seq_cst<McsBlockIndex>(&components.block_);
-    return block != 0;
+  static uint64_t combine(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    uint64_t word = thread_id;
+    word <<= 32;
+    word |= block;
+    return word;
   }
-  void clear() ALWAYS_INLINE { word = 0; }
-  void clear_atomic() ALWAYS_INLINE { set_atomic(0, 0); }
-  void clear_release() ALWAYS_INLINE { set_release(0, 0); }
-  void set(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    McsNodeUnion new_value;
-    new_value.components.thread_id_ = thread_id;
-    new_value.components.block_ = block;
-    word = new_value.word;  // don't do *this = new_value. this must be an assignment of one int
+  static uint32_t decompose_thread_id(uint64_t word) ALWAYS_INLINE {
+    return static_cast<uint32_t>((word >> 32) & 0xFFFFFFFFUL);
+  }
+  static McsBlockIndex decompose_block(uint64_t word) ALWAYS_INLINE {
+    return static_cast<McsBlockIndex>(word & 0xFFFFFFFFUL);
+  }
+
+  McsBlockData() : word_(0) {
+  }
+  explicit McsBlockData(uint64_t word) : word_(word) {
+  }
+  McsBlockData(uint32_t thread_id, McsBlockIndex block) {
+    set_relaxed(thread_id, block);
+  }
+  bool operator==(const McsBlockData& other) const {
+    return word_ == other.word_;
+  }
+  bool operator!=(const McsBlockData& other) const {
+    return word_ != other.word_;
+  }
+
+  uint64_t get_word_acquire() const ALWAYS_INLINE {
+    return assorted::atomic_load_acquire<uint64_t>(&word_);
+  }
+  uint64_t get_word_consume() const ALWAYS_INLINE {
+    return assorted::atomic_load_consume<uint64_t>(&word_);
+  }
+  uint64_t get_word_atomic() const ALWAYS_INLINE {
+    return assorted::atomic_load_seq_cst<uint64_t>(&word_);
+  }
+  /**
+   * The access_once semantics, which is widely used in linux.
+   * This is weaker than get_word_atomic(), but enough for many places.
+   */
+  uint64_t get_word_once() const ALWAYS_INLINE { return *(&word_); }
+  McsBlockData copy_once() const ALWAYS_INLINE { return McsBlockData(get_word_once()); }
+  McsBlockData copy_consume() const ALWAYS_INLINE { return McsBlockData(get_word_consume()); }
+  McsBlockData copy_acquire() const ALWAYS_INLINE { return McsBlockData(get_word_acquire()); }
+  McsBlockData copy_atomic() const ALWAYS_INLINE { return McsBlockData(get_word_atomic()); }
+
+  bool is_valid() const ALWAYS_INLINE { return word_ != 0; }
+  bool is_valid_relaxed() const ALWAYS_INLINE { return word_ != 0; }
+  bool is_valid_consume() const ALWAYS_INLINE { return get_word_consume() == 0; }
+  bool is_valid_acquire() const ALWAYS_INLINE { return get_word_acquire() == 0; }
+  bool is_valid_atomic() const ALWAYS_INLINE {
+    return get_word_atomic() != 0;
+  }
+  bool is_guest_relaxed() const ALWAYS_INLINE { return word_ == kMcsGuestId; }
+  bool is_guest_acquire() const ALWAYS_INLINE {
+    return get_word_acquire() == kMcsGuestId;
+  }
+  bool is_guest_consume() const ALWAYS_INLINE {
+    return get_word_consume() == kMcsGuestId;
+  }
+  bool is_guest_atomic() const ALWAYS_INLINE {
+    return get_word_atomic() == kMcsGuestId;
+  }
+  /**
+   * Carefully use this! In some places you must call get_word_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline uint32_t get_thread_id_relaxed() const ALWAYS_INLINE {
+    return McsBlockData::decompose_thread_id(word_);
+  }
+  /**
+   * Carefully use this! In some places you must call get_word_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline McsBlockIndex  get_block_relaxed() const ALWAYS_INLINE {
+    return McsBlockData::decompose_block(word_);
+  }
+  void clear() ALWAYS_INLINE { word_ = 0; }
+  void clear_atomic() ALWAYS_INLINE {
+    assorted::atomic_store_seq_cst<uint64_t>(&word_, 0);
+  }
+  void clear_release() ALWAYS_INLINE {
+    assorted::atomic_store_release<uint64_t>(&word_, 0);
+  }
+  void set_relaxed(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    word_ = McsBlockData::combine(thread_id, block);
   }
   void set_atomic(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    McsNodeUnion new_value;
-    new_value.components.thread_id_ = thread_id;
-    new_value.components.block_ = block;
-    // The following is inlined as far as the compile-unit (caller) is compiled with C++11.
-    // We observed 5%~ performance difference in TPCC with/without the inlining.
-    assorted::atomic_store_seq_cst<uint64_t>(&this->word, new_value.word);
+    set_combined_atomic(McsBlockData::combine(thread_id, block));
   }
   void set_release(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    McsNodeUnion new_value;
-    new_value.components.thread_id_ = thread_id;
-    new_value.components.block_ = block;
-    assorted::atomic_store_release<uint64_t>(&this->word, new_value.word);
+    set_combined_release(McsBlockData::combine(thread_id, block));
+  }
+  void set_combined_atomic(uint64_t word) ALWAYS_INLINE {
+    assorted::atomic_store_seq_cst<uint64_t>(&word_, word);
+  }
+  void set_combined_release(uint64_t word) ALWAYS_INLINE {
+    assorted::atomic_store_release<uint64_t>(&word_, word);
   }
 };
 
@@ -217,23 +296,29 @@ struct McsBlock {
    * waiting for this thread). Successor is represented by thread ID and block,
    * the index in mcs_blocks_.
    */
-  McsNodeUnion  successor_;
+  McsBlockData successor_;
 
   /// setter/getter for successor_.
-  inline bool             has_successor() const ALWAYS_INLINE { return successor_.is_valid(); }
+  inline bool has_successor_relaxed() const ALWAYS_INLINE { return successor_.is_valid_relaxed(); }
+  inline bool has_successor_consume() const ALWAYS_INLINE { return successor_.is_valid_consume(); }
+  inline bool has_successor_acquire() const ALWAYS_INLINE { return successor_.is_valid_acquire(); }
   inline bool has_successor_atomic() const ALWAYS_INLINE { return successor_.is_valid_atomic(); }
-  inline uint32_t         get_successor_thread_id() const ALWAYS_INLINE {
-    return successor_.components.thread_id_;
+  /**
+   * Carefully use this! In some places you must call copy_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline uint32_t         get_successor_thread_id_relaxed() const ALWAYS_INLINE {
+    return successor_.get_thread_id_relaxed();
   }
-  inline McsBlockIndex    get_successor_block() const ALWAYS_INLINE {
-    return successor_.components.block_;
+  /**
+   * Carefully use this! In some places you must call copy_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline McsBlockIndex    get_successor_block_relaxed() const ALWAYS_INLINE {
+    return successor_.get_block_relaxed();
   }
-  inline void             clear_successor() ALWAYS_INLINE { successor_.clear(); }
   inline void             clear_successor_atomic() ALWAYS_INLINE { successor_.clear_atomic(); }
   inline void             clear_successor_release() ALWAYS_INLINE { successor_.clear_release(); }
-  inline void set_successor(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    successor_.set(thread_id, block);
-  }
   inline void set_successor_atomic(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
     successor_.set_atomic(thread_id, block);
   }
@@ -242,6 +327,94 @@ struct McsBlock {
   }
 };
 
+/**
+ * @brief An exclusive-only (WW) MCS lock data structure.
+ * @ingroup XCT
+ * @details
+ * This is the minimal unit of locking in our system.
+ * Unlike SILO, we employ MCS locking that scales much better on big machines.
+ * This object stores \e tail-waiter, which indicates the thread that is in the tail of the queue
+ * lock, which \e might be the owner of the lock.
+ * The MCS-lock nodes are pre-allocated for each thread and placed in shared memory.
+ *
+ * This is the original MCSg lock implementation without cancel/RW functionality.
+ * It has the guest functionality used by background threads to take page locks.
+ */
+struct McsLock {
+  McsLock() { tail_.clear(); }
+  McsLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
+    tail_.set_relaxed(tail_waiter, tail_waiter_block);
+  }
+
+  McsLock(const McsLock& other) CXX11_FUNC_DELETE;
+  McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
+
+  /** Used only for sanity check */
+  uint8_t   last_1byte_addr() const ALWAYS_INLINE {
+    // address is surely a multiply of 4. omit that part.
+    ASSERT_ND(reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) % 4 == 0);
+    return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) / 4;
+  }
+  /** This is a "relaxed" check. Use with caution. */
+  bool      is_locked() const { return tail_.is_valid(); }
+
+  /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
+  McsBlockIndex acquire_lock(thread::Thread* context);
+  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
+  McsBlockIndex initial_lock(thread::Thread* context);
+  /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
+  void          release_lock(thread::Thread* context, McsBlockIndex block);
+
+  /// The followings are implemented in thread_pimpl.cpp along with the above methods,
+  /// but these don't use any of Thread's context information.
+  void          ownerless_initial_lock();
+  void          ownerless_acquire_lock();
+  void          ownerless_release_lock();
+
+
+  /** This is a "relaxed" check. Use with caution. */
+  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_.get_thread_id_relaxed(); }
+  /** This is a "relaxed" check. Use with caution. */
+  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_.get_block_relaxed(); }
+
+  McsBlockData get_tail_relaxed() const ALWAYS_INLINE { return tail_; }
+  McsBlockData get_tail_once() const ALWAYS_INLINE { return tail_.copy_once(); }
+  McsBlockData get_tail_consume() const ALWAYS_INLINE { return tail_.copy_consume(); }
+  McsBlockData get_tail_acquire() const ALWAYS_INLINE { return tail_.copy_acquire(); }
+  McsBlockData get_tail_atomic() const ALWAYS_INLINE { return tail_.copy_atomic(); }
+
+  /** used only while page initialization */
+  void  reset() ALWAYS_INLINE { tail_.clear(); }
+
+  void  reset_guest_id_release() {
+    tail_.set_combined_release(kMcsGuestId);
+  }
+
+  /** used only for initial_lock() */
+  void  reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    tail_.set_relaxed(tail_waiter, tail_waiter_block);
+  }
+
+  void  reset_atomic() ALWAYS_INLINE { reset_atomic(0, 0); }
+  void  reset_atomic(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    tail_.set_atomic(tail_waiter, tail_waiter_block);
+  }
+  void  reset_release() ALWAYS_INLINE { reset_release(0, 0); }
+  void  reset_release(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    tail_.set_release(tail_waiter, tail_waiter_block);
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
+
+  McsBlockData tail_;
+};
+
+/////////////////////////////////////////////////////////////////////////////
+///
+/// Reader-writer (RW) MCS lock classes.
+/// These are mainly used for record locks.
+///
+/////////////////////////////////////////////////////////////////////////////
 /** Pre-allocated MCS block for simpler version of RW-locks. */
 struct McsRwSimpleBlock {
   static const uint8_t kStateClassMask       = 3U;        // [LSB + 1, LSB + 2]
@@ -633,88 +806,6 @@ struct McsRwExtendedBlock {
     ASSERT_ND(is_writer());
   }
   bool timeout_granted(int32_t timeout);
-};
-
-/**
- * @brief An MCS lock data structure.
- * @ingroup XCT
- * @details
- * This is the minimal unit of locking in our system.
- * Unlike SILO, we employ MCS locking that scales much better on big machines.
- * This object stores \e tail-waiter, which indicates the thread that is in the tail of the queue
- * lock, which \e might be the owner of the lock.
- * The MCS-lock nodes are pre-allocated for each thread and placed in shared memory.
- */
-struct McsLock {
-  McsLock() { data_ = 0; unused_ = 0; }
-  McsLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
-    reset(tail_waiter, tail_waiter_block);
-    unused_ = 0;
-  }
-
-  McsLock(const McsLock& other) CXX11_FUNC_DELETE;
-  McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
-
-  /** Used only for sanity check */
-  uint8_t   last_1byte_addr() const ALWAYS_INLINE {
-    // address is surely a multiply of 4. omit that part.
-    ASSERT_ND(reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) % 4 == 0);
-    return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) / 4;
-  }
-  bool      is_locked() const { return (data_ & 0xFFFFU) != 0; }
-
-  /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
-  McsBlockIndex acquire_lock(thread::Thread* context);
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  McsBlockIndex initial_lock(thread::Thread* context);
-  /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
-  void          release_lock(thread::Thread* context, McsBlockIndex block);
-
-  /// The followings are implemented in thread_pimpl.cpp along with the above methods,
-  /// but these don't use any of Thread's context information.
-  void          ownerless_initial_lock();
-  void          ownerless_acquire_lock();
-  void          ownerless_release_lock();
-
-
-  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_ >> 16U; }
-  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return data_ & 0xFFFFU; }
-
-  /** used only while page initialization */
-  void  reset() ALWAYS_INLINE { data_ = 0; }
-
-  void  reset_guest_id_release() {
-    assorted::atomic_store_release<uint32_t>(&data_, kMcsGuestId);
-  }
-
-  /** used only for initial_lock() */
-  void  reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    data_ = to_int(tail_waiter, tail_waiter_block);
-  }
-
-  void  reset_atomic() ALWAYS_INLINE { reset_atomic(0, 0); }
-  void  reset_atomic(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    uint32_t data = to_int(tail_waiter, tail_waiter_block);
-    assorted::atomic_store_seq_cst<uint32_t>(&data_, data);
-  }
-  void  reset_release() ALWAYS_INLINE { reset_release(0, 0); }
-  void  reset_release(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    uint32_t data = to_int(tail_waiter, tail_waiter_block);
-    assorted::atomic_store_release<uint32_t>(&data_, data);
-  }
-
-  static uint32_t to_int(
-    thread::ThreadId tail_waiter,
-    McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    ASSERT_ND(tail_waiter_block <= 0xFFFFU);
-    return static_cast<uint32_t>(tail_waiter) << 16 | (tail_waiter_block & 0xFFFFU);
-  }
-
-  friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
-
-  // these two will become one 64-bit integer.
-  uint32_t data_;
-  uint32_t unused_;
 };
 
 /**
