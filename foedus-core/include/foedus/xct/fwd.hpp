@@ -30,14 +30,14 @@ struct  LockableXctId;
 struct  LockEntry;
 struct  LockFreeReadXctAccess;
 struct  LockFreeWriteXctAccess;
-struct  McsBlock;
-struct  McsLock;
 struct  McsRwLock;
 struct  McsRwBlock;  // To be removed
 struct  McsRwSimpleBlock;
 struct  McsRwExtendedBlock;
 struct  McsRwAsyncMapping;
-struct  McsLockScope;
+struct  McsWwLock;
+struct  McsWwLockScope;
+struct  McsWwBlock;
 struct  PointerAccess;
 struct  ReadXctAccess;
 class   RetrospectiveLockList;

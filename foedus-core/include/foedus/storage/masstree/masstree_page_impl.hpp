@@ -141,7 +141,7 @@ class MasstreePage {
   PageVersion& get_version() ALWAYS_INLINE { return header_.page_version_; }
   const PageVersion* get_version_address() const ALWAYS_INLINE { return &header_.page_version_; }
   PageVersion* get_version_address() ALWAYS_INLINE { return &header_.page_version_; }
-  xct::McsLock* get_lock_address() ALWAYS_INLINE { return &header_.page_version_.lock_; }
+  xct::McsWwLock* get_lock_address() ALWAYS_INLINE { return &header_.page_version_.lock_; }
 
   /**
    * @brief Locks the page, spinning if necessary.
@@ -1090,7 +1090,7 @@ class MasstreeBorderPage final : public MasstreePage {
     KeySlice trigger,
     bool disable_no_record_split,
     MasstreeBorderPage** target,
-    xct::McsLockScope* target_lock);
+    xct::McsWwLockScope* target_lock);
 
   /** @see StorageManager::track_moved_record() */
   xct::TrackMovedRecordResult track_moved_record(

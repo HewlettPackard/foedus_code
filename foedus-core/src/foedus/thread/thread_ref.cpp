@@ -39,7 +39,7 @@ ThreadRef::ThreadRef()
   control_block_(nullptr),
   task_input_memory_(nullptr),
   task_output_memory_(nullptr),
-  mcs_blocks_(nullptr),
+  mcs_ww_blocks_(nullptr),
   mcs_rw_simple_blocks_(nullptr),
   mcs_rw_extended_blocks_(nullptr),
   mcs_rw_async_mappings_(nullptr) {}
@@ -50,7 +50,7 @@ ThreadRef::ThreadRef(Engine* engine, ThreadId id) : engine_(engine), id_(id) {
   control_block_ = anchors->thread_memory_;
   task_input_memory_ = anchors->task_input_memory_;
   task_output_memory_ = anchors->task_output_memory_;
-  mcs_blocks_ = anchors->mcs_lock_memories_;
+  mcs_ww_blocks_ = anchors->mcs_ww_lock_memories_;
   mcs_rw_simple_blocks_ = anchors->mcs_rw_simple_lock_memories_;
   mcs_rw_extended_blocks_ = anchors->mcs_rw_extended_lock_memories_;
   mcs_rw_async_mappings_ = anchors->mcs_rw_async_mappings_memories_;

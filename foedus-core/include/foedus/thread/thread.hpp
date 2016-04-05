@@ -273,20 +273,20 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   /** @copydoc foedus::xct::McsWwImpl::acquire_unconditional() */
-  xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
+  xct::McsBlockIndex  mcs_acquire_lock(xct::McsWwLock* mcs_lock);
   /**
    * Unconditionally takes multiple MCS locks.
    * @return MCS block index of the \e first lock acqired. As this is done in a row,
    * following locks trivially have sequential block index from it.
    */
-  xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size);
+  xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsWwLock** mcs_locks, uint16_t batch_size);
   /** @copydoc foedus::xct::McsWwImpl::initial() */
-  xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
+  xct::McsBlockIndex  mcs_initial_lock(xct::McsWwLock* mcs_lock);
   /** @copydoc foedus::xct::McsWwImpl::release() */
-  void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+  void                mcs_release_lock(xct::McsWwLock* mcs_lock, xct::McsBlockIndex block_index);
   /** corresponds to mcs_acquire_lock_batch() */
   void                mcs_release_lock_batch(
-    xct::McsLock** mcs_locks,
+    xct::McsWwLock** mcs_locks,
     xct::McsBlockIndex head_block,
     uint16_t batch_size);
 
@@ -349,11 +349,11 @@ class Thread CXX11_FINAL : public virtual Initializable {
   }
 
   /** @copydoc foedus::xct::McsWwImpl::ownerless_acquire_unconditional() */
-  static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock);
   /** @copydoc foedus::xct::McsWwImpl::ownerless_release() */
-  static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
   /** @copydoc foedus::xct::McsWwImpl::ownerless_initial() */
-  static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch*        get_in_commit_epoch_address();

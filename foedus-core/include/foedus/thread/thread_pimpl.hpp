@@ -76,6 +76,9 @@ struct ThreadControlBlock {
    * reset to 0 at each transaction begin.
    * This is in shared memory because other SOC might check this value (so far only
    * for sanity check).
+   * @note So far this is a shared counter between WW and RW locks.
+   * We will thus have holes in both of them. Not a big issue, but we might want
+   * dedicated counters.
    */
   uint32_t            mcs_block_current_;
 
@@ -278,11 +281,11 @@ class ThreadPimpl final : public DefaultInitializable {
   bool is_simple_mcs_rw() const { return simple_mcs_rw_; }
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
-  xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
+  xct::McsBlockIndex  mcs_acquire_lock(xct::McsWwLock* mcs_lock);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
+  xct::McsBlockIndex  mcs_initial_lock(xct::McsWwLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */
-  void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+  void                mcs_release_lock(xct::McsWwLock* mcs_lock, xct::McsBlockIndex block_index);
 
   xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* lock);
   xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* lock);
@@ -301,9 +304,9 @@ class ThreadPimpl final : public DefaultInitializable {
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
   void        mcs_giveup_all_current_locks_after(xct::UniversalLockId address);
 
-  static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
-  static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
-  static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
+  static void mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock);
+  static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
+  static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);
 
   /// async trio.
   xct::AcquireAsyncRet mcs_acquire_async_rw_reader(xct::McsRwLock* lock);
@@ -387,10 +390,10 @@ class ThreadPimpl final : public DefaultInitializable {
   void*                   task_output_memory_;
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
-  xct::McsBlock*          mcs_blocks_;
-  xct::McsRwSimpleBlock*  mcs_rw_simple_blocks_;
+  xct::McsWwBlock*          mcs_ww_blocks_;
+  xct::McsRwSimpleBlock*    mcs_rw_simple_blocks_;
   xct::McsRwExtendedBlock*  mcs_rw_extended_blocks_;
-  xct::McsRwAsyncMapping* mcs_rw_async_mappings_;
+  xct::McsRwAsyncMapping*   mcs_rw_async_mappings_;
 
   xct::RwLockableXctId*   canonical_address_;
 };
@@ -415,11 +418,11 @@ class ThreadPimplMcsAdaptor {
   ThreadGroupId get_my_numa_node() const { return pimpl_->numa_node_; }
   std::atomic<bool>* me_waiting() { return &pimpl_->control_block_->mcs_waiting_; }
 
-  xct::McsBlock* get_ww_my_block(xct::McsBlockIndex index) {
+  xct::McsWwBlock* get_ww_my_block(xct::McsBlockIndex index) {
     ASSERT_ND(index > 0);
     ASSERT_ND(index < 0xFFFFU);
     ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
-    return pimpl_->mcs_blocks_ + index;
+    return pimpl_->mcs_ww_blocks_ + index;
   }
   RW_BLOCK* get_rw_my_block(xct::McsBlockIndex index) {
     ASSERT_ND(index > 0);
@@ -439,10 +442,10 @@ class ThreadPimplMcsAdaptor {
     ThreadRef other = pimpl_->get_thread_ref(id);
     return other.get_control_block()->mcs_block_current_;
   }
-  xct::McsBlock* get_ww_other_block(ThreadId id, xct::McsBlockIndex index) {
+  xct::McsWwBlock* get_ww_other_block(ThreadId id, xct::McsBlockIndex index) {
     ThreadRef other = pimpl_->get_thread_ref(id);
     ASSERT_ND(index <= other.get_control_block()->mcs_block_current_);
-    return other.get_mcs_blocks() + index;
+    return other.get_mcs_ww_blocks() + index;
   }
   RW_BLOCK* get_rw_other_block(ThreadId id, xct::McsBlockIndex index) {
     ASSERT_ND(index > 0);

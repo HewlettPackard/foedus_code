@@ -64,7 +64,7 @@ struct Runner {
   std::atomic<int> locked_count;
   std::atomic<int> done_count;
 
-  McsLock* get_lock(uint32_t lock_index) {
+  McsWwLock* get_lock(uint32_t lock_index) {
     return context.get_ww_lock_address(kDefaultNodeId, lock_index);
   }
 

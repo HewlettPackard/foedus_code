@@ -85,7 +85,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
 
   while (true) {
     // lock the first root.
-    xct::McsLockScope owner_scope(context, &get_first_root_owner(), true, false);
+    xct::McsWwLockScope owner_scope(context, &get_first_root_owner(), true, false);
     if (!owner_scope.is_locked()) {
       LOG(WARNING) << "Tried to lock the root for fatity-ing, but someone seems doing something."
         << " As fatification is not a mandatory thing, we skip it now.";
@@ -157,7 +157,7 @@ ErrorStack split_a_child(
       // also, specify disable_nrs
       KeySlice trigger = casted->get_low_fence();
       MasstreeBorderPage* after = casted;
-      xct::McsLockScope after_lock;
+      xct::McsWwLockScope after_lock;
       casted->split_foster(context, trigger, true, &after, &after_lock);
       ASSERT_ND(after->is_locked());
       ASSERT_ND(after_lock.is_locked());

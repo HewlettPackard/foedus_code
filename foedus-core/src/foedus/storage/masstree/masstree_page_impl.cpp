@@ -385,7 +385,7 @@ ErrorCode MasstreeBorderPage::split_foster(
   KeySlice trigger,
   bool disable_no_record_split,
   MasstreeBorderPage** target,
-  xct::McsLockScope* target_lock) {
+  xct::McsWwLockScope* target_lock) {
   ASSERT_ND(!header_.snapshot_);
   ASSERT_ND(is_locked());
   ASSERT_ND(!target_lock->is_locked());
@@ -405,7 +405,7 @@ ErrorCode MasstreeBorderPage::split_foster(
   ASSERT_ND(get_low_fence() <= strategy.mid_slice_);
   ASSERT_ND(strategy.mid_slice_ <= get_high_fence());
   MasstreeBorderPage* twin[2];
-  xct::McsLockScope twin_locks[2];
+  xct::McsWwLockScope twin_locks[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));

@@ -179,7 +179,7 @@ struct AcquireAsyncRet {
 /**
  * Represents an exclusive-only MCS node, a pair of node-owner (thread) and its block index.
  */
-struct McsBlockData {
+struct McsWwBlockData {
   /**
    * The high 32-bits is thread_id, the low 32-bit is block-index.
    * We so far need only 16-bits each, but reserved more bits for future use.
@@ -201,19 +201,12 @@ struct McsBlockData {
     return static_cast<McsBlockIndex>(word & 0xFFFFFFFFUL);
   }
 
-  McsBlockData() : word_(0) {
-  }
-  explicit McsBlockData(uint64_t word) : word_(word) {
-  }
-  McsBlockData(uint32_t thread_id, McsBlockIndex block) {
-    set_relaxed(thread_id, block);
-  }
-  bool operator==(const McsBlockData& other) const {
-    return word_ == other.word_;
-  }
-  bool operator!=(const McsBlockData& other) const {
-    return word_ != other.word_;
-  }
+  McsWwBlockData() : word_(0) {}
+  explicit McsWwBlockData(uint64_t word) : word_(word) {}
+  McsWwBlockData(uint32_t thread_id, McsBlockIndex block) : word_(combine(thread_id, block)) {}
+
+  bool operator==(const McsWwBlockData& other) const { return word_ == other.word_; }
+  bool operator!=(const McsWwBlockData& other) const { return word_ != other.word_; }
 
   uint64_t get_word_acquire() const ALWAYS_INLINE {
     return assorted::atomic_load_acquire<uint64_t>(&word_);
@@ -229,57 +222,45 @@ struct McsBlockData {
    * This is weaker than get_word_atomic(), but enough for many places.
    */
   uint64_t get_word_once() const ALWAYS_INLINE { return *(&word_); }
-  McsBlockData copy_once() const ALWAYS_INLINE { return McsBlockData(get_word_once()); }
-  McsBlockData copy_consume() const ALWAYS_INLINE { return McsBlockData(get_word_consume()); }
-  McsBlockData copy_acquire() const ALWAYS_INLINE { return McsBlockData(get_word_acquire()); }
-  McsBlockData copy_atomic() const ALWAYS_INLINE { return McsBlockData(get_word_atomic()); }
+  McsWwBlockData copy_once() const ALWAYS_INLINE { return McsWwBlockData(get_word_once()); }
+  McsWwBlockData copy_consume() const ALWAYS_INLINE { return McsWwBlockData(get_word_consume()); }
+  McsWwBlockData copy_acquire() const ALWAYS_INLINE { return McsWwBlockData(get_word_acquire()); }
+  McsWwBlockData copy_atomic() const ALWAYS_INLINE { return McsWwBlockData(get_word_atomic()); }
 
-  bool is_valid() const ALWAYS_INLINE { return word_ != 0; }
   bool is_valid_relaxed() const ALWAYS_INLINE { return word_ != 0; }
-  bool is_valid_consume() const ALWAYS_INLINE { return get_word_consume() == 0; }
-  bool is_valid_acquire() const ALWAYS_INLINE { return get_word_acquire() == 0; }
-  bool is_valid_atomic() const ALWAYS_INLINE {
-    return get_word_atomic() != 0;
-  }
+  bool is_valid_consume() const ALWAYS_INLINE { return get_word_consume() != 0; }
+  bool is_valid_acquire() const ALWAYS_INLINE { return get_word_acquire() != 0; }
+  bool is_valid_atomic()  const ALWAYS_INLINE { return get_word_atomic() != 0; }
+
   bool is_guest_relaxed() const ALWAYS_INLINE { return word_ == kMcsGuestId; }
-  bool is_guest_acquire() const ALWAYS_INLINE {
-    return get_word_acquire() == kMcsGuestId;
-  }
-  bool is_guest_consume() const ALWAYS_INLINE {
-    return get_word_consume() == kMcsGuestId;
-  }
-  bool is_guest_atomic() const ALWAYS_INLINE {
-    return get_word_atomic() == kMcsGuestId;
-  }
+  bool is_guest_acquire() const ALWAYS_INLINE { return get_word_acquire() == kMcsGuestId; }
+  bool is_guest_consume() const ALWAYS_INLINE { return get_word_consume() == kMcsGuestId; }
+  bool is_guest_atomic()  const ALWAYS_INLINE { return get_word_atomic() == kMcsGuestId; }
   /**
    * Carefully use this! In some places you must call get_word_once() then call this on the copy.
    * We thus put "_relaxed" as suffix.
    */
   inline uint32_t get_thread_id_relaxed() const ALWAYS_INLINE {
-    return McsBlockData::decompose_thread_id(word_);
+    return McsWwBlockData::decompose_thread_id(word_);
   }
   /**
    * Carefully use this! In some places you must call get_word_once() then call this on the copy.
    * We thus put "_relaxed" as suffix.
    */
   inline McsBlockIndex  get_block_relaxed() const ALWAYS_INLINE {
-    return McsBlockData::decompose_block(word_);
+    return McsWwBlockData::decompose_block(word_);
   }
   void clear() ALWAYS_INLINE { word_ = 0; }
-  void clear_atomic() ALWAYS_INLINE {
-    assorted::atomic_store_seq_cst<uint64_t>(&word_, 0);
-  }
-  void clear_release() ALWAYS_INLINE {
-    assorted::atomic_store_release<uint64_t>(&word_, 0);
-  }
+  void clear_atomic() ALWAYS_INLINE { assorted::atomic_store_seq_cst<uint64_t>(&word_, 0); }
+  void clear_release() ALWAYS_INLINE { assorted::atomic_store_release<uint64_t>(&word_, 0); }
   void set_relaxed(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    word_ = McsBlockData::combine(thread_id, block);
+    word_ = McsWwBlockData::combine(thread_id, block);
   }
   void set_atomic(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    set_combined_atomic(McsBlockData::combine(thread_id, block));
+    set_combined_atomic(McsWwBlockData::combine(thread_id, block));
   }
   void set_release(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    set_combined_release(McsBlockData::combine(thread_id, block));
+    set_combined_release(McsWwBlockData::combine(thread_id, block));
   }
   void set_combined_atomic(uint64_t word) ALWAYS_INLINE {
     assorted::atomic_store_seq_cst<uint64_t>(&word_, word);
@@ -290,19 +271,19 @@ struct McsBlockData {
 };
 
 /** Pre-allocated MCS block for WW-locks. we so far pre-allocate at most 2^16 nodes per thread. */
-struct McsBlock {
+struct McsWwBlock {
   /**
    * The successor of MCS lock queue after this thread (in other words, the thread that is
    * waiting for this thread). Successor is represented by thread ID and block,
    * the index in mcs_blocks_.
    */
-  McsBlockData successor_;
+  McsWwBlockData successor_;
 
   /// setter/getter for successor_.
   inline bool has_successor_relaxed() const ALWAYS_INLINE { return successor_.is_valid_relaxed(); }
   inline bool has_successor_consume() const ALWAYS_INLINE { return successor_.is_valid_consume(); }
   inline bool has_successor_acquire() const ALWAYS_INLINE { return successor_.is_valid_acquire(); }
-  inline bool has_successor_atomic() const ALWAYS_INLINE { return successor_.is_valid_atomic(); }
+  inline bool has_successor_atomic()  const ALWAYS_INLINE { return successor_.is_valid_atomic(); }
   /**
    * Carefully use this! In some places you must call copy_once() then call this on the copy.
    * We thus put "_relaxed" as suffix.
@@ -317,8 +298,8 @@ struct McsBlock {
   inline McsBlockIndex    get_successor_block_relaxed() const ALWAYS_INLINE {
     return successor_.get_block_relaxed();
   }
-  inline void             clear_successor_atomic() ALWAYS_INLINE { successor_.clear_atomic(); }
-  inline void             clear_successor_release() ALWAYS_INLINE { successor_.clear_release(); }
+  inline void clear_successor_atomic() ALWAYS_INLINE { successor_.clear_atomic(); }
+  inline void clear_successor_release() ALWAYS_INLINE { successor_.clear_release(); }
   inline void set_successor_atomic(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
     successor_.set_atomic(thread_id, block);
   }
@@ -340,23 +321,17 @@ struct McsBlock {
  * This is the original MCSg lock implementation without cancel/RW functionality.
  * It has the guest functionality used by background threads to take page locks.
  */
-struct McsLock {
-  McsLock() { tail_.clear(); }
-  McsLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
+struct McsWwLock {
+  McsWwLock() { tail_.clear(); }
+  McsWwLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
     tail_.set_relaxed(tail_waiter, tail_waiter_block);
   }
 
-  McsLock(const McsLock& other) CXX11_FUNC_DELETE;
-  McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
+  McsWwLock(const McsWwLock& other) CXX11_FUNC_DELETE;
+  McsWwLock& operator=(const McsWwLock& other) CXX11_FUNC_DELETE;
 
-  /** Used only for sanity check */
-  uint8_t   last_1byte_addr() const ALWAYS_INLINE {
-    // address is surely a multiply of 4. omit that part.
-    ASSERT_ND(reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) % 4 == 0);
-    return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) / 4;
-  }
-  /** This is a "relaxed" check. Use with caution. */
-  bool      is_locked() const { return tail_.is_valid(); }
+  /** This is a "relaxed" check. Use with caution. I should have named this is_locked_relaxed..*/
+  bool      is_locked() const { return tail_.is_valid_relaxed(); }
 
   /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
   McsBlockIndex acquire_lock(thread::Thread* context);
@@ -377,11 +352,11 @@ struct McsLock {
   /** This is a "relaxed" check. Use with caution. */
   McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_.get_block_relaxed(); }
 
-  McsBlockData get_tail_relaxed() const ALWAYS_INLINE { return tail_; }
-  McsBlockData get_tail_once() const ALWAYS_INLINE { return tail_.copy_once(); }
-  McsBlockData get_tail_consume() const ALWAYS_INLINE { return tail_.copy_consume(); }
-  McsBlockData get_tail_acquire() const ALWAYS_INLINE { return tail_.copy_acquire(); }
-  McsBlockData get_tail_atomic() const ALWAYS_INLINE { return tail_.copy_atomic(); }
+  McsWwBlockData get_tail_relaxed() const ALWAYS_INLINE { return tail_; }
+  McsWwBlockData get_tail_once()    const ALWAYS_INLINE { return tail_.copy_once(); }
+  McsWwBlockData get_tail_consume() const ALWAYS_INLINE { return tail_.copy_consume(); }
+  McsWwBlockData get_tail_acquire() const ALWAYS_INLINE { return tail_.copy_acquire(); }
+  McsWwBlockData get_tail_atomic()  const ALWAYS_INLINE { return tail_.copy_atomic(); }
 
   /** used only while page initialization */
   void  reset() ALWAYS_INLINE { tail_.clear(); }
@@ -404,9 +379,9 @@ struct McsLock {
     tail_.set_release(tail_waiter, tail_waiter_block);
   }
 
-  friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
+  friend std::ostream& operator<<(std::ostream& o, const McsWwLock& v);
 
-  McsBlockData tail_;
+  McsWwBlockData tail_;
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -935,7 +910,7 @@ const uint64_t kMaxXctOrdinal       = (1ULL << 24) - 1U;
  * @details
  * Unlike what [TU13] Sec 4.2 defines, FOEDUS's TID is 128 bit to contain more information.
  * XctId represents a half (64bit) of TID that is used to represent persistent status of the record,
- * such as record versions. The locking-mechanism part is separated to another half; McsLock.
+ * such as record versions. The locking-mechanism part is separated to another half; McsWwLock.
  *
  * @par Bit Assignments
  * <table>
@@ -1129,8 +1104,8 @@ struct XctId {
  * It's not a negligible size, but still compact. Also, 16-bytes sometimes reduce false cacheline
  * sharing (well, then you might ask making it 64 bytes... but that's too much).
  *
- * @par McsLock and XctId
- * McsLock provides the locking mechanism, namely MCS locking.
+ * @par McsWwLock and XctId
+ * McsWwLock provides the locking mechanism, namely MCS locking.
  * XctId provides the record version information protected by the lock.
  *
  * @par POD
@@ -1138,11 +1113,11 @@ struct XctId {
  */
 struct LockableXctId {
   /** the first 64bit: Locking part of TID */
-  McsLock       lock_;
+  McsWwLock       lock_;
   /** the second 64bit: Persistent status part of TID. */
   XctId         xct_id_;
 
-  McsLock* get_key_lock() ALWAYS_INLINE { return &lock_; }
+  McsWwLock* get_key_lock() ALWAYS_INLINE { return &lock_; }
   bool is_keylocked() const ALWAYS_INLINE { return lock_.is_locked(); }
   bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
   bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
@@ -1194,28 +1169,32 @@ struct RwLockableXctId {
  * We always lock only one public (excluding private pages that are yet to be read by others)
  * page at a time, so always unconditional lock without worry on deadlocks.
  */
-struct McsLockScope {
-  McsLockScope();
-  McsLockScope(
+struct McsWwLockScope {
+  McsWwLockScope();
+  McsWwLockScope(
     thread::Thread* context,
     LockableXctId* lock,
     bool acquire_now = true,
     bool non_racy_acquire = false);
-  McsLockScope(
+  McsWwLockScope(
     thread::Thread* context,
-    McsLock* lock,
+    McsWwLock* lock,
     bool acquire_now = true,
     bool non_racy_acquire = false);
-  ~McsLockScope();
+  ~McsWwLockScope();
 
   /// scope object is movable, but not copiable.
-  McsLockScope(const McsLockScope& other) CXX11_FUNC_DELETE;
+  McsWwLockScope(const McsWwLockScope& other) CXX11_FUNC_DELETE;
 #ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  McsLockScope(McsLockScope&& other);
-  McsLockScope& operator=(McsLockScope&& other);
+  McsWwLockScope(McsWwLockScope&& other);
+  McsWwLockScope& operator=(McsWwLockScope&& other);
 #endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
 
-  void initialize(thread::Thread* context, McsLock* lock, bool acquire_now, bool non_racy_acquire);
+  void initialize(
+    thread::Thread* context,
+    McsWwLock* lock,
+    bool acquire_now,
+    bool non_racy_acquire);
 
   bool is_valid() const { return lock_; }
   bool is_locked() const { return block_ != 0; }
@@ -1225,12 +1204,12 @@ struct McsLockScope {
   /** Release the lock if acquired. Does nothing if not or !is_valid(). */
   void release();
 
-  /** Just for PageVersionLockScope(McsLockScope*) */
+  /** Just for PageVersionLockScope(McsWwLockScope*) */
   void move_to(storage::PageVersionLockScope* new_owner);
 
  private:
   thread::Thread* context_;
-  McsLock*        lock_;
+  McsWwLock*        lock_;
   /** Non-0 when locked. 0 when already released or not yet acquired. */
   McsBlockIndex   block_;
 };
@@ -1299,7 +1278,7 @@ class McsOwnerlessLockScope {
  public:
   McsOwnerlessLockScope();
   McsOwnerlessLockScope(
-    McsLock* lock,
+    McsWwLock* lock,
     bool acquire_now = true,
     bool non_racy_acquire = false);
   ~McsOwnerlessLockScope();
@@ -1313,7 +1292,7 @@ class McsOwnerlessLockScope {
   void release();
 
  private:
-  McsLock*        lock_;
+  McsWwLock*        lock_;
   bool            locked_by_me_;
 };
 
@@ -1370,7 +1349,7 @@ RwLockableXctId* from_universal_lock_id(
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
-STATIC_SIZE_CHECK(sizeof(McsLock), 8)
+STATIC_SIZE_CHECK(sizeof(McsWwLock), 8)
 STATIC_SIZE_CHECK(sizeof(LockableXctId), 16)
 
 }  // namespace xct

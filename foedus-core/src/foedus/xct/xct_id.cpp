@@ -75,27 +75,27 @@ void RwLockableXctId::hotter(thread::Thread* context) const {
   foedus::storage::to_page(this)->get_header().hotness_.increment(&context->get_lock_rnd());
 }
 
-McsBlockIndex McsLock::acquire_lock(thread::Thread* context) {
+McsBlockIndex McsWwLock::acquire_lock(thread::Thread* context) {
   // not inlined. so, prefer calling it directly
   return context->mcs_acquire_lock(this);
 }
-McsBlockIndex McsLock::initial_lock(thread::Thread* context) {
+McsBlockIndex McsWwLock::initial_lock(thread::Thread* context) {
   return context->mcs_initial_lock(this);
 }
-void McsLock::release_lock(thread::Thread* context, McsBlockIndex block) {
+void McsWwLock::release_lock(thread::Thread* context, McsBlockIndex block) {
   // not inlined. so, prefer calling it directly
   context->mcs_release_lock(this, block);
 }
 
-void McsLock::ownerless_acquire_lock() {
+void McsWwLock::ownerless_acquire_lock() {
   thread::Thread::mcs_ownerless_acquire_lock(this);
 }
 
-void McsLock::ownerless_release_lock() {
+void McsWwLock::ownerless_release_lock() {
   thread::Thread::mcs_ownerless_release_lock(this);
 }
 
-void McsLock::ownerless_initial_lock() {
+void McsWwLock::ownerless_initial_lock() {
   thread::Thread::mcs_ownerless_initial_lock(this);
 }
 
@@ -218,9 +218,9 @@ void McsRwLockScope::release() {
   }
 }
 
-McsLockScope::McsLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
+McsWwLockScope::McsWwLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
 
-McsLockScope::McsLockScope(
+McsWwLockScope::McsWwLockScope(
   thread::Thread* context,
   LockableXctId* lock,
   bool acquire_now,
@@ -231,9 +231,9 @@ McsLockScope::McsLockScope(
   }
 }
 
-McsLockScope::McsLockScope(
+McsWwLockScope::McsWwLockScope(
   thread::Thread* context,
-  McsLock* lock,
+  McsWwLock* lock,
   bool acquire_now,
   bool non_racy_acquire)
   : context_(context), lock_(lock), block_(0) {
@@ -242,9 +242,9 @@ McsLockScope::McsLockScope(
   }
 }
 
-void McsLockScope::initialize(
+void McsWwLockScope::initialize(
   thread::Thread* context,
-  McsLock* lock,
+  McsWwLock* lock,
   bool acquire_now,
   bool non_racy_acquire) {
   if (is_valid() && is_locked()) {
@@ -258,20 +258,20 @@ void McsLockScope::initialize(
   }
 }
 
-McsLockScope::~McsLockScope() {
+McsWwLockScope::~McsWwLockScope() {
   release();
   context_ = nullptr;
   lock_ = nullptr;
 }
 
-McsLockScope::McsLockScope(McsLockScope&& other) {
+McsWwLockScope::McsWwLockScope(McsWwLockScope&& other) {
   context_ = other.context_;
   lock_ = other.lock_;
   block_ = other.block_;
   other.block_ = 0;
 }
 
-McsLockScope& McsLockScope::operator=(McsLockScope&& other) {
+McsWwLockScope& McsWwLockScope::operator=(McsWwLockScope&& other) {
   if (is_valid()) {
     release();
   }
@@ -282,10 +282,10 @@ McsLockScope& McsLockScope::operator=(McsLockScope&& other) {
   return *this;
 }
 
-void McsLockScope::move_to(storage::PageVersionLockScope* new_owner) {
+void McsWwLockScope::move_to(storage::PageVersionLockScope* new_owner) {
   ASSERT_ND(is_locked());
   new_owner->context_ = context_;
-  // PageVersion's first member is McsLock, so this is ok.
+  // PageVersion's first member is McsWwLock, so this is ok.
   new_owner->version_ = reinterpret_cast<storage::PageVersion*>(lock_);
   ASSERT_ND(lock_ == &new_owner->version_->lock_);
   new_owner->block_ = block_;
@@ -297,7 +297,7 @@ void McsLockScope::move_to(storage::PageVersionLockScope* new_owner) {
   ASSERT_ND(!is_locked());
 }
 
-void McsLockScope::acquire(bool non_racy_acquire) {
+void McsWwLockScope::acquire(bool non_racy_acquire) {
   if (is_valid()) {
     if (block_ == 0) {
       if (non_racy_acquire) {
@@ -309,7 +309,7 @@ void McsLockScope::acquire(bool non_racy_acquire) {
   }
 }
 
-void McsLockScope::release() {
+void McsWwLockScope::release() {
   if (is_valid()) {
     if (block_) {
       context_->mcs_release_lock(lock_, block_);
@@ -320,7 +320,7 @@ void McsLockScope::release() {
 
 McsOwnerlessLockScope::McsOwnerlessLockScope() : lock_(nullptr), locked_by_me_(false) {}
 McsOwnerlessLockScope::McsOwnerlessLockScope(
-  McsLock* lock,
+  McsWwLock* lock,
   bool acquire_now,
   bool non_racy_acquire)
   : lock_(lock), locked_by_me_(false) {
@@ -358,7 +358,7 @@ void McsOwnerlessLockScope::release() {
 
 /////////////////////////////////////////////////////////////////
 ///
-///    McsBlock classes
+///    MCS block classes
 ///
 /////////////////////////////////////////////////////////////////
 bool McsRwSimpleBlock::timeout_granted(int32_t timeout) {
@@ -399,10 +399,10 @@ bool McsRwExtendedBlock::timeout_granted(int32_t timeout) {
 /// Debug out operators
 ///
 /////////////////////////////////////////////////////////////////
-std::ostream& operator<<(std::ostream& o, const McsLock& v) {
-  o << "<McsLock><locked>" << v.is_locked() << "</locked><tail_waiter>"
+std::ostream& operator<<(std::ostream& o, const McsWwLock& v) {
+  o << "<McsWwLock><locked>" << v.is_locked() << "</locked><tail_waiter>"
     << v.get_tail_waiter() << "</tail_waiter><tail_block>" << v.get_tail_waiter_block()
-    << "</tail_block></McsLock>";
+    << "</tail_block></McsWwLock>";
   return o;
 }
 

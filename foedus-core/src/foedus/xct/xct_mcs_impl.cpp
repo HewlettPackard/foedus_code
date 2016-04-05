@@ -50,7 +50,7 @@ void spin_until(COND spin_until_cond) {
 ///
 ////////////////////////////////////////////////////////////////////////////////
 template <typename ADAPTOR>
-McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsLock* mcs_lock) {
+McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -62,16 +62,16 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsLock* mcs_lock) {
   McsBlockIndex block_index = adaptor_.issue_new_block();
   ASSERT_ND(block_index > 0);
   ASSERT_ND(block_index <= 0xFFFFU);
-  McsBlock* my_block = adaptor_.get_ww_my_block(block_index);
+  McsWwBlock* my_block = adaptor_.get_ww_my_block(block_index);
   my_block->clear_successor_release();
   adaptor_.me_waiting()->store(true, std::memory_order_release);
   const thread::ThreadId id = adaptor_.get_my_id();
-  McsBlockData desired(id, block_index);  // purely local copy. okay to be always relaxed.
-  McsBlockData group_tail = desired;      // purely local copy. okay to be always relaxed.
+  McsWwBlockData desired(id, block_index);  // purely local copy. okay to be always relaxed.
+  McsWwBlockData group_tail = desired;      // purely local copy. okay to be always relaxed.
   auto* address = &(mcs_lock->tail_);     // be careful on this one!
   assert_mcs_aligned(address);
 
-  McsBlockData pred;                      // purely local copy. okay to be always relaxed.
+  McsWwBlockData pred;                      // purely local copy. okay to be always relaxed.
   ASSERT_ND(!pred.is_valid_relaxed());
   while (true) {
     // if it's obviously locked by a guest, we should wait until it's released.
@@ -117,7 +117,7 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsLock* mcs_lock) {
 
   ASSERT_ND(adaptor_.me_waiting()->load());
   ASSERT_ND(adaptor_.get_other_cur_block(predecessor_id) >= predecessor_block);
-  McsBlock* pred_block = adaptor_.get_ww_other_block(predecessor_id, predecessor_block);
+  McsWwBlock* pred_block = adaptor_.get_ww_other_block(predecessor_id, predecessor_block);
   ASSERT_ND(!pred_block->has_successor_atomic());
 
   pred_block->set_successor_release(id, block_index);
@@ -134,7 +134,7 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsLock* mcs_lock) {
 }
 
 template <typename ADAPTOR>
-void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsLock* mcs_lock) {
+void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsWwLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -143,7 +143,7 @@ void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsLock* mcs_lock) {
   auto* int_address = &(mcs_lock->tail_.word_);
   assert_mcs_aligned(int_address);
   spin_until([mcs_lock, int_address]{
-    McsBlockData old;
+    McsWwBlockData old;
     ASSERT_ND(!old.is_valid_relaxed());
     return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
       int_address,
@@ -155,7 +155,7 @@ void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsLock* mcs_lock) {
 }
 
 template <typename ADAPTOR>
-McsBlockIndex McsWwImpl<ADAPTOR>::initial(McsLock* mcs_lock) {
+McsBlockIndex McsWwImpl<ADAPTOR>::initial(McsWwLock* mcs_lock) {
   // Basically _all_ writes in this function must come with release barrier.
   // This method itself doesn't need barriers, but then we need to later take a seq_cst barrier
   // in an appropriate place. That's hard to debug, so just take release barriers here.
@@ -168,7 +168,7 @@ McsBlockIndex McsWwImpl<ADAPTOR>::initial(McsLock* mcs_lock) {
 
   McsBlockIndex block_index = adaptor_.issue_new_block();
   ASSERT_ND(block_index > 0 && block_index <= 0xFFFFU);
-  McsBlock* my_block = adaptor_.get_ww_my_block(block_index);
+  McsWwBlock* my_block = adaptor_.get_ww_my_block(block_index);
   my_block->clear_successor_release();
   const thread::ThreadId id = adaptor_.get_my_id();
   mcs_lock->reset_release(id, block_index);
@@ -176,14 +176,14 @@ McsBlockIndex McsWwImpl<ADAPTOR>::initial(McsLock* mcs_lock) {
 }
 
 template <typename ADAPTOR>
-void McsWwImpl<ADAPTOR>::ownerless_initial(McsLock* mcs_lock) {
+void McsWwImpl<ADAPTOR>::ownerless_initial(McsWwLock* mcs_lock) {
   assert_mcs_aligned(mcs_lock);
   ASSERT_ND(!mcs_lock->is_locked());
   mcs_lock->reset_guest_id_release();
 }
 
 template <typename ADAPTOR>
-void McsWwImpl<ADAPTOR>::release(McsLock* mcs_lock, McsBlockIndex block_index) {
+void McsWwImpl<ADAPTOR>::release(McsWwLock* mcs_lock, McsBlockIndex block_index) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -194,12 +194,12 @@ void McsWwImpl<ADAPTOR>::release(McsLock* mcs_lock, McsBlockIndex block_index) {
   ASSERT_ND(block_index > 0);
   ASSERT_ND(adaptor_.get_cur_block() >= block_index);
   const thread::ThreadId id = adaptor_.get_my_id();
-  const McsBlockData myself(id, block_index);   // purely local copy. okay to be always relaxed.
+  const McsWwBlockData myself(id, block_index);   // purely local copy. okay to be always relaxed.
   auto* address = &(mcs_lock->tail_);           // be careful on this one!
-  McsBlock* block = adaptor_.get_ww_my_block(block_index);
+  McsWwBlock* block = adaptor_.get_ww_my_block(block_index);
   if (!block->has_successor_acquire()) {
     // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
-    McsBlockData expected = myself;             // purely local copy. okay to be always relaxed.
+    McsWwBlockData expected = myself;             // purely local copy. okay to be always relaxed.
     assert_mcs_aligned(address);
     bool swapped
       = assorted::raw_atomic_compare_exchange_strong<uint64_t>(
@@ -242,7 +242,7 @@ void McsWwImpl<ADAPTOR>::release(McsLock* mcs_lock, McsBlockIndex block_index) {
 }
 
 template <typename ADAPTOR>
-void McsWwImpl<ADAPTOR>::ownerless_release(McsLock* mcs_lock) {
+void McsWwImpl<ADAPTOR>::ownerless_release(McsWwLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
@@ -252,7 +252,7 @@ void McsWwImpl<ADAPTOR>::ownerless_release(McsLock* mcs_lock) {
   assert_mcs_aligned(int_address);
   ASSERT_ND(mcs_lock->is_locked());
   spin_until([int_address]{
-    McsBlockData old(kMcsGuestId);
+    McsWwBlockData old(kMcsGuestId);
     ASSERT_ND(old.is_valid_relaxed());
     ASSERT_ND(old.is_guest_relaxed());
     return assorted::raw_atomic_compare_exchange_weak<uint64_t>(int_address, &old.word_, 0);
@@ -297,7 +297,7 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
     const McsBlockIndex block_index = adaptor_.issue_new_block();
     ASSERT_ND(block_index > 0);
     // TODO(tzwang): make this a static_size_check...
-    ASSERT_ND(sizeof(McsRwSimpleBlock) == sizeof(McsBlock));
+    ASSERT_ND(sizeof(McsRwSimpleBlock) == sizeof(McsWwBlock));
     auto* my_block = adaptor_.get_rw_my_block(block_index);
 
     // So I'm a reader
@@ -395,7 +395,7 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
     ASSERT_ND(adaptor_.get_cur_block() < 0xFFFFU);
     ASSERT_ND(block_index > 0);
     // TODO(tzwang): make this a static_size_check...
-    ASSERT_ND(sizeof(McsRwSimpleBlock) == sizeof(McsBlock));
+    ASSERT_ND(sizeof(McsRwSimpleBlock) == sizeof(McsWwBlock));
     auto* my_block = adaptor_.get_rw_my_block(block_index);
 
     my_block->init_writer();

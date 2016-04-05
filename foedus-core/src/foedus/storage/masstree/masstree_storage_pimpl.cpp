@@ -141,9 +141,9 @@ ErrorCode MasstreeStoragePimpl::grow_first_root(
   // Hence we unlock all locks in the current transaction in case we are running in MOCC or PCC
   // mode. This might be a bit too conservative, but first-root grow should be a rare event.
   context->mcs_release_all_current_locks_after(xct::kNullUniversalLockId);
-  xct::McsLockScope owner_scope(context, root_pointer_owner, true, false);
+  xct::McsWwLockScope owner_scope(context, root_pointer_owner, true, false);
 
-  // McsLock doesn't have a try interface, we got the lock directly.
+  // McsWwLock doesn't have a try interface, we got the lock directly.
   ASSERT_ND(owner_scope.is_locked());
 
   // First root's lock is always placed in control block, thus never be moved.
@@ -812,7 +812,7 @@ ErrorCode MasstreeStoragePimpl::expand_record(
 
   KeySlice slice = border->get_slice(record_index);
   MasstreeBorderPage* new_child;
-  xct::McsLockScope new_child_lock;
+  xct::McsWwLockScope new_child_lock;
   ASSERT_ND(!new_child_lock.is_locked());
   CHECK_ERROR_CODE(border->split_foster(
     context,
@@ -836,7 +836,7 @@ ErrorCode MasstreeStoragePimpl::expand_record(
     LOG(ERROR) << "Couldn't find the record in new page. This must not happen.";
   }
 
-  // Convert McsLockScope to PageVersionLockScope. this is a tentative solution
+  // Convert McsWwLockScope to PageVersionLockScope. this is a tentative solution
   PageVersionLockScope new_child_page_scope(&new_child_lock);
   ASSERT_ND(!new_child_lock.is_locked());
   ASSERT_ND(new_child_page_scope.block_ != 0);
@@ -1117,7 +1117,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
       }
 
       MasstreeBorderPage* target;
-      xct::McsLockScope target_lock;
+      xct::McsWwLockScope target_lock;
       ASSERT_ND(!target_lock.is_locked());
       CHECK_ERROR_CODE(border->split_foster(context, key, false, &target, &target_lock));
       ASSERT_ND(target->is_locked());
@@ -1126,7 +1126,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
       ASSERT_ND(target->find_key(key, suffix, remainder) == kBorderPageMaxSlots);
 
       // go down and keep splitting. out_page_lock now also points to the new target.
-      // Convert McsLockScope to PageVersionLockScope. this is a tentative solution
+      // Convert McsWwLockScope to PageVersionLockScope. this is a tentative solution
       PageVersionLockScope new_scope(&target_lock);
       out_page_lock->take_over(&new_scope);
       ASSERT_ND(!target_lock.is_locked());
@@ -1215,7 +1215,7 @@ ErrorCode MasstreeStoragePimpl::reserve_record_next_layer(
 #endif  // NDEBUG
     // have to split to make room. the newly created foster child is always the place to insert.
     MasstreeBorderPage* target;
-    xct::McsLockScope target_lock;
+    xct::McsWwLockScope target_lock;
     ASSERT_ND(!target_lock.is_locked());
     CHECK_ERROR_CODE(border->split_foster(context, slice, false, &target, &target_lock));
     ASSERT_ND(target->is_locked());

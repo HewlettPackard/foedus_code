@@ -49,7 +49,7 @@ namespace xct {
  * atomic instructions.
  *
  * @par Lock Mode
- * foedus::xct::McsLock supports only exclusive lock (we call it \e ww below).
+ * foedus::xct::McsWwLock supports only exclusive lock (we call it \e ww below).
  * foedus::xct::McsRwLock supports reader and writer (we call it \e rw below).
  * All implementations can handle both types so far.
  *
@@ -184,21 +184,21 @@ class McsWwImpl {
   explicit McsWwImpl(ADAPTOR adaptor) : adaptor_(adaptor) {}
 
   /** [WW] Unconditionally takes exclusive-only MCS lock on the given lock. */
-  McsBlockIndex  acquire_unconditional(McsLock* lock);
+  McsBlockIndex  acquire_unconditional(McsWwLock* lock);
   // TBD we so far do not have try/asynchronous versions of WW lock. Do we need them?
 
   /**
    * [WW] This doesn't use any atomic operation. only allowed when there is no race
    * TASK(Hideaki): This will be renamed to mcs_non_racy_lock(). "initial_lock" is ambiguous.
    */
-  McsBlockIndex  initial(McsLock* lock);
+  McsBlockIndex  initial(McsWwLock* lock);
   /** [WW] Unlcok an MCS lock acquired by this thread. */
-  void           release(McsLock* lock, McsBlockIndex block_index);
+  void           release(McsWwLock* lock, McsBlockIndex block_index);
 
   /** [WW-Guest] Unconditionally takes exclusive-only \b guest lock on the given MCSg lock. */
-  static void     ownerless_acquire_unconditional(McsLock* lock);
-  static void     ownerless_release(McsLock* lock);
-  static void     ownerless_initial(McsLock* lock);
+  static void     ownerless_acquire_unconditional(McsWwLock* lock);
+  static void     ownerless_release(McsWwLock* lock);
+  static void     ownerless_initial(McsWwLock* lock);
   // No try/asynchronous versions for guests. Probably we don't need them.
   // TBD So far no RW versions for guests. We might need them later..
 

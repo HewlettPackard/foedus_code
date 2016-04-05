@@ -411,7 +411,7 @@ struct ThreadMemoryAnchors {
     kThreadMemorySize = 1 << 15,
     kTaskInputMemorySize = 1 << 19,
     kTaskOutputMemorySize = 1 << 19,
-    kMcsLockMemorySize = 1 << 19,
+    kMcsWwLockMemorySize = 1 << 19,
     kMcsRwLockMemorySize = 1 << 19,
     kMcsRwAsyncMappingMemorySize  = 1 << 19,
   };
@@ -442,14 +442,14 @@ struct ThreadMemoryAnchors {
 
   /**
     * Pre-allocated MCS block for each thread. Index is node-local thread ordinal.
-    * Array of McsBlock.
-    * 512kb (==sizeof(McsBlock) * 64k) for each thread.
+    * Array of McsWwBlock.
+    * 512kb (==sizeof(McsWwBlock) * 64k) for each thread.
     */
-  xct::McsBlock*  mcs_lock_memories_;
+  xct::McsWwBlock*          mcs_ww_lock_memories_;
   // These two might be integrated, but for now we allocate both.
-  xct::McsRwSimpleBlock*  mcs_rw_simple_lock_memories_;
+  xct::McsRwSimpleBlock*    mcs_rw_simple_lock_memories_;
   xct::McsRwExtendedBlock*  mcs_rw_extended_lock_memories_;
-  xct::McsRwAsyncMapping*  mcs_rw_async_mappings_memories_;
+  xct::McsRwAsyncMapping*   mcs_rw_async_mappings_memories_;
 };
 
 /**

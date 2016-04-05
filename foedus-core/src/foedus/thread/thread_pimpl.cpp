@@ -70,7 +70,7 @@ ThreadPimpl::ThreadPimpl(
     control_block_(nullptr),
     task_input_memory_(nullptr),
     task_output_memory_(nullptr),
-    mcs_blocks_(nullptr),
+    mcs_ww_blocks_(nullptr),
     mcs_rw_simple_blocks_(nullptr),
     mcs_rw_extended_blocks_(nullptr),
     canonical_address_(nullptr) {
@@ -85,7 +85,7 @@ ErrorStack ThreadPimpl::initialize_once() {
   control_block_->initialize(id_);
   task_input_memory_ = anchors->task_input_memory_;
   task_output_memory_ = anchors->task_output_memory_;
-  mcs_blocks_ = anchors->mcs_lock_memories_;
+  mcs_ww_blocks_ = anchors->mcs_ww_lock_memories_;
   mcs_rw_simple_blocks_ = anchors->mcs_rw_simple_lock_memories_;
   mcs_rw_extended_blocks_ = anchors->mcs_rw_extended_lock_memories_;
   mcs_rw_async_mappings_ = anchors->mcs_rw_async_mappings_memories_;
@@ -836,10 +836,10 @@ xct::McsRwExtendedBlock* Thread::get_mcs_rw_extended_blocks() {
 }
 
 // Put Thread methods here to allow inlining.
-xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsLock* mcs_lock) {
+xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsWwLock* mcs_lock) {
   return pimpl_->mcs_acquire_lock(mcs_lock);
 }
-xct::McsBlockIndex Thread::mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size) {
+xct::McsBlockIndex Thread::mcs_acquire_lock_batch(xct::McsWwLock** mcs_locks, uint16_t batch_size) {
   // lock in address order. so, no deadlock possible
   // we have to lock them whether the record is deleted or not. all physical records.
   xct::McsBlockIndex head_lock_index = 0;
@@ -855,7 +855,7 @@ xct::McsBlockIndex Thread::mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint
   return head_lock_index;
 }
 void Thread::mcs_release_lock_batch(
-  xct::McsLock** mcs_locks,
+  xct::McsWwLock** mcs_locks,
   xct::McsBlockIndex head_block,
   uint16_t batch_size) {
   for (uint16_t i = 0; i < batch_size; ++i) {
@@ -863,10 +863,10 @@ void Thread::mcs_release_lock_batch(
   }
 }
 
-xct::McsBlockIndex Thread::mcs_initial_lock(xct::McsLock* mcs_lock) {
+xct::McsBlockIndex Thread::mcs_initial_lock(xct::McsWwLock* mcs_lock) {
   return pimpl_->mcs_initial_lock(mcs_lock);
 }
-void Thread::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index) {
+void Thread::mcs_release_lock(xct::McsWwLock* mcs_lock, xct::McsBlockIndex block_index) {
   pimpl_->mcs_release_lock(mcs_lock, block_index);
 }
 
@@ -917,15 +917,15 @@ void Thread::mcs_giveup_all_current_locks_after(xct::UniversalLockId address) {
   pimpl_->mcs_giveup_all_current_locks_after(address);
 }
 
-void Thread::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
+void Thread::mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
 }
 
-void Thread::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {
+void Thread::mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_acquire_lock(mcs_lock);
 }
 
-void Thread::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
+void Thread::mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_release_lock(mcs_lock);
 }
 
@@ -950,26 +950,26 @@ MyWwImpl get_mcs_ww_impl(ThreadPimpl* pimpl) {
   ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(pimpl);
   return MyWwImpl(adaptor);
 }
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* lock) {
+xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsWwLock* lock) {
   auto impl(get_mcs_ww_impl(this));
   return impl.acquire_unconditional(lock);
 }
-xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* lock) {
+xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsWwLock* lock) {
   auto impl(get_mcs_ww_impl(this));
   return impl.initial(lock);
 }
-void ThreadPimpl::mcs_release_lock(xct::McsLock* lock, xct::McsBlockIndex block_index) {
+void ThreadPimpl::mcs_release_lock(xct::McsWwLock* lock, xct::McsBlockIndex block_index) {
   auto impl(get_mcs_ww_impl(this));
   impl.release(lock, block_index);
 }
 
-void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsLock* lock) {
+void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsWwLock* lock) {
   MyWwImpl::ownerless_acquire_unconditional(lock);
 }
-void ThreadPimpl::mcs_ownerless_initial_lock(xct::McsLock* lock) {
+void ThreadPimpl::mcs_ownerless_initial_lock(xct::McsWwLock* lock) {
   MyWwImpl::ownerless_initial(lock);
 }
-void ThreadPimpl::mcs_ownerless_release_lock(xct::McsLock* lock) {
+void ThreadPimpl::mcs_ownerless_release_lock(xct::McsWwLock* lock) {
   MyWwImpl::ownerless_release(lock);
 }
 

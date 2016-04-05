@@ -451,8 +451,8 @@ void SharedMemoryRepo::set_node_memory_anchors(
     total += ThreadMemoryAnchors::kTaskOutputMemorySize;
     put_node_memory_boundary(node, &total, "thread_task_output_memory_boundary", reset_boundaries);
 
-    thread_anchor.mcs_lock_memories_ = reinterpret_cast<xct::McsBlock*>(base + total);
-    total += ThreadMemoryAnchors::kMcsLockMemorySize;
+    thread_anchor.mcs_ww_lock_memories_ = reinterpret_cast<xct::McsWwBlock*>(base + total);
+    total += ThreadMemoryAnchors::kMcsWwLockMemorySize;
     put_node_memory_boundary(node, &total, "thread_mcs_lock_memories_boundary", reset_boundaries);
 
     thread_anchor.mcs_rw_simple_lock_memories_
@@ -520,7 +520,7 @@ uint64_t SharedMemoryRepo::calculate_node_memory_size(const EngineOptions& optio
   total += threads_per_node * (ThreadMemoryAnchors::kThreadMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kTaskInputMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kTaskOutputMemorySize + kBoundarySize);
-  total += threads_per_node * (ThreadMemoryAnchors::kMcsLockMemorySize + kBoundarySize);
+  total += threads_per_node * (ThreadMemoryAnchors::kMcsWwLockMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kMcsRwLockMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kMcsRwLockMemorySize + kBoundarySize);
   total += threads_per_node * (ThreadMemoryAnchors::kMcsRwAsyncMappingMemorySize + kBoundarySize);

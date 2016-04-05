@@ -114,7 +114,7 @@ struct PageVersionStatus CXX11_FINAL {
  * @ingroup STORAGE
  * @details
  * Each page has this in the header.
- * Unlike [YANDONG12], this is just an McsLock.
+ * Unlike [YANDONG12], this is just an McsWwLock.
  * We maintain key count and permutation differently from [YANDONG12].
  *
  * "is_deleted" flag is called "is_retired" to clarify what deletion means for a page.
@@ -188,7 +188,7 @@ struct PageVersion CXX11_FINAL {
 
   friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
 
-  xct::McsLock      lock_;    // +8 -> 8
+  xct::McsWwLock      lock_;    // +8 -> 8
   PageVersionStatus status_;  // +4 -> 12
   uint32_t          unused_;  // +4 -> 16. this space might be used for interesting range "lock".
 };
@@ -199,13 +199,13 @@ struct PageVersionLockScope {
   ~PageVersionLockScope() { release(); }
 
   /**
-   * Convert an existing McsLockScope on page-version to this object.
+   * Convert an existing McsWwLockScope on page-version to this object.
    * This is a tentative solution. Now that page-version doesn't need version counter,
-   * we should be able to use McsLockScope everywhere.
+   * we should be able to use McsWwLockScope everywhere.
    * @pre move_from->is_locked()
    * @post !move_from->is_locked() (we steal the lock from the arg)
    */
-  explicit PageVersionLockScope(xct::McsLockScope* move_from);
+  explicit PageVersionLockScope(xct::McsWwLockScope* move_from);
 
   /**
    * A \e move operator that takes over the other lock, consisting of:

@@ -76,12 +76,12 @@ class McsAdaptorConcept {
   std::atomic<bool>* other_waiting(thread::ThreadId id);
 
   /** Dereference my block index for exclusive locks */
-  McsBlock* get_ww_my_block(McsBlockIndex index);
+  McsWwBlock* get_ww_my_block(McsBlockIndex index);
   /** Dereference my block index for reader-writer locks */
   RW_BLOCK* get_rw_my_block(McsBlockIndex index);
 
   /** Dereference other thread's block index for exclusive locks */
-  McsBlock* get_ww_other_block(thread::ThreadId id, McsBlockIndex index);
+  McsWwBlock* get_ww_other_block(thread::ThreadId id, McsBlockIndex index);
   /** Dereference other thread's block index for reader-writer locks */
   RW_BLOCK* get_rw_other_block(thread::ThreadId id, McsBlockIndex index);
   /** Dereference other thread's block index for reader-writer locks, but receives a block int */
@@ -144,7 +144,7 @@ struct McsMockThread {
     return 0;
   }
 
-  std::vector<McsBlock>   mcs_ww_blocks_;
+  std::vector<McsWwBlock>   mcs_ww_blocks_;
   std::vector< RW_BLOCK > mcs_rw_blocks_;
   std::vector<xct::McsRwAsyncMapping> mcs_rw_async_mappings_;
   uint32_t                mcs_rw_async_mapping_current_;
@@ -157,10 +157,11 @@ constexpr uint32_t kMcsMockDataPageHeaderSize = 128U;
 constexpr uint32_t kMcsMockDataPageHeaderPad
   = kMcsMockDataPageHeaderSize - sizeof(storage::PageHeader);
 constexpr uint32_t kMcsMockDataPageLocksPerPage
-  = (storage::kPageSize - kMcsMockDataPageHeaderSize) / (sizeof(RwLockableXctId) + sizeof(McsLock));
+  = (storage::kPageSize - kMcsMockDataPageHeaderSize)
+  / (sizeof(RwLockableXctId) + sizeof(McsWwLock));
 constexpr uint32_t kMcsMockDataPageFiller
   = (storage::kPageSize - kMcsMockDataPageHeaderSize)
-    - (sizeof(RwLockableXctId) + sizeof(McsLock)) * kMcsMockDataPageLocksPerPage;
+    - (sizeof(RwLockableXctId) + sizeof(McsWwLock)) * kMcsMockDataPageLocksPerPage;
 
 
 /**
@@ -181,7 +182,7 @@ struct McsMockDataPage {
   storage::PageHeader header_;      // +40 -> 40
   char                header_pad_[kMcsMockDataPageHeaderPad];  // -> 128
   RwLockableXctId     tid_[kMcsMockDataPageLocksPerPage];
-  McsLock             ww_[kMcsMockDataPageLocksPerPage];
+  McsWwLock             ww_[kMcsMockDataPageLocksPerPage];
   char                filler_[kMcsMockDataPageFiller];
 };
 
@@ -262,7 +263,7 @@ struct McsMockContext {
     McsMockDataPage* page = nodes_[node_id].pages_ + page_index;
     return page->tid_ + lock_in_page_index;
   }
-  McsLock*        get_ww_lock_address(uint16_t node_id, uint64_t lock_index) {
+  McsWwLock*        get_ww_lock_address(uint16_t node_id, uint64_t lock_index) {
     ASSERT_ND(lock_index < max_lock_count_);
     ASSERT_ND(node_id < nodes_.size());
     const uint64_t page_index = lock_index / kMcsMockDataPageLocksPerPage + 1U;
@@ -305,7 +306,7 @@ class McsMockAdaptor {
   thread::ThreadGroupId get_my_numa_node() const { return numa_node_; }
   std::atomic<bool>* me_waiting() { return &me_->mcs_waiting_; }
 
-  McsBlock* get_ww_my_block(McsBlockIndex index) {
+  McsWwBlock* get_ww_my_block(McsBlockIndex index) {
     ASSERT_ND(index <= me_->mcs_block_current_);
     return me_->mcs_ww_blocks_.data() + index;
   }
@@ -329,7 +330,7 @@ class McsMockAdaptor {
     McsMockThread<RW_BLOCK>* other = get_other_thread(id);
     return other->mcs_block_current_;
   }
-  McsBlock* get_ww_other_block(thread::ThreadId id, McsBlockIndex index) {
+  McsWwBlock* get_ww_other_block(thread::ThreadId id, McsBlockIndex index) {
     McsMockThread<RW_BLOCK>* other = get_other_thread(id);
     ASSERT_ND(index <= other->mcs_block_current_);
     return other->mcs_ww_blocks_.data() + index;

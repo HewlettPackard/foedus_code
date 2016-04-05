@@ -97,7 +97,7 @@ PageVersionLockScope::PageVersionLockScope(
   }
 }
 
-PageVersionLockScope::PageVersionLockScope(xct::McsLockScope* move_from) {
+PageVersionLockScope::PageVersionLockScope(xct::McsWwLockScope* move_from) {
   ASSERT_ND(move_from->is_locked());
   context_ = nullptr;
   version_ = nullptr;
