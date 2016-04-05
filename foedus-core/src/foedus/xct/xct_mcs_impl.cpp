@@ -55,7 +55,8 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.
   // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
-  ASSERT_ND(!adaptor_.me_waiting()->load());
+  std::atomic<bool>* me_waiting = adaptor_.me_waiting();
+  ASSERT_ND(!me_waiting->load());
   assert_mcs_aligned(mcs_lock);
   // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
   ASSERT_ND(adaptor_.get_cur_block() < 0xFFFFU);
@@ -64,7 +65,7 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
   ASSERT_ND(block_index <= 0xFFFFU);
   McsWwBlock* my_block = adaptor_.get_ww_my_block(block_index);
   my_block->clear_successor_release();
-  adaptor_.me_waiting()->store(true, std::memory_order_release);
+  me_waiting->store(true, std::memory_order_release);
   const thread::ThreadId id = adaptor_.get_my_id();
   McsWwBlockData desired(id, block_index);  // purely local copy. okay to be always relaxed.
   McsWwBlockData group_tail = desired;      // purely local copy. okay to be always relaxed.
@@ -92,7 +93,7 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
       // this means it was not locked.
       ASSERT_ND(mcs_lock->is_locked());
       DVLOG(2) << "Okay, got a lock uncontended. me=" << id;
-      adaptor_.me_waiting()->store(false, std::memory_order_release);
+      me_waiting->store(false, std::memory_order_release);
       ASSERT_ND(address->is_valid_atomic());
       return block_index;
     } else if (UNLIKELY(pred.is_guest_relaxed())) {
@@ -115,7 +116,7 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
   McsBlockIndex predecessor_block = pred.get_block_relaxed();
   DVLOG(0) << "mm, contended, we have to wait.. me=" << id << " pred=" << predecessor_id;
 
-  ASSERT_ND(adaptor_.me_waiting()->load());
+  ASSERT_ND(me_waiting->load());
   ASSERT_ND(adaptor_.get_other_cur_block(predecessor_id) >= predecessor_block);
   McsWwBlock* pred_block = adaptor_.get_ww_other_block(predecessor_id, predecessor_block);
   ASSERT_ND(!pred_block->has_successor_atomic());
@@ -124,9 +125,9 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
 
   ASSERT_ND(address->is_valid_atomic());
   ASSERT_ND(!address->is_guest_atomic());
-  spin_until([this]{ return !this->adaptor_.me_waiting()->load(std::memory_order_acquire); });
+  spin_until([me_waiting]{ return !me_waiting->load(std::memory_order_acquire); });
   DVLOG(1) << "Okay, now I hold the lock. me=" << id << ", ex-pred=" << predecessor_id;
-  ASSERT_ND(!adaptor_.me_waiting()->load());
+  ASSERT_ND(!me_waiting->load());
   ASSERT_ND(mcs_lock->is_locked());
   ASSERT_ND(address->is_valid_atomic());
   ASSERT_ND(!address->is_guest_atomic());
