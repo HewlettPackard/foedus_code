@@ -34,6 +34,7 @@ class   ThreadGroup;
 class   ThreadGroupRef;
 struct  ThreadOptions;
 class   ThreadPimpl;
+template<typename RW_BLOCK> class ThreadPimplMcsAdaptor;
 class   ThreadPool;
 class   ThreadPoolPimpl;
 class   ThreadRef;

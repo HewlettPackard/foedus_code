@@ -43,6 +43,7 @@ struct  MasstreeStorageControlBlock;
 class   MasstreeStorageFactory;
 class   MasstreeStoragePimpl;
 struct  MasstreeUpdateLogType;
+struct  RecordLocation;
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

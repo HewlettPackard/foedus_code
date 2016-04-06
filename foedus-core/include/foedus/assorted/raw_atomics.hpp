@@ -173,7 +173,16 @@ template <typename T>
 inline T raw_atomic_fetch_and_bitwise_or(T* target, T operand) {
   return ::__atomic_fetch_or(target, operand, __ATOMIC_SEQ_CST);
 }
-
+/**
+ * @brief Atomic fetch-bitwise-xor for raw primitive types rather than std::atomic<T>
+ * @tparam T integer type
+ * @return the previous value.
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T raw_atomic_fetch_and_bitwise_xor(T* target, T operand) {
+  return ::__atomic_fetch_xor(target, operand, __ATOMIC_SEQ_CST);
+}
 }  // namespace assorted
 }  // namespace foedus
 

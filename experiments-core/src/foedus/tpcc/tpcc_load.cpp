@@ -364,6 +364,7 @@ ErrorStack TpccLoadTask::run(thread::Thread* context) {
   engine_ = context->get_engine();
   storages_.initialize_tables(engine_);
   xct_manager_ = engine_->get_xct_manager();
+
   debugging::StopWatch watch;
   CHECK_ERROR(load_tables());
   watch.stop();
@@ -554,7 +555,7 @@ I can easily reproduce it on 240 cores, but almost never on 16 cores.
 When it happens, it looks like this:
 
 Thread 125 (Thread 0x78d1c37fe700 (LWP 75894)):
-#0  0x00000000004e7d80 in foedus::thread::ThreadPimpl::mcs_acquire_lock(foedus::xct::McsLock*) ()
+#0  0x00000000004e7d80 in foedus::thread::ThreadPimpl::mcs_acquire_lock(foedus::xct::McsWwLock*) ()
 #1  0x00000000004d6392 in foedus::storage::PageVersionLockScope::PageVersionLockScope(foedus::thread::Thread*, foedus::storage::PageVersion*, bool) ()
 #2  0x0000000000544b78 in foedus::storage::masstree::MasstreeIntermediatePage::adopt_from_child(foedus::thread::Thread*, unsigned long, unsigned char, unsigned char, foedus::storage::masstree::MasstreePage*) ()
 #3  0x00000000004cb381 in foedus::storage::masstree::MasstreeStoragePimpl::reserve_record(foedus::thread::Thread*, void const*, unsigned short, unsigned short, foedus::storage::masstree::MasstreeBorderPage**, unsigned char*, foedus::xct::XctId*) ()
@@ -572,7 +573,7 @@ x several.
 
 
 Thread 113 (Thread 0x78d1b27fc700 (LWP 75905)):
-#0  0x00000000004e7abf in foedus::thread::Thread::mcs_release_lock(foedus::xct::McsLock*, unsigned int) ()
+#0  0x00000000004e7abf in foedus::thread::Thread::mcs_release_lock(foedus::xct::McsWwLock*, unsigned int) ()
 #1  0x00000000004d63d7 in foedus::storage::PageVersionLockScope::release() ()
 #2  0x0000000000544be0 in foedus::storage::masstree::MasstreeIntermediatePage::adopt_from_child(foedus::thread::Thread*, unsigned long, unsigned char, unsigned char, foedus::storage::masstree::MasstreePage*) ()
 #3  0x00000000004cb381 in foedus::storage::masstree::MasstreeStoragePimpl::reserve_record(foedus::thread::Thread*, void const*, unsigned short, unsigned short, foedus::storage::masstree::MasstreeBorderPage**, unsigned char*, foedus::xct::XctId*) ()
