@@ -384,4 +384,3 @@ Eclipse sometimes works without it, sometimes not. We let yourself figure out ot
 configurations for ctest/cpplint/git/etc and find cool plugins for them.
 Good luck, and let us know if there were some gotchas.
 You might find [this](https://code.google.com/p/google-styleguide/source/browse/trunk/eclipse-cpp-google-style.xml) helpful.
-
