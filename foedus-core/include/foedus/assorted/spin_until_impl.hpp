@@ -18,20 +18,17 @@
 #ifndef FOEDUS_ASSORTED_SPIN_UNTIL_IMPL_HPP_
 #define FOEDUS_ASSORTED_SPIN_UNTIL_IMPL_HPP_
 
-#include <valgrind.h>
-
-#ifndef NDEBUG
-#include <glog/logging.h>
-#endif  // NDEBUG
-
 #include "foedus/assorted/assorted_func.hpp"
-
-#ifndef NDEBUG
 #include "foedus/debugging/rdtsc_watch.hpp"
-#endif  // NDEBUG
 
 namespace foedus {
 namespace assorted {
+
+/**
+ * @return whether this process is running on valgrind.
+ * Equivalent to RUNNING_ON_VALGRIND macro (but you don't have to include valgrind.h just for it.)
+ */
+bool is_running_on_valgrind();
 
 /**
  * @brief Spin locally until the given condition returns true.
@@ -58,26 +55,23 @@ namespace assorted {
  * spin_until([]{ return !XXXX; });
  * @endcode
  * Notice the !. spin_"until", thus opposite to "while".
+ * @return the number of cycles (using RDTSC) spent in this function.
  */
 template <typename COND>
-inline void spin_until(COND spin_until_cond) {
-#ifndef NDEBUG
-  DVLOG(1) << "Locally spinning...";
+inline uint64_t spin_until(COND spin_until_cond) {
   debugging::RdtscWatch watch;
-#endif  // NDEBUG
 
+  const bool on_valgrind = is_running_on_valgrind();
   while (!spin_until_cond()) {
     // Valgrind never switches context without this.
     // This if should have a negligible overhead.
-    if (RUNNING_ON_VALGRIND) {
+    if (on_valgrind) {
       assorted::spinlock_yield();
     }
   }
 
-#ifndef NDEBUG
   watch.stop();
-  DVLOG(1) << "Spin ended. Spent " << (watch.elapsed() / 1000000.0) << "M cycles";
-#endif  // NDEBUG
+  return watch.elapsed();
 }
 
 /**
@@ -85,7 +79,8 @@ inline void spin_until(COND spin_until_cond) {
  * @see spin_until()
  */
 inline void yield_if_valgrind() {
-  if (RUNNING_ON_VALGRIND) {
+  const bool on_valgrind = is_running_on_valgrind();
+  if (on_valgrind) {
     assorted::spinlock_yield();
   }
 }
