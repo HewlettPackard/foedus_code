@@ -16,8 +16,33 @@ set_target_properties(ycsb_hash PROPERTIES COMPILE_FLAGS "-DYCSB_HASH_STORAGE")
 target_link_libraries(ycsb_hash ${EXPERIMENT_LIB} gflags-static)
 
 # Copy the scripts to build folders. this is just for convenience
+configure_file(summarize.sh summarize.sh COPYONLY)
+
 configure_file(run_dl580.sh run_dl580.sh COPYONLY)
+configure_file(run_hp840.sh run_hp840.sh COPYONLY)
 configure_file(run_common.sh run_common.sh COPYONLY)
 configure_file(config_ycsb.sh config_ycsb.sh COPYONLY)
-configure_file(config_ycsb_f.sh config_ycsb_f.sh COPYONLY)
-configure_file(run_ycsb_f_dl580.sh run_ycsb_f_dl580.sh COPYONLY)
+
+configure_file(run_ycsb_f_ro_common.sh run_ycsb_f_ro_common.sh COPYONLY)
+configure_file(run_ycsb_f_gh_ro.sh run_ycsb_f_gh_ro.sh COPYONLY)
+configure_file(run_ycsb_f_dh_ro.sh run_ycsb_f_dh_ro.sh COPYONLY)
+configure_file(run_ycsb_f_dl580_ro.sh run_ycsb_f_dl580_ro.sh COPYONLY)
+configure_file(run_ycsb_f_z820_ro.sh run_ycsb_f_z820_ro.sh COPYONLY)
+
+configure_file(run_ycsb_f_rw_common.sh run_ycsb_f_rw_common.sh COPYONLY)
+configure_file(run_ycsb_f_tt_common.sh run_ycsb_f_tt_common.sh COPYONLY)
+configure_file(run_ycsb_f_gh_rw.sh run_ycsb_f_gh_rw.sh COPYONLY)
+configure_file(run_ycsb_f_gh_tt.sh run_ycsb_f_gh_tt.sh COPYONLY)
+configure_file(run_ycsb_f_dh_rw.sh run_ycsb_f_dh_rw.sh COPYONLY)
+configure_file(run_ycsb_f_dl580_rw.sh run_ycsb_f_dl580_rw.sh COPYONLY)
+configure_file(run_ycsb_f_dl580_tt.sh run_ycsb_f_dl580_tt.sh COPYONLY)
+configure_file(run_ycsb_f_z820_rw.sh run_ycsb_f_z820_rw.sh COPYONLY)
+
+configure_file(run_ycsb_shifting_common.sh run_ycsb_shifting_common.sh COPYONLY)
+configure_file(run_ycsb_shifting_z820.sh run_ycsb_shifting_z820.sh COPYONLY)
+configure_file(run_ycsb_shifting_dl580.sh run_ycsb_shifting_dl580.sh COPYONLY)
+configure_file(run_ycsb_shifting_dh.sh run_ycsb_shifting_dh.sh COPYONLY)
+configure_file(run_ycsb_shifting_gh.sh run_ycsb_shifting_gh.sh COPYONLY)
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../../../summarizej.sh summarizej.sh COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../../../summarizej.java summarizej.java COPYONLY)
