@@ -181,7 +181,7 @@ ErrorCode MasstreeCursor::next() {
   while (true) {
     CHECK_ERROR_CODE(proceed_route());
     if (UNLIKELY(should_skip_cur_route_)) {
-      LOG(INFO) << "Rare. Skipping empty page";
+      DVLOG(0) << "Rare. Skipping empty page";
       CHECK_ERROR_CODE(proceed_pop());
       continue;
     }
