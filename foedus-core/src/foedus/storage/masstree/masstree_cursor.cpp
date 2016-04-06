@@ -981,7 +981,7 @@ ErrorCode MasstreeCursor::open(
     // results in should_skip_cur_route_.
     ASSERT_ND(cur_route()->page_->is_border());
     ASSERT_ND(!is_valid_record());
-    LOG(INFO) << "Rage. Skipping empty page";
+    DVLOG(0) << "Rare. Skipping empty page";
     CHECK_ERROR_CODE(proceed_pop());
   }
   ASSERT_ND(!should_skip_cur_route_);
