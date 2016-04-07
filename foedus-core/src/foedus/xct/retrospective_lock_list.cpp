@@ -384,27 +384,70 @@ void CurrentLockList::batch_insert_write_placeholders(
   //   merge from the end, not the beginning, to copy/shift only what we need to.
   //  3) insert all write-sets at the end then invoke std::sort once.
   // For now I picked 3) for simplicity. Revisit laster if CPU profile tells something.
-  uint32_t write_pos = 0;
-  uint32_t added = 0;
-  for (LockListPosition pos = 1U; pos <= last_active_entry_ && write_pos < write_set_size;) {
-    LockEntry* existing = array_ + pos;
-    const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = write->owner_lock_id_;
-    if (existing->universal_lock_id_ < write_lock_id) {
-      ++pos;
-    } else if (existing->universal_lock_id_ == write_lock_id) {
-      if (existing->preferred_mode_ != kWriteLock) {
-        existing->preferred_mode_ = kWriteLock;
+  if (last_active_entry_ == kLockListPositionInvalid) {
+    // If CLL is now empty, it's even easier. Just add all write-sets
+    uint32_t added = 0;
+    for (uint32_t write_pos = 0; write_pos < write_set_size; ++write_pos) {
+      const WriteXctAccess* write = write_set + write_pos;
+      if (write_pos > 0) {
+        const WriteXctAccess* prev = write_set + write_pos - 1;
+        ASSERT_ND(write->write_set_ordinal_ != prev->write_set_ordinal_);
+        ASSERT_ND(write->owner_lock_id_ >= prev->owner_lock_id_);
+        if (write->owner_lock_id_ == prev->owner_lock_id_) {
+          ASSERT_ND(write->write_set_ordinal_ > prev->write_set_ordinal_);
+          continue;
+        }
       }
-      ++write_pos;
-    } else {
-      // yuppy, new entry.
-      ASSERT_ND(existing->universal_lock_id_ > write_lock_id);
+      ++added;
+      LockEntry* new_entry = array_ + added;
+      new_entry->set(write->owner_lock_id_, write->owner_id_address_, kWriteLock, kNoLock);
+    }
+    last_active_entry_ = added;
+  } else {
+    uint32_t write_pos = 0;
+    uint32_t added = 0;
+    for (LockListPosition pos = 1U; pos <= last_active_entry_ && write_pos < write_set_size;) {
+      LockEntry* existing = array_ + pos;
+      const WriteXctAccess* write = write_set + write_pos;
+      UniversalLockId write_lock_id = write->owner_lock_id_;
+      if (existing->universal_lock_id_ < write_lock_id) {
+        ++pos;
+      } else if (existing->universal_lock_id_ == write_lock_id) {
+        if (existing->preferred_mode_ != kWriteLock) {
+          existing->preferred_mode_ = kWriteLock;
+        }
+        ++write_pos;
+      } else {
+        // yuppy, new entry.
+        ASSERT_ND(existing->universal_lock_id_ > write_lock_id);
+        ++added;
+        LockEntry* new_entry = array_ + last_active_entry_ + added;
+        new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
+        // be careful on duplicate in write-set.
+        // It might contain multiple writes to one record.
+        for (++write_pos; write_pos < write_set_size; ++write_pos) {
+          const WriteXctAccess* next_write = write_set + write_pos;
+          UniversalLockId next_write_id = next_write->owner_lock_id_;
+          ASSERT_ND(next_write_id >= write_lock_id);
+          if (next_write_id > write_lock_id) {
+            break;
+          }
+        }
+      }
+    }
+
+    while (write_pos < write_set_size) {
+      // After iterating over all existing entries, still some write-set entry remains.
+      // Hence they are all after the existing entries.
+      const WriteXctAccess* write = write_set + write_pos;
+      UniversalLockId write_lock_id = write->owner_lock_id_;
+      ASSERT_ND(last_active_entry_ == kLockListPositionInvalid
+        || array_[last_active_entry_].universal_lock_id_ < write_lock_id);
+
+      // Again, be careful on duplicate in write set.
       ++added;
       LockEntry* new_entry = array_ + last_active_entry_ + added;
       new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
-      // be careful on duplicate in write-set.
-      // It might contain multiple writes to one record.
       for (++write_pos; write_pos < write_set_size; ++write_pos) {
         const WriteXctAccess* next_write = write_set + write_pos;
         UniversalLockId next_write_id = next_write->owner_lock_id_;
@@ -414,33 +457,11 @@ void CurrentLockList::batch_insert_write_placeholders(
         }
       }
     }
-  }
 
-  while (write_pos < write_set_size) {
-    // After iterating over all existing entries, still some write-set entry remains.
-    // Hence they are all after the existing entries.
-    const WriteXctAccess* write = write_set + write_pos;
-    UniversalLockId write_lock_id = write->owner_lock_id_;
-    ASSERT_ND(last_active_entry_ == kLockListPositionInvalid
-      || array_[last_active_entry_].universal_lock_id_ < write_lock_id);
-
-    // Again, be careful on duplicate in write set.
-    ++added;
-    LockEntry* new_entry = array_ + last_active_entry_ + added;
-    new_entry->set(write_lock_id, write->owner_id_address_, kWriteLock, kNoLock);
-    for (++write_pos; write_pos < write_set_size; ++write_pos) {
-      const WriteXctAccess* next_write = write_set + write_pos;
-      UniversalLockId next_write_id = next_write->owner_lock_id_;
-      ASSERT_ND(next_write_id >= write_lock_id);
-      if (next_write_id > write_lock_id) {
-        break;
-      }
+    if (added > 0) {
+      last_active_entry_ += added;
+      std::sort(array_ + 1U, array_ + 1U + last_active_entry_);
     }
-  }
-
-  if (added > 0) {
-    last_active_entry_ += added;
-    std::sort(array_ + 1U, array_ + 1U + last_active_entry_);
   }
   assert_sorted();
 #ifndef NDEBUG
