@@ -297,7 +297,11 @@ class Xct {
   /**
    * subroutine of on_record_read() to take lock(s).
    */
-  void on_record_read_take_locks_if_needed(bool intended_for_write, RwLockableXctId* tid_address);
+  void on_record_read_take_locks_if_needed(
+    bool intended_for_write,
+    const storage::Page* page_address,
+    storage::VolatilePagePointer page_id,
+    RwLockableXctId* tid_address);
 
   /**
    * Registers a write-set related to an existing read-set.

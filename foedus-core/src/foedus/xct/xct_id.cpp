@@ -42,7 +42,6 @@ UniversalLockId to_universal_lock_id(
   storage::VolatilePagePointer vpp(storage::construct_volatile_page_pointer(page_header.page_id_));
   const uint64_t node = vpp.get_numa_node();
   const uint64_t page_index = vpp.get_offset();
-  const uint64_t in_page_offset = lock_ptr % storage::kPageSize;
 
   // See assert_within_valid_volatile_page() why we can't do these assertions.
   // ASSERT_ND(lock_ptr >= base + vpp.components.offset * storage::kPageSize);
@@ -55,7 +54,7 @@ UniversalLockId to_universal_lock_id(
   ASSERT_ND(node < resolver.numa_node_count_);
   ASSERT_ND(vpp.get_offset() >= resolver.begin_);
   ASSERT_ND(vpp.get_offset() < resolver.end_);
-  return (node << 48) | (page_index * storage::kPageSize + in_page_offset);
+  return to_universal_lock_id(node, page_index, lock_ptr);
 }
 
 RwLockableXctId* from_universal_lock_id(
@@ -434,5 +433,8 @@ std::ostream& operator<<(std::ostream& o, const RwLockableXctId& v) {
   o << "<RwLockableXctId>" << v.xct_id_ << v.lock_ << "</RwLockableXctId>";
   return o;
 }
+
+static_assert(storage::kPageSize == kLockPageSize, "kLockPageSize incorrect");
+
 }  // namespace xct
 }  // namespace foedus

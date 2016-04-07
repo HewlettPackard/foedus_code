@@ -363,6 +363,12 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   inline assorted::UniformRandom& get_lock_rnd() { return lock_rnd_; }
 
+  /**
+   * @returns whether the given page had enough aborts to justify pessimisitic locking.
+   * @ingroup RLL
+   */
+  bool          is_hot_page(const storage::Page* page) const;
+
   friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
  private:

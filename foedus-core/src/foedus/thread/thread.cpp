@@ -139,6 +139,10 @@ storage::Page* Thread::resolve_newpage(memory::PagePoolOffset offset) const {
   return get_local_volatile_page_resolver().resolve_offset_newpage(offset);
 }
 
+bool Thread::is_hot_page(const storage::Page* page) const {
+  const uint16_t threshold = pimpl_->current_xct_.get_hot_threshold_for_this_xct();
+  return page->get_header().hotness_.value_ >= threshold;
+}
 
 }  // namespace thread
 }  // namespace foedus

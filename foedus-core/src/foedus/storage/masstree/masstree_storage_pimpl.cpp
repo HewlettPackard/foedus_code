@@ -436,14 +436,16 @@ inline ErrorCode MasstreeStoragePimpl::find_border_physical(
   bool      for_writes,
   KeySlice  slice,
   MasstreeBorderPage** border) {
+#ifndef NDEBUG
 retry_from_layer_root:
+  uint16_t retried_count = 0;
+  constexpr uint16_t kMaxRetryCount = 100;
+#endif  // NDEBUG
   assert_aligned_page(layer_root);
   ASSERT_ND(layer_root->is_high_fence_supremum());
   ASSERT_ND(layer_root->get_low_fence() == kInfimumSlice);
   MasstreePage* cur = layer_root;
   cur->prefetch_general();
-  uint16_t retried_count = 0;
-  constexpr uint16_t kMaxRetryCount = 100;
   while (true) {
     assert_aligned_page(cur);
     ASSERT_ND(cur->get_layer() == current_layer);
@@ -477,7 +479,9 @@ retry_from_layer_root:
       CHECK_ERROR_CODE(follow_page(context, for_writes, &pointer, &next));
       next->prefetch_general();
       if (LIKELY(next->within_fences(slice))) {
+#ifndef NDEBUG
         retried_count = 0;
+#endif  // NDEBUG
         if (next->has_foster_child() && !cur->is_moved()) {
           // oh, the page has foster child, so we should adopt it.
           CHECK_ERROR_CODE(page->adopt_from_child(context, slice));
@@ -486,14 +490,16 @@ retry_from_layer_root:
         cur = next;
       } else {
         // even in this case, local retry suffices thanks to foster-twin
-        VLOG(0) << "Interesting. concurrent thread affected the search. local retry";
-        assorted::memory_fence_seq_cst();
+        DVLOG(0) << "Interesting. concurrent thread affected the search. local retry";
+        assorted::memory_fence_acquire();
+#ifndef NDEBUG
         ++retried_count;
         if (retried_count > kMaxRetryCount) {
           LOG(ERROR) << "WTF?? Too frequent retries. Are we really in the right page?"
             " This is most likely a bug.";
           goto retry_from_layer_root;
         }
+#endif  // NDEBUG
       }
     }
   }

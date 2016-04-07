@@ -236,10 +236,8 @@ inline bool ReadXctAccess::compare(const ReadXctAccess &left, const ReadXctAcces
 inline bool WriteXctAccess::compare(
   const WriteXctAccess &left,
   const WriteXctAccess& right) {
-  uintptr_t left_id = reinterpret_cast<uintptr_t>(left.owner_lock_id_);
-  uintptr_t right_id = reinterpret_cast<uintptr_t>(right.owner_lock_id_);
-  if (left_id != right_id) {
-    return left_id < right_id;
+  if (left.owner_lock_id_ != right.owner_lock_id_) {
+    return left.owner_lock_id_ < right.owner_lock_id_;
   } else {
     return left.write_set_ordinal_ < right.write_set_ordinal_;
   }

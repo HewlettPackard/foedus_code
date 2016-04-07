@@ -257,12 +257,13 @@ ErrorCode Xct::on_record_read(
   ASSERT_ND(tid_address);
   ASSERT_ND(observed_xid);
   ASSERT_ND(read_set_address);
-  const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(tid_address));
-  const storage::StorageId storage_id = page->get_header().storage_id_;
-  ASSERT_ND(storage_id != 0);
-
   *read_set_address = nullptr;
-  if (page->get_header().snapshot_) {
+
+  const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(tid_address));
+  const auto& page_header = page->get_header();
+  ASSERT_ND(!page_header.snapshot_);
+
+  if (page_header.snapshot_) {
     // Snapshot page is immutable.
     // No read-set, lock, or check for being_written flag needed.
     *observed_xid = tid_address->xct_id_;
@@ -279,14 +280,21 @@ ErrorCode Xct::on_record_read(
     return kErrorCodeOk;
   }
 
+  storage::VolatilePagePointer vpp(storage::construct_volatile_page_pointer(page_header.page_id_));
+#ifndef NDEBUG
   const auto& resolver = context_->get_global_volatile_page_resolver();
   storage::assert_within_valid_volatile_page(resolver, tid_address);
+
+  ASSERT_ND(vpp.get_numa_node() < resolver.numa_node_count_);
+  ASSERT_ND(vpp.get_offset() >= resolver.begin_);
+  ASSERT_ND(vpp.get_offset() < resolver.end_);
+#endif  // NDEBUG
 
   // This is a serializable transaction, and we are reading a record from a volatile page.
   // We might take a pessimisitic lock for the record, which is our MOCC protocol.
   // However, we need to do this _before_ observing XctId. Otherwise there is a
   // chance of aborts even with the lock.
-  on_record_read_take_locks_if_needed(intended_for_write, tid_address);
+  on_record_read_take_locks_if_needed(intended_for_write, page, vpp, tid_address);
 
   *observed_xid = tid_address->xct_id_.spin_while_being_written();
   ASSERT_ND(!observed_xid->is_being_written());
@@ -297,19 +305,29 @@ ErrorCode Xct::on_record_read(
   } else if (observed_xid->is_next_layer() && no_readset_if_next_layer) {
     return kErrorCodeOk;
   }
-  assorted::memory_fence_consume();  // following reads must happen *after* this read
 
+  const storage::StorageId storage_id = page->get_header().storage_id_;
+  ASSERT_ND(storage_id != 0);
   CHECK_ERROR_CODE(add_to_read_set(storage_id, *observed_xid, tid_address, read_set_address));
+
+  assorted::memory_fence_consume();  // following reads must happen *after* observing xid
   return kErrorCodeOk;
 }
 
 void Xct::on_record_read_take_locks_if_needed(
   bool intended_for_write,
+  const storage::Page* page_address,
+  storage::VolatilePagePointer page_id,
   RwLockableXctId* tid_address) {
+#ifndef NDEBUG
   const auto& resolver = context_->get_global_volatile_page_resolver();
   storage::assert_within_valid_volatile_page(resolver, tid_address);
+#endif  // NDEBUG
 
-  const UniversalLockId lock_id = xct_id_to_universal_lock_id(resolver, tid_address);
+  const UniversalLockId lock_id = to_universal_lock_id(
+    page_id.get_numa_node(),
+    page_id.get_offset(),
+    reinterpret_cast<uintptr_t>(tid_address));
   LockListPosition rll_pos = kLockListPositionInvalid;
   bool lets_take_lock = false;
   if (!retrospective_lock_list_.is_empty()) {
@@ -324,7 +342,7 @@ void Xct::on_record_read_take_locks_if_needed(
     }
   }
 
-  if (!lets_take_lock && tid_address->is_hot(context_)) {
+  if (!lets_take_lock && context_->is_hot_page(page_address)) {
     lets_take_lock = true;
   }
 

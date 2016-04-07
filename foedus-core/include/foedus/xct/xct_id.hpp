@@ -1327,6 +1327,21 @@ inline XctId XctId::spin_while_being_written() const {
 UniversalLockId to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
   uintptr_t lock_ptr);
+
+/**
+ * Must be same as storage::kPageSize. To avoid header dependencies,
+ * we declare a dedicated constant here and statically asserts the equivalence in cpp.
+ */
+const uint64_t kLockPageSize = 1 << 12;
+/** If you already have the numa_node, local_page_index, prefer this one. */
+inline UniversalLockId to_universal_lock_id(
+  uint64_t numa_node,
+  uint64_t local_page_index,
+  uintptr_t lock_ptr) {
+  const uint64_t in_page_offset = lock_ptr % kLockPageSize;
+  return (numa_node << 48) | (local_page_index * kLockPageSize + in_page_offset);
+}
+
 // just shorthands.
 inline UniversalLockId xct_id_to_universal_lock_id(
   const memory::GlobalVolatilePageResolver& resolver,
