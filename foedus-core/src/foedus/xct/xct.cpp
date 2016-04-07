@@ -261,8 +261,6 @@ ErrorCode Xct::on_record_read(
 
   const storage::Page* page = storage::to_page(reinterpret_cast<const void*>(tid_address));
   const auto& page_header = page->get_header();
-  ASSERT_ND(!page_header.snapshot_);
-
   if (page_header.snapshot_) {
     // Snapshot page is immutable.
     // No read-set, lock, or check for being_written flag needed.
