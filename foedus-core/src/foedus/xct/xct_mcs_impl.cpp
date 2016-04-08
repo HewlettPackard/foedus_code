@@ -117,7 +117,6 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
   DVLOG(0) << "mm, contended, we have to wait.. me=" << id << " pred=" << predecessor_id;
 
   ASSERT_ND(me_waiting->load());
-  ASSERT_ND(adaptor_.get_other_cur_block(predecessor_id) >= predecessor_block);
   McsWwBlock* pred_block = adaptor_.get_ww_other_block(predecessor_id, predecessor_block);
   ASSERT_ND(!pred_block->has_successor_atomic());
 
@@ -180,7 +179,6 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_try(McsWwLock* mcs_lock) {
     thread::ThreadId predecessor_id = pred.get_thread_id_relaxed();
     ASSERT_ND(predecessor_id != id);
     McsBlockIndex predecessor_block = pred.get_block_relaxed();
-    ASSERT_ND(adaptor_.get_other_cur_block(predecessor_id) >= predecessor_block);
   }
 #endif  // NDEBUG
   return 0;
@@ -309,7 +307,6 @@ void McsWwImpl<ADAPTOR>::release(McsWwLock* mcs_lock, McsBlockIndex block_index)
   ASSERT_ND(successor_id != id);
   ASSERT_ND(address->copy_atomic() != myself);
 
-  ASSERT_ND(adaptor_.get_other_cur_block(successor_id) >= block->get_successor_block_relaxed());
   ASSERT_ND(adaptor_.other_waiting(successor_id)->load());
   ASSERT_ND(mcs_lock->is_locked());
 

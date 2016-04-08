@@ -326,6 +326,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /**
    * Release all locks in CLL of this thread whose addresses are canonically ordered
    * before the parameter. This is used where we need to rule out the risk of deadlock.
+   * TODO(Hideaki) this has some bug when address!=kNullUniversalLockId ??? Need to test
    */
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
   /** same as mcs_release_all_current_locks_after(address - 1) */

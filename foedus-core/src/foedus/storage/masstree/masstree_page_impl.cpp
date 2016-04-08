@@ -670,11 +670,14 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   // TODO(tzwang): add a counter here to count such cases; releasing all S-locks at
   // SMO ruins the tx's efforts to protect hot reads. Maybe re-acquire and validate
   // immediately after the SMO?
-
+  /*
   auto begin_address = xct::xct_id_to_universal_lock_id(
     context->get_global_volatile_page_resolver(),
     reinterpret_cast<xct::RwLockableXctId*>(this));
   context->mcs_release_all_current_locks_after(begin_address);
+  */
+  // TODO(Hideaki) Seems like the above has some bug?? Causing deadlocks. Let's release all.
+  context->mcs_release_all_current_locks_after(xct::kNullUniversalLockId);
   // Now we can take all locks unconditionally. simple!
 
   // We must lock in-order here. Remember that slots grow backwards, so larger indexes
