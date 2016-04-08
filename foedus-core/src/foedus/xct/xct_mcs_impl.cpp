@@ -178,7 +178,6 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_try(McsWwLock* mcs_lock) {
   if (!pred.is_guest_relaxed()) {
     thread::ThreadId predecessor_id = pred.get_thread_id_relaxed();
     ASSERT_ND(predecessor_id != id);
-    McsBlockIndex predecessor_block = pred.get_block_relaxed();
   }
 #endif  // NDEBUG
   return 0;

@@ -306,6 +306,9 @@ class ThreadPimpl final : public DefaultInitializable {
   void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
   void        mcs_giveup_all_current_locks_after(xct::UniversalLockId address);
 
+  ErrorCode   cll_try_or_acquire_single_lock(xct::LockListPosition pos);
+  ErrorCode   cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
+
   static void mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
   static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);

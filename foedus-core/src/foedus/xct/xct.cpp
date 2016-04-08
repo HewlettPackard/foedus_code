@@ -355,13 +355,13 @@ void Xct::on_record_read_take_locks_if_needed(
     ErrorCode lock_ret;
     if (rll_pos == kLockListPositionInvalid) {
       // Then, this is a single read-lock to take.
-      lock_ret = current_lock_list_.try_or_acquire_single_lock(context_, cll_pos);
+      lock_ret = context_->cll_try_or_acquire_single_lock(cll_pos);
       // TODO(Hideaki) The above locks unconditionally in canonnical mode. Even in non-canonical,
       // when it returns kErrorCodeXctLockAbort AND we haven't taken any write-lock yet,
       // we might still want a retry here.. but it has pros/cons. Revisit later.
     } else {
       // Then we should take all locks before this too.
-      lock_ret = current_lock_list_.try_or_acquire_multiple_locks(context_, cll_pos);
+      lock_ret = context_->cll_try_or_acquire_multiple_locks(cll_pos);
     }
 
     if (lock_ret != kErrorCodeOk) {

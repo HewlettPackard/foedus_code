@@ -358,6 +358,11 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** @copydoc foedus::xct::McsWwImpl::ownerless_initial() */
   static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);
 
+  /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_single_lock() */
+  ErrorCode cll_try_or_acquire_single_lock(xct::LockListPosition pos);
+  /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_multiple_locks() */
+  ErrorCode cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
+
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch*        get_in_commit_epoch_address();
 

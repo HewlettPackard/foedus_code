@@ -919,6 +919,12 @@ void Thread::mcs_release_all_current_locks_after(xct::UniversalLockId address) {
 void Thread::mcs_giveup_all_current_locks_after(xct::UniversalLockId address) {
   pimpl_->mcs_giveup_all_current_locks_after(address);
 }
+ErrorCode Thread::cll_try_or_acquire_single_lock(xct::LockListPosition pos) {
+  return pimpl_->cll_try_or_acquire_single_lock(pos);
+}
+ErrorCode Thread::cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos) {
+  return pimpl_->cll_try_or_acquire_multiple_locks(upto_pos);
+}
 
 void Thread::mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
@@ -1098,113 +1104,47 @@ void ThreadPimpl::mcs_cancel_async_rw_writer(xct::McsRwLock* lock, xct::McsBlock
 }
 
 void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId address) {
-  // Only this and below logics are implemented here because this needs to know about CLL.
-  // This is not quite about the lock algorithm itself. It's something on higher level.
   xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
-  cll->assert_sorted();
-  uint32_t released_read_locks = 0;
-  uint32_t released_write_locks = 0;
-  uint32_t already_released_locks = 0;
-  uint32_t canceled_async_read_locks = 0;
-  uint32_t canceled_async_write_locks = 0;
-
-  for (xct::LockEntry* entry = cll->begin(); entry != cll->end(); ++entry) {
-    if (entry->universal_lock_id_ <= address) {
-      continue;
-    }
-    if (entry->is_locked()) {
-      if (entry->taken_mode_ == xct::kReadLock) {
-        mcs_release_reader_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
-        ++released_read_locks;
-      } else {
-        ASSERT_ND(entry->taken_mode_ == xct::kWriteLock);
-        mcs_release_writer_lock(entry->lock_->get_key_lock(), entry->mcs_block_);
-        ++released_write_locks;
-      }
-      entry->mcs_block_ = 0;
-      entry->taken_mode_ = xct::kNoLock;
-    } else if (entry->mcs_block_) {
-      // Not locked yet, but we have mcs_block_ set, this means we tried it in
-      // async mode, then still waiting or at least haven't confirmed that we acquired it.
-      // Cancel these "retrieable" locks to which we already pushed our qnode.
-      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
-      if (entry->preferred_mode_ == xct::kReadLock) {
-        mcs_cancel_async_rw_reader(entry->lock_->get_key_lock(), entry->mcs_block_);
-        ++canceled_async_read_locks;
-      } else {
-        ASSERT_ND(entry->preferred_mode_ == xct::kWriteLock);
-        mcs_cancel_async_rw_writer(entry->lock_->get_key_lock(), entry->mcs_block_);
-        ++canceled_async_write_locks;
-      }
-      entry->mcs_block_ = 0;
-    } else {
-      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
-      ++already_released_locks;
-    }
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    cll->release_all_after(address, &impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    cll->release_all_after(address, &impl);
   }
-
-  DVLOG(1) << " Unlocked " << released_read_locks << " read locks and"
-    << " " << released_write_locks << " write locks. " << already_released_locks
-    << " Also cancelled " << canceled_async_read_locks << " async-waiting read locks, "
-    << " " << canceled_async_write_locks << " async-waiting write locks. "
-    << " " << already_released_locks << " were already unlocked";
 }
 
 void ThreadPimpl::mcs_giveup_all_current_locks_after(xct::UniversalLockId address) {
   xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
-  cll->assert_sorted();
-  uint32_t givenup_read_locks = 0;
-  uint32_t givenup_write_locks = 0;
-  uint32_t givenup_upgrades = 0;
-  uint32_t already_enough_locks = 0;
-  uint32_t canceled_async_read_locks = 0;
-  uint32_t canceled_async_write_locks = 0;
-
-  for (xct::LockEntry* entry = cll->begin(); entry != cll->end(); ++entry) {
-    if (entry->universal_lock_id_ <= address) {
-      continue;
-    }
-    if (entry->preferred_mode_ == xct::kNoLock) {
-      continue;
-    }
-    if (entry->is_enough()) {
-      ++already_enough_locks;
-      continue;
-    }
-
-    if (entry->is_locked()) {
-      ASSERT_ND(entry->taken_mode_ == xct::kReadLock);
-      ASSERT_ND(entry->preferred_mode_ == xct::kWriteLock);
-      ++givenup_upgrades;
-      entry->preferred_mode_ = entry->taken_mode_;
-    } else if (entry->mcs_block_) {
-      if (entry->preferred_mode_ == xct::kReadLock) {
-        mcs_cancel_async_rw_reader(entry->lock_->get_key_lock(), entry->mcs_block_);
-        ++canceled_async_read_locks;
-      } else {
-        ASSERT_ND(entry->preferred_mode_ == xct::kWriteLock);
-        mcs_cancel_async_rw_writer(entry->lock_->get_key_lock(), entry->mcs_block_);
-        ++canceled_async_write_locks;
-      }
-      entry->mcs_block_ = 0;
-      entry->preferred_mode_ = xct::kNoLock;
-    } else {
-      ASSERT_ND(entry->taken_mode_ == xct::kNoLock);
-      if (entry->preferred_mode_ == xct::kReadLock) {
-        ++givenup_read_locks;
-      } else {
-        ASSERT_ND(entry->preferred_mode_ == xct::kWriteLock);
-        ++givenup_write_locks;
-      }
-      entry->preferred_mode_ = xct::kNoLock;
-    }
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    cll->giveup_all_after(address, &impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    cll->giveup_all_after(address, &impl);
   }
+}
 
-  DVLOG(1) << " Gave up " << givenup_read_locks << " read locks and"
-    << " " << givenup_write_locks << " write locks, " << givenup_upgrades << " upgrades."
-    << " Also cancelled " << canceled_async_read_locks << " async-waiting read locks, "
-    << " " << canceled_async_write_locks << " async-waiting write locks. "
-    << " " << already_enough_locks << " already had enough lock mode";
+ErrorCode ThreadPimpl::cll_try_or_acquire_single_lock(xct::LockListPosition pos) {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    return cll->try_or_acquire_single_lock(pos, &impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    return cll->try_or_acquire_single_lock(pos, &impl);
+  }
+}
+
+ErrorCode ThreadPimpl::cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos) {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    return cll->try_or_acquire_multiple_locks(upto_pos, &impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    return cll->try_or_acquire_multiple_locks(upto_pos, &impl);
+  }
 }
 
 static_assert(

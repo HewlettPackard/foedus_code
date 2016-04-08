@@ -25,7 +25,10 @@
 #include "foedus/memory/page_resolver.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/thread/thread_pimpl.hpp"       // only for explicit template instantiation
 #include "foedus/xct/xct.hpp"
+#include "foedus/xct/xct_mcs_adapter_impl.hpp"  // only for explicit template instantiation
+#include "foedus/xct/xct_mcs_impl.hpp"          // only for explicit template instantiation
 
 namespace foedus {
 namespace xct {
@@ -481,194 +484,31 @@ void CurrentLockList::prepopulate_for_retrospective_lock_list(const Retrospectiv
   assert_sorted();
 }
 
-ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
-  thread::Thread* context,
-  LockListPosition pos,
-  LockListPosition* last_locked_pos) {
-  LockEntry* lock_entry = get_entry(pos);
-  if (lock_entry->is_enough()) {
-    return kErrorCodeOk;
-  }
-  ASSERT_ND(lock_entry->taken_mode_ != kWriteLock);
-
-  auto* lock_addr = lock_entry->lock_->get_key_lock();
-  if (lock_entry->taken_mode_ != kNoLock) {
-    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
-    ASSERT_ND(lock_entry->taken_mode_ == kReadLock);
-    ASSERT_ND(lock_entry->mcs_block_);
-    // This is reader->writer upgrade.
-    // We simply release read-lock first then take write-lock in this case.
-    // In traditional 2PL, such an unlock-then-lock violates serializability,
-    // but we guarantee serializability by read-verification anyways.
-    // We can release any lock anytime.. great flexibility!
-    context->mcs_release_reader_lock(lock_addr, lock_entry->mcs_block_);
-
-    // simply recalculate. We can do a bit smarter thing.. if CPU profile tells something.
-    // unlikely because lock upgrade shouldn't be that often. RLL should minimize it.
-    *last_locked_pos = get_last_locked_entry();
-  } else {
-    // This method is for unconditional acquire and try, not aync/retry.
-    // If we have a queue node already, something was misused.
-    ASSERT_ND(lock_entry->mcs_block_ == 0);
-  }
-
-  // Now we need to take the lock. Are we in canonical mode?
-  if (*last_locked_pos == kLockListPositionInvalid || *last_locked_pos < pos) {
-    // yay, we are in canonical mode. we can unconditionally get the lock
-    ASSERT_ND(lock_entry->taken_mode_ == kNoLock);  // not a lock upgrade, either
-    if (lock_entry->preferred_mode_ == kWriteLock) {
-      lock_entry->mcs_block_ = context->mcs_acquire_writer_lock(lock_addr);
-    } else {
-      ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
-      lock_entry->mcs_block_ = context->mcs_acquire_reader_lock(lock_addr);
-    }
-    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
-  } else {
-    // hmm, we violated canonical mode. has a risk of deadlock.
-    // Let's just try acquire the lock and immediately give up if it fails.
-    // The RLL will take care of the next run.
-    // TODO(Hideaki) release some of the lock we have taken to restore canonical mode.
-    // We haven't imlpemented this optimization yet.
-    ASSERT_ND(lock_entry->mcs_block_ == 0);
-    ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
-    if (lock_entry->preferred_mode_ == kWriteLock) {
-      lock_entry->mcs_block_ = context->mcs_try_acquire_writer_lock(lock_addr);
-    } else {
-      ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
-      lock_entry->mcs_block_ = context->mcs_try_acquire_reader_lock(lock_addr);
-    }
-    if (lock_entry->mcs_block_ == 0) {
-      DVLOG(0) << "Failed to try-acquire a lock.";
-      return kErrorCodeXctLockAbort;
-    }
-    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
-  }
-  ASSERT_ND(lock_entry->mcs_block_);
-  ASSERT_ND(lock_entry->is_locked());
-  *last_locked_pos = std::max(pos, *last_locked_pos);
-  return kErrorCodeOk;
+void CurrentLockList::release_all_after_debuglog(
+  uint32_t released_read_locks,
+  uint32_t released_write_locks,
+  uint32_t already_released_locks,
+  uint32_t canceled_async_read_locks,
+  uint32_t canceled_async_write_locks) const {
+  DVLOG(1) << " Unlocked " << released_read_locks << " read locks and"
+    << " " << released_write_locks << " write locks. " << already_released_locks
+    << " Also cancelled " << canceled_async_read_locks << " async-waiting read locks, "
+    << " " << canceled_async_write_locks << " async-waiting write locks. "
+    << " " << already_released_locks << " were already unlocked";
 }
 
-void CurrentLockList::try_async_single_lock(
-  thread::Thread* context,
-  LockListPosition pos) {
-  LockEntry* lock_entry = get_entry(pos);
-  if (lock_entry->is_enough()) {
-    return;
-  }
-  ASSERT_ND(lock_entry->taken_mode_ != kWriteLock);
-
-  auto* lock_addr = lock_entry->lock_->get_key_lock();
-  if (lock_entry->taken_mode_ != kNoLock) {
-    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
-    ASSERT_ND(lock_entry->taken_mode_ == kReadLock);
-    ASSERT_ND(lock_entry->mcs_block_);
-    // This is reader->writer upgrade.
-    // We simply release read-lock first then take write-lock in this case.
-    // In traditional 2PL, such an unlock-then-lock violates serializability,
-    // but we guarantee serializability by read-verification anyways.
-    // We can release any lock anytime.. great flexibility!
-    context->mcs_release_reader_lock(lock_addr, lock_entry->mcs_block_);
-    lock_entry->taken_mode_ = kNoLock;
-  } else {
-    // This function is for pushing the queue node in the extended rwlock.
-    // Doomed if we already have a queue node.
-    ASSERT_ND(lock_entry->mcs_block_ == 0);
-  }
-
-  // Don't really care canonical order here, just send out the request.
-  AcquireAsyncRet async_ret;
-  if (lock_entry->preferred_mode_ == kWriteLock) {
-    async_ret = context->mcs_acquire_async_rw_writer(lock_addr);
-  } else {
-    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
-    async_ret = context->mcs_acquire_async_rw_reader(lock_addr);
-  }
-  ASSERT_ND(async_ret.block_index_);
-  lock_entry->mcs_block_ = async_ret.block_index_;
-  if (async_ret.acquired_) {
-    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
-    ASSERT_ND(lock_entry->is_enough());
-  }
-  ASSERT_ND(lock_entry->mcs_block_);
-}
-
-bool CurrentLockList::retry_async_single_lock(
-  thread::Thread* context,
-  LockListPosition pos) {
-  LockEntry* lock_entry = get_entry(pos);
-  // Must be not taken yet, and must have pushed a qnode to the lock queue
-  ASSERT_ND(!lock_entry->is_enough());
-  ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
-  ASSERT_ND(lock_entry->mcs_block_);
-  ASSERT_ND(!lock_entry->is_locked());
-
-  auto* lock_addr = lock_entry->lock_->get_key_lock();
-  bool acquired = false;
-  if (lock_entry->preferred_mode_ == kWriteLock) {
-    acquired = context->mcs_retry_async_rw_writer(lock_addr, lock_entry->mcs_block_);
-  } else {
-    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
-    acquired = context->mcs_retry_async_rw_reader(lock_addr, lock_entry->mcs_block_);
-  }
-  if (acquired) {
-    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
-    ASSERT_ND(lock_entry->is_locked());
-  }
-  return acquired;
-}
-
-void CurrentLockList::cancel_async_single_lock_impl(
-  thread::Thread* context,
-  LockListPosition pos) {
-  LockEntry* lock_entry = get_entry(pos);
-  ASSERT_ND(!lock_entry->is_enough());
-  ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
-  ASSERT_ND(lock_entry->mcs_block_);
-  auto* lock_addr = lock_entry->lock_->get_key_lock();
-  if (lock_entry->preferred_mode_ == kReadLock) {
-    context->mcs_cancel_async_rw_reader(lock_addr, lock_entry->mcs_block_);
-  } else {
-    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
-    context->mcs_cancel_async_rw_writer(lock_addr, lock_entry->mcs_block_);
-  }
-  lock_entry->mcs_block_ = 0;
-}
-
-ErrorCode CurrentLockList::try_or_acquire_single_lock(
-  thread::Thread* context,
-  LockListPosition pos) {
-  LockListPosition last_locked_pos = get_last_locked_entry();
-  return try_or_acquire_single_lock_impl(context, pos, &last_locked_pos);
-}
-
-void CurrentLockList::cancel_async_single_lock(
-  thread::Thread* context,
-  LockListPosition pos) {
-  cancel_async_single_lock_impl(context, pos);
-}
-
-ErrorCode CurrentLockList::try_or_acquire_multiple_locks(
-  thread::Thread* context,
-  LockListPosition upto_pos) {
-  ASSERT_ND(upto_pos != kLockListPositionInvalid);
-  ASSERT_ND(upto_pos <= last_active_entry_);
-  LockListPosition last_locked_pos = get_last_locked_entry();
-  // Especially in this case, we probably should release locks after upto_pos first.
-  for (LockListPosition pos = 1U; pos <= upto_pos; ++pos) {
-    CHECK_ERROR_CODE(try_or_acquire_single_lock_impl(context, pos, &last_locked_pos));
-  }
-  return kErrorCodeOk;
-}
-
-void CurrentLockList::try_async_multiple_locks(
-  thread::Thread* context,
-  LockListPosition upto_pos) {
-  ASSERT_ND(upto_pos != kLockListPositionInvalid);
-  ASSERT_ND(upto_pos <= last_active_entry_);
-  for (LockListPosition pos = 1U; pos <= upto_pos; ++pos) {
-    try_async_single_lock(context, pos);
-  }
+void CurrentLockList::giveup_all_after_debuglog(
+  uint32_t givenup_read_locks,
+  uint32_t givenup_write_locks,
+  uint32_t givenup_upgrades,
+  uint32_t already_enough_locks,
+  uint32_t canceled_async_read_locks,
+  uint32_t canceled_async_write_locks) const {
+  DVLOG(1) << " Gave up " << givenup_read_locks << " read locks and"
+    << " " << givenup_write_locks << " write locks, " << givenup_upgrades << " upgrades."
+    << " Also cancelled " << canceled_async_read_locks << " async-waiting read locks, "
+    << " " << canceled_async_write_locks << " async-waiting write locks. "
+    << " " << already_enough_locks << " already had enough lock mode";
 }
 
 }  // namespace xct

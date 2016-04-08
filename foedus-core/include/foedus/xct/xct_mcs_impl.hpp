@@ -84,7 +84,7 @@ namespace xct {
  * @see foedus::xct::McsAdaptorConcept
  */
 template<typename ADAPTOR, typename RW_BLOCK>
-class McsImpl {
+class McsImpl {  // TODO(Hideaki) should be renamed to McsRwImpl
  public:
   explicit McsImpl(ADAPTOR adaptor) : adaptor_(adaptor) {}
   //////////////////////////////////////////////////////////////////////////////////

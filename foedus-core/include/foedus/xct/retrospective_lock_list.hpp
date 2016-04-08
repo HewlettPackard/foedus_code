@@ -20,6 +20,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <iosfwd>
 
 #include "foedus/assert_nd.hpp"
@@ -406,6 +407,13 @@ class CurrentLockList {
    */
   void prepopulate_for_retrospective_lock_list(const RetrospectiveLockList& rll);
 
+  ////////////////////////////////////////////////////////////////////////
+  ///
+  /// Methods below take or release locks, so they receive MCS_RW_IMPL, a template param.
+  /// To avoid vtable and allow inlining, we define them at the bottom of this file.
+  ///
+  ////////////////////////////////////////////////////////////////////////
+
   /**
    * @brief Acquire one lock in this CLL.
    * @details
@@ -413,7 +421,8 @@ class CurrentLockList {
    * and acquire the lock unconditionally when in canonical mode (never returns until acquire),
    * and try the lock instanteneously when not in canonical mode (returns RaceAbort immediately).
    */
-  ErrorCode try_or_acquire_single_lock(thread::Thread* context, LockListPosition pos);
+  template<typename MCS_RW_IMPL>
+  ErrorCode try_or_acquire_single_lock(LockListPosition pos, MCS_RW_IMPL* mcs_rw_impl);
 
   /**
    * @brief Acquire multiple locks up to the given position in canonical order.
@@ -423,27 +432,47 @@ class CurrentLockList {
    * Hence, this method must be invoked when the thread is still in canonical mode.
    * Otherwise, it risks deadlock.
    */
-  ErrorCode try_or_acquire_multiple_locks(thread::Thread* context, LockListPosition upto_pos);
+  template<typename MCS_RW_IMPL>
+  ErrorCode try_or_acquire_multiple_locks(LockListPosition upto_pos, MCS_RW_IMPL* mcs_rw_impl);
 
   /** subroutine used from try_or_acquire_single_lock/try_or_acquire_multiple_locks */
+  template<typename MCS_RW_IMPL>
   ErrorCode try_or_acquire_single_lock_impl(
-    thread::Thread* context,
     LockListPosition pos,
-    LockListPosition* last_locked_pos);
+    LockListPosition* last_locked_pos,
+    MCS_RW_IMPL* mcs_rw_impl);
 
-  void try_async_single_lock(thread::Thread* context, LockListPosition pos);
-  bool retry_async_single_lock(thread::Thread* context, LockListPosition pos);
-  void cancel_async_single_lock(thread::Thread* context, LockListPosition pos);
-  void try_async_multiple_locks(
-    thread::Thread* context,
-    LockListPosition upto_pos);
+  template<typename MCS_RW_IMPL>
+  void try_async_single_lock(LockListPosition pos, MCS_RW_IMPL* mcs_rw_impl);
+  template<typename MCS_RW_IMPL>
+  bool retry_async_single_lock(LockListPosition pos, MCS_RW_IMPL* mcs_rw_impl);
+  template<typename MCS_RW_IMPL>
+  void cancel_async_single_lock(LockListPosition pos, MCS_RW_IMPL* mcs_rw_impl);
 
-  void try_async_single_lock_impl(
-    thread::Thread* context,
-    LockListPosition pos,
-    LockListPosition* last_locked_pos);
-  bool retry_async_single_lock_impl(thread::Thread* context, LockListPosition pos);
-  void cancel_async_single_lock_impl(thread::Thread* context, LockListPosition pos);
+  template<typename MCS_RW_IMPL>
+  void try_async_multiple_locks(LockListPosition upto_pos, MCS_RW_IMPL* mcs_rw_impl);
+
+  /**
+   * Release all locks in CLL whose addresses are canonically ordered
+   * before the parameter. This is used where we need to rule out the risk of deadlock.
+   * Unlike clear_entries(), this leaves the entries.
+   * TODO(Hideaki) this has some bug when address!=kNullUniversalLockId ??? Need to test
+   */
+  template<typename MCS_RW_IMPL>
+  void        release_all_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl);
+  /** same as mcs_release_all_current_locks_after(address - 1) */
+  template<typename MCS_RW_IMPL>
+  void        release_all_at_and_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl);
+  /**
+   * This \e gives-up locks in CLL that are not yet taken.
+   * preferred mode will be set to either NoLock or same as taken_mode,
+   * and all incomplete async locks will be cancelled.
+   * Unlike clear_entries(), this leaves the entries.
+   */
+  template<typename MCS_RW_IMPL>
+  void        giveup_all_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl);
+  template<typename MCS_RW_IMPL>
+  void        giveup_all_at_and_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl);
 
  private:
   /**
@@ -473,6 +502,21 @@ class CurrentLockList {
     ASSERT_ND(last_active_entry_ < capacity_);
     return last_active_entry_;
   }
+
+  void release_all_after_debuglog(
+    uint32_t released_read_locks,
+    uint32_t released_write_locks,
+    uint32_t already_released_locks,
+    uint32_t canceled_async_read_locks,
+    uint32_t canceled_async_write_locks) const;
+
+  void giveup_all_after_debuglog(
+    uint32_t givenup_read_locks,
+    uint32_t givenup_write_locks,
+    uint32_t givenup_upgrades,
+    uint32_t already_enough_locks,
+    uint32_t canceled_async_read_locks,
+    uint32_t canceled_async_write_locks) const;
 };
 
 inline void RetrospectiveLockList::assert_sorted() const {
@@ -486,6 +530,340 @@ inline void CurrentLockList::assert_sorted() const {
 #ifndef  NDEBUG
   assert_sorted_impl();
 #endif  // NDEBUG
+}
+
+////////////////////////////////////////////////////////////////////////
+/// Inline definitions of CurrentLockList methods below.
+/// These are inlined primarily because they receive a template param,
+/// not because we want to inline for performance.
+/// We could do explicit instantiations, but not that lengthy, either.
+/// Just inlining them is easier in this case.
+////////////////////////////////////////////////////////////////////////
+template<typename MCS_RW_IMPL>
+inline ErrorCode CurrentLockList::try_or_acquire_single_lock(
+  LockListPosition pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  LockListPosition last_locked_pos = get_last_locked_entry();
+  return try_or_acquire_single_lock_impl(pos, &last_locked_pos, mcs_rw_impl);
+}
+
+template<typename MCS_RW_IMPL>
+inline ErrorCode CurrentLockList::try_or_acquire_multiple_locks(
+  LockListPosition upto_pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  ASSERT_ND(upto_pos != kLockListPositionInvalid);
+  ASSERT_ND(upto_pos <= last_active_entry_);
+  LockListPosition last_locked_pos = get_last_locked_entry();
+  // Especially in this case, we probably should release locks after upto_pos first.
+  for (LockListPosition pos = 1U; pos <= upto_pos; ++pos) {
+    CHECK_ERROR_CODE(try_or_acquire_single_lock_impl(pos, &last_locked_pos, mcs_rw_impl));
+  }
+  return kErrorCodeOk;
+}
+
+template<typename MCS_RW_IMPL>
+inline ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
+  LockListPosition pos,
+  LockListPosition* last_locked_pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  LockEntry* lock_entry = get_entry(pos);
+  if (lock_entry->is_enough()) {
+    return kErrorCodeOk;
+  }
+  ASSERT_ND(lock_entry->taken_mode_ != kWriteLock);
+
+  McsRwLock* lock_addr = lock_entry->lock_->get_key_lock();
+  if (lock_entry->taken_mode_ != kNoLock) {
+    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
+    ASSERT_ND(lock_entry->taken_mode_ == kReadLock);
+    ASSERT_ND(lock_entry->mcs_block_);
+    // This is reader->writer upgrade.
+    // We simply release read-lock first then take write-lock in this case.
+    // In traditional 2PL, such an unlock-then-lock violates serializability,
+    // but we guarantee serializability by read-verification anyways.
+    // We can release any lock anytime.. great flexibility!
+    mcs_rw_impl->release_rw_reader(lock_addr, lock_entry->mcs_block_);
+
+    // simply recalculate. We can do a bit smarter thing.. if CPU profile tells something.
+    // unlikely because lock upgrade shouldn't be that often. RLL should minimize it.
+    *last_locked_pos = get_last_locked_entry();
+  } else {
+    // This method is for unconditional acquire and try, not aync/retry.
+    // If we have a queue node already, something was misused.
+    ASSERT_ND(lock_entry->mcs_block_ == 0);
+  }
+
+  // Now we need to take the lock. Are we in canonical mode?
+  if (*last_locked_pos == kLockListPositionInvalid || *last_locked_pos < pos) {
+    // yay, we are in canonical mode. we can unconditionally get the lock
+    ASSERT_ND(lock_entry->taken_mode_ == kNoLock);  // not a lock upgrade, either
+    if (lock_entry->preferred_mode_ == kWriteLock) {
+      lock_entry->mcs_block_ = mcs_rw_impl->acquire_unconditional_rw_writer(lock_addr);
+    } else {
+      ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+      lock_entry->mcs_block_ = mcs_rw_impl->acquire_unconditional_rw_reader(lock_addr);
+    }
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+  } else {
+    // hmm, we violated canonical mode. has a risk of deadlock.
+    // Let's just try acquire the lock and immediately give up if it fails.
+    // The RLL will take care of the next run.
+    // TODO(Hideaki) release some of the lock we have taken to restore canonical mode.
+    // We haven't imlpemented this optimization yet.
+    ASSERT_ND(lock_entry->mcs_block_ == 0);
+    ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+    if (lock_entry->preferred_mode_ == kWriteLock) {
+      lock_entry->mcs_block_ = mcs_rw_impl->acquire_try_rw_writer(lock_addr);
+    } else {
+      ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+      lock_entry->mcs_block_ = mcs_rw_impl->acquire_try_rw_reader(lock_addr);
+    }
+    if (lock_entry->mcs_block_ == 0) {
+      return kErrorCodeXctLockAbort;
+    }
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+  }
+  ASSERT_ND(lock_entry->mcs_block_);
+  ASSERT_ND(lock_entry->is_locked());
+  *last_locked_pos = std::max(pos, *last_locked_pos);
+  return kErrorCodeOk;
+}
+
+template<typename MCS_RW_IMPL>
+inline void CurrentLockList::try_async_single_lock(
+  LockListPosition pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  LockEntry* lock_entry = get_entry(pos);
+  if (lock_entry->is_enough()) {
+    return;
+  }
+  ASSERT_ND(lock_entry->taken_mode_ != kWriteLock);
+
+  McsRwLock* lock_addr = lock_entry->lock_->get_key_lock();
+  if (lock_entry->taken_mode_ != kNoLock) {
+    ASSERT_ND(lock_entry->preferred_mode_ == kWriteLock);
+    ASSERT_ND(lock_entry->taken_mode_ == kReadLock);
+    ASSERT_ND(lock_entry->mcs_block_);
+    // This is reader->writer upgrade.
+    // We simply release read-lock first then take write-lock in this case.
+    // In traditional 2PL, such an unlock-then-lock violates serializability,
+    // but we guarantee serializability by read-verification anyways.
+    // We can release any lock anytime.. great flexibility!
+    mcs_rw_impl->release_rw_reader(lock_addr, lock_entry->mcs_block_);
+    lock_entry->taken_mode_ = kNoLock;
+  } else {
+    // This function is for pushing the queue node in the extended rwlock.
+    // Doomed if we already have a queue node.
+    ASSERT_ND(lock_entry->mcs_block_ == 0);
+  }
+
+  // Don't really care canonical order here, just send out the request.
+  AcquireAsyncRet async_ret;
+  if (lock_entry->preferred_mode_ == kWriteLock) {
+    async_ret = mcs_rw_impl->acquire_async_rw_writer(lock_addr);
+  } else {
+    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+    async_ret = mcs_rw_impl->acquire_async_rw_reader(lock_addr);
+  }
+  ASSERT_ND(async_ret.block_index_);
+  lock_entry->mcs_block_ = async_ret.block_index_;
+  if (async_ret.acquired_) {
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+    ASSERT_ND(lock_entry->is_enough());
+  }
+  ASSERT_ND(lock_entry->mcs_block_);
+}
+
+template<typename MCS_RW_IMPL>
+inline bool CurrentLockList::retry_async_single_lock(
+  LockListPosition pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  LockEntry* lock_entry = get_entry(pos);
+  // Must be not taken yet, and must have pushed a qnode to the lock queue
+  ASSERT_ND(!lock_entry->is_enough());
+  ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+  ASSERT_ND(lock_entry->mcs_block_);
+  ASSERT_ND(!lock_entry->is_locked());
+
+  McsRwLock* lock_addr = lock_entry->lock_->get_key_lock();
+  bool acquired = false;
+  if (lock_entry->preferred_mode_ == kWriteLock) {
+    acquired = mcs_rw_impl->retry_async_rw_writer(lock_addr, lock_entry->mcs_block_);
+  } else {
+    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+    acquired = mcs_rw_impl->retry_async_rw_reader(lock_addr, lock_entry->mcs_block_);
+  }
+  if (acquired) {
+    lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+    ASSERT_ND(lock_entry->is_locked());
+  }
+  return acquired;
+}
+
+template<typename MCS_RW_IMPL>
+inline void CurrentLockList::cancel_async_single_lock(
+  LockListPosition pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  LockEntry* lock_entry = get_entry(pos);
+  ASSERT_ND(!lock_entry->is_enough());
+  ASSERT_ND(lock_entry->taken_mode_ == kNoLock);
+  ASSERT_ND(lock_entry->mcs_block_);
+  McsRwLock* lock_addr = lock_entry->lock_->get_key_lock();
+  if (lock_entry->preferred_mode_ == kReadLock) {
+    mcs_rw_impl->cancel_async_rw_reader(lock_addr, lock_entry->mcs_block_);
+  } else {
+    ASSERT_ND(lock_entry->preferred_mode_ == kReadLock);
+    mcs_rw_impl->cancel_async_rw_writer(lock_addr, lock_entry->mcs_block_);
+  }
+  lock_entry->mcs_block_ = 0;
+}
+
+template<typename MCS_RW_IMPL>
+inline void CurrentLockList::try_async_multiple_locks(
+  LockListPosition upto_pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  ASSERT_ND(upto_pos != kLockListPositionInvalid);
+  ASSERT_ND(upto_pos <= last_active_entry_);
+  for (LockListPosition pos = 1U; pos <= upto_pos; ++pos) {
+    try_async_single_lock(pos, mcs_rw_impl);
+  }
+}
+
+template<typename MCS_RW_IMPL>
+inline void CurrentLockList::release_all_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl) {
+  // Only this and below logics are implemented here because this needs to know about CLL.
+  // This is not quite about the lock algorithm itself. It's something on higher level.
+  assert_sorted();
+  uint32_t released_read_locks = 0;
+  uint32_t released_write_locks = 0;
+  uint32_t already_released_locks = 0;
+  uint32_t canceled_async_read_locks = 0;
+  uint32_t canceled_async_write_locks = 0;
+
+  for (LockEntry* entry = begin(); entry != end(); ++entry) {
+    if (entry->universal_lock_id_ <= address) {
+      continue;
+    }
+    if (entry->is_locked()) {
+      if (entry->taken_mode_ == kReadLock) {
+        mcs_rw_impl->release_rw_reader(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++released_read_locks;
+      } else {
+        ASSERT_ND(entry->taken_mode_ == kWriteLock);
+        mcs_rw_impl->release_rw_writer(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++released_write_locks;
+      }
+      entry->mcs_block_ = 0;
+      entry->taken_mode_ = kNoLock;
+    } else if (entry->mcs_block_) {
+      // Not locked yet, but we have mcs_block_ set, this means we tried it in
+      // async mode, then still waiting or at least haven't confirmed that we acquired it.
+      // Cancel these "retrieable" locks to which we already pushed our qnode.
+      ASSERT_ND(entry->taken_mode_ == kNoLock);
+      if (entry->preferred_mode_ == kReadLock) {
+        mcs_rw_impl->cancel_async_rw_reader(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++canceled_async_read_locks;
+      } else {
+        ASSERT_ND(entry->preferred_mode_ == kWriteLock);
+        mcs_rw_impl->cancel_async_rw_writer(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++canceled_async_write_locks;
+      }
+      entry->mcs_block_ = 0;
+    } else {
+      ASSERT_ND(entry->taken_mode_ == kNoLock);
+      ++already_released_locks;
+    }
+  }
+
+#ifndef NDEBUG
+  release_all_after_debuglog(
+    released_read_locks,
+    released_write_locks,
+    already_released_locks,
+    canceled_async_read_locks,
+    canceled_async_write_locks);
+#endif  // NDEBUG
+}
+template<typename MCS_RW_IMPL>
+inline void CurrentLockList::release_all_at_and_after(
+  UniversalLockId address,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  if (address == kNullUniversalLockId) {
+    release_all_after<MCS_RW_IMPL>(kNullUniversalLockId, mcs_rw_impl);
+  } else {
+    release_all_after<MCS_RW_IMPL>(address - 1U, mcs_rw_impl);
+  }
+}
+
+template<typename MCS_RW_IMPL>
+inline void CurrentLockList::giveup_all_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl) {
+  assert_sorted();
+  uint32_t givenup_read_locks = 0;
+  uint32_t givenup_write_locks = 0;
+  uint32_t givenup_upgrades = 0;
+  uint32_t already_enough_locks = 0;
+  uint32_t canceled_async_read_locks = 0;
+  uint32_t canceled_async_write_locks = 0;
+
+  for (LockEntry* entry = begin(); entry != end(); ++entry) {
+    if (entry->universal_lock_id_ <= address) {
+      continue;
+    }
+    if (entry->preferred_mode_ == kNoLock) {
+      continue;
+    }
+    if (entry->is_enough()) {
+      ++already_enough_locks;
+      continue;
+    }
+
+    if (entry->is_locked()) {
+      ASSERT_ND(entry->taken_mode_ == kReadLock);
+      ASSERT_ND(entry->preferred_mode_ == kWriteLock);
+      ++givenup_upgrades;
+      entry->preferred_mode_ = entry->taken_mode_;
+    } else if (entry->mcs_block_) {
+      if (entry->preferred_mode_ == kReadLock) {
+        mcs_rw_impl->cancel_async_rw_reader(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++canceled_async_read_locks;
+      } else {
+        ASSERT_ND(entry->preferred_mode_ == kWriteLock);
+        mcs_rw_impl->cancel_async_rw_writer(entry->lock_->get_key_lock(), entry->mcs_block_);
+        ++canceled_async_write_locks;
+      }
+      entry->mcs_block_ = 0;
+      entry->preferred_mode_ = kNoLock;
+    } else {
+      ASSERT_ND(entry->taken_mode_ == kNoLock);
+      if (entry->preferred_mode_ == kReadLock) {
+        ++givenup_read_locks;
+      } else {
+        ASSERT_ND(entry->preferred_mode_ == kWriteLock);
+        ++givenup_write_locks;
+      }
+      entry->preferred_mode_ = kNoLock;
+    }
+  }
+
+#ifndef NDEBUG
+  giveup_all_after_debuglog(
+    givenup_read_locks,
+    givenup_write_locks,
+    givenup_upgrades,
+    already_enough_locks,
+    canceled_async_read_locks,
+    canceled_async_write_locks);
+#endif  // NDEBUG
+}
+template<typename MCS_RW_IMPL>
+inline void CurrentLockList::giveup_all_at_and_after(
+  UniversalLockId address,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  if (address == kNullUniversalLockId) {
+    giveup_all_after<MCS_RW_IMPL>(kNullUniversalLockId, mcs_rw_impl);
+  } else {
+    giveup_all_after<MCS_RW_IMPL>(address - 1U, mcs_rw_impl);
+  }
 }
 
 }  // namespace xct

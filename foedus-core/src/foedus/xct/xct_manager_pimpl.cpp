@@ -575,7 +575,6 @@ moved_retry:
   // Both write-set and CLL are sorted in canonical order. Simply iterate over in order.
   // This is way faster than invoking cll->binary_search() for each write-set entry.
   // Remember one thing, tho: write-set might have multiple entries for one record!
-  LockListPosition last_locked_pos = cll->get_last_locked_entry();
   for (CurrentLockListIteratorForWriteSet it(write_set, cll, write_set_size);
         it.is_valid();
         it.next_writes()) {
@@ -593,15 +592,18 @@ moved_retry:
       // We need to take or upgrade the lock.
       // This might return kErrorCodeXctRaceAbort when we are not in canonical mode and
       // we could not immediately acquire the lock.
+      const LockListPosition last_locked_pos = cll->get_last_locked_entry();
       if (force_canonical &&
         (last_locked_pos != kLockListPositionInvalid && last_locked_pos >= lock_pos)) {
         // We are not in canonical mode. Let's aggressively restore canonical mode.
         DVLOG(0) << "Aggressively releasing locks to restore canonical mode in precommit";
         context->mcs_release_all_current_locks_after(lock_entry->universal_lock_id_ - 1U);
-        last_locked_pos = cll->get_last_locked_entry();
-        ASSERT_ND(last_locked_pos == kLockListPositionInvalid || last_locked_pos < lock_pos);
+#ifndef NDEBUG
+        const LockListPosition new_pos = cll->get_last_locked_entry();
+        ASSERT_ND(new_pos == kLockListPositionInvalid || new_pos < lock_pos);
+#endif  // NDEBUG
       }
-      CHECK_ERROR_CODE(cll->try_or_acquire_single_lock_impl(context, lock_pos, &last_locked_pos));
+      CHECK_ERROR_CODE(context->cll_try_or_acquire_single_lock(lock_pos));
     }
 
     if (UNLIKELY(entry->owner_id_address_->needs_track_moved())) {
