@@ -135,6 +135,58 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_unconditional(McsWwLock* mcs_lock) {
 }
 
 template <typename ADAPTOR>
+McsBlockIndex McsWwImpl<ADAPTOR>::acquire_try(McsWwLock* mcs_lock) {
+  assert_mcs_aligned(mcs_lock);
+  // In this function, we don't even need to modify me_waiting because
+  // we are not waiting whether we fail or succeed.
+  ASSERT_ND(!adaptor_.me_waiting()->load());
+  ASSERT_ND(adaptor_.get_cur_block() < 0xFFFFU);
+  McsBlockIndex block_index = adaptor_.issue_new_block();
+  ASSERT_ND(block_index > 0);
+  ASSERT_ND(block_index <= 0xFFFFU);
+  McsWwBlock* my_block = adaptor_.get_ww_my_block(block_index);
+  my_block->clear_successor_release();
+  const thread::ThreadId id = adaptor_.get_my_id();
+  McsWwBlockData desired(id, block_index);  // purely local copy. okay to be always relaxed.
+  auto* address = &(mcs_lock->tail_);     // be careful on this one!
+  assert_mcs_aligned(address);
+
+  McsWwBlockData pred;                      // purely local copy. okay to be always relaxed.
+  ASSERT_ND(!pred.is_valid_relaxed());
+  // atomic op should imply full barrier, but make sure announcing the initialized new block.
+  ASSERT_ND(address->get_word_atomic() != desired.word_);
+  bool swapped = assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+    &address->word_,
+    &pred.word_,
+    desired.word_);
+
+  if (swapped) {
+    // this means it was not locked.
+    ASSERT_ND(mcs_lock->is_locked());
+    DVLOG(2) << "Okay, got a lock uncontended. me=" << id;
+    ASSERT_ND(address->is_valid_atomic());
+    ASSERT_ND(!address->is_guest_atomic());
+    ASSERT_ND(!pred.is_valid_relaxed());
+    ASSERT_ND(!adaptor_.me_waiting()->load());
+    return block_index;  // we got it!
+  }
+
+  // We couldn't get the lock. As we didn't even install the queue in this case,
+  // we don't need anything for cleanup either. Let's just do sanity check on pred
+#ifndef NDEBUG
+  ASSERT_ND(pred.is_valid_relaxed());
+  ASSERT_ND(!adaptor_.me_waiting()->load());
+  if (!pred.is_guest_relaxed()) {
+    thread::ThreadId predecessor_id = pred.get_thread_id_relaxed();
+    ASSERT_ND(predecessor_id != id);
+    McsBlockIndex predecessor_block = pred.get_block_relaxed();
+    ASSERT_ND(adaptor_.get_other_cur_block(predecessor_id) >= predecessor_block);
+  }
+#endif  // NDEBUG
+  return 0;
+}
+
+template <typename ADAPTOR>
 void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsWwLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
@@ -153,6 +205,30 @@ void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsWwLock* mcs_lock) {
   });
   DVLOG(1) << "Okay, now I hold the lock. me=guest";
   ASSERT_ND(mcs_lock->is_locked());
+}
+
+template <typename ADAPTOR>
+bool McsWwImpl<ADAPTOR>::ownerless_acquire_try(McsWwLock* mcs_lock) {
+  // Similar to acquire_try()
+  assert_mcs_aligned(mcs_lock);
+  auto* int_address = &(mcs_lock->tail_.word_);
+  assert_mcs_aligned(int_address);
+  McsWwBlockData pred;                      // purely local copy. okay to be always relaxed.
+  ASSERT_ND(!pred.is_valid_relaxed());
+  bool swapped = assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+    &(mcs_lock->tail_.word_),
+    &pred.word_,
+    kMcsGuestId);
+
+  if (swapped) {
+    ASSERT_ND(mcs_lock->is_locked());
+    DVLOG(2) << "Okay, got a guest lock uncontended.";
+    // We can't test is_guest here because we might now have a successor swapping it.
+    ASSERT_ND(!pred.is_valid_relaxed());
+    return true;
+  } else {
+    return true;
+  }
 }
 
 template <typename ADAPTOR>

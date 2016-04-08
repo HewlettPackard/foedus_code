@@ -1284,7 +1284,15 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   // So many pitfalls, oh the joy of lock-free programming.
   // We note that this is still much simpler than the original Masstree, thanks to foster-twin!
 
-  PageVersionLockScope scope(context, get_version_address());  // involves atomic op, thus membar
+  // In this method, we use only try-locks on pages to rule out deadlocks.
+  // Adoption in intermediate pages are not mandatory. We can delay it as much as we want.
+  // We thus just return ""
+  PageVersionTryLockScope scope(context, get_version_address());  // involves atomic op, thus membar
+  if (!scope.is_locked()) {
+    VLOG(0) << "Interesting. concurrent thread is locking the page. let him adopt";
+    return kErrorCodeOk;
+  }
+
   // After the above lock, "this" page is fixed, but not its descendants yet.
   // rule out a1
   if (is_moved()) {
@@ -1322,7 +1330,11 @@ ErrorCode MasstreeIntermediatePage::adopt_from_child(
   }
 
   // now lock the child.
-  PageVersionLockScope scope_child(context, child->get_version_address());
+  PageVersionTryLockScope scope_child(context, child->get_version_address());
+  if (!scope_child.is_locked()) {
+    VLOG(0) << "Interesting. concurrent thread is locking the page. let him adopt";
+    return kErrorCodeOk;
+  }
   if (child->get_version().is_retired()) {
     VLOG(0) << "Interesting 5. concurrent inserts already adopted. retry";
     return kErrorCodeOk;  // retry

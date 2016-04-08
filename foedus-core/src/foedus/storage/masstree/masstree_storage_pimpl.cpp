@@ -160,7 +160,13 @@ ErrorCode MasstreeStoragePimpl::grow_root(
   MasstreePage* root = reinterpret_cast<MasstreePage*>(
     resolver.resolve_offset(root_pointer->volatile_pointer_));
 
-  PageVersionLockScope scope(context, root->get_version_address());
+  PageVersionTryLockScope scope(context, root->get_version_address());
+  if (!scope.is_locked()) {
+    DVLOG(1) << "Someone else is locking the root page. let him grow it.";
+    *new_root = nullptr;
+    return kErrorCodeOk;
+  }
+
   if (root->is_retired() || !root->has_foster_child()) {
     if (root->get_foster_fence() == kSupremumSlice) {
       DVLOG(1) << "interesting. someone else has already adopted compacted/restructured root";
@@ -485,7 +491,10 @@ retry_from_layer_root:
         if (next->has_foster_child() && !cur->is_moved()) {
           // oh, the page has foster child, so we should adopt it.
           CHECK_ERROR_CODE(page->adopt_from_child(context, slice));
-          continue;  // we could keep going with a few cautions, but retrying is simpler.
+          // Whether the adopt_from_child() actually adopted it or not,
+          // we follow the "old" next page. Master-Tree variant guarantees that it's safe.
+          // This is beneficial when we lazily give adoption in the method, eg other threads
+          // holding locks in the intermediate page.
         }
         cur = next;
       } else {

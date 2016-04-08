@@ -274,6 +274,8 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   /** @copydoc foedus::xct::McsWwImpl::acquire_unconditional() */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsWwLock* mcs_lock);
+  /** @copydoc foedus::xct::McsWwImpl::acquire_try() */
+  xct::McsBlockIndex  mcs_acquire_try_lock(xct::McsWwLock* mcs_lock);
   /**
    * Unconditionally takes multiple MCS locks.
    * @return MCS block index of the \e first lock acqired. As this is done in a row,

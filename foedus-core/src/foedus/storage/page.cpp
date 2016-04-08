@@ -85,7 +85,8 @@ bool PageHeader::contains_hot_records(thread::Thread* context) {
 PageVersionLockScope::PageVersionLockScope(
   thread::Thread* context,
   PageVersion* version,
-  bool non_racy_lock) {
+  bool non_racy_lock,
+  bool try_lock) {
   context_ = context;
   version_ = version;
   changed_ = false;
@@ -93,7 +94,14 @@ PageVersionLockScope::PageVersionLockScope(
   if (non_racy_lock) {
     block_ = context->mcs_initial_lock(&version->lock_);
   } else {
-    block_ = context->mcs_acquire_lock(&version->lock_);
+    if (try_lock) {
+      block_ = context->mcs_acquire_try_lock(&version->lock_);
+      if (block_ == 0) {
+        released_ = true;
+      }
+    } else {
+      block_ = context->mcs_acquire_lock(&version->lock_);
+    }
   }
 }
 

@@ -282,6 +282,8 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsWwLock* mcs_lock);
+  /** Try to take MCS lock on the given mcs_lock. */
+  xct::McsBlockIndex  mcs_acquire_try_lock(xct::McsWwLock* mcs_lock);
   /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsWwLock* mcs_lock);
   /** Unlcok an MCS lock acquired by this thread. */

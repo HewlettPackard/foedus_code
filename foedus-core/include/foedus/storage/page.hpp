@@ -95,9 +95,11 @@ struct PageVersionStatus CXX11_FINAL {
     status_ |= kHasNextPageBit;
   }
 
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   uint32_t  get_version_counter() const ALWAYS_INLINE {
     return status_ & kVersionMask;
   }
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   void      increment_version_counter() ALWAYS_INLINE {
     // we do this only when we insert a new key or split, so this never overflows.
     ASSERT_ND(get_version_counter() < kVersionMask);
@@ -154,9 +156,11 @@ struct PageVersion CXX11_FINAL {
     status_.set_has_next_page();
   }
 
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   uint32_t  get_version_counter() const ALWAYS_INLINE {
     return status_.get_version_counter();
   }
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   void      increment_version_counter() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     status_.increment_version_counter();
@@ -192,10 +196,33 @@ struct PageVersion CXX11_FINAL {
   PageVersionStatus status_;  // +4 -> 12
   uint32_t          unused_;  // +4 -> 16. this space might be used for interesting range "lock".
 };
-STATIC_SIZE_CHECK(sizeof(PageVersion), 16)
 
+/**
+ * Scope object for locking a page.
+ * Be very careful on chance of deadlock!
+ * In most cases, we do not need page lock immediately, like child adopt which we can delay.
+ * In such a case, prefer PageVersionTryLockScope.
+ * Otherwise, you should release locks in CLL beforehand or make sure you lock only one page
+ * at a time.
+ */
 struct PageVersionLockScope {
-  PageVersionLockScope(thread::Thread* context, PageVersion* version, bool non_racy_lock = false);
+  /**
+   * Obtains a lock on the page so that we will automatically release it when this object
+   * gets out of scope.
+   * @param[in,out] context The current thread
+   * @param[in,out] version The page to lock
+   * @param[in] non_racy_lock Give true only when this page has no chance of racy accesses,
+   * such as you are workign on a new page. In that case, the locking itself is unnecessary
+   * and probably we are doing it just for faking assertions (eg operations only allowed with lock).
+   * @param[in] try_lock Obtain the lock in try mode. In try mode, we don't wait for
+   * lock acquisition. When we can't take the lock, we immediately give up.
+   * Check is_locked() to see whether you got the lock or not. Ignored if non_racy_lock.
+   */
+  PageVersionLockScope(
+    thread::Thread* context,
+    PageVersion* version,
+    bool non_racy_lock = false,
+    bool try_lock = false);
   ~PageVersionLockScope() { release(); }
 
   /**
@@ -217,7 +244,11 @@ struct PageVersionLockScope {
    */
   void take_over(PageVersionLockScope* move_from);
 
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   void set_changed() { changed_ = true; }
+
+  bool is_locked() { return !released_; }
+  /** @note idempotent. feel free to call it yourself or let the destructor call it */
   void release();
 
   thread::Thread* context_;
@@ -225,6 +256,17 @@ struct PageVersionLockScope {
   xct::McsBlockIndex block_;
   bool changed_;
   bool released_;
+};
+
+/**
+ * An alias to explicitly mark "safe" lock scopes, which won't cause deadlocks.
+ * Prefer this as much as possible.
+ */
+struct PageVersionTryLockScope : public PageVersionLockScope {
+  PageVersionTryLockScope(thread::Thread* context, PageVersion* version)
+    : PageVersionLockScope(context, version, false, true) {
+  }
+  ~PageVersionTryLockScope() { release(); }
 };
 
 /**
@@ -488,6 +530,8 @@ inline void assert_within_valid_volatile_page(
   const void* /*address*/) {
 }
 #endif  // NDEBUG
+
+STATIC_SIZE_CHECK(sizeof(PageVersion), 16)
 
 }  // namespace storage
 }  // namespace foedus

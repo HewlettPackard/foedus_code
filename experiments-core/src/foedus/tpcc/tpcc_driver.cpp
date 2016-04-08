@@ -96,7 +96,7 @@ DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.")
 // We don't vary many things in this TPCC experiment, so we just represent the configurations
 // by just one parameter.
 DEFINE_int32(hcc_policy, 1, "Specifies configurations about HCC/MOCC."
-  " default: 0 (MOCC, RLL-on, threshold 50)"
+  " default: 0 (MOCC, RLL-on, threshold 10)"
   " 1 (OCC, RLL-off, threshold 256)"
   " 2 (PCC, RLL-off, threshold 0)"
 );
@@ -627,8 +627,8 @@ int driver_main(int argc, char **argv) {
   switch (FLAGS_hcc_policy) {
     case 0:
       // " default: 0 (MOCC, RLL-on, threshold 50)"
-      options.storage_.hot_threshold_ = 50;
-      options.xct_.hot_threshold_for_retrospective_lock_list_ = 45;
+      options.storage_.hot_threshold_ = 10;
+      options.xct_.hot_threshold_for_retrospective_lock_list_ = 9;
       options.xct_.enable_retrospective_lock_list_ = true;
       options.xct_.force_canonical_xlocks_in_precommit_ = true;
       // No options about paralell locks. we use simple locks in this experiment

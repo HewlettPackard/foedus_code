@@ -94,7 +94,12 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
     LOG(INFO) << "Locked the root page owner address.";
     MasstreeIntermediatePage* root;
     WRAP_ERROR_CODE(get_first_root(context, true, &root));
-    PageVersionLockScope scope(context, root->get_version_address());
+    PageVersionTryLockScope scope(context, root->get_version_address());
+    if (!scope.is_locked()) {
+      LOG(WARNING) << "Tried to lock the root for fatity-ing, but someone seems doing something."
+        << " As fatification is not a mandatory thing, we skip it now. Case 2";
+      return kRetOk;
+    }
     LOG(INFO) << "Locked the root page itself.";
     if (root->has_foster_child()) {
       LOG(WARNING) << "Mm, I thought I grew the root, but concurrent xct again moved it. "
@@ -140,7 +145,12 @@ ErrorStack split_a_child(
   ASSERT_ND(original_page->get_high_fence() == original.high_);
 
   // lock it first.
-  PageVersionLockScope scope(context, original_page->get_version_address());
+  PageVersionTryLockScope scope(context, original_page->get_version_address());
+  if (!scope.is_locked()) {
+    LOG(INFO) << "Tried to lock the root for fatity-ing, but someone seems doing something."
+      << " As fatification is not a mandatory thing, we skip it now. Case 3";
+    return kRetOk;
+  }
   ASSERT_ND(original_page->is_locked());
 
   // if it already has a foster child, nothing to do.
@@ -315,7 +325,8 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* contex
     kInfimumSlice,
     kSupremumSlice);
   // no concurrent access to the new page, but just for the sake of assertion in the func.
-  PageVersionLockScope new_scope(context, new_root->get_version_address());
+  PageVersionTryLockScope new_scope(context, new_root->get_version_address());
+  ASSERT_ND(new_scope.is_locked());
   new_root->split_foster_migrate_records_new_first_root(&new_children);
   ASSERT_ND(count_children(new_root) == new_children.size());
   verify_new_root(context, new_root, new_children);

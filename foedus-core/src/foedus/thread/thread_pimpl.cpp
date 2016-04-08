@@ -839,6 +839,9 @@ xct::McsRwExtendedBlock* Thread::get_mcs_rw_extended_blocks() {
 xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsWwLock* mcs_lock) {
   return pimpl_->mcs_acquire_lock(mcs_lock);
 }
+xct::McsBlockIndex Thread::mcs_acquire_try_lock(xct::McsWwLock* mcs_lock) {
+  return pimpl_->mcs_acquire_try_lock(mcs_lock);
+}
 xct::McsBlockIndex Thread::mcs_acquire_lock_batch(xct::McsWwLock** mcs_locks, uint16_t batch_size) {
   // lock in address order. so, no deadlock possible
   // we have to lock them whether the record is deleted or not. all physical records.
@@ -953,6 +956,10 @@ MyWwImpl get_mcs_ww_impl(ThreadPimpl* pimpl) {
 xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsWwLock* lock) {
   auto impl(get_mcs_ww_impl(this));
   return impl.acquire_unconditional(lock);
+}
+xct::McsBlockIndex ThreadPimpl::mcs_acquire_try_lock(xct::McsWwLock* lock) {
+  auto impl(get_mcs_ww_impl(this));
+  return impl.acquire_try(lock);
 }
 xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsWwLock* lock) {
   auto impl(get_mcs_ww_impl(this));

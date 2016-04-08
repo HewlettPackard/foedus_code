@@ -185,7 +185,14 @@ class McsWwImpl {
 
   /** [WW] Unconditionally takes exclusive-only MCS lock on the given lock. */
   McsBlockIndex  acquire_unconditional(McsWwLock* lock);
-  // TBD we so far do not have try/asynchronous versions of WW lock. Do we need them?
+
+  /**
+   * [WW] Try to take an exclusive lock.
+   * @pre the lock must \b NOT be taken by this thread yet.
+   * @return 0 if failed, the block index if acquired.
+   */
+  McsBlockIndex  acquire_try(McsWwLock* lock);
+  // We so far do not have asynchronous version of WW lock. probably we don't need it..
 
   /**
    * [WW] This doesn't use any atomic operation. only allowed when there is no race
@@ -197,6 +204,12 @@ class McsWwImpl {
 
   /** [WW-Guest] Unconditionally takes exclusive-only \b guest lock on the given MCSg lock. */
   static void     ownerless_acquire_unconditional(McsWwLock* lock);
+  /**
+   * [WW-Guest] Try to take an exclusive \b guest lock on the given MCSg lock.
+   * @returns whether we got the lock. If you receive true, you are responsible to call
+   * ownerless_release()
+   */
+  static bool     ownerless_acquire_try(McsWwLock* lock);
   static void     ownerless_release(McsWwLock* lock);
   static void     ownerless_initial(McsWwLock* lock);
   // No try/asynchronous versions for guests. Probably we don't need them.
