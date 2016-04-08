@@ -492,8 +492,8 @@ retry_from_layer_root:
           // oh, the page has foster child, so we should adopt it.
           CHECK_ERROR_CODE(page->adopt_from_child(context, slice));
           // Whether the adopt_from_child() actually adopted it or not,
-          // we follow the "old" next page. Master-Tree variant guarantees that it's safe.
-          // This is beneficial when we lazily give adoption in the method, eg other threads
+          // we follow the "old" next page. Master-Tree invariant guarantees that it's safe.
+          // This is beneficial when we lazily give up adoption in the method, eg other threads
           // holding locks in the intermediate page.
         }
         cur = next;

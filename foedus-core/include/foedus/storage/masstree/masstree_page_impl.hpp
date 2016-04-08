@@ -100,6 +100,10 @@ class MasstreePage {
   bool  is_foster_major_null() const ALWAYS_INLINE { return foster_twin_[1].is_null(); }
   VolatilePagePointer get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
   VolatilePagePointer get_foster_major() const ALWAYS_INLINE { return foster_twin_[1]; }
+  void                set_foster_twin(VolatilePagePointer minor, VolatilePagePointer major) {
+    foster_twin_[0] = minor;
+    foster_twin_[1] = major;
+  }
 
   bool                within_fences(KeySlice slice) const ALWAYS_INLINE {
     return slice >= low_fence_ && (is_high_fence_supremum() || slice < high_fence_);

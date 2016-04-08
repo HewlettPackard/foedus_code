@@ -406,15 +406,14 @@ ErrorCode MasstreeBorderPage::split_foster(
   ASSERT_ND(strategy.mid_slice_ <= get_high_fence());
   MasstreeBorderPage* twin[2];
   xct::McsWwLockScope twin_locks[2];
+  VolatilePagePointer new_page_ids[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
-    VolatilePagePointer new_page_id;
-    new_page_id.set(context->get_numa_node(), offsets[i]);
-    foster_twin_[i] = new_page_id;
+    new_page_ids[i].set(context->get_numa_node(), offsets[i]);
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
-      new_page_id,
+      new_page_ids[i],
       get_layer(),
       i == 0 ? low_fence_ : strategy.mid_slice_,  // low-fence
       i == 0 ? strategy.mid_slice_ : high_fence_);  // high-fence
@@ -458,6 +457,9 @@ ErrorCode MasstreeBorderPage::split_foster(
   }
 
   foster_fence_ = strategy.mid_slice_;
+  assorted::memory_fence_release();
+  // We install pointers to the pages AFTER we initialize the pages.
+  set_foster_twin(new_page_ids[0], new_page_ids[1]);
   assorted::memory_fence_release();
 
   // invoking set_moved is the point we announce all of these changes. take fence to make it right
@@ -675,6 +677,8 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   context->mcs_release_all_current_locks_after(begin_address);
   // Now we can take all locks unconditionally. simple!
 
+  // We must lock in-order here. Remember that slots grow backwards, so larger indexes
+  // have smaller lock IDs.
   for (SlotIndex i = key_count - 1U; i < kBorderPageMaxSlots; --i) {  // SlotIndex is unsigned
     xct::RwLockableXctId* owner_id = get_owner_id(i);
     out_blocks[i] = context->mcs_acquire_writer_lock(owner_id->get_key_lock());
@@ -842,16 +846,15 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
 
   MasstreeIntermediatePage* twin[2];
   xct::McsBlockIndex twin_locks[2];
+    VolatilePagePointer new_pointers[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
-    VolatilePagePointer new_pointer;
-    new_pointer.set(context->get_numa_node(), offsets[i]);
-    foster_twin_[i] = new_pointer;
+    new_pointers[i].set(context->get_numa_node(), offsets[i]);
 
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
-      new_pointer,
+      new_pointers[i],
       get_layer(),
       get_btree_level(),  // foster child has the same level as foster-parent
       i == 0 ? low_fence_ : new_foster_fence,
@@ -910,7 +913,10 @@ ErrorCode MasstreeIntermediatePage::split_foster_and_adopt(
   }
 
   foster_fence_ = new_foster_fence;
-  assorted::memory_fence_seq_cst();
+  assorted::memory_fence_release();
+  // We install pointers to the pages AFTER we initialize the pages.
+  set_foster_twin(new_pointers[0], new_pointers[1]);
+  assorted::memory_fence_release();
   // invoking set_moved is the point we announce all of these changes. take fence to make it right
   set_moved();
 
@@ -957,16 +963,15 @@ ErrorCode MasstreeIntermediatePage::split_foster_compact_adopt(
   // right (major) will be empty-range.
   MasstreeIntermediatePage* twin[2];
   xct::McsBlockIndex twin_locks[2];
+  VolatilePagePointer new_pointers[2];
   for (int i = 0; i < 2; ++i) {
-    VolatilePagePointer new_pointer;
-    new_pointer.set(context->get_numa_node(), offsets[i]);
+    new_pointers[i].set(context->get_numa_node(), offsets[i]);
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
       resolver.resolve_offset_newpage(offsets[i]));
-    foster_twin_[i] = new_pointer;
 
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
-      new_pointer,
+      new_pointers[i],
       get_layer(),
       get_btree_level(),  // foster child has the same level as foster-parent
       i == 0 ? low_fence_ : high_fence_,
@@ -994,7 +999,10 @@ ErrorCode MasstreeIntermediatePage::split_foster_compact_adopt(
     construct_volatile_page_pointer(trigger_child->header().page_id_));
 
   foster_fence_ = high_fence_;  // left takes all
-  assorted::memory_fence_seq_cst();
+  assorted::memory_fence_release();
+  // We install pointers to the pages AFTER we initialize the pages.
+  set_foster_twin(new_pointers[0], new_pointers[1]);
+  assorted::memory_fence_release();
   // invoking set_moved is the point we announce all of these changes. take fence to make it right
   set_moved();
 
@@ -1032,16 +1040,15 @@ ErrorCode MasstreeIntermediatePage::split_foster_no_adopt(thread::Thread* contex
 
   MasstreeIntermediatePage* twin[2];
   xct::McsBlockIndex twin_locks[2];
+  VolatilePagePointer new_pointers[2];
   for (int i = 0; i < 2; ++i) {
     twin[i] = reinterpret_cast<MasstreeIntermediatePage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(offsets[i]));
-    VolatilePagePointer new_pointer;
-    new_pointer.set(context->get_numa_node(), offsets[i]);
-    foster_twin_[i] = new_pointer;
+    new_pointers[i].set(context->get_numa_node(), offsets[i]);
 
     twin[i]->initialize_volatile_page(
       header_.storage_id_,
-      new_pointer,
+      new_pointers[i],
       get_layer(),
       get_btree_level(),  // foster child has the same level as foster-parent
       i == 0 ? low_fence_ : new_foster_fence,
@@ -1066,7 +1073,10 @@ ErrorCode MasstreeIntermediatePage::split_foster_no_adopt(thread::Thread* contex
   }
 
   foster_fence_ = new_foster_fence;
-  assorted::memory_fence_seq_cst();
+  assorted::memory_fence_release();
+  // We install pointers to the pages AFTER we initialize the pages.
+  set_foster_twin(new_pointers[0], new_pointers[1]);
+  assorted::memory_fence_release();
   set_moved();
 
   verify_separators();
