@@ -292,10 +292,15 @@ ErrorCode Xct::on_record_read(
   // We might take a pessimisitic lock for the record, which is our MOCC protocol.
   // However, we need to do this _before_ observing XctId. Otherwise there is a
   // chance of aborts even with the lock.
-  on_record_read_take_locks_if_needed(intended_for_write, page, vpp, tid_address);
+  const UniversalLockId lock_id = to_universal_lock_id(
+    vpp.get_numa_node(),
+    vpp.get_offset(),
+    reinterpret_cast<uintptr_t>(tid_address));
+  on_record_read_take_locks_if_needed(intended_for_write, page, lock_id, tid_address);
 
   *observed_xid = tid_address->xct_id_.spin_while_being_written();
   ASSERT_ND(!observed_xid->is_being_written());
+  assorted::memory_fence_consume();  // following reads must happen *after* observing xid
 
   // check non-reversible flags and skip read-set
   if (observed_xid->is_moved() && no_readset_if_moved) {
@@ -306,26 +311,27 @@ ErrorCode Xct::on_record_read(
 
   const storage::StorageId storage_id = page->get_header().storage_id_;
   ASSERT_ND(storage_id != 0);
-  CHECK_ERROR_CODE(add_to_read_set(storage_id, *observed_xid, tid_address, read_set_address));
+  CHECK_ERROR_CODE(add_to_read_set(
+    storage_id,
+    *observed_xid,
+    lock_id,
+    tid_address,
+    read_set_address));
 
-  assorted::memory_fence_consume();  // following reads must happen *after* observing xid
   return kErrorCodeOk;
 }
 
 void Xct::on_record_read_take_locks_if_needed(
   bool intended_for_write,
   const storage::Page* page_address,
-  storage::VolatilePagePointer page_id,
+  UniversalLockId lock_id,
   RwLockableXctId* tid_address) {
 #ifndef NDEBUG
   const auto& resolver = context_->get_global_volatile_page_resolver();
   storage::assert_within_valid_volatile_page(resolver, tid_address);
+  ASSERT_ND(lock_id == xct_id_to_universal_lock_id(resolver, tid_address));
 #endif  // NDEBUG
 
-  const UniversalLockId lock_id = to_universal_lock_id(
-    page_id.get_numa_node(),
-    page_id.get_offset(),
-    reinterpret_cast<uintptr_t>(tid_address));
   LockListPosition rll_pos = kLockListPositionInvalid;
   bool lets_take_lock = false;
   if (!retrospective_lock_list_.is_empty()) {
@@ -346,7 +352,7 @@ void Xct::on_record_read_take_locks_if_needed(
 
   if (lets_take_lock) {
     LockMode mode = intended_for_write ? kWriteLock : kReadLock;
-    LockListPosition cll_pos = current_lock_list_.get_or_add_entry(tid_address, mode);
+    LockListPosition cll_pos = current_lock_list_.get_or_add_entry(lock_id, tid_address, mode);
     LockEntry* cll_entry = current_lock_list_.get_entry(cll_pos);
     if (cll_entry->is_enough()) {
       return;  // already had the lock
@@ -381,6 +387,28 @@ ErrorCode Xct::add_to_read_set(
   XctId observed_owner_id,
   RwLockableXctId* owner_id_address,
   ReadXctAccess** read_set_address) {
+  const auto& resolver = retrospective_lock_list_.get_volatile_page_resolver();
+  UniversalLockId owner_lock_id = xct_id_to_universal_lock_id(resolver, owner_id_address);
+  return add_to_read_set(
+    storage_id,
+    observed_owner_id,
+    owner_lock_id,
+    owner_id_address,
+    read_set_address);
+}
+
+ErrorCode Xct::add_to_read_set(
+  storage::StorageId storage_id,
+  XctId observed_owner_id,
+  UniversalLockId owner_lock_id,
+  RwLockableXctId* owner_id_address,
+  ReadXctAccess** read_set_address) {
+#ifndef NDEBUG
+  const auto& resolver = retrospective_lock_list_.get_volatile_page_resolver();
+  storage::assert_within_valid_volatile_page(resolver, owner_id_address);
+  ASSERT_ND(owner_lock_id == xct_id_to_universal_lock_id(resolver, owner_id_address));
+#endif  // NDEBUG
+
   ASSERT_ND(storage_id != 0);
   ASSERT_ND(owner_id_address);
   ASSERT_ND(!observed_owner_id.is_being_written());
@@ -393,8 +421,9 @@ ErrorCode Xct::add_to_read_set(
   ASSERT_ND(!observed_owner_id.is_next_layer());
   ReadXctAccess* entry = read_set_ + read_set_size_;
   *read_set_address = entry;
+  entry->ordinal_ = read_set_size_;
   entry->storage_id_ = storage_id;
-  entry->owner_id_address_ = owner_id_address;
+  entry->set_owner_id_and_lock_id(owner_id_address, owner_lock_id);
   entry->observed_owner_id_ = observed_owner_id;
   entry->related_write_ = nullptr;
   ++read_set_size_;
@@ -421,12 +450,11 @@ ErrorCode Xct::add_to_write_set(
     return kErrorCodeXctWriteSetOverflow;
   }
   WriteXctAccess* write = write_set_ + write_set_size_;
-  write->write_set_ordinal_ = write_set_size_;
+  write->ordinal_ = write_set_size_;
   write->payload_address_ = payload_address;
   write->log_entry_ = log_entry;
   write->storage_id_ = storage_id;
-  write->owner_id_address_ = owner_id_address;
-  write->owner_lock_id_ = xct_id_to_universal_lock_id(resolver, owner_id_address);
+  write->set_owner_id_resolve_lock_id(resolver, owner_id_address);
   write->related_read_ = CXX11_NULLPTR;
   ++write_set_size_;
   return kErrorCodeOk;
@@ -451,6 +479,7 @@ ErrorCode Xct::add_to_read_and_write_set(
   CHECK_ERROR_CODE(add_to_read_set(
     storage_id,
     observed_owner_id,
+    write->owner_lock_id_,
     owner_id_address,
     &dummy));
   ASSERT_ND(read->owner_id_address_ == owner_id_address);

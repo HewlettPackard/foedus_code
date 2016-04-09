@@ -23,6 +23,7 @@
 
 #include "foedus/compiler.hpp"
 #include "foedus/log/fwd.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/page.hpp"
 #include "foedus/storage/storage_id.hpp"
@@ -78,6 +79,56 @@ struct PageVersionAccess {
   storage::PageVersionStatus observed_;
 };
 
+/** Base of ReadXctAccess and WriteXctAccess. No virtual anything. POD. */
+struct RecordXctAccess {
+  /** The storage we accessed. */
+  storage::StorageId    storage_id_;
+
+  /**
+   * Indicates the ordinal among ReadXctAccess/WriteXctAccess of this transaction.
+   * For example, first log record has 0, second 1,..
+   * Next transaction of this thread resets it to 0 at begin_xct.
+   * This is an auxiliary field we can potentially re-calculate from lock_id_,
+   * but it's tedious (it's not address order when it wraps around in log buffer).
+   * So, we maintain it here for sanity checks.
+   * Also used for stable sorting (in case lock_id_ is same) of read/write-sets.
+   */
+  uint32_t              ordinal_;
+
+  /**
+   * Pointer to the accessed record. We can calculate this from lock_id_,
+   * this is here just for convenience.
+   */
+  RwLockableXctId*      owner_id_address_;
+
+  /** Universal Lock ID of the lock in the record. */
+  UniversalLockId       owner_lock_id_;
+
+  /**
+   * Setter for owner_id_address_/owner_lock_id_.
+   * These two should be always set/updated together, so prefer this.
+   */
+  void set_owner_id_and_lock_id(RwLockableXctId* owner_id_address, UniversalLockId owner_lock_id) {
+    owner_id_address_ = owner_id_address;
+    owner_lock_id_ = owner_lock_id;
+  }
+  /**
+   * Calculate owner_lock_id using the resolver. This one can't be inlined, though.
+   * This is slightly wasteful if you already have lock_id calculated.
+   */
+  void set_owner_id_resolve_lock_id(
+    const memory::GlobalVolatilePageResolver& resolver,
+    RwLockableXctId* owner_id_address);
+
+  /**
+   * sort the write set in a unique order. We use UniversalLockId which contains the
+   * records's NodeID and local VA offset. This is different from Silo [Tu '13] because
+   * we need global ordering across all processes. VA's might give different per-process
+   * results.
+   */
+  static bool compare(const RecordXctAccess &left, const RecordXctAccess& right) ALWAYS_INLINE;
+};
+
 /**
  * @brief Represents a record of read-access during a transaction.
  * @ingroup XCT
@@ -85,25 +136,11 @@ struct PageVersionAccess {
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct ReadXctAccess {
+struct ReadXctAccess : public RecordXctAccess {
   friend std::ostream& operator<<(std::ostream& o, const ReadXctAccess& v);
 
   /** Transaction ID of the record observed as of the access. */
   XctId               observed_owner_id_;
-
-  /** The storage we accessed. */
-  storage::StorageId  storage_id_;
-
-  /**
-   * \e If this read-set has a corresponding lock in CLL, the index.
-   * This might not be set (kLockListPositionInvalid) when this read-set is not locked (pure OCC).
-   * If non-zero, the pointed lock entry must have at least read-mode (maybe write-mode).
-   */
-  // LockListPosition    current_lock_position_;
-  // This is expensive to maintain as CLL is constantly growing. So far dropped.
-
-  /** Pointer to the accessed record. */
-  RwLockableXctId*    owner_id_address_;
 
   /**
    * An optional member that points to a write access related to this read.
@@ -115,8 +152,10 @@ struct ReadXctAccess {
    */
   WriteXctAccess*     related_write_;
 
-  /** sort the read set in a unique order. We use address of records as done in [TU2013]. */
-  static bool compare(const ReadXctAccess &left, const ReadXctAccess& right) ALWAYS_INLINE;
+  /** @copydoc foedux::xct::RecordXctAccess::compare() */
+  static bool compare(const ReadXctAccess &left, const ReadXctAccess& right) ALWAYS_INLINE {
+    return RecordXctAccess::compare(left, right);
+  }
 };
 
 /**
@@ -126,37 +165,8 @@ struct ReadXctAccess {
  * @par POD
  * This is a POD struct. Default destructor/copy-constructor/assignment operator work fine.
  */
-struct WriteXctAccess {
+struct WriteXctAccess : public RecordXctAccess {
   friend std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v);
-
-  /** The storage we accessed. */
-  storage::StorageId    storage_id_;
-
-  /**
-   * \e If this write-set has a corresponding lock in CLL, the index.
-   * This might not be set (kLockListPositionInvalid) when this write-set is not locked yet.
-   * If non-zero, the pointed lock entry must have at least write-mode.
-   */
-  // LockListPosition      current_lock_position_;
-  // This is expensive to maintain as CLL is constantly growing. So far dropped.
-
-  /**
-   * Indicates the ordinal among WriteXctAccess of this transaction.
-   * For example, first log record has 0, second 1,..
-   * Next transaction of this thread resets it to 0 at begin_xct.
-   * This is an auxiliary field we can potentially re-calculate from lock_id_,
-   * but it's tedious (it's not address order when it wraps around in log buffer).
-   * So, we maintain it here for sanity checks.
-   * Also used for stable sorting (in case lock_id_ is same) of write-sets.
-   */
-  uint32_t              write_set_ordinal_;
-
-  /** Pointer to the accessed record. We can calculate this from lock_id_,
-   * this is here just for convenience. */
-  RwLockableXctId*      owner_id_address_;
-
-  /** Universal Lock ID of the lock in the write record. */
-  UniversalLockId       owner_lock_id_;
 
   /** Pointer to the payload of the record. */
   char*                 payload_address_;
@@ -167,11 +177,10 @@ struct WriteXctAccess {
   /** @see ReadXctAccess::related_write_ */
   ReadXctAccess*        related_read_;
 
-  /** sort the write set in a unique order. We use UniversalLockId which contains the
-   * records's NodeID and local VA offset. This is different from Silo [Tu '13] because
-   * we need global ordering across all processes. VA's might give different per-process
-   * results. */
-  static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) ALWAYS_INLINE;
+  /** @copydoc foedux::xct::RecordXctAccess::compare() */
+  static bool compare(const WriteXctAccess &left, const WriteXctAccess& right) ALWAYS_INLINE {
+    return RecordXctAccess::compare(left, right);
+  }
 };
 
 /**
@@ -228,18 +237,13 @@ struct LockFreeWriteXctAccess {
   // no need for compare method or storing version/record/etc. it's lock-free!
 };
 
-inline bool ReadXctAccess::compare(const ReadXctAccess &left, const ReadXctAccess& right) {
-  return reinterpret_cast<uintptr_t>(left.owner_id_address_)
-    < reinterpret_cast<uintptr_t>(right.owner_id_address_);
-}
-
-inline bool WriteXctAccess::compare(
-  const WriteXctAccess &left,
-  const WriteXctAccess& right) {
+inline bool RecordXctAccess::compare(
+  const RecordXctAccess& left,
+  const RecordXctAccess& right) {
   if (left.owner_lock_id_ != right.owner_lock_id_) {
     return left.owner_lock_id_ < right.owner_lock_id_;
   } else {
-    return left.write_set_ordinal_ < right.write_set_ordinal_;
+    return left.ordinal_ < right.ordinal_;
   }
 }
 

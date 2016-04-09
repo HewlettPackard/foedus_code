@@ -39,7 +39,9 @@ ReadXctAccess create_access(int i) {
   ReadXctAccess access;
   access.observed_owner_id_.set(i * 20, i * 12);
   access.storage_id_ = i * 1234U;
+  access.ordinal_ = 0;  // we should have a testcase to test this order
   access.owner_id_address_ = reinterpret_cast<xct::RwLockableXctId*>(to_ptr(i * 8452));
+  access.owner_lock_id_ = reinterpret_cast<UniversalLockId>(access.owner_id_address_);
   return access;
 }
 void verify_access(const ReadXctAccess &access, int i) {
@@ -117,7 +119,7 @@ WriteXctAccess create_write_access(int i) {
   access.payload_address_ = reinterpret_cast<char*>(to_ptr(i * 542312));
   access.storage_id_ = i * 52223ULL;
   access.owner_id_address_ = reinterpret_cast<xct::RwLockableXctId*>(to_ptr(i * 14325));
-  access.write_set_ordinal_ = 0;  // we should have a testcase to test this order
+  access.ordinal_ = 0;  // we should have a testcase to test this order
   access.log_entry_ = reinterpret_cast<log::RecordLogType*>(to_ptr(i * 5423423));
   access.owner_lock_id_ = reinterpret_cast<UniversalLockId>(access.owner_id_address_);
   return access;

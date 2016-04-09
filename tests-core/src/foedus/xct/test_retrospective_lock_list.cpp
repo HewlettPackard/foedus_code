@@ -67,7 +67,7 @@ TEST(RllTest, CllAddSearch) {
   EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[5]));
 
   // Add 3 -> [3]
-  EXPECT_EQ(1U, list.get_or_add_entry(lock_addresses[3], kReadLock));
+  EXPECT_EQ(1U, list.get_or_add_entry(lock_ids[3], lock_addresses[3], kReadLock));
   EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[2]));
   EXPECT_EQ(1U, list.binary_search(lock_ids[3]));
   EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[5]));
@@ -76,7 +76,7 @@ TEST(RllTest, CllAddSearch) {
   LOG(INFO) << list;
 
   // Add 5 -> [3, 5]
-  EXPECT_EQ(2U, list.get_or_add_entry(lock_addresses[5], kReadLock));
+  EXPECT_EQ(2U, list.get_or_add_entry(lock_ids[5], lock_addresses[5], kReadLock));
   EXPECT_EQ(kLockListPositionInvalid, list.binary_search(lock_ids[2]));
   EXPECT_EQ(1U, list.binary_search(lock_ids[3]));
   EXPECT_EQ(2U, list.binary_search(lock_ids[5]));
@@ -85,7 +85,7 @@ TEST(RllTest, CllAddSearch) {
   LOG(INFO) << list;
 
   // Add 2 -> [2, 3, 5]
-  EXPECT_EQ(1U, list.get_or_add_entry(lock_addresses[2], kReadLock));
+  EXPECT_EQ(1U, list.get_or_add_entry(lock_ids[2], lock_addresses[2], kReadLock));
   EXPECT_EQ(1U, list.binary_search(lock_ids[2]));
   EXPECT_EQ(2U, list.binary_search(lock_ids[3]));
   EXPECT_EQ(3U, list.binary_search(lock_ids[5]));
@@ -94,7 +94,7 @@ TEST(RllTest, CllAddSearch) {
   LOG(INFO) << list;
 
   // Add 3 (ignored) -> [2, 3, 5]
-  EXPECT_EQ(2U, list.get_or_add_entry(lock_addresses[3], kReadLock));
+  EXPECT_EQ(2U, list.get_or_add_entry(lock_ids[3], lock_addresses[3], kReadLock));
   EXPECT_EQ(1U, list.binary_search(lock_ids[2]));
   EXPECT_EQ(2U, list.binary_search(lock_ids[3]));
   EXPECT_EQ(3U, list.binary_search(lock_ids[5]));
@@ -140,16 +140,16 @@ TEST(RllTest, CllBatchInsertFromEmpty) {
 
   const uint32_t kWriteSetSize = 4;
   WriteXctAccess write_set[kWriteSetSize];
-  write_set[0].write_set_ordinal_ = 0;
+  write_set[0].ordinal_ = 0;
   write_set[0].owner_id_address_ = lock_addresses[5];
   write_set[0].owner_lock_id_ = lock_ids[5];
-  write_set[1].write_set_ordinal_ = 1;
+  write_set[1].ordinal_ = 1;
   write_set[1].owner_id_address_ = lock_addresses[3];
   write_set[1].owner_lock_id_ = lock_ids[3];
-  write_set[2].write_set_ordinal_ = 2;
+  write_set[2].ordinal_ = 2;
   write_set[2].owner_id_address_ = lock_addresses[9];
   write_set[2].owner_lock_id_ = lock_ids[9];
-  write_set[3].write_set_ordinal_ = 3;
+  write_set[3].ordinal_ = 3;
   write_set[3].owner_id_address_ = lock_addresses[5];
   write_set[3].owner_lock_id_ = lock_ids[5];
   std::sort(write_set, write_set + kWriteSetSize, WriteXctAccess::compare);
@@ -227,22 +227,22 @@ TEST(RllTest, CllBatchInsertMerge) {
   list.init(cll_buffer, kBufferSize, con.page_memory_resolver_);
 
   // Populate with [2, 6, 9]
-  list.get_or_add_entry(lock_addresses[2], kReadLock);
-  list.get_or_add_entry(lock_addresses[6], kReadLock);
-  list.get_or_add_entry(lock_addresses[9], kReadLock);
+  list.get_or_add_entry(lock_ids[2], lock_addresses[2], kReadLock);
+  list.get_or_add_entry(lock_ids[6], lock_addresses[6], kReadLock);
+  list.get_or_add_entry(lock_ids[9], lock_addresses[9], kReadLock);
 
   const uint32_t kWriteSetSize = 4;
   WriteXctAccess write_set[kWriteSetSize];
-  write_set[0].write_set_ordinal_ = 0;
+  write_set[0].ordinal_ = 0;
   write_set[0].owner_id_address_ = lock_addresses[5];
   write_set[0].owner_lock_id_ = lock_ids[5];
-  write_set[1].write_set_ordinal_ = 1;
+  write_set[1].ordinal_ = 1;
   write_set[1].owner_id_address_ = lock_addresses[3];
   write_set[1].owner_lock_id_ = lock_ids[3];
-  write_set[2].write_set_ordinal_ = 2;
+  write_set[2].ordinal_ = 2;
   write_set[2].owner_id_address_ = lock_addresses[9];
   write_set[2].owner_lock_id_ = lock_ids[9];
-  write_set[3].write_set_ordinal_ = 3;
+  write_set[3].ordinal_ = 3;
   write_set[3].owner_id_address_ = lock_addresses[5];
   write_set[3].owner_lock_id_ = lock_ids[5];
   std::sort(write_set, write_set + kWriteSetSize, WriteXctAccess::compare);
@@ -326,7 +326,7 @@ void test_cll_release_after() {
   const uint32_t kWriteSetSize = kMaxLockCount;
   WriteXctAccess write_set[kWriteSetSize];
   for (uint32_t i = 0; i < kMaxLockCount; ++i) {
-    write_set[i].write_set_ordinal_ = i;
+    write_set[i].ordinal_ = i;
     write_set[i].owner_id_address_ = lock_addresses[i];
     write_set[i].owner_lock_id_ = lock_ids[i];
   }

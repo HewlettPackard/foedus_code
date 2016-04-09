@@ -334,7 +334,10 @@ class CurrentLockList {
    * This method is used when we couldn't batch/expect the new entry.
    * @see batch_insert_write_placeholders()
    */
-  LockListPosition get_or_add_entry(RwLockableXctId* lock, LockMode preferred_mode);
+  LockListPosition get_or_add_entry(
+    UniversalLockId lock_id,
+    RwLockableXctId* lock,
+    LockMode preferred_mode);
 
   /**
    * Analogous to std::lower_bound() for the given lock.

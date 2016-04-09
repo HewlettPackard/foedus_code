@@ -443,21 +443,20 @@ bool XctManagerPimpl::precommit_xct_lock_track_write(
     DLOG(INFO) << "Failed to track moved record even with write set";
     return false;
   }
+  const auto& resolver = context->get_global_volatile_page_resolver();
   if (entry->related_read_) {
     // also apply the result to related read access so that we don't have to track twice.
     ASSERT_ND(entry->related_read_->related_write_ == entry);
     ASSERT_ND(entry->related_read_->owner_id_address_ == entry->owner_id_address_);
-    entry->related_read_->owner_id_address_ = result.new_owner_address_;
+    entry->related_read_->set_owner_id_resolve_lock_id(resolver, result.new_owner_address_);
   }
-  entry->owner_lock_id_ = xct_id_to_universal_lock_id(
-    context->get_global_volatile_page_resolver(), result.new_owner_address_);
-  entry->owner_id_address_ = result.new_owner_address_;
+  entry->set_owner_id_resolve_lock_id(resolver, result.new_owner_address_);
   entry->payload_address_ = result.new_payload_address_;
   return true;
 }
 
 bool XctManagerPimpl::precommit_xct_verify_track_read(
-  thread::Thread* /*context*/, ReadXctAccess* entry) {
+  thread::Thread* context, ReadXctAccess* entry) {
   ASSERT_ND(entry->owner_id_address_->needs_track_moved());
   ASSERT_ND(entry->related_write_ == nullptr);  // if there is, lock() should have updated it.
   storage::StorageManager* st = engine_->get_storage_manager();
@@ -471,7 +470,8 @@ bool XctManagerPimpl::precommit_xct_verify_track_read(
     return false;
   }
 
-  entry->owner_id_address_ = result.new_owner_address_;
+  const auto& resolver = context->get_global_volatile_page_resolver();
+  entry->set_owner_id_resolve_lock_id(resolver, result.new_owner_address_);
   return true;
 }
 
@@ -491,7 +491,7 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
       ASSERT_ND(entry->related_read_->related_write_);
       entry->related_read_->related_write_ = entry;
     }
-    entry->write_set_ordinal_ = i;
+    entry->ordinal_ = i;
   }
   ASSERT_ND(current_xct.assert_related_read_write());
 
@@ -501,9 +501,9 @@ void XctManagerPimpl::precommit_xct_sort_access(thread::Thread* context) {
   // when address is the same, they must be ordered by the order they are created.
   // eg: repeated overwrites to one record should be applied in the order the user issued.
   for (uint32_t i = 1; i < write_set_size; ++i) {
-    ASSERT_ND(write_set[i - 1].write_set_ordinal_ != write_set[i].write_set_ordinal_);
+    ASSERT_ND(write_set[i - 1].ordinal_ != write_set[i].ordinal_);
     if (write_set[i].owner_lock_id_ == write_set[i - 1].owner_lock_id_) {
-      ASSERT_ND(write_set[i - 1].write_set_ordinal_ < write_set[i].write_set_ordinal_);
+      ASSERT_ND(write_set[i - 1].ordinal_ < write_set[i].ordinal_);
     } else {
       ASSERT_ND(write_set[i - 1].owner_lock_id_ < write_set[i].owner_lock_id_);
     }
@@ -548,7 +548,7 @@ ErrorCode XctManagerPimpl::precommit_xct_lock(thread::Thread* context, XctId* ma
 #ifndef NDEBUG
   // Initially, write-sets must be ordered by the insertion order.
   for (uint32_t i = 0; i < write_set_size; ++i) {
-    ASSERT_ND(write_set[i].write_set_ordinal_ == i);
+    ASSERT_ND(write_set[i].ordinal_ == i);
     // Because of RLL, the write-set might or might not already have a corresponding lock
   }
 #endif  // NDEBUG

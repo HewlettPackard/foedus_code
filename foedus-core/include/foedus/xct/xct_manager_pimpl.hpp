@@ -315,9 +315,7 @@ inline void CurrentLockListIteratorForWriteSet::next_writes() {
       break;
     }
     const WriteXctAccess* next_write = write_set_ + write_next_pos_;
-    const UniversalLockId next_write_id =
-      xct_id_to_universal_lock_id(
-        cll_->get_volatile_page_resolver(), next_write->owner_id_address_);
+    const UniversalLockId next_write_id = next_write->owner_lock_id_;
     ASSERT_ND(write_id <= next_write_id);
     if (write_id < next_write_id) {
       break;

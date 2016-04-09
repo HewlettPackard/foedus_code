@@ -300,7 +300,7 @@ class Xct {
   void on_record_read_take_locks_if_needed(
     bool intended_for_write,
     const storage::Page* page_address,
-    storage::VolatilePagePointer page_id,
+    UniversalLockId lock_id,
     RwLockableXctId* tid_address);
 
   /**
@@ -325,6 +325,13 @@ class Xct {
   ErrorCode           add_to_read_set(
     storage::StorageId storage_id,
     XctId observed_owner_id,
+    RwLockableXctId* owner_id_address,
+    ReadXctAccess** read_set_address);
+  /** Use this in case you already have owner_lock_id. Slightly faster. */
+  ErrorCode           add_to_read_set(
+    storage::StorageId storage_id,
+    XctId observed_owner_id,
+    UniversalLockId owner_lock_id,
     RwLockableXctId* owner_id_address,
     ReadXctAccess** read_set_address);
 

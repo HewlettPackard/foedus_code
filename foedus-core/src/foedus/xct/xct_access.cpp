@@ -44,9 +44,11 @@ std::ostream& operator<<(std::ostream& o, const PageVersionAccess& v) {
 std::ostream& operator<<(std::ostream& o, const ReadXctAccess& v) {
   o << "<ReadXctAccess><storage>" << v.storage_id_ << "</storage>"
 //    << "<current_lock_position_>" << v.current_lock_position_ << "</current_lock_position_>"
+    << "<ordinal_>" << v.ordinal_ << "</ordinal_>"
     << "<observed_owner_id>" << v.observed_owner_id_ << "</observed_owner_id>"
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
-    << "<current_owner_id>" << *v.owner_id_address_ << "</current_owner_id>";
+    << "<current_owner_id>" << *v.owner_id_address_ << "</current_owner_id>"
+    << "<owner_lock_id>" << v.owner_lock_id_ << "</owner_lock_id><log>";
   if (v.related_write_) {
     o << "<HasRelatedWrite />";  // does not output its content to avoid circle
   }
@@ -58,7 +60,7 @@ std::ostream& operator<<(std::ostream& o, const WriteXctAccess& v) {
   o << "<WriteAccess><storage>" << v.storage_id_ << "</storage>"
     << "<record_address>" << v.owner_id_address_ << "</record_address>"
 //    << "<current_lock_position_>" << v.current_lock_position_ << "</current_lock_position_>"
-    << "<write_set_ordinal_>" << v.write_set_ordinal_ << "</write_set_ordinal_>"
+    << "<ordinal_>" << v.ordinal_ << "</ordinal_>"
     << "<current_owner_id>" << *(v.owner_id_address_) << "</current_owner_id><log>"
     << "<owner_lock_id>" << v.owner_lock_id_ << "</owner_lock_id><log>";
   log::invoke_ostream(v.log_entry_, &o);
@@ -86,6 +88,13 @@ std::ostream& operator<<(std::ostream& o, const LockFreeWriteXctAccess& v) {
   log::invoke_ostream(v.log_entry_, &o);
   o << "</LockFreeWriteXctAccess>";
   return o;
+}
+
+void RecordXctAccess::set_owner_id_resolve_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  RwLockableXctId* owner_id_address) {
+  UniversalLockId owner_lock_id = xct_id_to_universal_lock_id(resolver, owner_id_address);
+  set_owner_id_and_lock_id(owner_id_address, owner_lock_id);
 }
 
 }  // namespace xct

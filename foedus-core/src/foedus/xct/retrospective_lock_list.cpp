@@ -246,9 +246,11 @@ LockListPosition RetrospectiveLockList::lower_bound(UniversalLockId lock) const 
 }
 
 LockListPosition CurrentLockList::get_or_add_entry(
-  RwLockableXctId* lock, LockMode preferred_mode) {
+  UniversalLockId id,
+  RwLockableXctId* lock,
+  LockMode preferred_mode) {
+  ASSERT_ND(id == xct_id_to_universal_lock_id(volatile_page_resolver_, lock));
   // Easy case? (lock >= the last entry)
-  const UniversalLockId id = xct_id_to_universal_lock_id(volatile_page_resolver_, lock);
   LockListPosition insert_pos = lower_bound(id);
   ASSERT_ND(insert_pos != kLockListPositionInvalid);
 
@@ -311,8 +313,10 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
     }
 
     auto pos = issue_new_position();
-    array_[pos].set(
-      xct_id_to_universal_lock_id(volatile_page_resolver_, lock), lock, kReadLock, kNoLock);
+    ASSERT_ND(
+      read_set[i].owner_lock_id_ ==
+      xct_id_to_universal_lock_id(volatile_page_resolver_, lock));
+    array_[pos].set(read_set[i].owner_lock_id_, lock, kReadLock, kNoLock);
   }
   DVLOG(1) << "Added " << last_active_entry_ << " to RLL for read-locks";
 
@@ -371,9 +375,9 @@ void CurrentLockList::batch_insert_write_placeholders(
   }
 #ifndef NDEBUG
   for (uint32_t i = 1; i < write_set_size; ++i) {
-    ASSERT_ND(write_set[i - 1].write_set_ordinal_ != write_set[i].write_set_ordinal_);
+    ASSERT_ND(write_set[i - 1].ordinal_ != write_set[i].ordinal_);
     if (write_set[i].owner_lock_id_ == write_set[i - 1].owner_lock_id_) {
-      ASSERT_ND(write_set[i - 1].write_set_ordinal_ < write_set[i].write_set_ordinal_);
+      ASSERT_ND(write_set[i - 1].ordinal_ < write_set[i].ordinal_);
     } else {
       ASSERT_ND(write_set[i - 1].owner_lock_id_ < write_set[i].owner_lock_id_);
     }
@@ -394,10 +398,10 @@ void CurrentLockList::batch_insert_write_placeholders(
       const WriteXctAccess* write = write_set + write_pos;
       if (write_pos > 0) {
         const WriteXctAccess* prev = write_set + write_pos - 1;
-        ASSERT_ND(write->write_set_ordinal_ != prev->write_set_ordinal_);
+        ASSERT_ND(write->ordinal_ != prev->ordinal_);
         ASSERT_ND(write->owner_lock_id_ >= prev->owner_lock_id_);
         if (write->owner_lock_id_ == prev->owner_lock_id_) {
-          ASSERT_ND(write->write_set_ordinal_ > prev->write_set_ordinal_);
+          ASSERT_ND(write->ordinal_ > prev->ordinal_);
           continue;
         }
       }
