@@ -28,6 +28,7 @@
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_manager_pimpl.hpp"  // For CurrentLockListIteratorForWriteSet
 #include "foedus/xct/xct_mcs_adapter_impl.hpp"
+#include "foedus/xct/xct_mcs_impl.hpp"
 
 namespace foedus {
 namespace xct {
@@ -300,6 +301,93 @@ TEST(RllTest, CllBatchInsertMerge) {
   EXPECT_EQ(4U, it.write_cur_pos_);
   EXPECT_EQ(4U, it.write_next_pos_);
 }
+
+template <class RW_BLOCK>
+void test_cll_release_after() {
+  RwLockableXctId* lock_addresses[kMaxLockCount];
+  UniversalLockId lock_ids[kMaxLockCount];
+  McsMockContext< RW_BLOCK > con;
+  con.init(kDummyStorageId, kNodes, 1U, 1U << 16, kMaxLockCount);
+  for (uint32_t i = 0; i < kMaxLockCount; ++i) {
+    lock_addresses[i] = con.get_rw_lock_address(kDefaultNodeId, i);
+    lock_addresses[i]->xct_id_.set_epoch_int(i + 1U);
+    lock_ids[i] = xct::to_universal_lock_id(
+      con.page_memory_resolver_,
+      reinterpret_cast<uintptr_t>(lock_addresses[i]));
+    ASSERT_ND(lock_addresses[i]
+      == xct::from_universal_lock_id(con.page_memory_resolver_, lock_ids[i]));
+  }
+
+  const uint32_t kBufferSize = 1024;
+  LockEntry cll_buffer[kBufferSize];
+  CurrentLockList list;
+  list.init(cll_buffer, kBufferSize, con.page_memory_resolver_);
+
+  const uint32_t kWriteSetSize = kMaxLockCount;
+  WriteXctAccess write_set[kWriteSetSize];
+  for (uint32_t i = 0; i < kMaxLockCount; ++i) {
+    write_set[i].write_set_ordinal_ = i;
+    write_set[i].owner_id_address_ = lock_addresses[i];
+    write_set[i].owner_lock_id_ = lock_ids[i];
+  }
+
+  list.batch_insert_write_placeholders(write_set, kWriteSetSize);
+  EXPECT_EQ(kWriteSetSize, list.get_last_active_entry());
+
+  McsMockAdaptor<RW_BLOCK> adaptor(0, &con);
+  McsImpl< McsMockAdaptor<RW_BLOCK> , RW_BLOCK> impl(adaptor);
+
+  // Lock odd-numbered locks
+  for (uint32_t i = 0U; i < kWriteSetSize; ++i) {
+    if (i % 2 != 0) {
+      COERCE_ERROR_CODE(list.try_or_acquire_single_lock(i + 1U, &impl));
+    }
+  }
+
+  // Confirm that they are locked
+  for (uint32_t i = 0U; i < kWriteSetSize; ++i) {
+    auto* entry = list.get_entry(i + 1U);
+    auto* lock = lock_addresses[i];
+    if (i % 2 == 0) {
+      EXPECT_FALSE(entry->is_locked()) << i;
+      EXPECT_FALSE(entry->is_enough()) << i;
+      EXPECT_FALSE(lock->is_keylocked()) << i;
+    } else {
+      EXPECT_TRUE(entry->is_locked()) << i;
+      EXPECT_TRUE(entry->is_enough()) << i;
+      EXPECT_TRUE(lock->is_keylocked()) << i;
+    }
+  }
+
+  // Release the second half
+  list.release_all_after(lock_ids[kWriteSetSize / 2], &impl);
+  for (uint32_t i = 0U; i < kWriteSetSize; ++i) {
+    auto* entry = list.get_entry(i + 1U);
+    auto* lock = lock_addresses[i];
+    if (i % 2 == 0 || i > kWriteSetSize / 2U) {
+      EXPECT_FALSE(entry->is_locked()) << i;
+      EXPECT_FALSE(entry->is_enough()) << i;
+      EXPECT_FALSE(lock->is_keylocked()) << i;
+    } else {
+      EXPECT_TRUE(entry->is_locked()) << i;
+      EXPECT_TRUE(entry->is_enough()) << i;
+      EXPECT_TRUE(lock->is_keylocked()) << i;
+    }
+  }
+
+  // Release everything
+  list.release_all_after(kNullUniversalLockId, &impl);
+  for (uint32_t i = 0U; i < kWriteSetSize; ++i) {
+    auto* entry = list.get_entry(i + 1U);
+    auto* lock = lock_addresses[i];
+    EXPECT_FALSE(entry->is_locked()) << i;
+    EXPECT_FALSE(entry->is_enough()) << i;
+    EXPECT_FALSE(lock->is_keylocked()) << i;
+  }
+}
+
+TEST(RllTest, CllReleaseAfterSimple)    { test_cll_release_after<McsRwSimpleBlock>(); }
+TEST(RllTest, CllReleaseAfterExtended)  { test_cll_release_after<McsRwExtendedBlock>(); }
 
 }  // namespace xct
 }  // namespace foedus
