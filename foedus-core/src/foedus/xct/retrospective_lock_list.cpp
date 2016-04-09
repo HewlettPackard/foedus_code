@@ -95,6 +95,7 @@ void CurrentLockList::init(
 
 void CurrentLockList::clear_entries() {
   last_active_entry_ = kLockListPositionInvalid;
+  last_locked_entry_ = kLockListPositionInvalid;
   if (array_) {
     // Dummy entry
     array_[kLockListPositionInvalid].universal_lock_id_ = 0;
@@ -131,7 +132,8 @@ std::ostream& operator<<(std::ostream& o, const LockEntry& v) {
 std::ostream& operator<<(std::ostream& o, const CurrentLockList& v) {
   o << "<CurrentLockList>"
     << "<Capacity>" << v.capacity_ << "</Capacity>"
-    << "<LastActiveEntry>" << v.last_active_entry_ << "</LastActiveEntry>";
+    << "<LastActiveEntry>" << v.last_active_entry_ << "</LastActiveEntry>"
+    << "<LastLockedEntry>" << v.last_locked_entry_ << "</LastLockedEntry>";
   const uint32_t kMaxShown = 32U;
   for (auto i = 1U; i <= std::min(v.last_active_entry_, kMaxShown); ++i) {
     o << v.array_[i];
@@ -172,6 +174,7 @@ void lock_assert_sorted(const memory::GlobalVolatilePageResolver& resolver, cons
 }
 
 void CurrentLockList::assert_sorted_impl() const {
+  assert_last_locked_entry();
   lock_assert_sorted(volatile_page_resolver_, *this);
 }
 void RetrospectiveLockList::assert_sorted_impl() const {
@@ -233,12 +236,14 @@ LockListPosition lock_binary_search(
 }
 
 LockListPosition CurrentLockList::binary_search(UniversalLockId lock) const {
+  assert_last_locked_entry();
   return lock_binary_search<CurrentLockList>(*this, lock);
 }
 LockListPosition RetrospectiveLockList::binary_search(UniversalLockId lock) const {
   return lock_binary_search<RetrospectiveLockList>(*this, lock);
 }
 LockListPosition CurrentLockList::lower_bound(UniversalLockId lock) const {
+  assert_last_locked_entry();
   return lock_lower_bound<CurrentLockList>(*this, lock);
 }
 LockListPosition RetrospectiveLockList::lower_bound(UniversalLockId lock) const {
@@ -249,6 +254,7 @@ LockListPosition CurrentLockList::get_or_add_entry(
   UniversalLockId id,
   RwLockableXctId* lock,
   LockMode preferred_mode) {
+  assert_last_locked_entry();
   ASSERT_ND(id == xct_id_to_universal_lock_id(volatile_page_resolver_, lock));
   // Easy case? (lock >= the last entry)
   LockListPosition insert_pos = lower_bound(id);
@@ -284,6 +290,10 @@ LockListPosition CurrentLockList::get_or_add_entry(
   std::memmove(array_ + insert_pos + 1U, array_ + insert_pos, moved_bytes);
   DVLOG(1) << "Re-sorted. hope this won't happen often";
   array_[insert_pos].set(id, lock, preferred_mode, kNoLock);
+  if (last_locked_entry_ >= insert_pos) {
+    ++last_locked_entry_;
+  }
+
   assert_sorted();
   return insert_pos;
 }
@@ -470,6 +480,9 @@ void CurrentLockList::batch_insert_write_placeholders(
       std::sort(array_ + 1U, array_ + 1U + last_active_entry_);
     }
   }
+
+  // Adjusting last_locked_entry_ is not impossible.. but let's just recalculate. Not too often.
+  last_locked_entry_ = calculate_last_locked_entry();
   assert_sorted();
 #ifndef NDEBUG
   for (uint32_t i = 0; i < write_set_size; ++i) {
@@ -485,6 +498,7 @@ void CurrentLockList::prepopulate_for_retrospective_lock_list(const Retrospectiv
   // Because now we use LockEntry for both RLL and CLL, we can do just one memcpy
   std::memcpy(array_ + 1U, rll.get_array() + 1U, sizeof(LockEntry) * rll.get_last_active_entry());
   last_active_entry_ = rll.get_last_active_entry();
+  last_locked_entry_ = kLockListPositionInvalid;
   assert_sorted();
 }
 

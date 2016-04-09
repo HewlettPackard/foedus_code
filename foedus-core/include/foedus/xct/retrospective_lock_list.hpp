@@ -380,13 +380,25 @@ class CurrentLockList {
    * @returns largest index of entries that are already locked.
    * kLockListPositionInvalid if no entry is locked.
    */
-  LockListPosition get_last_locked_entry() const {
-    for (LockListPosition pos = last_active_entry_; pos > kLockListPositionInvalid; --pos) {
+  LockListPosition get_last_locked_entry() const { return last_locked_entry_; }
+  /** Calculate last_locked_entry_ by really checking the whole list. Usually for sanity checks */
+  LockListPosition calculate_last_locked_entry() const {
+    return calculate_last_locked_entry_from(last_active_entry_);
+  }
+  /** Only searches among entries at or before "from" */
+  LockListPosition calculate_last_locked_entry_from(LockListPosition from) const {
+    for (LockListPosition pos = from; pos > kLockListPositionInvalid; --pos) {
       if (array_[pos].is_locked()) {
         return pos;
       }
     }
     return kLockListPositionInvalid;
+  }
+  void assert_last_locked_entry() const {
+#ifndef NDEBUG
+    LockListPosition correct = calculate_last_locked_entry();
+    ASSERT_ND(correct == last_locked_entry_);
+#endif  // NDEBUG
   }
 
   /**
@@ -437,13 +449,6 @@ class CurrentLockList {
    */
   template<typename MCS_RW_IMPL>
   ErrorCode try_or_acquire_multiple_locks(LockListPosition upto_pos, MCS_RW_IMPL* mcs_rw_impl);
-
-  /** subroutine used from try_or_acquire_single_lock/try_or_acquire_multiple_locks */
-  template<typename MCS_RW_IMPL>
-  ErrorCode try_or_acquire_single_lock_impl(
-    LockListPosition pos,
-    LockListPosition* last_locked_pos,
-    MCS_RW_IMPL* mcs_rw_impl);
 
   template<typename MCS_RW_IMPL>
   void try_async_single_lock(LockListPosition pos, MCS_RW_IMPL* mcs_rw_impl);
@@ -499,8 +504,14 @@ class CurrentLockList {
    * kLockListPositionInvalid if this list is empty.
    */
   LockListPosition last_active_entry_;
+  /**
+   * largest index of entries that are already locked.
+   * kLockListPositionInvalid if no entry is locked.
+   */
+  LockListPosition last_locked_entry_;
 
   LockListPosition issue_new_position() {
+    assert_last_locked_entry();
     ++last_active_entry_;
     ASSERT_ND(last_active_entry_ < capacity_);
     return last_active_entry_;
@@ -546,29 +557,6 @@ template<typename MCS_RW_IMPL>
 inline ErrorCode CurrentLockList::try_or_acquire_single_lock(
   LockListPosition pos,
   MCS_RW_IMPL* mcs_rw_impl) {
-  LockListPosition last_locked_pos = get_last_locked_entry();
-  return try_or_acquire_single_lock_impl(pos, &last_locked_pos, mcs_rw_impl);
-}
-
-template<typename MCS_RW_IMPL>
-inline ErrorCode CurrentLockList::try_or_acquire_multiple_locks(
-  LockListPosition upto_pos,
-  MCS_RW_IMPL* mcs_rw_impl) {
-  ASSERT_ND(upto_pos != kLockListPositionInvalid);
-  ASSERT_ND(upto_pos <= last_active_entry_);
-  LockListPosition last_locked_pos = get_last_locked_entry();
-  // Especially in this case, we probably should release locks after upto_pos first.
-  for (LockListPosition pos = 1U; pos <= upto_pos; ++pos) {
-    CHECK_ERROR_CODE(try_or_acquire_single_lock_impl(pos, &last_locked_pos, mcs_rw_impl));
-  }
-  return kErrorCodeOk;
-}
-
-template<typename MCS_RW_IMPL>
-inline ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
-  LockListPosition pos,
-  LockListPosition* last_locked_pos,
-  MCS_RW_IMPL* mcs_rw_impl) {
   LockEntry* lock_entry = get_entry(pos);
   if (lock_entry->is_enough()) {
     return kErrorCodeOk;
@@ -586,10 +574,9 @@ inline ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
     // but we guarantee serializability by read-verification anyways.
     // We can release any lock anytime.. great flexibility!
     mcs_rw_impl->release_rw_reader(lock_addr, lock_entry->mcs_block_);
-
-    // simply recalculate. We can do a bit smarter thing.. if CPU profile tells something.
-    // unlikely because lock upgrade shouldn't be that often. RLL should minimize it.
-    *last_locked_pos = get_last_locked_entry();
+    lock_entry->taken_mode_ = kNoLock;
+    last_locked_entry_ = calculate_last_locked_entry_from(pos - 1U);
+    assert_last_locked_entry();
   } else {
     // This method is for unconditional acquire and try, not aync/retry.
     // If we have a queue node already, something was misused.
@@ -597,7 +584,7 @@ inline ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
   }
 
   // Now we need to take the lock. Are we in canonical mode?
-  if (*last_locked_pos == kLockListPositionInvalid || *last_locked_pos < pos) {
+  if (last_locked_entry_ == kLockListPositionInvalid || last_locked_entry_ < pos) {
     // yay, we are in canonical mode. we can unconditionally get the lock
     ASSERT_ND(lock_entry->taken_mode_ == kNoLock);  // not a lock upgrade, either
     if (lock_entry->preferred_mode_ == kWriteLock) {
@@ -607,6 +594,7 @@ inline ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
       lock_entry->mcs_block_ = mcs_rw_impl->acquire_unconditional_rw_reader(lock_addr);
     }
     lock_entry->taken_mode_ = lock_entry->preferred_mode_;
+    last_locked_entry_ = pos;
   } else {
     // hmm, we violated canonical mode. has a risk of deadlock.
     // Let's just try acquire the lock and immediately give up if it fails.
@@ -628,7 +616,20 @@ inline ErrorCode CurrentLockList::try_or_acquire_single_lock_impl(
   }
   ASSERT_ND(lock_entry->mcs_block_);
   ASSERT_ND(lock_entry->is_locked());
-  *last_locked_pos = std::max(pos, *last_locked_pos);
+  assert_last_locked_entry();
+  return kErrorCodeOk;
+}
+
+template<typename MCS_RW_IMPL>
+inline ErrorCode CurrentLockList::try_or_acquire_multiple_locks(
+  LockListPosition upto_pos,
+  MCS_RW_IMPL* mcs_rw_impl) {
+  ASSERT_ND(upto_pos != kLockListPositionInvalid);
+  ASSERT_ND(upto_pos <= last_active_entry_);
+  // Especially in this case, we probably should release locks after upto_pos first.
+  for (LockListPosition pos = 1U; pos <= upto_pos; ++pos) {
+    CHECK_ERROR_CODE(try_or_acquire_single_lock(pos, mcs_rw_impl));
+  }
   return kErrorCodeOk;
 }
 
@@ -654,6 +655,8 @@ inline void CurrentLockList::try_async_single_lock(
     // We can release any lock anytime.. great flexibility!
     mcs_rw_impl->release_rw_reader(lock_addr, lock_entry->mcs_block_);
     lock_entry->taken_mode_ = kNoLock;
+    last_locked_entry_ = calculate_last_locked_entry_from(pos - 1U);
+    assert_last_locked_entry();
   } else {
     // This function is for pushing the queue node in the extended rwlock.
     // Doomed if we already have a queue node.
@@ -699,6 +702,8 @@ inline bool CurrentLockList::retry_async_single_lock(
   if (acquired) {
     lock_entry->taken_mode_ = lock_entry->preferred_mode_;
     ASSERT_ND(lock_entry->is_locked());
+    last_locked_entry_ = std::max(last_locked_entry_, pos);
+    assert_last_locked_entry();
   }
   return acquired;
 }
@@ -743,8 +748,12 @@ inline void CurrentLockList::release_all_after(UniversalLockId address, MCS_RW_I
   uint32_t canceled_async_read_locks = 0;
   uint32_t canceled_async_write_locks = 0;
 
+  LockListPosition new_last_locked_entry = kLockListPositionInvalid;
   for (LockEntry* entry = begin(); entry != end(); ++entry) {
     if (entry->universal_lock_id_ <= address) {
+      if (entry->is_locked()) {
+        new_last_locked_entry = entry - array_;
+      }
       continue;
     }
     if (entry->is_locked()) {
@@ -777,6 +786,9 @@ inline void CurrentLockList::release_all_after(UniversalLockId address, MCS_RW_I
       ++already_released_locks;
     }
   }
+
+  last_locked_entry_ = new_last_locked_entry;
+  assert_last_locked_entry();
 
 #ifndef NDEBUG
   release_all_after_debuglog(
