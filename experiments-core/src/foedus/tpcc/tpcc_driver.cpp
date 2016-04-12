@@ -170,7 +170,7 @@ TpccDriver::Result TpccDriver::run() {
     }
 
 #ifndef OLAP_MODE
-    const uint64_t kMaxWaitMs = 60 * 1000;
+    const uint64_t kMaxWaitMs = 180 * 1000;
     const uint64_t kIntervalMs = 10;
 #else  // OLAP_MODE
     const uint64_t kMaxWaitMs = 1000 * 1000;
