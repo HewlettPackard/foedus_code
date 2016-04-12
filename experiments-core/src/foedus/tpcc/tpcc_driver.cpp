@@ -177,9 +177,13 @@ TpccDriver::Result TpccDriver::run() {
     const uint64_t kIntervalMs = 100;
 #endif  // OLAP_MODE
     uint64_t wait_count = 0;
+    debugging::StopWatch load_duration;
     for (uint16_t i = 0; i < sessions.size();) {
       assorted::memory_fence_acquire();
-      if (wait_count * kIntervalMs > kMaxWaitMs) {
+      // We initially used "kIntervalMs * wait_count", but it resulted in a
+      // way earlier timeout (like 1 min) due to spurious wakeups. let's use timer.
+      const uint64_t load_elapsed_ms = load_duration.peek_elapsed_ns() / 1000000ULL;
+      if (load_elapsed_ms > kMaxWaitMs) {
         LOG(FATAL) << "Data population is taking much longer than expected. Quiting.";
       }
       if (sessions[i].is_running()) {
