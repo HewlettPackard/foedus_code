@@ -176,7 +176,6 @@ TpccDriver::Result TpccDriver::run() {
     const uint64_t kMaxWaitMs = 1000 * 1000;
     const uint64_t kIntervalMs = 100;
 #endif  // OLAP_MODE
-    uint64_t wait_count = 0;
     debugging::StopWatch load_duration;
     for (uint16_t i = 0; i < sessions.size();) {
       assorted::memory_fence_acquire();
@@ -188,7 +187,6 @@ TpccDriver::Result TpccDriver::run() {
       }
       if (sessions[i].is_running()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
-        ++wait_count;
         continue;
       }
       LOG(INFO) << "loader_result[" << i << "]=" << sessions[i].get_result();
