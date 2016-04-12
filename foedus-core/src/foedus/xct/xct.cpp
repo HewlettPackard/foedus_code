@@ -300,7 +300,9 @@ ErrorCode Xct::on_record_read(
 
   *observed_xid = tid_address->xct_id_.spin_while_being_written();
   ASSERT_ND(!observed_xid->is_being_written());
-  assorted::memory_fence_consume();  // following reads must happen *after* observing xid
+
+  // Now that we observe XID in its own (non-inlined) function, probably not needed...
+  assorted::memory_fence_acquire();  // following reads must happen *after* observing xid
 
   // check non-reversible flags and skip read-set
   if (observed_xid->is_moved() && no_readset_if_moved) {
