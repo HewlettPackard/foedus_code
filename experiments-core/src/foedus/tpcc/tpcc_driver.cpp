@@ -197,7 +197,8 @@ TpccDriver::Result TpccDriver::run() {
       ++i;
     }
 
-    LOG(INFO) << "Completed data load";
+    load_duration.stop();
+    LOG(INFO) << "Completed data load in " << load_duration.elapsed_sec() << " sec";
   }
 
 

@@ -313,14 +313,6 @@ class ThreadPimpl final : public DefaultInitializable {
   static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
   static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);
 
-  /// async trio.
-  xct::AcquireAsyncRet mcs_acquire_async_rw_reader(xct::McsRwLock* lock);
-  xct::AcquireAsyncRet mcs_acquire_async_rw_writer(xct::McsRwLock* lock);
-  bool mcs_retry_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  bool mcs_retry_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  void mcs_cancel_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  void mcs_cancel_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-
   // overload to be template-friendly
   void get_mcs_rw_my_blocks(xct::McsRwSimpleBlock** out) { *out = mcs_rw_simple_blocks_; }
   void get_mcs_rw_my_blocks(xct::McsRwExtendedBlock** out) { *out = mcs_rw_extended_blocks_; }

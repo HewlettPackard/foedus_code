@@ -624,6 +624,9 @@ ErrorCode MasstreeStoragePimpl::create_next_layer(
   // To remove risk on deadlock in HCC, we release in-flight locks that are after this lock.
   // All such in-flight locks must be non-mandatory locks because this is during xct.
   // So, we can arbitraliry release them.
+  const auto parent_lock_id
+    = xct::xct_id_to_universal_lock_id(context->get_global_volatile_page_resolver(), parent_lock);
+  context->mcs_release_all_current_locks_at_and_after(parent_lock_id);
   xct::McsRwLockScope parent_scope(context, parent_lock, false, true, false);
   if (parent_lock->is_moved() || parent->does_point_to_layer(parent_index)) {
     // someone else has also made this to a next layer or the page itself is moved!

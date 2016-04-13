@@ -276,22 +276,10 @@ class Thread CXX11_FINAL : public virtual Initializable {
   xct::McsBlockIndex  mcs_acquire_lock(xct::McsWwLock* mcs_lock);
   /** @copydoc foedus::xct::McsWwImpl::acquire_try() */
   xct::McsBlockIndex  mcs_acquire_try_lock(xct::McsWwLock* mcs_lock);
-  /**
-   * Unconditionally takes multiple MCS locks.
-   * @return MCS block index of the \e first lock acqired. As this is done in a row,
-   * following locks trivially have sequential block index from it.
-   */
-  xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsWwLock** mcs_locks, uint16_t batch_size);
   /** @copydoc foedus::xct::McsWwImpl::initial() */
   xct::McsBlockIndex  mcs_initial_lock(xct::McsWwLock* mcs_lock);
   /** @copydoc foedus::xct::McsWwImpl::release() */
   void                mcs_release_lock(xct::McsWwLock* mcs_lock, xct::McsBlockIndex block_index);
-  /** corresponds to mcs_acquire_lock_batch() */
-  void                mcs_release_lock_batch(
-    xct::McsWwLock** mcs_locks,
-    xct::McsBlockIndex head_block,
-    uint16_t batch_size);
-
 
   /** @copydoc foedus::xct::McsImpl::acquire_unconditional_rw_reader() */
   xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* lock);
@@ -307,19 +295,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
   void mcs_release_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
   /** @copydoc foedus::xct::McsImpl::release_rw_writer() */
   void mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-
-  /** @copydoc foedus::xct::McsImpl::acquire_async_rw_reader() */
-  xct::AcquireAsyncRet mcs_acquire_async_rw_reader(xct::McsRwLock* lock);
-  /** @copydoc foedus::xct::McsImpl::acquire_async_rw_writer() */
-  xct::AcquireAsyncRet mcs_acquire_async_rw_writer(xct::McsRwLock* lock);
-  /** @copydoc foedus::xct::McsImpl::retry_async_rw_reader() */
-  bool mcs_retry_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  /** @copydoc foedus::xct::McsImpl::retry_async_rw_writer() */
-  bool mcs_retry_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  /** @copydoc foedus::xct::McsImpl::cancel_async_rw_reader() */
-  void mcs_cancel_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  /** @copydoc foedus::xct::McsImpl::cancel_async_rw_writer() */
-  void mcs_cancel_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
 
   xct::McsRwSimpleBlock* get_mcs_rw_simple_blocks();
   xct::McsRwExtendedBlock* get_mcs_rw_extended_blocks();

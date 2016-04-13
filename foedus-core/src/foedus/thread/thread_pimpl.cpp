@@ -842,29 +842,6 @@ xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsWwLock* mcs_lock) {
 xct::McsBlockIndex Thread::mcs_acquire_try_lock(xct::McsWwLock* mcs_lock) {
   return pimpl_->mcs_acquire_try_lock(mcs_lock);
 }
-xct::McsBlockIndex Thread::mcs_acquire_lock_batch(xct::McsWwLock** mcs_locks, uint16_t batch_size) {
-  // lock in address order. so, no deadlock possible
-  // we have to lock them whether the record is deleted or not. all physical records.
-  xct::McsBlockIndex head_lock_index = 0;
-  for (uint16_t i = 0; i < batch_size; ++i) {
-    xct::McsBlockIndex block = pimpl_->mcs_acquire_lock(mcs_locks[i]);
-    ASSERT_ND(block > 0);
-    if (i == 0) {
-      head_lock_index = block;
-    } else {
-      ASSERT_ND(head_lock_index + i == block);
-    }
-  }
-  return head_lock_index;
-}
-void Thread::mcs_release_lock_batch(
-  xct::McsWwLock** mcs_locks,
-  xct::McsBlockIndex head_block,
-  uint16_t batch_size) {
-  for (uint16_t i = 0; i < batch_size; ++i) {
-    pimpl_->mcs_release_lock(mcs_locks[i], head_block + i);
-  }
-}
 
 xct::McsBlockIndex Thread::mcs_initial_lock(xct::McsWwLock* mcs_lock) {
   return pimpl_->mcs_initial_lock(mcs_lock);
@@ -884,25 +861,6 @@ xct::McsBlockIndex Thread::mcs_try_acquire_writer_lock(xct::McsRwLock* lock) {
 }
 xct::McsBlockIndex Thread::mcs_try_acquire_reader_lock(xct::McsRwLock* lock) {
   return pimpl_->mcs_try_acquire_reader_lock(lock);
-}
-
-xct::AcquireAsyncRet Thread::mcs_acquire_async_rw_reader(xct::McsRwLock* lock) {
-  return pimpl_->mcs_acquire_async_rw_reader(lock);
-}
-xct::AcquireAsyncRet Thread::mcs_acquire_async_rw_writer(xct::McsRwLock* lock) {
-  return pimpl_->mcs_acquire_async_rw_writer(lock);
-}
-bool Thread::mcs_retry_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  return pimpl_->mcs_retry_async_rw_reader(lock, block_index);
-}
-bool Thread::mcs_retry_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  return pimpl_->mcs_retry_async_rw_writer(lock, block_index);
-}
-void Thread::mcs_cancel_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_cancel_async_rw_reader(lock, block_index);
-}
-void Thread::mcs_cancel_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_cancel_async_rw_writer(lock, block_index);
 }
 
 void Thread::mcs_release_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index) {
@@ -1045,61 +1003,6 @@ void ThreadPimpl::mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockInd
   } else {
     auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
     impl.release_rw_writer(lock, block_index);
-  }
-}
-
-xct::AcquireAsyncRet ThreadPimpl::mcs_acquire_async_rw_reader(xct::McsRwLock* lock) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.acquire_async_rw_reader(lock);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.acquire_async_rw_reader(lock);
-  }
-}
-xct::AcquireAsyncRet ThreadPimpl::mcs_acquire_async_rw_writer(xct::McsRwLock* lock) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.acquire_async_rw_writer(lock);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.acquire_async_rw_writer(lock);
-  }
-}
-bool ThreadPimpl::mcs_retry_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.retry_async_rw_reader(lock, block_index);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.retry_async_rw_reader(lock, block_index);
-  }
-}
-bool ThreadPimpl::mcs_retry_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.retry_async_rw_writer(lock, block_index);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.retry_async_rw_writer(lock, block_index);
-  }
-}
-void ThreadPimpl::mcs_cancel_async_rw_reader(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    impl.cancel_async_rw_reader(lock, block_index);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    impl.cancel_async_rw_reader(lock, block_index);
-  }
-}
-void ThreadPimpl::mcs_cancel_async_rw_writer(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    impl.cancel_async_rw_writer(lock, block_index);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    impl.cancel_async_rw_writer(lock, block_index);
   }
 }
 
