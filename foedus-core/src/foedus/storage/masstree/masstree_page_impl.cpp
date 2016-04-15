@@ -665,11 +665,6 @@ void MasstreeBorderPage::split_foster_lock_existing_records(
   // We thus release all locks whose addresses are larger than the first record of this page.
   // We might not need to do this, but we can add the optimization later.
   // split should be comparatively infrequent.
-  //
-  // TODO(tzwang): try the write-acquire first approach after we convert read-set to htab.
-  // TODO(tzwang): add a counter here to count such cases; releasing all S-locks at
-  // SMO ruins the tx's efforts to protect hot reads. Maybe re-acquire and validate
-  // immediately after the SMO?
   /*
   auto begin_address = xct::xct_id_to_universal_lock_id(
     context->get_global_volatile_page_resolver(),

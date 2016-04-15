@@ -369,7 +369,6 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
     const thread::ThreadId id = adaptor_.get_my_id();
     const McsBlockIndex block_index = adaptor_.issue_new_block();
     ASSERT_ND(block_index > 0);
-    // TODO(tzwang): make this a static_size_check...
     ASSERT_ND(sizeof(McsRwSimpleBlock) == sizeof(McsWwBlock));
     auto* my_block = adaptor_.get_rw_my_block(block_index);
 
@@ -467,7 +466,6 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
     const McsBlockIndex block_index = adaptor_.issue_new_block();
     ASSERT_ND(adaptor_.get_cur_block() < 0xFFFFU);
     ASSERT_ND(block_index > 0);
-    // TODO(tzwang): make this a static_size_check...
     ASSERT_ND(sizeof(McsRwSimpleBlock) == sizeof(McsWwBlock));
     auto* my_block = adaptor_.get_rw_my_block(block_index);
 

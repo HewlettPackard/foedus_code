@@ -199,30 +199,10 @@ ErrorStack YcsbLoadTask::load_table(
 
   for (auto &key : keys) {
     YcsbRecord r('a');
-    bool succeeded = false;
-    // With the try-retry rw-lock insertions during loading phase might
-    // fail too due to conflict with page splits caused by other loading
-    // threads. The splitters will retry until success.
-    //
-    // Retry 100 times (might be large, but it's loading phase anyway).
-    // If we're super unlucky after 100 tries, sleep, retry 100 times again.
-    const int kLoadingBackoffUs = 200;
-    const int kLoadingInitialTries = 100;
-    do {
-      for (int t = 0; t < kLoadingInitialTries; ++t) {
-        COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-        COERCE_ERROR_CODE(
-          table->insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-        auto ret = xct_manager->precommit_xct(context, &commit_epoch);
-        if (ret == kErrorCodeOk) {
-          succeeded = true;
-          break;
-        }
-        ASSERT_ND(ret == kErrorCodeXctRaceAbort || ret == kErrorCodeXctLockAbort);
-        // sleep for a random number of ms
-        std::this_thread::sleep_for(std::chrono::microseconds(kLoadingBackoffUs));
-      }
-    } while (!succeeded);
+    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+    COERCE_ERROR_CODE(
+      table->insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
+    COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
   COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return kRetOk;
