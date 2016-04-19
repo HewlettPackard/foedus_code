@@ -381,6 +381,14 @@ class CurrentLockList {
    * kLockListPositionInvalid if no entry is locked.
    */
   LockListPosition get_last_locked_entry() const { return last_locked_entry_; }
+  /** @returns the biggest Id of locks actually locked. If none, kNullUniversalLockId. */
+  UniversalLockId get_max_locked_id() const {
+    if (last_locked_entry_ == kLockListPositionInvalid) {
+      return kNullUniversalLockId;
+    } else {
+      return get_entry(last_locked_entry_)->universal_lock_id_;
+    }
+  }
   /** Calculate last_locked_entry_ by really checking the whole list. Usually for sanity checks */
   LockListPosition calculate_last_locked_entry() const {
     return calculate_last_locked_entry_from(last_active_entry_);
@@ -460,6 +468,11 @@ class CurrentLockList {
   template<typename MCS_RW_IMPL>
   void try_async_multiple_locks(LockListPosition upto_pos, MCS_RW_IMPL* mcs_rw_impl);
 
+  /** * Release all locks in CLL */
+  template<typename MCS_RW_IMPL>
+  void        release_all_locks(MCS_RW_IMPL* mcs_rw_impl) {
+    release_all_after(kNullUniversalLockId, mcs_rw_impl);
+  }
   /**
    * Release all locks in CLL whose addresses are canonically ordered
    * before the parameter. This is used where we need to rule out the risk of deadlock.
@@ -880,6 +893,61 @@ inline void CurrentLockList::giveup_all_at_and_after(
     giveup_all_after<MCS_RW_IMPL>(address - 1U, mcs_rw_impl);
   }
 }
+
+////////////////////////////////////////////////////////////
+/// General lower_bound/binary_search logic for any kind of LockList/LockEntry.
+/// Used from retrospective_lock_list.cpp and sysxct_impl.cpp.
+/// These implementations are skewed towards sorted cases,
+/// meaning it runs faster when accesses are nicely sorted.
+////////////////////////////////////////////////////////////
+template<typename LOCK_LIST, typename LOCK_ENTRY>
+inline LockListPosition lock_lower_bound(
+  const LOCK_LIST& list,
+  UniversalLockId lock) {
+  LockListPosition last_active_entry = list.get_last_active_entry();
+  if (last_active_entry == kLockListPositionInvalid) {
+    return kLockListPositionInvalid + 1U;
+  }
+  // Check the easy cases first. This will be an wasted cost if it's not, but still cheap.
+  const LOCK_ENTRY* array = list.get_array();
+  // For example, [dummy, 3, 5, 7] (last_active_entry=3).
+  // id=7: 3, larger: 4, smaller: need to check more
+  if (array[last_active_entry].universal_lock_id_ == lock) {
+    return last_active_entry;
+  } else if (array[last_active_entry].universal_lock_id_ < lock) {
+    return last_active_entry + 1U;
+  }
+
+  LockListPosition pos
+    = std::lower_bound(
+        array + 1U,
+        array + last_active_entry + 1U,
+        lock,
+        typename LOCK_ENTRY::LessThan())
+      - array;
+  // in the above example, id=6: 3, id=4,5: 2, smaller: 1
+  ASSERT_ND(pos != kLockListPositionInvalid);
+  ASSERT_ND(pos <= last_active_entry);  // otherwise we went into the branch above
+  ASSERT_ND(array[pos].universal_lock_id_ >= lock);
+  ASSERT_ND(pos == 1U || array[pos - 1U].universal_lock_id_ < lock);
+  return pos;
+}
+
+template<typename LOCK_LIST, typename LOCK_ENTRY>
+inline LockListPosition lock_binary_search(
+  const LOCK_LIST& list,
+  UniversalLockId lock) {
+  LockListPosition last_active_entry = list.get_last_active_entry();
+  LockListPosition pos = lock_lower_bound<LOCK_LIST, LOCK_ENTRY>(list, lock);
+  if (pos != kLockListPositionInvalid && pos <= last_active_entry) {
+    const LOCK_ENTRY* array = list.get_array();
+    if (array[pos].universal_lock_id_ == lock) {
+      return pos;
+    }
+  }
+  return kLockListPositionInvalid;
+}
+
 
 }  // namespace xct
 }  // namespace foedus

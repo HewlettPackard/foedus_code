@@ -29,6 +29,7 @@
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
 #include "foedus/xct/retrospective_lock_list.hpp"
+#include "foedus/xct/sysxct_impl.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_options.hpp"
@@ -63,6 +64,7 @@ uint64_t NumaCoreMemory::calculate_local_small_memory_size(const EngineOptions& 
   // for the "shift" part, we calculate conservatively then skip it at the end.
   // it's a wasted memory, but negligible.
   memory_size += static_cast<uint64_t>(options.thread_.thread_count_per_group_) << 12;
+  memory_size += sizeof(xct::SysxctWorkspace);
   memory_size += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
   memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
   const xct::XctOptions& xct_opt = options.xct_;
@@ -108,6 +110,8 @@ ErrorStack NumaCoreMemory::initialize_once() {
   // "shift" 4kb for each thread on this node so that memory banks are evenly used.
   // in many architecture, 13th- or 14th- bits are memory banks (see [JEONG11])
   memory += static_cast<uint64_t>(core_local_ordinal_) << 12;
+  small_thread_local_memory_pieces_.sysxct_workspace_memory_ = memory;
+  memory += sizeof(xct::SysxctWorkspace);
   small_thread_local_memory_pieces_.xct_page_version_memory_ = memory;
   memory += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
   small_thread_local_memory_pieces_.xct_pointer_access_memory_ = memory;

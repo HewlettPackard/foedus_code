@@ -56,6 +56,9 @@ namespace xct {
 template<typename RW_BLOCK>
 class McsAdaptorConcept {
  public:
+  /** ThisRwBlock shall indicate the block type */
+  typedef RW_BLOCK ThisRwBlock;
+
   /**
    * Issues a new queue node of this thread and returns its block index.
    * This typically maintains a counter in the concrete object.
@@ -292,6 +295,8 @@ struct McsMockContext {
 template<typename RW_BLOCK>
 class McsMockAdaptor {
  public:
+  typedef RW_BLOCK ThisRwBlock;
+
   McsMockAdaptor(thread::ThreadId id, McsMockContext<RW_BLOCK>* context)
     : id_(id),
       numa_node_(thread::decompose_numa_node(id)),

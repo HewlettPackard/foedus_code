@@ -48,10 +48,12 @@ namespace foedus {
 namespace xct {
 
 /**
- * @brief Represents a transaction.
+ * @brief Represents a user transaction.
  * @ingroup XCT
  * @details
  * To obtain this object, call Thread#get_current_xct().
+ * This object represents a \e user transaction as opposed to physical-only
+ * internal transactions (so called \e system transactions, SysxctScope).
  */
 class Xct {
  public:
@@ -136,6 +138,8 @@ class Xct {
     return default_rll_threshold_for_this_xct_ ; }
   void  set_default_rll_threshold_for_this_xct(uint16_t value) {
     default_rll_threshold_for_this_xct_ = value; }
+
+  SysxctWorkspace* get_sysxct_workspace() const { return sysxct_workspace_; }
 
   /** Returns if this transaction makes no writes. */
   bool                is_read_only() const {
@@ -407,6 +411,7 @@ class Xct {
   }
 
   xct::CurrentLockList*       get_current_lock_list() { return &current_lock_list_; }
+  const xct::CurrentLockList* get_current_lock_list() const { return &current_lock_list_; }
   xct::RetrospectiveLockList* get_retrospective_lock_list() {
     return &retrospective_lock_list_;
   }
@@ -474,6 +479,11 @@ class Xct {
   uint16_t            rll_threshold_for_this_xct_;
   uint16_t            default_rll_threshold_for_this_xct_;
 
+
+  /**
+   * Workspace for a system transaction nested under this user transaction.
+   */
+  SysxctWorkspace*    sysxct_workspace_;
 
   /**
    * How many MCS blocks we allocated in the current thread.

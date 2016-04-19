@@ -36,6 +36,7 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/thread/thread_ref.hpp"
+#include "foedus/xct/fwd.hpp"
 #include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -308,6 +309,20 @@ class ThreadPimpl final : public DefaultInitializable {
 
   ErrorCode   cll_try_or_acquire_single_lock(xct::LockListPosition pos);
   ErrorCode   cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
+  void        cll_release_all_locks();
+  xct::UniversalLockId cll_get_max_locked_id() const;
+
+
+  ////////////////////////////////////////////////////////
+  /// Sysxct-related.
+  ErrorCode run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries);
+  ErrorCode sysxct_record_lock(storage::VolatilePagePointer page_id, xct::RwLockableXctId* lock);
+  ErrorCode sysxct_batch_record_locks(
+    storage::VolatilePagePointer page_id,
+    uint32_t lock_count,
+    xct::RwLockableXctId** locks);
+  ErrorCode sysxct_page_lock(storage::Page* page);
+  ErrorCode sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages);
 
   static void mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
@@ -406,6 +421,8 @@ class ThreadPimpl final : public DefaultInitializable {
 template<typename RW_BLOCK>
 class ThreadPimplMcsAdaptor {
  public:
+  typedef RW_BLOCK ThisRwBlock;
+
   explicit ThreadPimplMcsAdaptor(ThreadPimpl* pimpl) : pimpl_(pimpl) {}
   ~ThreadPimplMcsAdaptor() {}
 

@@ -438,6 +438,14 @@ struct Page CXX11_FINAL {
   PageHeader&  get_header()              { return header_; }
   const PageHeader&  get_header() const  { return header_; }
   PageType     get_page_type() const     { return header_.get_page_type(); }
+  VolatilePagePointer get_volatile_page_id() const {
+    ASSERT_ND(!header_.snapshot_);
+    return VolatilePagePointer(header_.page_id_);
+  }
+  SnapshotPagePointer get_snapshot_page_id() const {
+    ASSERT_ND(header_.snapshot_);
+    return static_cast<SnapshotPagePointer>(header_.page_id_);
+  }
   char*        get_data() { return data_; }
   const char*  get_data() const { return data_; }
 

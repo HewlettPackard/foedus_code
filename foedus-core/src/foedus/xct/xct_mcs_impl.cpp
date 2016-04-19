@@ -1701,6 +1701,8 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
 ////////////////////////////////////////////////////////////////////////////////
 template class McsWwImpl< McsMockAdaptor<McsRwSimpleBlock> >;
 template class McsWwImpl< thread::ThreadPimplMcsAdaptor<McsRwSimpleBlock> >;
+template class McsWwImpl< McsMockAdaptor<McsRwExtendedBlock> >;
+template class McsWwImpl< thread::ThreadPimplMcsAdaptor<McsRwExtendedBlock> >;
 
 template class McsImpl< McsMockAdaptor<McsRwSimpleBlock> ,   McsRwSimpleBlock>;
 template class McsImpl< McsMockAdaptor<McsRwExtendedBlock> , McsRwExtendedBlock>;

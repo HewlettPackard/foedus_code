@@ -44,6 +44,8 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/thread/thread_pool_pimpl.hpp"
+#include "foedus/xct/sysxct_functor.hpp"
+#include "foedus/xct/sysxct_impl.hpp"
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_manager.hpp"
 #include "foedus/xct/xct_mcs_impl.hpp"
@@ -884,6 +886,7 @@ ErrorCode Thread::cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_p
   return pimpl_->cll_try_or_acquire_multiple_locks(upto_pos);
 }
 
+
 void Thread::mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock) {
   ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
 }
@@ -1047,6 +1050,134 @@ ErrorCode ThreadPimpl::cll_try_or_acquire_multiple_locks(xct::LockListPosition u
   } else {
     auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
     return cll->try_or_acquire_multiple_locks(upto_pos, &impl);
+  }
+}
+void ThreadPimpl::cll_release_all_locks() {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    return cll->release_all_locks(&impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    return cll->release_all_locks(&impl);
+  }
+}
+
+xct::UniversalLockId ThreadPimpl::cll_get_max_locked_id() const {
+  const xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  return cll->get_max_locked_id();
+}
+
+
+struct ThreadPimplCllReleaseAllFunctor {
+  explicit ThreadPimplCllReleaseAllFunctor(ThreadPimpl* pimpl) : pimpl_(pimpl) {}
+  void operator()() const {
+    pimpl_->cll_release_all_locks();
+  }
+  ThreadPimpl* const pimpl_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+///
+///      Sysxct methods
+///
+////////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////
+/// Thread -> ThreadPimpl forwardings
+ErrorCode Thread::run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries) {
+  return pimpl_->run_nested_sysxct(functor, max_retries);
+}
+ErrorCode Thread::sysxct_record_lock(
+  storage::VolatilePagePointer page_id,
+  xct::RwLockableXctId* lock) {
+  return pimpl_->sysxct_record_lock(page_id, lock);
+}
+ErrorCode Thread::sysxct_batch_record_locks(
+  storage::VolatilePagePointer page_id,
+  uint32_t lock_count,
+  xct::RwLockableXctId** locks) {
+  return pimpl_->sysxct_batch_record_locks(page_id, lock_count, locks);
+}
+ErrorCode Thread::sysxct_page_lock(storage::Page* page) {
+  return pimpl_->sysxct_page_lock(page);
+}
+ErrorCode Thread::sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages) {
+  return pimpl_->sysxct_batch_page_locks(lock_count, pages);
+}
+
+/////////////////////////////////////////
+/// Impl. mostly just forwarding to SysxctLockList
+ErrorCode ThreadPimpl::run_nested_sysxct(
+  xct::SysxctFunctor* functor,
+  uint32_t max_retries) {
+  xct::SysxctWorkspace* workspace = current_xct_.get_sysxct_workspace();
+  xct::UniversalLockId enclosing_max_lock_id = cll_get_max_locked_id();
+  ThreadPimplCllReleaseAllFunctor release_functor(this);
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return xct::run_nested_sysxct_impl(
+        functor,
+        adaptor,
+        max_retries,
+        workspace,
+        enclosing_max_lock_id,
+        release_functor);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return xct::run_nested_sysxct_impl(
+        functor,
+        adaptor,
+        max_retries,
+        workspace,
+        enclosing_max_lock_id,
+        release_functor);
+  }
+}
+
+ErrorCode ThreadPimpl::sysxct_record_lock(
+  storage::VolatilePagePointer page_id,
+  xct::RwLockableXctId* lock) {
+  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.request_record_lock(adaptor, page_id, lock);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.request_record_lock(adaptor, page_id, lock);
+  }
+}
+ErrorCode ThreadPimpl::sysxct_batch_record_locks(
+  storage::VolatilePagePointer page_id,
+  uint32_t lock_count,
+  xct::RwLockableXctId** locks) {
+  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_record_locks(adaptor, page_id, lock_count, locks);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_record_locks(adaptor, page_id, lock_count, locks);
+  }
+}
+ErrorCode ThreadPimpl::sysxct_page_lock(storage::Page* page) {
+  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.request_page_lock(adaptor, page);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.request_page_lock(adaptor, page);
+  }
+}
+ErrorCode ThreadPimpl::sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages) {
+  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_page_locks(adaptor, lock_count, pages);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_page_locks(adaptor, lock_count, pages);
   }
 }
 

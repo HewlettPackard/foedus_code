@@ -31,6 +31,7 @@
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/storage/record.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/xct/sysxct_impl.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_manager.hpp"
 #include "foedus/xct/xct_options.hpp"
@@ -48,6 +49,8 @@ Xct::Xct(Engine* engine, thread::Thread* context, thread::ThreadId thread_id)
   hot_threshold_for_this_xct_ = default_hot_threshold_for_this_xct_;
   default_rll_threshold_for_this_xct_ = XctOptions::kDefaultHotThreshold;
   rll_threshold_for_this_xct_ = default_rll_threshold_for_this_xct_;
+
+  sysxct_workspace_ = nullptr;
 
   read_set_ = nullptr;
   read_set_size_ = 0;
@@ -88,6 +91,8 @@ void Xct::initialize(
   hot_threshold_for_this_xct_ = default_hot_threshold_for_this_xct_;
   default_rll_threshold_for_this_xct_ = xct_opt.hot_threshold_for_retrospective_lock_list_;
   rll_threshold_for_this_xct_ = default_rll_threshold_for_this_xct_;
+
+  sysxct_workspace_ = reinterpret_cast<SysxctWorkspace*>(pieces.sysxct_workspace_memory_);
 
   read_set_ = reinterpret_cast<ReadXctAccess*>(pieces.xct_read_access_memory_);
   read_set_size_ = 0;
@@ -182,6 +187,8 @@ std::ostream& operator<<(std::ostream& o, const Xct& v) {
         << "</lock_free_read_set_size>"
       << "<lock_free_write_set_size>" << v.get_lock_free_write_set_size()
         << "</lock_free_write_set_size>";
+    const SysxctWorkspace* sysxct_workspace = v.get_sysxct_workspace();
+    o << *sysxct_workspace;
   }
   o << "</Xct>";
   return o;

@@ -118,6 +118,7 @@ X(kErrorCodeRecordTemperatureChange, 0x0AA0, "XCTION : Record page temperature c
 X(kErrorCodeXctLockAbort,               0x0AA1, "XCTION : Lock acquire failed.")
 X(kErrorCodeLockCancelled,            0x0AA2, "XCTION : Lock acquire cancelled.")
 X(kErrorCodeLockRequested,            0x0AA3, "XCTION : Lock acquire requested.")
+X(kErrorCodeXctTwoSysXcts,          0x0AA4, "XCTION : The thread is already running a system transaction. This means an incorrect use of system transactions somewhere in our code.")
 
 X(kErrorCodeDbgGperftools,          0x0B01, "DEBUG  : Gperftools reported an error")
 

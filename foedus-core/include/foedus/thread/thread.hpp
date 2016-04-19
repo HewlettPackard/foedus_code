@@ -333,10 +333,50 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** @copydoc foedus::xct::McsWwImpl::ownerless_initial() */
   static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);
 
+  ///////////////////////////////////////////////////////////////////////////////
+  ///
+  ///  Methods related to Current Lock List (CLL)
+  ///
   /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_single_lock() */
   ErrorCode cll_try_or_acquire_single_lock(xct::LockListPosition pos);
   /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_multiple_locks() */
   ErrorCode cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
+
+  ///////////////////////////////////////////////////////////////////////////////
+  ///
+  ///  Methods related to System transactions (sysxct) nested under this thread.
+  ///
+  /**
+   * @see foedus::xct::run_nested_sysxct_impl()
+   */
+  ErrorCode run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries = 0);
+  /**
+   * Takes a lock for a sysxct running under this thread.
+   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   * @pre the record lock must be within the page of the given ID
+   */
+  ErrorCode sysxct_record_lock(storage::VolatilePagePointer page_id, xct::RwLockableXctId* lock);
+  /**
+   * Takes a bunch of locks in the same page for a sysxct running under this thread.
+   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   * @pre the record locks must be within the page of the given ID
+   */
+  ErrorCode sysxct_batch_record_locks(
+    storage::VolatilePagePointer page_id,
+    uint32_t lock_count,
+    xct::RwLockableXctId** locks);
+  /**
+   * Takes a page lock in the same page for a sysxct running under this thread.
+   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   */
+  ErrorCode sysxct_page_lock(storage::Page* page);
+  /**
+   * Takes a bunch of page locks for a sysxct running under this thread.
+   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   */
+  ErrorCode sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages);
+  /// Currently we don't have sysxct_release_locks() etc. All locks will be automatically
+  /// released when the sysxct ends. Probably this is enough as sysxct should be short-living.
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch*        get_in_commit_epoch_address();

@@ -156,7 +156,7 @@ std::ostream& operator<<(std::ostream& o, const RetrospectiveLockList& v) {
 
 
 template<typename LOCK_LIST>
-void lock_assert_sorted(const memory::GlobalVolatilePageResolver& resolver, const LOCK_LIST& list) {
+void lock_assert_sorted(const LOCK_LIST& list) {
   const LockEntry* array = list.get_array();
   ASSERT_ND(array[kLockListPositionInvalid].universal_lock_id_ == 0);
   ASSERT_ND(array[kLockListPositionInvalid].lock_ == nullptr);
@@ -167,87 +167,38 @@ void lock_assert_sorted(const memory::GlobalVolatilePageResolver& resolver, cons
     ASSERT_ND(array[pos - 1U].universal_lock_id_ < array[pos].universal_lock_id_);
     ASSERT_ND(array[pos].universal_lock_id_ != 0);
     ASSERT_ND(array[pos].lock_ != nullptr);
+    const storage::Page* page = storage::to_page(array[pos].lock_);
+    uintptr_t lock_addr = reinterpret_cast<uintptr_t>(array[pos].lock_);
+    auto page_id = page->get_volatile_page_id();
     ASSERT_ND(array[pos].universal_lock_id_
-      == xct_id_to_universal_lock_id(resolver, array[pos].lock_));
-    ASSERT_ND(array[pos].lock_ == from_universal_lock_id(resolver, array[pos].universal_lock_id_));
+      == to_universal_lock_id(page_id.get_numa_node(), page_id.get_offset(), lock_addr));
   }
 }
 
 void CurrentLockList::assert_sorted_impl() const {
   assert_last_locked_entry();
-  lock_assert_sorted(volatile_page_resolver_, *this);
+  lock_assert_sorted(*this);
 }
 void RetrospectiveLockList::assert_sorted_impl() const {
-  lock_assert_sorted(volatile_page_resolver_, *this);
+  lock_assert_sorted(*this);
 }
 
 ////////////////////////////////////////////////////////////
 /// Data manipulation (search/add/etc)
-/// These implementations are skewed towards sorted cases,
-/// meaning it runs faster when accesses are nicely sorted.
 ////////////////////////////////////////////////////////////
-template<typename LOCK_LIST>
-LockListPosition lock_lower_bound(
-  const LOCK_LIST& list,
-  UniversalLockId lock) {
-  LockListPosition last_active_entry = list.get_last_active_entry();
-  if (last_active_entry == kLockListPositionInvalid) {
-    return kLockListPositionInvalid + 1U;
-  }
-  // Check the easy cases first. This will be an wasted cost if it's not, but still cheap.
-  const LockEntry* array = list.get_array();
-  // For example, [dummy, 3, 5, 7] (last_active_entry=3).
-  // id=7: 3, larger: 4, smaller: need to check more
-  if (array[last_active_entry].universal_lock_id_ == lock) {
-    return last_active_entry;
-  } else if (array[last_active_entry].universal_lock_id_ < lock) {
-    return last_active_entry + 1U;
-  }
-
-  DVLOG(2) << "not an easy case. Binary search!";
-  LockListPosition pos
-    = std::lower_bound(
-        array + 1U,
-        array + last_active_entry + 1U,
-        lock,
-        LockEntry::LessThan())
-      - array;
-  // in the above example, id=6: 3, id=4,5: 2, smaller: 1
-  ASSERT_ND(pos != kLockListPositionInvalid);
-  ASSERT_ND(pos <= last_active_entry);  // otherwise we went into the branch above
-  ASSERT_ND(array[pos].universal_lock_id_ >= lock);
-  ASSERT_ND(pos == 1U || array[pos - 1U].universal_lock_id_ < lock);
-  return pos;
-}
-
-template<typename LOCK_LIST>
-LockListPosition lock_binary_search(
-  const LOCK_LIST& list,
-  UniversalLockId lock) {
-  LockListPosition last_active_entry = list.get_last_active_entry();
-  LockListPosition pos = lock_lower_bound<LOCK_LIST>(list, lock);
-  if (pos != kLockListPositionInvalid && pos <= last_active_entry) {
-    const LockEntry* array = list.get_array();
-    if (array[pos].universal_lock_id_ == lock) {
-      return pos;
-    }
-  }
-  return kLockListPositionInvalid;
-}
-
 LockListPosition CurrentLockList::binary_search(UniversalLockId lock) const {
   assert_last_locked_entry();
-  return lock_binary_search<CurrentLockList>(*this, lock);
+  return lock_binary_search<CurrentLockList, LockEntry>(*this, lock);
 }
 LockListPosition RetrospectiveLockList::binary_search(UniversalLockId lock) const {
-  return lock_binary_search<RetrospectiveLockList>(*this, lock);
+  return lock_binary_search<RetrospectiveLockList, LockEntry>(*this, lock);
 }
 LockListPosition CurrentLockList::lower_bound(UniversalLockId lock) const {
   assert_last_locked_entry();
-  return lock_lower_bound<CurrentLockList>(*this, lock);
+  return lock_lower_bound<CurrentLockList, LockEntry>(*this, lock);
 }
 LockListPosition RetrospectiveLockList::lower_bound(UniversalLockId lock) const {
-  return lock_lower_bound<RetrospectiveLockList>(*this, lock);
+  return lock_lower_bound<RetrospectiveLockList, LockEntry>(*this, lock);
 }
 
 LockListPosition CurrentLockList::get_or_add_entry(

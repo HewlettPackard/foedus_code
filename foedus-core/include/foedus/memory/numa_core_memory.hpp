@@ -47,6 +47,7 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
  public:
   /** Packs pointers to pieces of small_thread_local_memory_*/
   struct SmallThreadLocalMemoryPieces {
+    char* sysxct_workspace_memory_;
     char* xct_pointer_access_memory_;
     char* xct_page_version_memory_;
     char* xct_read_access_memory_;
