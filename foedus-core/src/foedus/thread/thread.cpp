@@ -144,5 +144,33 @@ bool Thread::is_hot_page(const storage::Page* page) const {
   return page->get_header().hotness_.value_ >= threshold;
 }
 
+ErrorCode Thread::GrabFreeVolatilePagesScope::grab(uint32_t count) {
+  if (count_) {
+    release();
+  }
+  memory::NumaCoreMemory* memory = context_->get_thread_memory();
+  for (uint32_t i = 0; i < count; ++i) {
+    offsets_[i] = memory->grab_free_volatile_page();
+    if (offsets_[i] == 0) {
+      for (uint32_t j = 0; j < i; ++j) {
+        memory->release_free_volatile_page(offsets_[j]);
+      }
+      return kErrorCodeMemoryNoFreePages;
+    }
+  }
+  count_ = count;
+  return kErrorCodeOk;
+}
+
+void Thread::GrabFreeVolatilePagesScope::release() {
+  memory::NumaCoreMemory* memory = context_->get_thread_memory();
+  for (uint32_t i = 0; i < count_; ++i) {
+    if (offsets_[i] != 0) {
+      memory->release_free_volatile_page(offsets_[i]);
+    }
+  }
+  count_ = 0;
+}
+
 }  // namespace thread
 }  // namespace foedus

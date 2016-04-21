@@ -104,6 +104,13 @@ class MasstreePage {
     foster_twin_[0] = minor;
     foster_twin_[1] = major;
   }
+  void                install_foster_twin(
+    VolatilePagePointer minor,
+    VolatilePagePointer major,
+    KeySlice foster_fence) {
+    set_foster_twin(minor, major);
+    foster_fence_ = foster_fence;
+  }
 
   bool                within_fences(KeySlice slice) const ALWAYS_INLINE {
     return slice >= low_fence_ && (is_high_fence_supremum() || slice < high_fence_);
@@ -288,6 +295,7 @@ const uint32_t kMaxIntermediatePointers
  */
 class MasstreeIntermediatePage final : public MasstreePage {
  public:
+  friend struct SplitIntermediate;
   struct MiniPage {
     MiniPage() = delete;
     MiniPage(const MiniPage& other) = delete;
@@ -569,6 +577,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
  */
 class MasstreeBorderPage final : public MasstreePage {
  public:
+  friend struct SplitBorder;
   /**
    * A piece of Slot object that must be read/written in one-shot, meaning no one reads
    * half-written values whether it reads old values or new values.
