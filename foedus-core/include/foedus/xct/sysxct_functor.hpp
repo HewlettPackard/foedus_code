@@ -19,6 +19,7 @@
 #define FOEDUS_XCT_SYSXCT_FUNCTOR_HPP_
 
 #include "foedus/error_code.hpp"
+#include "foedus/xct/fwd.hpp"
 
 namespace foedus {
 namespace xct {
@@ -38,12 +39,11 @@ namespace xct {
  * @note Because this wil have vtable, do NOT place this object in shared memory!
  * You shouldn't place this object in any places other than passing around as a param.
  */
-class SysxctFunctor {
- public:
+struct SysxctFunctor {
   /**
    * Execute the system transaction. You should override this method.
    */
-  virtual ErrorCode run() = 0;
+  virtual ErrorCode run(SysxctWorkspace* sysxct_workspace) = 0;
 };
 
 }  // namespace xct

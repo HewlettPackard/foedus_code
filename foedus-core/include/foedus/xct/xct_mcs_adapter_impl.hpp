@@ -64,6 +64,15 @@ class McsAdaptorConcept {
    * This typically maintains a counter in the concrete object.
    */
   McsBlockIndex issue_new_block();
+  /**
+   * Cancels the most recent issue_new_block() call, decrementing the counter.
+   * Use this method carefully. You can call this method only when the issued block
+   * has no chance to be observed by other threads.
+   * For example, this is used when a "try" lock fails.
+   * The parameter is used only for sanity check assertion.
+   */
+  void          cancel_new_block(McsBlockIndex the_block);
+
   McsBlockIndex get_cur_block() const;
   McsBlockIndex get_other_cur_block(thread::ThreadId id);
 
@@ -305,7 +314,15 @@ class McsMockAdaptor {
       me_(context->nodes_[numa_node_].threads_.data() + local_ordinal_) {}
   ~McsMockAdaptor() {}
 
-  McsBlockIndex issue_new_block() { return ++me_->mcs_block_current_; }
+  McsBlockIndex issue_new_block() {
+    // if this assertion fires, probably we are retrying something too many times
+    ASSERT_ND(me_->mcs_block_current_ < 0xFFFFU);
+    return ++me_->mcs_block_current_;
+  }
+  void          cancel_new_block(McsBlockIndex the_block) {
+    ASSERT_ND(me_->mcs_block_current_ == the_block);
+    --me_->mcs_block_current_;
+  }
   McsBlockIndex get_cur_block() const { return me_->mcs_block_current_; }
   thread::ThreadId      get_my_id() const { return id_; }
   thread::ThreadGroupId get_my_numa_node() const { return numa_node_; }

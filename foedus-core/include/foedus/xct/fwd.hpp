@@ -42,7 +42,7 @@ struct  PointerAccess;
 struct  ReadXctAccess;
 class   RetrospectiveLockList;
 struct  RwLockableXctId;
-class   SysxctFunctor;
+struct  SysxctFunctor;
 struct  SysxctWorkspace;
 struct  WriteXctAccess;
 class   Xct;

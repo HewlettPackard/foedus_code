@@ -120,6 +120,7 @@ void Xct::initialize(
   local_work_memory_size_ = core_memory->get_local_work_memory_size();
   local_work_memory_cur_ = 0;
 
+  sysxct_workspace_->init(context_);
   current_lock_list_.init(
     core_memory->get_current_lock_list_memory(),
     core_memory->get_current_lock_list_capacity(),

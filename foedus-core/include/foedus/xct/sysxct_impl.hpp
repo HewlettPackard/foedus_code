@@ -165,6 +165,8 @@ struct SysxctLockEntry {
  */
 class SysxctLockList {
  public:
+  friend struct TestIsTryRequired;  // For unit test. A bit of whitebox test involved.
+
   enum Constants {
     /**
      * Maximum number of locks one system transaction might take.
@@ -182,9 +184,7 @@ class SysxctLockList {
   SysxctLockList& operator=(const SysxctLockList& other) = delete;
 
   void init() {
-    last_locked_entry_ = kLockListPositionInvalid;  // to avoid assertions
-    last_active_entry_ = kLockListPositionInvalid;
-    clear_entries(kNullUniversalLockId);
+    clear_no_assert(kNullUniversalLockId);
   }
 
   /**
@@ -193,10 +193,7 @@ class SysxctLockList {
   void clear_entries(UniversalLockId enclosing_max_lock_id) {
     ASSERT_ND(last_locked_entry_ == kLockListPositionInvalid);
     assert_sorted();
-    last_locked_entry_ = kLockListPositionInvalid;
-    last_active_entry_ = kLockListPositionInvalid;
-    enclosing_max_lock_id_ = enclosing_max_lock_id;
-    array_[kLockListPositionInvalid].clear();
+    clear_no_assert(enclosing_max_lock_id);
   }
 
   /**
@@ -320,6 +317,13 @@ class SysxctLockList {
   SysxctLockEntry* end() { return array_ + 1U + last_active_entry_; }
   const SysxctLockEntry* cbegin() const { return array_ + 1U; }
   const SysxctLockEntry* cend() const { return array_ + 1U + last_active_entry_; }
+  LockListPosition to_pos(const SysxctLockEntry* entry) const {
+    ASSERT_ND(entry > array_);
+    LockListPosition pos = entry - array_;
+    ASSERT_ND(pos <= get_last_active_entry());
+    return pos;
+  }
+
   /**
    * @returns largest index of entries that are already locked.
    * kLockListPositionInvalid if no entry is locked.
@@ -390,6 +394,13 @@ class SysxctLockList {
    */
   SysxctLockEntry array_[kMaxSysxctLocks];
 
+  void clear_no_assert(UniversalLockId enclosing_max_lock_id) {
+    last_locked_entry_ = kLockListPositionInvalid;
+    last_active_entry_ = kLockListPositionInvalid;
+    enclosing_max_lock_id_ = enclosing_max_lock_id;
+    array_[kLockListPositionInvalid].clear();
+  }
+
   LockListPosition issue_new_position() {
     assert_last_locked_entry();
     ++last_active_entry_;
@@ -438,15 +449,20 @@ struct SysxctWorkspace {
    * Whether we are already running a sysxct using this workspace.
    * We don't allow more than one sysxct using this workspace.
    */
-  bool running_sysxct_;
+  bool running_sysxct_;       // +1 -> 1
+  char pad1_[7];              // +7 -> 8
 
-  char pad_[64U - sizeof(running_sysxct_)];
+  /** Back pointer to the enclosing thread, */
+  thread::Thread*  thread_;   // +8 -> 16
+  char pad2_[48];             // +48 -> 64
 
-  /** Lock list for the system transaction */
+  /** Lock list for the system transaction. In a separate cacheline */
   SysxctLockList lock_list_;
 
-  void init() {
+  void init(thread::Thread* enclosing_thread) {
+    ASSERT_ND(enclosing_thread);
     running_sysxct_ = false;
+    thread_ = enclosing_thread;
     lock_list_.init();
   }
 
@@ -495,7 +511,7 @@ inline ErrorCode run_nested_sysxct_impl(
   auto* lock_list = &(workspace->lock_list_);
   lock_list->clear_entries(enclosing_max_lock_id);
   while (true) {
-    ErrorCode ret = functor->run();
+    ErrorCode ret = functor->run(workspace);
     // In any case, release all locks.
     lock_list->release_all_locks(mcs_adaptor);
 
@@ -611,9 +627,12 @@ inline ErrorCode SysxctLockList::batch_request_locks_general(
   LockListPosition from_pos = batch_get_or_add_entries(page_id, lock_count, locks, page_lock);
   if (from_pos > 1U) {
     // To reduce the chance of deadlocks, we take locks before these locks.
-    // These are non-mandatory locks, so we don't turn on the "used_in_this_run_" flags
-    UniversalLockId upto = to_universal_lock_id(page_id, locks[0]) - 1U;
-    CHECK_ERROR_CODE(try_or_acquire_multiple_locks<MCS_ADAPTOR>(mcs_adaptor, 1U, upto, false));
+    // But, if we have already taken any lock after that, it won't help.
+    UniversalLockId first_lock_id = to_universal_lock_id(page_id, locks[0]);
+    if (last_locked_entry_ < from_pos && enclosing_max_lock_id_ < first_lock_id) {
+      // These are non-mandatory locks, so we don't turn on the "used_in_this_run_" flags
+      CHECK_ERROR_CODE(try_or_acquire_multiple_locks(mcs_adaptor, 1U, first_lock_id, false));
+    }
   }
 
 
@@ -621,7 +640,7 @@ inline ErrorCode SysxctLockList::batch_request_locks_general(
   UniversalLockId last_lock_id = to_universal_lock_id(page_id, locks[lock_count - 1]);
 
   // Then, lock them all! These are "mandatory" locks.
-  return try_or_acquire_multiple_locks<MCS_ADAPTOR>(mcs_adaptor, from_pos, last_lock_id, true);
+  return try_or_acquire_multiple_locks(mcs_adaptor, from_pos, last_lock_id, true);
 }
 
 template<typename MCS_ADAPTOR>

@@ -180,6 +180,10 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_try(McsWwLock* mcs_lock) {
     ASSERT_ND(predecessor_id != id);
   }
 #endif  // NDEBUG
+
+  // In this case, we are 100% sure no one else observed the block, so let's decrement
+  // the counter to reuse the block index. Otherwise we'll quickly reach 2^16.
+  adaptor_.cancel_new_block(block_index);
   return 0;
 }
 
@@ -347,21 +351,31 @@ class McsImpl<ADAPTOR, McsRwSimpleBlock> {  // partial specialization for McsRwS
   McsBlockIndex acquire_try_rw_writer(McsRwLock* lock) {
     McsBlockIndex block_index = adaptor_.issue_new_block();
     bool success = retry_async_rw_writer(lock, block_index);
-    return success ? block_index : 0;
+    if (success) {
+      return block_index;
+    } else {
+      // The block is never observed. reuse
+      adaptor_.cancel_new_block(block_index);
+      return 0;
+    }
   }
 
   static bool does_support_try_rw_reader() { return false; }
   McsBlockIndex acquire_try_rw_reader(McsRwLock* lock) {
     McsBlockIndex block_index = adaptor_.issue_new_block();
     bool success = retry_async_rw_reader(lock, block_index);
-#ifndef NDEBUG
     if (success) {
+#ifndef NDEBUG
       auto* my_block = adaptor_.get_rw_my_block(block_index);
       ASSERT_ND(my_block->is_finalized());
       ASSERT_ND(my_block->is_granted());
-    }
 #endif  // NDEBUG
-    return success ? block_index : 0;
+      return block_index;
+    } else {
+      // The block is never observed. reuse
+      adaptor_.cancel_new_block(block_index);
+      return 0;
+    }
   }
 
   McsBlockIndex acquire_unconditional_rw_reader(McsRwLock* mcs_rw_lock) {
@@ -703,8 +717,11 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     if (assorted::raw_atomic_compare_exchange_weak<uint64_t>(
       reinterpret_cast<uint64_t*>(lock), &expected, desired)) {
       return block_index;
+    } else {
+      // The block is never observed. reuse
+      adaptor_.cancel_new_block(block_index);
+      return 0;
     }
-    return 0;
 
   /*
    * XXX(tzwang, Feb 2016): it turns out the above CAS-try is better than using the trio -
@@ -749,8 +766,14 @@ class McsImpl<ADAPTOR, McsRwExtendedBlock> {  // partial specialization for McsR
     ASSERT_ND(block_index);
     if (ret == kErrorCodeOk) {
       return block_index;
+    } else {
+      // NOTE: In this case, we CANNOT do this. Extended version's try-reader
+      // actually inserts the qnode. So others might have observed it.
+      // //  adaptor_.cancel_new_block(block_index);
+      // To avoid using up 2^16 qnodes, we might want a "peek" check to
+      // exit before putting qnode when obviously there is a writer.
+      return 0;
     }
-    return 0;
 
     /* The old version that uses 0 timeout:
     McsBlockIndex block_index = 0;

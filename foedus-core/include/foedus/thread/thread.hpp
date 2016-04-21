@@ -352,29 +352,36 @@ class Thread CXX11_FINAL : public virtual Initializable {
   ErrorCode run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries = 0);
   /**
    * Takes a lock for a sysxct running under this thread.
-   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   * @pre sysxct_workspace->running_sysxct_
    * @pre the record lock must be within the page of the given ID
    */
-  ErrorCode sysxct_record_lock(storage::VolatilePagePointer page_id, xct::RwLockableXctId* lock);
+  ErrorCode sysxct_record_lock(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::VolatilePagePointer page_id,
+    xct::RwLockableXctId* lock);
   /**
    * Takes a bunch of locks in the same page for a sysxct running under this thread.
-   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   * @pre sysxct_workspace->running_sysxct_
    * @pre the record locks must be within the page of the given ID
    */
   ErrorCode sysxct_batch_record_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
     storage::VolatilePagePointer page_id,
     uint32_t lock_count,
     xct::RwLockableXctId** locks);
   /**
    * Takes a page lock in the same page for a sysxct running under this thread.
-   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   * @pre sysxct_workspace->running_sysxct_
    */
-  ErrorCode sysxct_page_lock(storage::Page* page);
+  ErrorCode sysxct_page_lock(xct::SysxctWorkspace* sysxct_workspace, storage::Page* page);
   /**
    * Takes a bunch of page locks for a sysxct running under this thread.
-   * @pre Must be within a system transaction, started via run_nested_sysxct()
+   * @pre sysxct_workspace->running_sysxct_
    */
-  ErrorCode sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages);
+  ErrorCode sysxct_batch_page_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
+    uint32_t lock_count,
+    storage::Page** pages);
   /// Currently we don't have sysxct_release_locks() etc. All locks will be automatically
   /// released when the sysxct ends. Probably this is enough as sysxct should be short-living.
 

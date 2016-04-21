@@ -1089,21 +1089,26 @@ ErrorCode Thread::run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_re
   return pimpl_->run_nested_sysxct(functor, max_retries);
 }
 ErrorCode Thread::sysxct_record_lock(
+  xct::SysxctWorkspace* sysxct_workspace,
   storage::VolatilePagePointer page_id,
   xct::RwLockableXctId* lock) {
-  return pimpl_->sysxct_record_lock(page_id, lock);
+  return pimpl_->sysxct_record_lock(sysxct_workspace, page_id, lock);
 }
 ErrorCode Thread::sysxct_batch_record_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
   storage::VolatilePagePointer page_id,
   uint32_t lock_count,
   xct::RwLockableXctId** locks) {
-  return pimpl_->sysxct_batch_record_locks(page_id, lock_count, locks);
+  return pimpl_->sysxct_batch_record_locks(sysxct_workspace, page_id, lock_count, locks);
 }
-ErrorCode Thread::sysxct_page_lock(storage::Page* page) {
-  return pimpl_->sysxct_page_lock(page);
+ErrorCode Thread::sysxct_page_lock(xct::SysxctWorkspace* sysxct_workspace, storage::Page* page) {
+  return pimpl_->sysxct_page_lock(sysxct_workspace, page);
 }
-ErrorCode Thread::sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages) {
-  return pimpl_->sysxct_batch_page_locks(lock_count, pages);
+ErrorCode Thread::sysxct_batch_page_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
+  uint32_t lock_count,
+  storage::Page** pages) {
+  return pimpl_->sysxct_batch_page_locks(sysxct_workspace, lock_count, pages);
 }
 
 /////////////////////////////////////////
@@ -1136,9 +1141,11 @@ ErrorCode ThreadPimpl::run_nested_sysxct(
 }
 
 ErrorCode ThreadPimpl::sysxct_record_lock(
+  xct::SysxctWorkspace* sysxct_workspace,
   storage::VolatilePagePointer page_id,
   xct::RwLockableXctId* lock) {
-  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
   if (is_simple_mcs_rw()) {
     ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
     return sysxct_lock_list.request_record_lock(adaptor, page_id, lock);
@@ -1148,10 +1155,12 @@ ErrorCode ThreadPimpl::sysxct_record_lock(
   }
 }
 ErrorCode ThreadPimpl::sysxct_batch_record_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
   storage::VolatilePagePointer page_id,
   uint32_t lock_count,
   xct::RwLockableXctId** locks) {
-  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
   if (is_simple_mcs_rw()) {
     ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
     return sysxct_lock_list.batch_request_record_locks(adaptor, page_id, lock_count, locks);
@@ -1160,8 +1169,11 @@ ErrorCode ThreadPimpl::sysxct_batch_record_locks(
     return sysxct_lock_list.batch_request_record_locks(adaptor, page_id, lock_count, locks);
   }
 }
-ErrorCode ThreadPimpl::sysxct_page_lock(storage::Page* page) {
-  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+ErrorCode ThreadPimpl::sysxct_page_lock(
+  xct::SysxctWorkspace* sysxct_workspace,
+  storage::Page* page) {
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
   if (is_simple_mcs_rw()) {
     ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
     return sysxct_lock_list.request_page_lock(adaptor, page);
@@ -1170,8 +1182,12 @@ ErrorCode ThreadPimpl::sysxct_page_lock(storage::Page* page) {
     return sysxct_lock_list.request_page_lock(adaptor, page);
   }
 }
-ErrorCode ThreadPimpl::sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages) {
-  auto& sysxct_lock_list = current_xct_.get_sysxct_workspace()->lock_list_;
+ErrorCode ThreadPimpl::sysxct_batch_page_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
+  uint32_t lock_count,
+  storage::Page** pages) {
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
   if (is_simple_mcs_rw()) {
     ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
     return sysxct_lock_list.batch_request_page_locks(adaptor, lock_count, pages);

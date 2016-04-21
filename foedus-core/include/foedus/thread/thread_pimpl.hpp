@@ -316,13 +316,22 @@ class ThreadPimpl final : public DefaultInitializable {
   ////////////////////////////////////////////////////////
   /// Sysxct-related.
   ErrorCode run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries);
-  ErrorCode sysxct_record_lock(storage::VolatilePagePointer page_id, xct::RwLockableXctId* lock);
+  ErrorCode sysxct_record_lock(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::VolatilePagePointer page_id,
+    xct::RwLockableXctId* lock);
   ErrorCode sysxct_batch_record_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
     storage::VolatilePagePointer page_id,
     uint32_t lock_count,
     xct::RwLockableXctId** locks);
-  ErrorCode sysxct_page_lock(storage::Page* page);
-  ErrorCode sysxct_batch_page_locks(uint32_t lock_count, storage::Page** pages);
+  ErrorCode sysxct_page_lock(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::Page* page);
+  ErrorCode sysxct_batch_page_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
+    uint32_t lock_count,
+    storage::Page** pages);
 
   static void mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock);
   static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
@@ -426,7 +435,15 @@ class ThreadPimplMcsAdaptor {
   explicit ThreadPimplMcsAdaptor(ThreadPimpl* pimpl) : pimpl_(pimpl) {}
   ~ThreadPimplMcsAdaptor() {}
 
-  xct::McsBlockIndex issue_new_block() { return ++pimpl_->control_block_->mcs_block_current_; }
+  xct::McsBlockIndex issue_new_block() {
+    // if this assertion fires, probably we are retrying something too many times
+    ASSERT_ND(pimpl_->control_block_->mcs_block_current_ < 0xFFFFU);
+    return ++pimpl_->control_block_->mcs_block_current_;
+  }
+  void               cancel_new_block(xct::McsBlockIndex the_block) {
+    ASSERT_ND(pimpl_->control_block_->mcs_block_current_ == the_block);
+    --pimpl_->control_block_->mcs_block_current_;
+  }
   xct::McsBlockIndex get_cur_block() const { return pimpl_->control_block_->mcs_block_current_; }
   ThreadId      get_my_id() const { return pimpl_->id_; }
   ThreadGroupId get_my_numa_node() const { return pimpl_->numa_node_; }

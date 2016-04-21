@@ -25,6 +25,7 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
+#include "foedus/xct/sysxct_functor.hpp"
 
 namespace foedus {
 namespace storage {
@@ -358,6 +359,159 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* contex
 
   return kRetOk;
 }
+
+/*
+struct FatifyFirstRootDouble : public xct::SysxctFunctor {
+  MasstreeStoragePimpl* this_;
+  thread::Thread*       context_;
+
+  ErrorCode run() override {
+    MasstreeIntermediatePage* root;
+    CHECK_ERROR_CODE(this_->get_first_root(context_, true, &root));
+    ASSERT_ND(root->is_locked());
+    ASSERT_ND(!root->is_moved());
+
+    // assure that all children have volatile version
+    for (MasstreeIntermediatePointerIterator it(root); it.is_valid(); it.next()) {
+      if (it.get_pointer().volatile_pointer_.is_null()) {
+        MasstreePage* child;
+        CHECK_ERROR_CODE(this_->follow_page(
+          context_,
+          true,
+          const_cast<DualPagePointer*>(&it.get_pointer()),
+          &child));
+      }
+      ASSERT_ND(!it.get_pointer().volatile_pointer_.is_null());
+    }
+
+    std::vector<Child> original_children = list_children(root);
+    ASSERT_ND(original_children.size() * 2U <= kMaxIntermediatePointers);
+    std::vector<Child> new_children;
+    for (const Child& child : original_children) {
+      CHECK_ERROR_CODE(split_a_child(context_, root, child, &new_children));
+    }
+    ASSERT_ND(new_children.size() >= original_children.size());
+
+    memory::NumaCoreMemory* memory = context_->get_thread_memory();
+    VolatilePagePointer new_pointer = memory->grab_free_volatile_page_pointer();
+    if (new_pointer.is_null()) {
+      return kErrorCodeMemoryNoFreePages;
+    }
+    // from now on no failure (we grabbed a free page).
+
+    MasstreeIntermediatePage* new_root
+      = context_->resolve_newpage_cast<MasstreeIntermediatePage>(new_pointer);
+    new_root->initialize_volatile_page(
+      this_->get_id(),
+      new_pointer,
+      0,
+      root->get_btree_level(),  // same as current root. this is not grow_root
+      kInfimumSlice,
+      kSupremumSlice);
+    // no concurrent access to the new page, but just for the sake of assertion in the func.
+    CHECK_ERROR_CODE(context_->sysxct_page_lock(new_root));
+    new_root->split_foster_migrate_records_new_first_root(&new_children);
+    ASSERT_ND(count_children(new_root) == new_children.size());
+    verify_new_root(context_, new_root, new_children);
+
+    // set the new first-root pointer.
+    assorted::memory_fence_release();
+    this_->get_first_root_pointer_address()->volatile_pointer_ = new_pointer;
+    // first-root snapshot pointer is unchanged.
+
+    // old root page and the direct children are now retired
+    assorted::memory_fence_acq_rel();
+    root->set_moved();  // not quite moved, but assertions assume that.
+    root->set_retired();
+    context_->collect_retired_volatile_page(
+      construct_volatile_page_pointer(root->header().page_id_));
+    for (const Child& child : original_children) {
+      MasstreePage* original_page = context_->resolve_cast<MasstreePage>(child.pointer_);
+      if (original_page->is_moved()) {
+        CHECK_ERROR_CODE(context_->sysxct_page_lock(original_page));
+        original_page->set_retired();
+        context_->collect_retired_volatile_page(child.pointer_);
+      } else {
+        // This means, the page had too small records to split. We must keep it.
+      }
+    }
+
+    LOG(INFO) << "Split done. " << original_children.size() << " -> " << new_children.size();
+    return kErrorCodeOk;
+  }
+
+  ErrorCode split_a_child(
+    MasstreeIntermediatePage* root,
+    Child original,
+    std::vector<Child>* out) {
+    ASSERT_ND(!original.pointer_.is_null());
+    MasstreeIntermediatePage::MiniPage& minipage = root->get_minipage(original.index_);
+    ASSERT_ND(
+      minipage.pointers_[original.index_mini_].volatile_pointer_.is_equivalent(original.pointer_));
+    MasstreePage* original_page = context_->resolve_cast<MasstreePage>(original.pointer_);
+    ASSERT_ND(original_page->get_low_fence() == original.low_);
+    ASSERT_ND(original_page->get_high_fence() == original.high_);
+
+    // lock it first.
+    CHECK_ERROR_CODE(context_->sysxct_page_lock(original_page));
+    ASSERT_ND(original_page->is_locked());
+
+    // if it already has a foster child, nothing to do.
+    if (!original_page->is_moved()) {
+      if (original_page->is_border()) {
+        MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(original_page);
+        if (casted->get_key_count() < 2U) {
+          // Then, no split possible.
+          LOG(INFO) << "This border page can't be split anymore";
+          out->emplace_back(original);
+          return kErrorCodeOk;
+        }
+        // trigger doesn't matter. just make sure it doesn't cause no-record-split. so, use low_fence.
+        // also, specify disable_nrs
+        KeySlice trigger = casted->get_low_fence();
+        MasstreeBorderPage* after = casted;
+        xct::McsWwLockScope after_lock;
+        casted->split_foster(context_, trigger, true, &after, &after_lock);
+        ASSERT_ND(after->is_locked());
+        ASSERT_ND(after_lock.is_locked());
+        ASSERT_ND(casted->is_moved());
+      } else {
+        MasstreeIntermediatePage* casted
+          = reinterpret_cast<MasstreeIntermediatePage*>(original_page);
+        uint32_t pointers = count_children(casted);
+        if (pointers < 2U) {
+          LOG(INFO) << "This intermediate page can't be split anymore";
+          out->emplace_back(original);
+          return kErrorCodeOk;
+        }
+        CHECK_ERROR_CODE(casted->split_foster_no_adopt(context_));
+      }
+    } else {
+      LOG(INFO) << "lucky, already split. just adopt";
+    }
+
+    ASSERT_ND(original_page->is_moved());
+
+    VolatilePagePointer minor_pointer = original_page->get_foster_minor();
+    VolatilePagePointer major_pointer = original_page->get_foster_major();
+    ASSERT_ND(!minor_pointer.is_null());
+    ASSERT_ND(!major_pointer.is_null());
+    MasstreePage* minor = context_->resolve_cast<MasstreePage>(minor_pointer);
+    MasstreePage* major = context_->resolve_cast<MasstreePage>(major_pointer);
+    KeySlice middle = original_page->get_foster_fence();
+    ASSERT_ND(minor->get_low_fence() == original.low_);
+    ASSERT_ND(minor->get_high_fence() == middle);
+    ASSERT_ND(major->get_low_fence() == middle);
+    ASSERT_ND(major->get_high_fence() == original.high_);
+
+    Child minor_out = {minor_pointer, original.low_, middle, 0, 0};
+    out->emplace_back(minor_out);
+    Child major_out = {major_pointer, middle, original.high_, 0, 0};
+    out->emplace_back(major_out);
+    return kErrorCodeOk;
+  }
+};
+*/
 
 }  // namespace masstree
 }  // namespace storage
