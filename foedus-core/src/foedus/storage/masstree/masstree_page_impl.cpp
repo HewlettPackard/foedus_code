@@ -374,6 +374,120 @@ inline ErrorCode grab_free_pages(
   return kErrorCodeOk;
 }
 
+bool MasstreeBorderPage::try_expand_record_in_page_physical(
+  PayloadLength payload_count,
+  SlotIndex record_index) {
+  ASSERT_ND(!header_.snapshot_);
+  ASSERT_ND(is_locked());
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(record_index < get_key_count());
+  DVLOG(2) << "Expanding record.. current max=" << get_max_payload_length(record_index)
+    << ", which must become " << payload_count;
+
+  ASSERT_ND(verify_slot_lengthes(record_index));
+  Slot* old_slot = get_slot(record_index);
+  ASSERT_ND(!old_slot->tid_.is_moved());
+  ASSERT_ND(old_slot->tid_.is_keylocked());
+  ASSERT_ND(!old_slot->does_point_to_layer());
+  const SlotLengthPart lengthes = old_slot->read_lengthes_oneshot();
+  const KeyLength remainder_length = old_slot->remainder_length_;
+  const DataOffset record_length = to_record_length(remainder_length, payload_count);
+  const DataOffset available = available_space();
+
+  // 1. Trivial expansion if the record is placed at last. Fastest.
+  if (get_next_offset() == lengthes.offset_ + lengthes.physical_record_length_) {
+    const DataOffset diff = record_length - lengthes.physical_record_length_;
+    DVLOG(1) << "Lucky, expanding a record at last record region. diff=" << diff;
+    if (available >= diff) {
+      DVLOG(2) << "woo. yes, we can just increase the length";
+      old_slot->lengthes_.components.physical_record_length_ = record_length;
+      assorted::memory_fence_release();
+      increase_next_offset(diff);
+      assorted::memory_fence_release();
+      return true;
+    }
+  }
+
+  // 2. In-page expansion. Fast.
+  if (available >= record_length) {
+    DVLOG(2) << "Okay, in-page record expansion.";
+    // We have to make sure all threads see a valid state, either new or old.
+    SlotLengthPart new_lengthes = lengthes;
+    new_lengthes.offset_ = get_next_offset();
+    new_lengthes.physical_record_length_ = record_length;
+    const char* old_record = get_record_from_offset(lengthes.offset_);
+    char* new_record = get_record_from_offset(new_lengthes.offset_);
+
+    // 2-a. Create the new record region.
+    if (lengthes.physical_record_length_ > 0) {
+      std::memcpy(new_record, old_record, lengthes.physical_record_length_);
+      assorted::memory_fence_release();
+    }
+
+    // 2-b. announce the new location in one-shot.
+    old_slot->write_lengthes_oneshot(new_lengthes);
+    assorted::memory_fence_release();
+    // We don't have to change TID here because we did nothing logically.
+    // Reading transactions are safe to read either old or new record regions.
+    // See comments in MasstreeCommonLogType::apply_record_prepare() for how we make it safe
+    // for writing transactions.
+
+    increase_next_offset(record_length);
+    assorted::memory_fence_release();
+    return true;
+  }
+
+  // 3. ouch. we need to split the page to complete it. beyond this method.
+  DVLOG(1) << "Umm, we need to split this page for record expansion. available="
+    << available << ", record_length=" << record_length
+    << ", record_index=" << record_index
+    << ", key_count=" << get_key_count();
+  return false;
+}
+
+void MasstreeBorderPage::initialize_as_layer_root_physical(
+  VolatilePagePointer page_id,
+  MasstreeBorderPage* parent,
+  SlotIndex parent_index) {
+  // This method assumes that the record's payload space is spacious enough.
+  // The caller must make it sure as pre-condition.
+  ASSERT_ND(parent->is_locked());
+  ASSERT_ND(!parent->is_moved());
+  Slot* parent_slot = parent->get_slot(parent_index);
+  ASSERT_ND(parent_slot->tid_.is_keylocked());
+  ASSERT_ND(!parent_slot->tid_.is_moved());
+  ASSERT_ND(!parent_slot->does_point_to_layer());
+  ASSERT_ND(parent->get_max_payload_length(parent_index) < sizeof(DualPagePointer));
+  DualPagePointer pointer;
+  pointer.snapshot_pointer_ = 0;
+  pointer.volatile_pointer_ = page_id;
+
+  // initialize the root page by copying the record
+  initialize_volatile_page(
+    parent->header_.storage_id_,
+    page_id,
+    parent->get_layer() + 1,
+    kInfimumSlice,    // infimum slice
+    kSupremumSlice);   // high-fence is supremum
+  ASSERT_ND(!is_locked());
+  initialize_layer_root(parent, parent_index);
+  ASSERT_ND(!is_moved());
+  ASSERT_ND(!is_retired());
+
+  SlotLengthPart new_lengthes = parent_slot->read_lengthes_oneshot();
+  new_lengthes.payload_length_ = sizeof(DualPagePointer);
+  char* parent_payload = parent->get_record_payload(parent_index);
+
+  // point to the new page. Be careful on ordering.
+  std::memcpy(parent_payload, &pointer, sizeof(pointer));
+  assorted::memory_fence_release();
+  parent_slot->write_lengthes_oneshot(new_lengthes);
+  assorted::memory_fence_release();
+  parent_slot->tid_.xct_id_.set_next_layer();  // which also turns off delete-bit
+
+  ASSERT_ND(parent->get_next_layer(parent_index)->volatile_pointer_ == page_id);
+  assorted::memory_fence_release();
+}
 /////////////////////////////////////////////////////////////////////////////////////
 ///
 ///                      Border node's Split

@@ -1085,6 +1085,29 @@ class MasstreeBorderPage final : public MasstreePage {
   }
 
   /**
+   * A physical-only method to expand a record within this page without any logical change.
+   * @pre !header_.snapshot_: only for volatile page
+   * @pre is_locked() && !is_moved()
+   * @pre get_slot(record_index)->is_locked() && !get_slot(record_index)->is_moved()
+   * @return This method might fail if there isn't enough space. In that case it returns false.
+   */
+  bool try_expand_record_in_page_physical(PayloadLength payload_count, SlotIndex record_index);
+  /**
+   * A physical-only method to initialize this page as a volatile page of a layer-root
+   * pointed from the given parent record. It merely migrates the parent record without
+   * any logical change.
+   * @pre !parent->header_.snapshot_: only for volatile page
+   * @pre parent->is_locked() && !parent->is_moved()
+   * @pre parent->get_slot(parent_index)->is_locked()
+   * @pre !parent->get_slot(parent_index)->is_moved()
+   * @pre !parent->get_slot(parent_index)->does_point_to_layer()
+   */
+  void initialize_as_layer_root_physical(
+    VolatilePagePointer page_id,
+    MasstreeBorderPage* parent,
+    SlotIndex parent_index);
+
+  /**
    * Splits this page as a system transaction, creating a new foster child.
    * @param[in] context Thread context
    * @param[in] trigger The key that triggered this split
