@@ -33,6 +33,7 @@
 #include "foedus/storage/record.hpp"
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/storage_manager_pimpl.hpp"
+#include "foedus/storage/masstree/masstree_adopt_impl.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
@@ -490,11 +491,18 @@ retry_from_layer_root:
 #endif  // NDEBUG
         if (next->has_foster_child() && !cur->is_moved()) {
           // oh, the page has foster child, so we should adopt it.
-          CHECK_ERROR_CODE(page->adopt_from_child(context, slice));
           // Whether the adopt_from_child() actually adopted it or not,
           // we follow the "old" next page. Master-Tree invariant guarantees that it's safe.
           // This is beneficial when we lazily give up adoption in the method, eg other threads
           // holding locks in the intermediate page.
+          if (!next->is_locked() && !cur->is_locked()) {
+            // Let's try adopting. No need to try many times. Adopt can be delayed
+            Adopt functor(context, page, next);
+            CHECK_ERROR_CODE(context->run_nested_sysxct(&functor, 2));
+          } else {
+            // We don't have to adopt it right away. Do it when it's not contended
+            DVLOG(1) << "Someone else seems doing something there.. already adopting? skip it";
+          }
         }
         cur = next;
       } else {

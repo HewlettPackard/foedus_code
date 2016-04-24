@@ -524,6 +524,8 @@ void SplitIntermediate::split_impl_no_error(thread::GrabFreeVolatilePagesScope* 
   assorted::memory_fence_release();
   // We install pointers to the pages AFTER we initialize the pages.
   target_->install_foster_twin(new_pointers[0], new_pointers[1], new_foster_fence);
+  free_pages->dispatch(0);
+  free_pages->dispatch(1);
   assorted::memory_fence_release();
   // invoking set_moved is the point we announce all of these changes. take fence to make it right
   target_->set_moved();

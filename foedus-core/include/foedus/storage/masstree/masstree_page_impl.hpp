@@ -391,76 +391,10 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice            high_fence);
 
   /**
-   * Splits this page as a physical-only operation, creating a new foster twin, adopting
-   * the given child to one of them.
-   * @param[in] context Thread context
-   * @param[in,out] trigger_child the child page that has a foster child which caused this split.
-   * @param[in,out] trigger_child_lock trigger_child must be already locked with this scope.
-   * @pre !header_.snapshot_ (split happens to only volatile pages)
-   * @pre is_locked() (the page must be locked)
-   */
-  ErrorCode split_foster_and_adopt(
-    thread::Thread* context,
-    MasstreePage* trigger_child,
-    PageVersionLockScope* trigger_child_lock);
-  /**
    * same as split_foster_and_adopt() except this does not adopt the new page, and
    * ignores the possibility of no-record-split.
    */
   ErrorCode split_foster_no_adopt(thread::Thread* context);
-
-  /**
-   * Similar to split_foster_and_adopt(), but this version creates a dummy foster with empty
-   * range on right side, and just re-structures this page onto left foster twin.
-   * In other words, this is compaction/restructure that is done in another page in RCU fashion.
-   * @pre this is not fully full.
-   */
-  ErrorCode split_foster_compact_adopt(
-    thread::Thread* context,
-    MasstreePage* trigger_child,
-    PageVersionLockScope* trigger_child_lock);
-
-  /**
-   * @brief Adopts a foster-child of given child as an entry in this page.
-   * @pre this page is a volatile page (snapshot pages don't have foster child,
-   * so this is always trivially guaranteed).
-   * @details
-   * Terminology here:
-   * \li "this" : An intermediate page trying to adopt a new pointer.
-   * \li "child" : A genuine child of "this" that is responsible for searching_slice
-   * and is moved (=has foster twins)
-   * \li "grandchildren" : Foster twins of "child". Minor and major grandchildren.
-   *
-   * Before the adoption, this contains a pointer to child.
-   * After successful adoption, it will contain pointers to grandchild-minor and grandchild-major.
-   * A pointer to grandchild-minor will replace that of child, and the pointer to grandchild-major
-   * is newly inserted to this.
-   * The pointer to child will be removed and the child will be marked as "retired" (will be valid
-   * for a while for concurrent transactions that observed the pointer).
-   *
-   * This method doesn't assume this and other pages are locked.
-   * So, when we lock child, we might find out that the foster child is already adopted.
-   * In that case, and in other cases where adoption is impossible, we do nothing.
-   * This method can also cause split in this.
-   */
-  ErrorCode adopt_from_child(thread::Thread* context, KeySlice searching_slice);
-
-  /**
-   * @brief Subroutine of adopt_from_child() called when child has foster twin, one of which has
-   * empty range.
-   * @details
-   * When we are splitting a page just to compact/expand records,
-   * it's possible that one of the foster children have empty range (low-fence==high-fence)
-   * In such a case, adoption is trivial; just replace the current pointer with non-empty one.
-   * @note In case of a race, this method might do nothing. The caller is expected to
-   * retry the search, which will eventually see a non-moved child.
-   */
-  void adopt_from_child_compaction(
-    thread::Thread* context,
-    uint8_t minipage_index,
-    uint8_t pointer_index,
-    MasstreePage* child,
-    PageVersionLockScope* child_lock);
 
   /**
    * Appends a new poiner and separator in an existing mini page, used only by snapshot composer.
@@ -545,23 +479,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     uint16_t from,
     uint16_t to,
     KeySlice expected_last_separator);
-  void adopt_from_child_norecord_first_level(
-    thread::Thread* context,
-    uint8_t minipage_index,
-    MasstreePage* child,
-    PageVersionLockScope* child_lock);
-
-  /**
-   * Unlike split_foster_decide_strategy(), this one is used for a dummy split
-   * where one of the foster twins receives all entries.
-   * We also adopt the foster twins of trigger_child at the same time,
-   * replacing the existing pointer to trigger_child with its foster-minor,
-   * and adding a new pointer to its foster-major.
-   * @pre this page is not fully full. In that case, we shouldn't have triggered this type of split.
-   */
-  void split_foster_compact_strategy(
-    const MasstreePage* trigger_child,
-    IntermediateSplitStrategy* out) const;
 };
 
 /**

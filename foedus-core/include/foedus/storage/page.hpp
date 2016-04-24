@@ -411,14 +411,8 @@ struct PageHeader CXX11_FINAL {
     page_version_.reset();
   }
 
-  void      increment_key_count() ALWAYS_INLINE {
-    ASSERT_ND(snapshot_ || page_version_.is_locked());
-    ++key_count_;
-  }
-  void      set_key_count(uint8_t key_count) ALWAYS_INLINE {
-    ASSERT_ND(snapshot_ || page_version_.is_locked());
-    key_count_ = key_count;
-  }
+  void      increment_key_count() ALWAYS_INLINE { ++key_count_; }
+  void      set_key_count(uint8_t key_count) ALWAYS_INLINE { key_count_ = key_count;  }
 
   bool contains_hot_records(thread::Thread* context);
 };
