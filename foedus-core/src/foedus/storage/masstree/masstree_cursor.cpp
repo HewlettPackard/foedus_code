@@ -183,6 +183,12 @@ ErrorCode MasstreeCursor::next() {
     if (UNLIKELY(should_skip_cur_route_)) {
       DVLOG(0) << "Rare. Skipping empty page";
       CHECK_ERROR_CODE(proceed_pop());
+      if (route_count_ == 0) {
+        LOG(INFO) << "The empty page was the last page that might have had the record. we are done";
+        ASSERT_ND(!is_valid_record());
+        return kErrorCodeOk;
+      }
+
       continue;
     }
     if (is_valid_record() && cur_key_location_.observed_.is_deleted()) {
@@ -983,6 +989,11 @@ ErrorCode MasstreeCursor::open(
     ASSERT_ND(!is_valid_record());
     DVLOG(0) << "Rare. Skipping empty page";
     CHECK_ERROR_CODE(proceed_pop());
+    if (route_count_ == 0) {
+      LOG(INFO) << "The empty page was the last page that might have had the record. we are done";
+      ASSERT_ND(!is_valid_record());
+      return kErrorCodeOk;
+    }
   }
   ASSERT_ND(!should_skip_cur_route_);
   check_end_key();

@@ -463,6 +463,13 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
   /** Defined in masstree_storage_fatify.cpp */
   ErrorStack    fatify_first_root(thread::Thread* context, uint32_t desired_count);
   ErrorStack    fatify_first_root_double(thread::Thread* context);
+  /**
+   * Returns the count of direct children in the first-root node. This is without lock, so
+   * it might not be accurate.
+   */
+  ErrorCode     approximate_count_root_children(
+    thread::Thread* context,
+    uint32_t* out);
 
   static ErrorCode check_next_layer_bit(xct::XctId observed) ALWAYS_INLINE;
 };

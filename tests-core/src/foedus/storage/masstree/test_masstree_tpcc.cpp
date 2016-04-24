@@ -373,6 +373,8 @@ ErrorStack TpccLoadTask::load_customers() {
   }
   return kRetOk;
 }
+// TODO
+// std::vector< std::string > customer_secondary_key_vector;
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
@@ -445,6 +447,11 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
         Cid* address = reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34);
         *address = assorted::htobe<Cid>(secondary_keys[i].cid_);
         WRAP_ERROR_CODE(customers_secondary.insert_record(context_, key_be, sizeof(key_be)));
+/* TODO
+        if (rep > 0) {
+          customer_secondary_key_vector.push_back(std::string(key_be, sizeof(key_be)));
+        }
+*/
       }
       if (rep == 0) {
         WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
@@ -626,6 +633,28 @@ ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
   return TpccLoadTask(ctime_buffer).run(context);
 }
 
+ErrorStack tpcc_fatify_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  Engine* engine = args.engine_;
+  LOG(INFO) << "Fatify start";
+  debugging::StopWatch watch;
+  uint32_t desired = 32;  // context->get_engine()->get_soc_count();  // maybe 2x?
+  WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSnapshot));
+  CHECK_ERROR(storages.customers_secondary_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.customers_secondary_.verify_single_thread(context));
+  CHECK_ERROR(storages.neworders_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.neworders_.verify_single_thread(context));
+  CHECK_ERROR(storages.orderlines_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.orderlines_.verify_single_thread(context));
+  CHECK_ERROR(storages.orders_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.orders_.verify_single_thread(context));
+  CHECK_ERROR(storages.orders_secondary_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.orders_secondary_.verify_single_thread(context));
+  WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
+  watch.stop();
+  LOG(INFO) << "Fatify done in " << watch.elapsed_sec() << "sec";
+  return kRetOk;
+}
 ErrorStack verify_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   Engine* engine = args.engine_;
@@ -673,6 +702,7 @@ void run_test(
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", proc);
   engine.get_proc_manager()->pre_register("verify_task", verify_task);
+  engine.get_proc_manager()->pre_register("tpcc_fatify_task", tpcc_fatify_task);
   engine.get_proc_manager()->pre_register("tpcc_load_task", tpcc_load_task);
   COERCE_ERROR(engine.initialize());
   {
@@ -706,6 +736,8 @@ void run_test(
       COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("tpcc_load_task"));
     }
     engine.get_debug()->set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogInfo);
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("tpcc_fatify_task"));
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("the_task"));
     COERCE_ERROR(engine.uninitialize());
@@ -759,6 +791,10 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   const uint32_t kBatch = 200;
   SCOPED_TRACE(testing::Message() << "Full scan, index=" << name);
+// TODO
+// std::sort(customer_secondary_key_vector.begin(), customer_secondary_key_vector.end());
+// bool customer_secondary_key_found[20000];
+// for (uint i = 0; i < 20000; ++i) { customer_secondary_key_found[i] = false; }
   {
     // full forward scan
     WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -773,6 +809,14 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
       if (count > 0) {
         EXPECT_LT(prev_key, next_key);
       }
+/* TODO
+      auto it = std::lower_bound(customer_secondary_key_vector.begin(), customer_secondary_key_vector.end(), next_key);
+      ASSERT_ND(it != customer_secondary_key_vector.end());
+      uint32_t pos = it - customer_secondary_key_vector.begin();
+      EXPECT_FALSE(customer_secondary_key_found[pos]);
+      customer_secondary_key_found[pos] = true;
+*/
+
       prev_key_length = cursor.get_key_length();
       ASSERT_ND(prev_key_length <= 100U);
       prev_key = next_key;
@@ -784,6 +828,13 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
       EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
     }
     EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch));
+/* TODO
+    for (uint i = 0; i < expected_records; ++i) {
+      if (!customer_secondary_key_found[i]) {
+        LOG(INFO) << "Not found: i=" << i;
+      }
+    }
+*/
     EXPECT_EQ(expected_records, count);
   }
   {

@@ -391,12 +391,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice            high_fence);
 
   /**
-   * same as split_foster_and_adopt() except this does not adopt the new page, and
-   * ignores the possibility of no-record-split.
-   */
-  ErrorCode split_foster_no_adopt(thread::Thread* context);
-
-  /**
    * Appends a new poiner and separator in an existing mini page, used only by snapshot composer.
    * @pre header_.snapshot
    * @pre !is_full_snapshot()
@@ -441,15 +435,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
 
   void verify_separators() const;
 
-
-  /**
-   * This public version of split_foster_migrate_records() is not for general use.
-   * It's only for constructing a new first-layer root, and so far only used from fatify code.
-   * Thus defined in masstree_storage_fatify.cpp.
-   * We shouldn't expose this kind of feature in general.
-   */
-  void split_foster_migrate_records_new_first_root(const void* strategy);
-
   /** Place a new separator for a new minipage */
   void set_separator(uint8_t minipage_index, KeySlice new_separator) {
     separators_[minipage_index] = new_separator;
@@ -472,13 +457,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
   char                reserved_[104];    // -> 256
 
   MiniPage            mini_pages_[10];  // +384 * 10 -> 4096
-
-  void split_foster_decide_strategy(IntermediateSplitStrategy* out) const;
-  void split_foster_migrate_records(
-    const IntermediateSplitStrategy &strategy,
-    uint16_t from,
-    uint16_t to,
-    KeySlice expected_last_separator);
 };
 
 /**

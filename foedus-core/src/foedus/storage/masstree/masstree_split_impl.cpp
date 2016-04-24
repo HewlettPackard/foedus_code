@@ -38,6 +38,7 @@ namespace masstree {
 /////////////////////////////////////////////////////////////////////////////////////
 ErrorCode SplitBorder::run(xct::SysxctWorkspace* sysxct_workspace) {
   ASSERT_ND(!target_->header().snapshot_);
+  ASSERT_ND(!target_->is_empty_range());
 
   debugging::RdtscWatch watch;
   DVLOG(1) << "Splitting a page... ";
@@ -49,6 +50,10 @@ ErrorCode SplitBorder::run(xct::SysxctWorkspace* sysxct_workspace) {
   // The lock involves atomic operation, so now all we see are finalized.
   if (target_->has_foster_child()) {
     DVLOG(0) << "Interesting. the page has been already split";
+    return kErrorCodeOk;
+  }
+  if (target_->get_key_count() <= 1U) {
+    DVLOG(0) << "This page has too few records. Can't split it";
     return kErrorCodeOk;
   }
 
@@ -133,7 +138,8 @@ ErrorCode SplitBorder::run(xct::SysxctWorkspace* sysxct_workspace) {
   watch.stop();
   DVLOG(1) << "Costed " << watch.elapsed() << " cycles to split a page. original page physical"
     << " record count: " << static_cast<int>(key_count)
-    << "->" << key_count;
+    << "->" << static_cast<int>(twin[0]->get_key_count())
+    << " + " << static_cast<int>(twin[1]->get_key_count());
   return kErrorCodeOk;
 }
 
@@ -555,7 +561,7 @@ void SplitIntermediate::decide_strategy(SplitIntermediate::SplitStrategy* out) c
   if (piggyback_adopt_child_) {
     ASSERT_ND(piggyback_adopt_child_->is_moved());
     old_separator = piggyback_adopt_child_->get_low_fence();
-    new_separator= piggyback_adopt_child_->get_foster_fence();
+    new_separator = piggyback_adopt_child_->get_foster_fence();
     old_pointer = VolatilePagePointer(piggyback_adopt_child_->header().page_id_);
   }
 
@@ -586,7 +592,7 @@ void SplitIntermediate::decide_strategy(SplitIntermediate::SplitStrategy* out) c
       out->pointers_[out->total_separator_count_] = pointer;
       ++(out->total_separator_count_);
     }
-    ASSERT_ND(low < old_separator || found_old);
+    ASSERT_ND(piggyback_adopt_child_ == nullptr || low < old_separator || found_old);
   }
 
   ASSERT_ND(piggyback_adopt_child_ == nullptr || found_old);
