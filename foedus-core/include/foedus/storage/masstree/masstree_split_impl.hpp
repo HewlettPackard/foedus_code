@@ -22,7 +22,6 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
-#include "foedus/storage/masstree/masstree_storage_pimpl.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/sysxct_functor.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -52,8 +51,6 @@ namespace masstree {
 struct SplitBorder final : public xct::SysxctFunctor {
   /** Thread context */
   thread::Thread* const       context_;
-  /** The target page belong to this storage */
-  const MasstreeStoragePimpl  storage_;
   /**
    * The page to split.
    * @pre !header_.snapshot_ (split happens to only volatile pages)
@@ -84,7 +81,6 @@ struct SplitBorder final : public xct::SysxctFunctor {
 
   SplitBorder(
     thread::Thread* context,
-    MasstreeStoragePimpl storage,
     MasstreeBorderPage* target,
     KeySlice trigger,
     bool disable_no_record_split = false,
@@ -94,7 +90,6 @@ struct SplitBorder final : public xct::SysxctFunctor {
     const void*     piggyback_suffix = nullptr)
     : xct::SysxctFunctor(),
       context_(context),
-      storage_(storage),
       target_(target),
       trigger_(trigger),
       disable_no_record_split_(disable_no_record_split),
@@ -163,8 +158,6 @@ struct SplitBorder final : public xct::SysxctFunctor {
 struct SplitIntermediate final : public xct::SysxctFunctor {
   /** Thread context */
   thread::Thread* const       context_;
-  /** The target page belong to this storage */
-  const MasstreeStoragePimpl  storage_;
   /**
    * The page to split.
    * @pre !target_->header_.snapshot_ (split happens to only volatile pages)
@@ -185,17 +178,27 @@ struct SplitIntermediate final : public xct::SysxctFunctor {
 
   SplitIntermediate(
     thread::Thread* context,
-    MasstreeStoragePimpl storage,
     MasstreeIntermediatePage* target,
     MasstreePage* piggyback_adopt_child = nullptr)
     : xct::SysxctFunctor(),
       context_(context),
-      storage_(storage),
       target_(target),
       piggyback_adopt_child_(piggyback_adopt_child) {
   }
 
   virtual ErrorCode run(xct::SysxctWorkspace* sysxct_workspace) override;
+
+  /**
+   * The core implementation after locking relevant pages and acquiring free page resource.
+   * This method never fails because all lock/resource are already taken.
+   * @pre target_->is_locked()
+   * @pre free_pages->get_count() >= 3
+   * @pre piggyback_adopt_child_ == nullptr || piggyback_adopt_child_->is_locked()
+   * @pre target_->has_foster_child()) : should be checked after locking before calling
+   * @pre piggyback_adopt_child_ == nullptr || !piggyback_adopt_child_->is_retired(): same above
+   */
+  void split_impl_no_error(
+    thread::GrabFreeVolatilePagesScope* free_pages);
 
   /**
    * Constructed by hierarchically reading all separators and pointers in old page.

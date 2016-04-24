@@ -57,7 +57,7 @@ ErrorCode SplitBorder::run(xct::SysxctWorkspace* sysxct_workspace) {
   // 2 free volatile pages needed.
   // foster-minor/major (will be placed in successful case)
   memory::PagePoolOffset offsets[2];
-  thread::Thread::GrabFreeVolatilePagesScope free_pages_scope(context_, offsets);
+  thread::GrabFreeVolatilePagesScope free_pages_scope(context_, offsets);
   CHECK_ERROR_CODE(free_pages_scope.grab(2));
   const auto& resolver = context_->get_local_volatile_page_resolver();
 
@@ -71,7 +71,7 @@ ErrorCode SplitBorder::run(xct::SysxctWorkspace* sysxct_workspace) {
     twin[i] = reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset_newpage(offsets[i]));
     new_page_ids[i].set(context_->get_numa_node(), offsets[i]);
     twin[i]->initialize_volatile_page(
-      storage_.get_id(),
+      target_->header().storage_id_,
       new_page_ids[i],
       target_->get_layer(),
       i == 0 ? target_->get_low_fence() : strategy.mid_slice_,  // low-fence
@@ -329,7 +329,7 @@ ErrorCode SplitBorder::lock_existing_records(xct::SysxctWorkspace* sysxct_worksp
     // if we see this often, we have to optimize this somehow.
     LOG(WARNING) << "wait, wait, it costed " << watch.elapsed() << " cycles to lock all of "
       << static_cast<int>(key_count) << " records while splitting!! that's a lot! storage="
-      << storage_.get_name()
+      << target_->header().storage_id_
       << ", thread ID=" << context_->get_thread_id();
   }
 
@@ -435,16 +435,8 @@ void SplitBorder::migrate_records(
 ///
 /////////////////////////////////////////////////////////////////////////////////////
 ErrorCode SplitIntermediate::run(xct::SysxctWorkspace* sysxct_workspace) {
-  // similar to border page's split, but simpler in a few places because
-  // 1) intermediate page doesn't have owner_id for each pointer (no lock concerns).
-  // 2) intermediate page is already completely sorted.
-  // thus, this is just a physical operation without any transactional behavior.
-  // even not a system transaction
-  ASSERT_ND(!target_->header().snapshot_);
-  ASSERT_ND(!target_->is_empty_range());
+  DVLOG(1) << "Preparing to split an intermediate page... ";
 
-  debugging::RdtscWatch watch;
-  DVLOG(1) << "Splitting an intermediate page... ";
   // First, lock the page(s)
   Page* target_page = reinterpret_cast<Page*>(target_);
   if (piggyback_adopt_child_) {
@@ -467,18 +459,35 @@ ErrorCode SplitIntermediate::run(xct::SysxctWorkspace* sysxct_workspace) {
     return kErrorCodeOk;  // fine. the goal is already achieved
   }
 
+  // 3 free volatile pages needed.
+  // foster-minor/major (will be placed in successful case), and SplitStrategy (will be discarded)
+  memory::PagePoolOffset offsets[3];
+  thread::GrabFreeVolatilePagesScope free_pages_scope(context_, offsets);
+  CHECK_ERROR_CODE(free_pages_scope.grab(3));
+  split_impl_no_error(&free_pages_scope);
+  return kErrorCodeOk;
+}
+void SplitIntermediate::split_impl_no_error(thread::GrabFreeVolatilePagesScope* free_pages) {
+  // similar to border page's split, but simpler in a few places because
+  // 1) intermediate page doesn't have owner_id for each pointer (no lock concerns).
+  // 2) intermediate page is already completely sorted.
+  // thus, this is just a physical operation without any transactional behavior.
+  // even not a system transaction
+  ASSERT_ND(!target_->header().snapshot_);
+  ASSERT_ND(!target_->is_empty_range());
+
+  debugging::RdtscWatch watch;
+  DVLOG(1) << "Splitting an intermediate page... ";
+
   const uint8_t key_count = target_->get_key_count();
   target_->verify_separators();
 
   // 3 free volatile pages needed.
   // foster-minor/major (will be placed in successful case), and SplitStrategy (will be discarded)
-  memory::PagePoolOffset offsets[3];
-  thread::Thread::GrabFreeVolatilePagesScope free_pages_scope(context_, offsets);
-  CHECK_ERROR_CODE(free_pages_scope.grab(3));
   const auto& resolver = context_->get_local_volatile_page_resolver();
 
   SplitStrategy* strategy
-    = reinterpret_cast<SplitStrategy*>(resolver.resolve_offset_newpage(offsets[2]));
+    = reinterpret_cast<SplitStrategy*>(resolver.resolve_offset_newpage(free_pages->get(2)));
   decide_strategy(strategy);
   const KeySlice new_foster_fence = strategy->mid_separator_;
 
@@ -486,11 +495,12 @@ ErrorCode SplitIntermediate::run(xct::SysxctWorkspace* sysxct_workspace) {
   VolatilePagePointer new_pointers[2];
   for (int i = 0; i < 2; ++i) {
     twin[i]
-      = reinterpret_cast<MasstreeIntermediatePage*>(resolver.resolve_offset_newpage(offsets[i]));
-    new_pointers[i].set(context_->get_numa_node(), offsets[i]);
+      = reinterpret_cast<MasstreeIntermediatePage*>(
+          resolver.resolve_offset_newpage(free_pages->get(i)));
+    new_pointers[i].set(context_->get_numa_node(), free_pages->get(i));
 
     twin[i]->initialize_volatile_page(
-      storage_.get_id(),
+      target_->header().storage_id_,
       new_pointers[i],
       target_->get_layer(),
       target_->get_btree_level(),  // foster child has the same level as foster-parent
@@ -519,10 +529,9 @@ ErrorCode SplitIntermediate::run(xct::SysxctWorkspace* sysxct_workspace) {
   target_->set_moved();
 
   if (piggyback_adopt_child_) {
-    // piggyback_adopt_child_ is adp[adopted and retired.
+    // piggyback_adopt_child_ is adopted and retired.
     piggyback_adopt_child_->set_retired();
-    context_->collect_retired_volatile_page(
-      VolatilePagePointer(piggyback_adopt_child_->header().page_id_));
+    context_->collect_retired_volatile_page(piggyback_adopt_child_->get_volatile_page_id());
   }
 
   watch.stop();
@@ -530,8 +539,6 @@ ErrorCode SplitIntermediate::run(xct::SysxctWorkspace* sysxct_workspace) {
     << " key count: " << static_cast<int>(key_count);
 
   target_->verify_separators();
-
-  return kErrorCodeOk;
 }
 
 void SplitIntermediate::decide_strategy(SplitIntermediate::SplitStrategy* out) const {

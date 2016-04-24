@@ -72,6 +72,14 @@ class MasstreePage {
   // simple accessors
   PageHeader&         header() { return header_; }
   const PageHeader&   header() const { return header_; }
+  VolatilePagePointer get_volatile_page_id() const {
+    ASSERT_ND(!header_.snapshot_);
+    return VolatilePagePointer(header_.page_id_);
+  }
+  SnapshotPagePointer get_snapshot_page_id() const {
+    ASSERT_ND(header_.snapshot_);
+    return static_cast<SnapshotPagePointer>(header_.page_id_);
+  }
 
   bool                is_border() const ALWAYS_INLINE {
     ASSERT_ND(header_.get_page_type() == kMasstreeBorderPageType ||
@@ -507,6 +515,11 @@ class MasstreeIntermediatePage final : public MasstreePage {
    * We shouldn't expose this kind of feature in general.
    */
   void split_foster_migrate_records_new_first_root(const void* strategy);
+
+  /** Place a new separator for a new minipage */
+  void set_separator(uint8_t minipage_index, KeySlice new_separator) {
+    separators_[minipage_index] = new_separator;
+  }
 
   /** defined in masstree_page_debug.cpp. */
   friend std::ostream& operator<<(std::ostream& o, const MasstreeIntermediatePage& v);

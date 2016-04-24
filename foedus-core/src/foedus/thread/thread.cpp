@@ -144,7 +144,7 @@ bool Thread::is_hot_page(const storage::Page* page) const {
   return page->get_header().hotness_.value_ >= threshold;
 }
 
-ErrorCode Thread::GrabFreeVolatilePagesScope::grab(uint32_t count) {
+ErrorCode GrabFreeVolatilePagesScope::grab(uint32_t count) {
   if (count_) {
     release();
   }
@@ -162,7 +162,7 @@ ErrorCode Thread::GrabFreeVolatilePagesScope::grab(uint32_t count) {
   return kErrorCodeOk;
 }
 
-void Thread::GrabFreeVolatilePagesScope::release() {
+void GrabFreeVolatilePagesScope::release() {
   memory::NumaCoreMemory* memory = context_->get_thread_memory();
   for (uint32_t i = 0; i < count_; ++i) {
     if (offsets_[i] != 0) {

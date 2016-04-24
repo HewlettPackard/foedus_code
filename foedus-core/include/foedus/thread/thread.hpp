@@ -122,44 +122,6 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
 
   /**
-   * Obtains multiple free volatile pages at once and releases them automatically
-   * when this object gets out of scope.
-   * You can also dispatch some of the grabbed pages, which means they will NOT be
-   * released.
-   */
-  class GrabFreeVolatilePagesScope {
-   public:
-    GrabFreeVolatilePagesScope(Thread* context, memory::PagePoolOffset* offsets)
-      : context_(context), offsets_(offsets), count_(0) {}
-    ~GrabFreeVolatilePagesScope() {
-      release();
-    }
-
-    /**
-     * If this thread doesn't have enough free pages, no page is obtained,
-     * returning kErrorCodeMemoryNoFreePages.
-     */
-    ErrorCode grab(uint32_t count);
-    /** Idempotent. You can release it at any moment. */
-    void      release();
-
-    /** Call this when the page is placed somewhere */
-    void                    dispatch(uint32_t index) {
-      ASSERT_ND(index < count_);
-      offsets_[index] = 0;  // This entry will be skipped in release()
-    }
-    memory::PagePoolOffset  get(uint32_t index) const {
-      ASSERT_ND(index < count_);
-      return offsets_[index];
-    }
-
-   private:
-    Thread* const                 context_;
-    memory::PagePoolOffset* const offsets_;
-    uint32_t                      count_;
-  };
-
-  /**
    * Find the given page in snapshot cache, reading it if not found.
    */
   ErrorCode     find_or_read_a_snapshot_page(
@@ -445,6 +407,45 @@ class Thread CXX11_FINAL : public virtual Initializable {
 
   // The following should be in pimpl. later.
   assorted::UniformRandom lock_rnd_;
+};
+
+/**
+ * Obtains multiple free volatile pages at once and releases them automatically
+ * when this object gets out of scope.
+ * You can also dispatch some of the grabbed pages, which means they will NOT be
+ * released.
+ */
+class GrabFreeVolatilePagesScope {
+ public:
+  GrabFreeVolatilePagesScope(Thread* context, memory::PagePoolOffset* offsets)
+    : context_(context), offsets_(offsets), count_(0) {}
+  ~GrabFreeVolatilePagesScope() {
+    release();
+  }
+
+  /**
+    * If this thread doesn't have enough free pages, no page is obtained,
+    * returning kErrorCodeMemoryNoFreePages.
+    */
+  ErrorCode grab(uint32_t count);
+  /** Idempotent. You can release it at any moment. */
+  void      release();
+  uint32_t  get_count() const { return count_; }
+
+  /** Call this when the page is placed somewhere */
+  void                    dispatch(uint32_t index) {
+    ASSERT_ND(index < count_);
+    offsets_[index] = 0;  // This entry will be skipped in release()
+  }
+  memory::PagePoolOffset  get(uint32_t index) const {
+    ASSERT_ND(index < count_);
+    return offsets_[index];
+  }
+
+ private:
+  Thread* const                 context_;
+  memory::PagePoolOffset* const offsets_;
+  uint32_t                      count_;
 };
 
 }  // namespace thread
