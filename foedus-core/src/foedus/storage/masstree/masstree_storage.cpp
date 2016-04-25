@@ -601,8 +601,12 @@ ErrorCode MasstreeStorage::prefetch_pages_normalized(
     to);
 }
 
-ErrorStack MasstreeStorage::fatify_first_root(thread::Thread* context, uint32_t desired_count) {
-  return MasstreeStoragePimpl(this).fatify_first_root(context, desired_count);
+ErrorStack MasstreeStorage::fatify_first_root(
+  thread::Thread* context,
+  uint32_t desired_count,
+  bool disable_no_record_split) {
+  MasstreeStoragePimpl impl(this);
+  return impl.fatify_first_root(context, desired_count, disable_no_record_split);
 }
 
 SlotIndex MasstreeStorage::estimate_records_per_page(

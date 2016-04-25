@@ -344,16 +344,16 @@ class MasstreeCursor CXX11_FINAL {
   uint16_t    route_count_;
 
   /**
-   * This is set to true when the cur_route() should be skipped over to find a next valid
-   * record. Whenever this is true, is_valid_record() must be false.
+   * This is set to true when the cursor is in a half-baked state.
+   * The cur_route() should be skipped over to find a next valid
+   * record.
    * This becomes true in a few cases.
    * \li the initial locate() didn't find a matching record because it unluckily hit the page
    * boundary.
    * \li locate() or proceed_deep() ran into an empty border page.
    *
-   * Receiving this flag, locate() and next() are responsible to invoke next() to resolve the
-   * state. next() then sees this flag and moves on to next page/record.
-   * When the control is returned to the user code, this flag must be always false.
+   * Receiving this flag, open() and next() are responsible to invoke proceed_pop() to resolve the
+   * state. When the control is returned to the user code, this flag must be always false.
    */
   bool        should_skip_cur_route_;
 
@@ -404,7 +404,7 @@ class MasstreeCursor CXX11_FINAL {
 
   /**
    * This method is the only place we \e increment route_count_ to push an entry to routes_.
-   * It takes a stable version of the page and pushes it the routes_.
+   * It takes a stable version of the page and pushes it to the routes_.
    */
   ErrorCode push_route(MasstreePage* page);
   /**
@@ -453,10 +453,38 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode follow_foster_border(KeySlice slice);
   void extract_separators(KeySlice* separator_low, KeySlice* separator_high) const ALWAYS_INLINE;
 
-  // locate_xxx is for initial search
+  /// locate_xxx is for initial search
+  /// All of them have the same post condition.
+  /// 1) cur_route()->page_->is_border()
+  ///  The bottom of the tree is always a border page. We go down until we find a boder page
+  ///  that is responsible for the searching key.
+  ///  We recursively call them, so this post condition is met whenever any of them returns.
+  /// 2) should_skip_cur_route_ || (!should_skip_cur_route_ && is_valid_record())
+  ///  Although the found border page is resposible for the given search condition,
+  ///  they might not contain any record to return (eg empty page), in which case
+  ///  they set should_skip_cur_route_ flag and the caller is responsible to call proceed_route().
+  /**
+   * [Initial Search] Go down until it locates the border page under the current layer.
+   * @pre cur_route()->page_->is_layer_root()
+   * @pre cur_route()->page_->get_layer() == layer
+   * @post the common conditions above
+   */
   ErrorCode locate_layer(uint8_t layer);
+  /**
+   * [Initial Search] Go down until it locates the border page under the current layer.
+   * @pre cur_route()->page_->is_border()
+   * @post the common conditions above
+   */
   ErrorCode locate_border(KeySlice slice);
+  /**
+   * [Initial Search] Subroutine of locate_border() to follow a next-layer pointer.
+   */
   ErrorCode locate_next_layer();
+  /**
+   * [Initial Search] Go down until it locates the border page under the current intermediate page.
+   * @pre !cur_route()->page_->is_border()
+   * @post the common conditions above
+   */
   ErrorCode locate_descend(KeySlice slice);
 
   // proceed_xxx is for next
@@ -469,6 +497,8 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper_border();
   ErrorCode proceed_deeper_intermediate();
   void      proceed_route_intermediate_rebase_separator();
+
+  void set_should_skip_cur_route();
 
   MasstreePage* resolve_volatile(VolatilePagePointer ptr) const;
 

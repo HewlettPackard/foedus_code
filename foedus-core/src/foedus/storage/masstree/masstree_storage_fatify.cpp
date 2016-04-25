@@ -54,8 +54,10 @@ constexpr uint32_t kIntermediateAlmostFull = kMaxIntermediatePointers * 9U / 10U
 
 ErrorStack MasstreeStoragePimpl::fatify_first_root(
   thread::Thread* context,
-  uint32_t desired_count) {
-  LOG(INFO) << "Masstree-" << get_name() << " being fatified for " << desired_count;
+  uint32_t desired_count,
+  bool disable_no_record_split) {
+  LOG(INFO) << "Masstree-" << get_name() << " being fatified for " << desired_count
+    << ", disable_no_record_split=" << disable_no_record_split;
 
   if (desired_count > kIntermediateAlmostFull) {
     LOG(INFO) << "desired_count too large. adjusted to the max";
@@ -70,7 +72,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
   watch.start();
   uint16_t iterations = 0;
   for (uint32_t count = initial_children; count < desired_count && iterations < 10U; ++iterations) {
-    CHECK_ERROR(fatify_first_root_double(context));
+    CHECK_ERROR(fatify_first_root_double(context, disable_no_record_split));
     uint32_t new_count;
     WRAP_ERROR_CODE(approximate_count_root_children(context, &new_count));
     if (count == new_count) {
@@ -89,72 +91,10 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
 
   return kRetOk;
 }
-// TODO
-uint32_t aaaa2_recurse_general(thread::Thread* context, Page* page);
-uint32_t aaaa2_recurse(thread::Thread* context, MasstreeBorderPage* page) {
-  if (page->is_empty_range()) {
-    return 0;
-  }
-  auto resolver = context->get_global_volatile_page_resolver();
-  uint32_t ret = 0;
-  if (page->is_moved()) {
-    ret += aaaa2_recurse(context, reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset(page->get_foster_minor())));
-    ret += aaaa2_recurse(context, reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset(page->get_foster_major())));
-    return ret;
-  }
 
-  for (uint32_t i = 0; i < page->get_key_count(); ++i) {
-    if (page->does_point_to_layer(i)) {
-      auto* child = resolver.resolve_offset(page->get_next_layer(i)->volatile_pointer_);
-      ret += aaaa2_recurse_general(context, child);
-    } else {
-      if (!page->get_slot(i)->tid_.is_deleted()) {
-        ++ret;
-      }
-    }
-  }
-  return ret;
-}
-uint32_t aaaa2_recurse(thread::Thread* context, MasstreeIntermediatePage* page) {
-  auto resolver = context->get_global_volatile_page_resolver();
-  uint32_t ret = 0;
-  for (MasstreeIntermediatePointerIterator it(page); it.is_valid(); it.next()) {
-    auto* child = resolver.resolve_offset(it.get_pointer().volatile_pointer_);
-    ret += aaaa2_recurse_general(context, child);
-  }
-  return ret;
-}
-uint32_t aaaa2_recurse_general(thread::Thread* context, Page* page) {
-  if (reinterpret_cast<MasstreePage*>(page)->is_empty_range()) {
-    return 0;
-  }
-  if (page->get_header().page_type_ == kMasstreeBorderPageType) {
-    return aaaa2_recurse(context, reinterpret_cast<MasstreeBorderPage*>(page));
-  } else {
-    return aaaa2_recurse(context, reinterpret_cast<MasstreeIntermediatePage*>(page));
-  }
-}
-uint32_t aaaa2(thread::Thread* context, MasstreeStoragePimpl* t) {
-  MasstreeIntermediatePage* root;
-  t->get_first_root(context, true, &root);
-  return aaaa2_recurse(context, root);
-}
-void aaaa(thread::Thread* context, MasstreeStoragePimpl* t) {
-  MasstreeStorage s(context->get_engine(), t->get_control_block());
-  MasstreeCursor c(s, context);
-  c.open();
-  int a = 0;
-  while (c.is_valid_record()) {
-    ++a;
-    c.next();
-  }
-  LOG(INFO) << "============================================================ rec =" << a;
-  LOG(INFO) << "============================================================ rec_correct ="
-    << aaaa2(context, t);
-  ASSERT_ND(a == 12000U);
-}
-
-ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* context) {
+ErrorStack MasstreeStoragePimpl::fatify_first_root_double(
+  thread::Thread* context,
+  bool disable_no_record_split) {
   // We invoke split sysxct and adopt sysxct many times.
   debugging::StopWatch watch;
   watch.start();
@@ -184,8 +124,7 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* contex
       }
       continue;
     }
-// TODO
-// aaaa(context, this);
+
     root_retries = 0;
     const auto minipage_index = root->find_minipage(cur_slice);
     auto& minipage = root->get_minipage(minipage_index);
@@ -199,38 +138,17 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* contex
       &child));
     ASSERT_ND(!child->header().snapshot_);
     cur_slice = child->get_high_fence();  // go on to next
-/* TODO
-if (cur_slice == 1379796796737ULL) {
-LOG(INFO) << "asdasd"  ;
-}
-*/
+
     if (!child->is_moved()) {
       // Split the child so that we can adopt it to the root
       if (child->is_border()) {
         if (child->get_key_count() >= 2U) {
           MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(child);
-/* TODO
-if (cur_slice == 1379796796737ULL) {
-LOG(INFO) << "before " << *casted;
-}
-*/
           auto low_slice = child->get_low_fence();
           auto high_slice = child->get_high_fence();
           auto mid_slice = low_slice + (high_slice - low_slice) / 2U;
-          // TODO if I don't specify disable-NRC, test_masstree_tpcc's Customer-Secondary
-          // get 11998 records, not 12000. Something wrong, but looks like the split code
-          // is fine. I guess cursor code is wrong? Needs to investigate
-          SplitBorder split(context, casted, mid_slice, false);
+          SplitBorder split(context, casted, mid_slice, disable_no_record_split);
           WRAP_ERROR_CODE(context->run_nested_sysxct(&split, 2U));
-/* TODO
-if (cur_slice == 1379796796737ULL) {
-LOG(INFO) << "after " << *casted;
-MasstreeBorderPage* minor = (MasstreeBorderPage*) context->get_global_volatile_page_resolver().resolve_offset(child->get_foster_minor());
-MasstreeBorderPage* major = (MasstreeBorderPage*) context->get_global_volatile_page_resolver().resolve_offset(child->get_foster_major());
-LOG(INFO) << "minor " << *minor;
-LOG(INFO) << "major " << *major;
-}
-*/
         } else {
           ++skipped_children;
           continue;  // not worth splitting
@@ -247,13 +165,10 @@ LOG(INFO) << "major " << *major;
         }
       }
     }
-// TODO
-// aaaa(context, this);
+
     Adopt adopt(context, root, child);
     WRAP_ERROR_CODE(context->run_nested_sysxct(&adopt, 2U));
     ++adopted_children;
-// TODO
-// aaaa(context, this);
   }
 
   uint32_t after_children;

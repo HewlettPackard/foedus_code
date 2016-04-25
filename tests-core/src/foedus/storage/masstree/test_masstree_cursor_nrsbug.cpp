@@ -43,7 +43,8 @@ DEFINE_TEST_CASE_PACKAGE(MasstreeCursorNrsbugTest, foedus.storage.masstree);
 
 const StorageName kStorageName("test");
 
-ErrorStack count_all(thread::Thread* context, MasstreeStorage masstree, uint32_t* out) {
+ErrorStack count_all(thread::Thread* context, uint32_t* out) {
+  MasstreeStorage masstree(context->get_engine(), kStorageName);
   MasstreeCursor cursor(masstree, context);
   WRAP_ERROR_CODE(cursor.open());
   *out = 0;
@@ -78,6 +79,8 @@ ErrorStack nrs_task(const proc::ProcArguments& args) {
   MasstreeStorage masstree(context->get_engine(), kStorageName);
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   Epoch commit_epoch;
+  ASSERT_ND(args.input_len_ == sizeof(bool));
+  bool disable_no_record_split = *reinterpret_cast<const bool*>(args.input_buffer_);
 
 
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -98,27 +101,26 @@ ErrorStack nrs_task(const proc::ProcArguments& args) {
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
 
-  CHECK_ERROR(masstree.debugout_single_thread(context->get_engine()));
+  // CHECK_ERROR(masstree.debugout_single_thread(context->get_engine()));
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   uint32_t count;
-  CHECK_ERROR(count_all(context, masstree, &count));
-  EXPECT_EQ(4, count);
+  CHECK_ERROR(count_all(context, &count));
+  EXPECT_EQ(4U, count);
   CHECK_ERROR(masstree.verify_single_thread(context));
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-  CHECK_ERROR(masstree.fatify_first_root(context, 6));
+  CHECK_ERROR(masstree.fatify_first_root(context, 6, disable_no_record_split));
   CHECK_ERROR(masstree.verify_single_thread(context));
-  CHECK_ERROR(masstree.debugout_single_thread(context->get_engine()));
-  CHECK_ERROR(count_all(context, masstree, &count));
-  EXPECT_EQ(4, count);
+  // CHECK_ERROR(masstree.debugout_single_thread(context->get_engine()));
+  CHECK_ERROR(count_all(context, &count));
+  EXPECT_EQ(4U, count);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
   return foedus::kRetOk;
 }
 
-
-TEST(MasstreeCursorNrsbugTest, Nrs) {
+void test(bool disable_no_record_split) {
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   engine.get_proc_manager()->pre_register("nrs_task", nrs_task);
@@ -130,11 +132,16 @@ TEST(MasstreeCursorNrsbugTest, Nrs) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("nrs_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous(
+      "nrs_task",
+      &disable_no_record_split,
+      sizeof(disable_no_record_split)));
     COERCE_ERROR(engine.uninitialize());
   }
   cleanup_test(options);
 }
+TEST(MasstreeCursorNrsbugTest, Nrs) { test(false); }
+TEST(MasstreeCursorNrsbugTest, NoNrs) { test(true); }
 
 }  // namespace masstree
 }  // namespace storage

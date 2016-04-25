@@ -593,6 +593,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @param[in] context Thread context
    * @param[in] desired_count Does nothing if the root of first layer already has this
    * many children.
+   * @param[in] disable_no_record_split when this method triggers page splits,
+   * whether to always split pages in half, ignoring chance for no-record-split.
+   * usually you should just leave the default value.
    * @details
    * This is a special-purpose, physical-only method that does nothing logically.
    * It increases the number of direct children in first root, which is useful when we partition
@@ -600,7 +603,10 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * but we so far restrict the use of this method to performance benchmarks.
    * @todo testcase for this method. TDD? shut up.
    */
-  ErrorStack  fatify_first_root(thread::Thread* context, uint32_t desired_count);
+  ErrorStack  fatify_first_root(
+    thread::Thread* context,
+    uint32_t desired_count,
+    bool disable_no_record_split = true);
 
   /**
    * @param[in] layer B-trie layer most border pages would be in.

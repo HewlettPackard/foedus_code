@@ -461,8 +461,11 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     const MasstreeStorage::PeekBoundariesArguments& args);
 
   /** Defined in masstree_storage_fatify.cpp */
-  ErrorStack    fatify_first_root(thread::Thread* context, uint32_t desired_count);
-  ErrorStack    fatify_first_root_double(thread::Thread* context);
+  ErrorStack    fatify_first_root(
+    thread::Thread* context,
+    uint32_t desired_count,
+    bool disable_no_record_split);
+  ErrorStack    fatify_first_root_double(thread::Thread* context, bool disable_no_record_split);
   /**
    * Returns the count of direct children in the first-root node. This is without lock, so
    * it might not be accurate.

@@ -100,8 +100,11 @@ class MasstreePage {
   bool                is_high_fence_supremum() const ALWAYS_INLINE {
     return high_fence_ == kSupremumSlice;
   }
-  bool                is_high_fence_infimum() const ALWAYS_INLINE {
+  bool                is_low_fence_infimum() const ALWAYS_INLINE {
     return low_fence_ == kInfimumSlice;
+  }
+  bool                is_layer_root() const ALWAYS_INLINE {
+    return is_low_fence_infimum() && is_high_fence_supremum();
   }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
   bool  is_foster_minor_null() const ALWAYS_INLINE { return foster_twin_[0].is_null(); }

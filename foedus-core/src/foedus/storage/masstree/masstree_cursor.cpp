@@ -178,37 +178,33 @@ ErrorCode MasstreeCursor::next() {
   }
 
   assert_route();
-  while (true) {
-    CHECK_ERROR_CODE(proceed_route());
-    if (UNLIKELY(should_skip_cur_route_)) {
-      DVLOG(0) << "Rare. Skipping empty page";
-      CHECK_ERROR_CODE(proceed_pop());
-      if (route_count_ == 0) {
-        LOG(INFO) << "The empty page was the last page that might have had the record. we are done";
-        ASSERT_ND(!is_valid_record());
-        return kErrorCodeOk;
-      }
 
-      continue;
-    }
-    if (is_valid_record() && cur_key_location_.observed_.is_deleted()) {
-      // when we follow to next layer, it is possible to locate a deleted record and stopped there.
-      // in that case, we repeat it. Don't worry, in most cases we are skipping bunch of deleted
-      // records at once.
-      continue;
-    } else {
-      break;
+  CHECK_ERROR_CODE(proceed_route());
+
+  // After proceed_route(), it is still possible that we are at a deleted record or empty page.
+  // Keep moving on in that case.
+  while (should_skip_cur_route_
+    || (is_valid_record() && cur_key_location_.observed_.is_deleted())) {
+    DVLOG(0) << "Rare. next() needs to move on to find non-deleted records/pages";
+    should_skip_cur_route_ = false;
+    CHECK_ERROR_CODE(proceed_route());
+    if (route_count_ == 0) {
+      LOG(INFO) << "The empty page was the last page that might have had the record. we are done";
+      ASSERT_ND(!is_valid_record());
+      return kErrorCodeOk;
     }
   }
   ASSERT_ND(!should_skip_cur_route_);
   check_end_key();
   if (is_valid_record()) {
     assert_route();
+    ASSERT_ND(!cur_key_location_.observed_.is_deleted());
   }
   return kErrorCodeOk;
 }
 
 inline ErrorCode MasstreeCursor::proceed_route() {
+  ASSERT_ND(!should_skip_cur_route_);  // must be controlled in the caller (open/next)
   if (cur_route()->page_->is_border()) {
     return proceed_route_border();
   } else {
@@ -397,7 +393,6 @@ ErrorCode MasstreeCursor::proceed_route_intermediate() {
 inline ErrorCode MasstreeCursor::proceed_pop() {
   while (true) {
     --route_count_;
-    should_skip_cur_route_ = false;
     if (route_count_ == 0) {
       reached_end_ = true;
       return kErrorCodeOk;
@@ -479,9 +474,7 @@ inline ErrorCode MasstreeCursor::proceed_deeper_border() {
   // We might have an empty border page in the route. We just skip over such a page.
   if (route->key_count_ == 0) {
     LOG(INFO) << "Huh, rare but possible. A cursor hit an empty border page. Just skips";
-    route->index_ = 0;
-    should_skip_cur_route_ = true;
-    ASSERT_ND(!is_valid_record());
+    set_should_skip_cur_route();
     return kErrorCodeOk;  // next proceed_route will take care of it.
   }
 
@@ -620,7 +613,7 @@ ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
   Route& route = routes_[route_count_];
   while (true) {
     route.key_count_ = page->get_key_count();
-    assorted::memory_fence_consume();
+    assorted::memory_fence_acquire();
     route.stable_ = page->get_version().status_;
     route.page_ = page;
     if (is_border && route.was_stably_moved()) {
@@ -631,12 +624,11 @@ ErrorCode MasstreeCursor::push_route(MasstreePage* page) {
     route.latest_separator_ = kInfimumSlice;  // must be set shortly after this method
     route.index_ = kMaxRecords;  // must be set shortly after this method
     route.index_mini_ = kMaxRecords;  // must be set shortly after this method
-    should_skip_cur_route_ = false;
     route.snapshot_ = page->header().snapshot_;
     route.layer_ = page->get_layer();
     if (is_border && !route.was_stably_moved()) {
       route.setup_order();
-      assorted::memory_fence_consume();
+      assorted::memory_fence_acquire();
       // the setup_order must not be confused by concurrent updates.
       // because we check version after consume fence, this also catches the case where
       // we have a new key, is_consecutive_inserts()==true no longer holds, etc.
@@ -980,15 +972,22 @@ ErrorCode MasstreeCursor::open(
   CHECK_ERROR_CODE(pimpl.get_first_root(context_, for_writes, &root));
   CHECK_ERROR_CODE(push_route(root));
   CHECK_ERROR_CODE(locate_layer(0));
-  while (UNLIKELY(should_skip_cur_route_)) {
-    // unluckily we hit an empty page or the page boundary in initial locate().
-    // Let's skip the page by proceed_pop() and find a next page.
-    // Note, it's a while, not if. It's very unlikely but possible that proceed_pop again
-    // results in should_skip_cur_route_.
-    ASSERT_ND(cur_route()->page_->is_border());
-    ASSERT_ND(!is_valid_record());
-    DVLOG(0) << "Rare. Skipping empty page";
-    CHECK_ERROR_CODE(proceed_pop());
+  ASSERT_ND(route_count_ != 0);
+  ASSERT_ND(cur_route()->page_->is_border());
+  ASSERT_ND(should_skip_cur_route_ || (!should_skip_cur_route_ && is_valid_record()));
+
+  // In a few cases, open() must move on to next page/key.
+  // 1. locate_xxx doesn't take care of deleted record as it can't proceed to another page.
+  //  so, if the initially located record is a deleted record, we need to move on to next key.
+  // 2. unluckily we hit an empty page or the page boundary in initial locate().
+  //  Let's go on to next page by proceed_route() and find a next page.
+  // Note, it's a while, not if. It's very unlikely but possible that proceed_route again
+  // results in the same state.
+  while (should_skip_cur_route_
+      || (is_valid_record() && cur_key_location_.observed_.is_deleted())) {
+    DVLOG(0) << "Rare. open() needs to move on to find non-deleted records/pages";
+    should_skip_cur_route_ = false;
+    CHECK_ERROR_CODE(proceed_route());
     if (route_count_ == 0) {
       LOG(INFO) << "The empty page was the last page that might have had the record. we are done";
       ASSERT_ND(!is_valid_record());
@@ -996,20 +995,17 @@ ErrorCode MasstreeCursor::open(
     }
   }
   ASSERT_ND(!should_skip_cur_route_);
+  ASSERT_ND(!is_valid_record() || !cur_key_location_.observed_.is_deleted());
   check_end_key();
   if (is_valid_record()) {
-    // locate_xxx doesn't take care of deleted record as it can't proceed to another page.
-    // so, if the initially located record is a deleted record, use next() now.
-    if (cur_key_location_.observed_.is_deleted()) {
-      CHECK_ERROR_CODE(next());
-    }
+    assert_route();
   }
-  ASSERT_ND(!should_skip_cur_route_);
   return kErrorCodeOk;
 }
 
 inline ErrorCode MasstreeCursor::locate_layer(uint8_t layer) {
   MasstreePage* layer_root = cur_route()->page_;
+  ASSERT_ND(layer_root->is_layer_root());
   ASSERT_ND(layer_root->get_layer() == layer);
   // set up the search in this layer. What's the slice we will look for in this layer?
   KeySlice slice;
@@ -1081,9 +1077,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
 
     if (route->key_count_ == 0) {
       LOG(INFO) << "Huh, rare but possible. Cursor's Initial locate() hits an empty border page.";
-      route->index_ = 0;
-      should_skip_cur_route_ = true;
-      ASSERT_ND(!is_valid_record());
+      set_should_skip_cur_route();
       break;
     }
 
@@ -1135,8 +1129,7 @@ ErrorCode MasstreeCursor::locate_border(KeySlice slice) {
     // done about this page
     if (route->index_ >= route->key_count_) {
       DVLOG(2) << "Initial locate() hits page boundary.";
-      should_skip_cur_route_ = true;
-      ASSERT_ND(!is_valid_record());
+      set_should_skip_cur_route();
     }
     break;
   }
@@ -1172,6 +1165,7 @@ ErrorCode MasstreeCursor::locate_descend(KeySlice slice) {
     // Even without following them, Master-Tree invariant guarantees that we will reach
     // the correct pages.
     Route* route = cur_route();
+    ASSERT_ND(!route->page_->is_border());
     MasstreeIntermediatePage* cur = reinterpret_cast<MasstreeIntermediatePage*>(route->page_);
     ASSERT_ND(search_type_ == kBackwardExclusive || cur->within_fences(slice));
     ASSERT_ND(search_type_ != kBackwardExclusive
@@ -1350,6 +1344,18 @@ void MasstreeCursor::assert_route_impl() const {
       ASSERT_ND(route->index_mini_ <= route->key_count_mini_);
       ASSERT_ND(route->index_mini_ <= kMaxIntermediateMiniSeparators);
     }
+  }
+}
+
+void MasstreeCursor::set_should_skip_cur_route() {
+  Route* route = cur_route();
+  ASSERT_ND(route->page_->is_border());
+  should_skip_cur_route_ = true;
+  // so that proceed_route will immediately pop this page.
+  if (forward_cursor_) {
+    route->index_ = route->key_count_;
+  } else {
+    route->index_ = 0;
   }
 }
 
