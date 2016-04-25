@@ -23,6 +23,7 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/storage/masstree/masstree_adopt_impl.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
+#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_split_impl.hpp"
 
 namespace foedus {
@@ -88,7 +89,56 @@ ErrorStack MasstreeStoragePimpl::fatify_first_root(
 
   return kRetOk;
 }
-/* TODO
+// TODO
+uint32_t aaaa2_recurse_general(thread::Thread* context, Page* page);
+uint32_t aaaa2_recurse(thread::Thread* context, MasstreeBorderPage* page) {
+  if (page->is_empty_range()) {
+    return 0;
+  }
+  auto resolver = context->get_global_volatile_page_resolver();
+  uint32_t ret = 0;
+  if (page->is_moved()) {
+    ret += aaaa2_recurse(context, reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset(page->get_foster_minor())));
+    ret += aaaa2_recurse(context, reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset(page->get_foster_major())));
+    return ret;
+  }
+
+  for (uint32_t i = 0; i < page->get_key_count(); ++i) {
+    if (page->does_point_to_layer(i)) {
+      auto* child = resolver.resolve_offset(page->get_next_layer(i)->volatile_pointer_);
+      ret += aaaa2_recurse_general(context, child);
+    } else {
+      if (!page->get_slot(i)->tid_.is_deleted()) {
+        ++ret;
+      }
+    }
+  }
+  return ret;
+}
+uint32_t aaaa2_recurse(thread::Thread* context, MasstreeIntermediatePage* page) {
+  auto resolver = context->get_global_volatile_page_resolver();
+  uint32_t ret = 0;
+  for (MasstreeIntermediatePointerIterator it(page); it.is_valid(); it.next()) {
+    auto* child = resolver.resolve_offset(it.get_pointer().volatile_pointer_);
+    ret += aaaa2_recurse_general(context, child);
+  }
+  return ret;
+}
+uint32_t aaaa2_recurse_general(thread::Thread* context, Page* page) {
+  if (reinterpret_cast<MasstreePage*>(page)->is_empty_range()) {
+    return 0;
+  }
+  if (page->get_header().page_type_ == kMasstreeBorderPageType) {
+    return aaaa2_recurse(context, reinterpret_cast<MasstreeBorderPage*>(page));
+  } else {
+    return aaaa2_recurse(context, reinterpret_cast<MasstreeIntermediatePage*>(page));
+  }
+}
+uint32_t aaaa2(thread::Thread* context, MasstreeStoragePimpl* t) {
+  MasstreeIntermediatePage* root;
+  t->get_first_root(context, true, &root);
+  return aaaa2_recurse(context, root);
+}
 void aaaa(thread::Thread* context, MasstreeStoragePimpl* t) {
   MasstreeStorage s(context->get_engine(), t->get_control_block());
   MasstreeCursor c(s, context);
@@ -99,9 +149,11 @@ void aaaa(thread::Thread* context, MasstreeStoragePimpl* t) {
     c.next();
   }
   LOG(INFO) << "============================================================ rec =" << a;
+  LOG(INFO) << "============================================================ rec_correct ="
+    << aaaa2(context, t);
   ASSERT_ND(a == 12000U);
 }
-*/
+
 ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* context) {
   // We invoke split sysxct and adopt sysxct many times.
   debugging::StopWatch watch;
@@ -168,7 +220,7 @@ LOG(INFO) << "before " << *casted;
           // TODO if I don't specify disable-NRC, test_masstree_tpcc's Customer-Secondary
           // get 11998 records, not 12000. Something wrong, but looks like the split code
           // is fine. I guess cursor code is wrong? Needs to investigate
-          SplitBorder split(context, casted, mid_slice, true);
+          SplitBorder split(context, casted, mid_slice, false);
           WRAP_ERROR_CODE(context->run_nested_sysxct(&split, 2U));
 /* TODO
 if (cur_slice == 1379796796737ULL) {

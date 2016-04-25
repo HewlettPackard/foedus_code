@@ -373,8 +373,6 @@ ErrorStack TpccLoadTask::load_customers() {
   }
   return kRetOk;
 }
-// TODO
-// std::vector< std::string > customer_secondary_key_vector;
 
 ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
   LOG(INFO) << "Loading Customer for DID=" << static_cast<int>(did) << ", WID=" << wid
@@ -447,11 +445,6 @@ ErrorStack TpccLoadTask::load_customers_in_district(Wid wid, Did did) {
         Cid* address = reinterpret_cast<Cid*>(key_be + sizeof(Wid) + sizeof(Did) + 34);
         *address = assorted::htobe<Cid>(secondary_keys[i].cid_);
         WRAP_ERROR_CODE(customers_secondary.insert_record(context_, key_be, sizeof(key_be)));
-/* TODO
-        if (rep > 0) {
-          customer_secondary_key_vector.push_back(std::string(key_be, sizeof(key_be)));
-        }
-*/
       }
       if (rep == 0) {
         WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
@@ -791,10 +784,6 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
   const uint32_t kBatch = 200;
   SCOPED_TRACE(testing::Message() << "Full scan, index=" << name);
-// TODO
-// std::sort(customer_secondary_key_vector.begin(), customer_secondary_key_vector.end());
-// bool customer_secondary_key_found[20000];
-// for (uint i = 0; i < 20000; ++i) { customer_secondary_key_found[i] = false; }
   {
     // full forward scan
     WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
@@ -809,14 +798,6 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
       if (count > 0) {
         EXPECT_LT(prev_key, next_key);
       }
-/* TODO
-      auto it = std::lower_bound(customer_secondary_key_vector.begin(), customer_secondary_key_vector.end(), next_key);
-      ASSERT_ND(it != customer_secondary_key_vector.end());
-      uint32_t pos = it - customer_secondary_key_vector.begin();
-      EXPECT_FALSE(customer_secondary_key_found[pos]);
-      customer_secondary_key_found[pos] = true;
-*/
-
       prev_key_length = cursor.get_key_length();
       ASSERT_ND(prev_key_length <= 100U);
       prev_key = next_key;
@@ -828,13 +809,6 @@ ErrorStack full_scan_task(const proc::ProcArguments& args) {
       EXPECT_EQ(kErrorCodeOk, cursor.next()) << count;
     }
     EXPECT_EQ(kErrorCodeOk, xct_manager->precommit_xct(context, &commit_epoch));
-/* TODO
-    for (uint i = 0; i < expected_records; ++i) {
-      if (!customer_secondary_key_found[i]) {
-        LOG(INFO) << "Not found: i=" << i;
-      }
-    }
-*/
     EXPECT_EQ(expected_records, count);
   }
   {
