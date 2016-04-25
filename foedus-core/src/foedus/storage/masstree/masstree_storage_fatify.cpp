@@ -23,7 +23,6 @@
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/storage/masstree/masstree_adopt_impl.hpp"
 #include "foedus/storage/masstree/masstree_cursor.hpp"
-#include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_split_impl.hpp"
 
 namespace foedus {

@@ -34,6 +34,7 @@
 #include "foedus/storage/storage_manager.hpp"
 #include "foedus/storage/storage_manager_pimpl.hpp"
 #include "foedus/storage/masstree/masstree_adopt_impl.hpp"
+#include "foedus/storage/masstree/masstree_grow_impl.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
 #include "foedus/storage/masstree/masstree_log_types.hpp"
 #include "foedus/storage/masstree/masstree_metadata.hpp"
@@ -76,18 +77,10 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
 
   if (UNLIKELY(page->has_foster_child())) {
     ASSERT_ND(!page->header().snapshot_);
-    ASSERT_ND(!get_first_root_owner().is_deleted());
-    ASSERT_ND(!get_first_root_owner().is_moved());
     // root page has a foster child... time for tree growth!
-    MasstreeIntermediatePage* new_root = nullptr;
-    CHECK_ERROR_CODE(grow_first_root(context, &new_root));
-    if (new_root) {
-      assert_aligned_page(new_root);
-      page = new_root;
-    } else {
-      // someone else has grown it. it's fine. we can still use the old page thanks to
-      // the immutability
-    }
+    // either case, we just follow the moved page. Master-Tree invariant guarantees it's safe.
+    GrowFirstLayerRoot functor(context, get_id());
+    CHECK_ERROR_CODE(context->run_nested_sysxct(&functor, 2));
   }
 
   ASSERT_ND(page->get_layer() == 0);
@@ -95,233 +88,6 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
   ASSERT_ND(page->get_high_fence() == kSupremumSlice);
   *root = page;
   return kErrorCodeOk;
-}
-
-ErrorCode MasstreeStoragePimpl::grow_non_first_root(
-  thread::Thread* context,
-  DualPagePointer* root_pointer,
-  xct::RwLockableXctId* root_pointer_owner,
-  MasstreeIntermediatePage** new_root) {
-  *new_root = nullptr;
-  if (root_pointer_owner->is_keylocked()) {
-    DVLOG(0) << "interesting. someone else is growing the tree, so let him do that.";
-    // we can move on, thanks to the master-tree invariant. tree-growth is not a mandatory
-    // task to do right away
-    return kErrorCodeOk;
-  }
-
-  // To remove risk on deadlock in HCC, we use "try" lock here.
-  // Growing a root is not mandatory, so if someone else is working on it, we let him do that.
-  xct::McsRwLockScope owner_scope(context, root_pointer_owner, false, true, true);
-  if (!owner_scope.is_locked()) {
-    LOG(INFO) << "interesting. someone else won the lock to grow root. just let him do that";
-    return kErrorCodeOk;
-  }
-  if (root_pointer_owner->is_moved()) {
-    LOG(INFO) << "interesting. someone else has split the page that had a pointer"
-      " to a root page of the layer to be grown";
-    return kErrorCodeOk;  // same above.
-  }
-  return grow_root(context, root_pointer, new_root);
-}
-
-ErrorCode MasstreeStoragePimpl::grow_first_root(
-  thread::Thread* context,
-  MasstreeIntermediatePage** new_root) {
-  *new_root = nullptr;
-  DualPagePointer* root_pointer = get_first_root_pointer_address();
-  xct::LockableXctId* root_pointer_owner = &control_block_->first_root_owner_;
-  if (root_pointer_owner->is_keylocked()) {
-    DVLOG(0) << "interesting. someone else is growing the tree, so let him do that.";
-    // we can move on, thanks to the master-tree invariant. tree-growth is not a mandatory
-    // task to do right away
-    return kErrorCodeOk;
-  }
-  // The first layer's root is protected by X-only lock, which doesn't support try-lock.
-  // We must be careful to not cause deadlock in this case.
-  // Hence we unlock all locks in the current transaction in case we are running in MOCC or PCC
-  // mode. This might be a bit too conservative, but first-root grow should be a rare event.
-  context->mcs_release_all_current_locks_after(xct::kNullUniversalLockId);
-  xct::McsWwLockScope owner_scope(context, root_pointer_owner, true, false);
-
-  // McsWwLock doesn't have a try interface, we got the lock directly.
-  ASSERT_ND(owner_scope.is_locked());
-
-  // First root's lock is always placed in control block, thus never be moved.
-  ASSERT_ND(!root_pointer_owner->is_moved());
-
-  return grow_root(context, root_pointer, new_root);
-}
-ErrorCode MasstreeStoragePimpl::grow_root(
-  thread::Thread* context,
-  DualPagePointer* root_pointer,
-  MasstreeIntermediatePage** new_root) {
-  // follow the pointer after taking lock on owner ID
-  const memory::GlobalVolatilePageResolver& resolver = context->get_global_volatile_page_resolver();
-  MasstreePage* root = reinterpret_cast<MasstreePage*>(
-    resolver.resolve_offset(root_pointer->volatile_pointer_));
-
-  PageVersionTryLockScope scope(context, root->get_version_address());
-  if (!scope.is_locked()) {
-    DVLOG(1) << "Someone else is locking the root page. let him grow it.";
-    *new_root = nullptr;
-    return kErrorCodeOk;
-  }
-
-  if (root->is_retired() || !root->has_foster_child()) {
-    if (root->get_foster_fence() == kSupremumSlice) {
-      DVLOG(1) << "interesting. someone else has already adopted compacted/restructured root";
-    } else {
-      VLOG(0) << "interesting. someone else has already grown B-tree";
-    }
-    return kErrorCodeOk;  // retry. most likely we will see a new pointer
-  }
-
-  if (root->get_layer() == 0) {
-    if (root->get_foster_fence() == kSupremumSlice) {
-      // This happens often. Let's not write out too many logs
-      DVLOG(1) << "B-tree first-root had compaction/restructure. " << get_name();
-    } else {
-      LOG(INFO) << "growing B-tree in first layer! " << get_name();
-    }
-  } else {
-    if (root->get_foster_fence() == kSupremumSlice) {
-      DVLOG(1) << "B-tree non-first-root had compaction/restructure. " << get_name();
-    } else {
-      DVLOG(0) << "growing B-tree in non-first layer " << get_name();
-    }
-  }
-
-  ASSERT_ND(root->is_locked());
-  ASSERT_ND(root->has_foster_child());
-  memory::NumaCoreMemory* memory = context->get_thread_memory();
-
-  // Just like MasstreeIntermediatePage::adopt_from_child(), grow_root also has
-  // a trivial and frequent "quick path": one of the foster twins is an "empty-range" page.
-  // In that case, we can just replace the existing pointer with a pointer to the non-empty page.
-  if (root->get_low_fence() == root->get_foster_fence()
-    || root->get_foster_fence() == root->get_high_fence()) {
-    grow_root_compaction(context, root, root_pointer, new_root, &scope);
-    return kErrorCodeOk;
-  }
-
-  VolatilePagePointer new_pointer = memory->grab_free_volatile_page_pointer();
-  if (new_pointer.is_null()) {
-    return kErrorCodeMemoryNoFreePages;
-  }
-
-  // from here no failure possible
-  scope.set_changed();
-  *new_root = reinterpret_cast<MasstreeIntermediatePage*>(
-    resolver.resolve_offset_newpage(new_pointer));
-  (*new_root)->initialize_volatile_page(
-    get_id(),
-    new_pointer,
-    root->get_layer(),
-    root->get_btree_level() + 1,
-    kInfimumSlice,    // infimum slice
-    kSupremumSlice);   // high-fence is supremum
-
-  KeySlice separator = root->get_foster_fence();
-
-  // the new root is not locked (no need), so we directly set key_count to avoid assertion.
-  (*new_root)->header().key_count_ = 0;
-  MasstreeIntermediatePage::MiniPage& mini_page = (*new_root)->get_minipage(0);
-  MasstreePage* left_page
-    = reinterpret_cast<MasstreePage*>(context->resolve(root->get_foster_minor()));
-  MasstreePage* right_page
-    = reinterpret_cast<MasstreePage*>(context->resolve(root->get_foster_major()));
-  mini_page.key_count_ = 1;
-  mini_page.pointers_[0].snapshot_pointer_ = 0;
-  mini_page.pointers_[0].volatile_pointer_.word = left_page->header().page_id_;
-  ASSERT_ND(reinterpret_cast<Page*>(left_page) ==
-    context->get_global_volatile_page_resolver().resolve_offset(
-      mini_page.pointers_[0].volatile_pointer_));
-  mini_page.pointers_[1].snapshot_pointer_ = 0;
-  mini_page.pointers_[1].volatile_pointer_.word = right_page->header().page_id_;
-  ASSERT_ND(reinterpret_cast<Page*>(right_page) ==
-    context->get_global_volatile_page_resolver().resolve_offset(
-      mini_page.pointers_[1].volatile_pointer_));
-  mini_page.separators_[0] = separator;
-  ASSERT_ND(!(*new_root)->is_border());
-
-  // Let's install a pointer to the new root page
-  assorted::memory_fence_seq_cst();  // must be after populating the new_root.
-  root_pointer->volatile_pointer_ = new_pointer;
-  if (root->get_layer() == 0) {
-    LOG(INFO) << "Root of first layer is logically unchanged by grow_root, so the snapshot"
-      << " pointer is unchanged. value=" << root_pointer->snapshot_pointer_;
-  } else {
-    // TASK(Hideaki) I forgot why we need to reset this for non-first root.
-    // Isn't it also true for non-first root that it's logically equivalent?
-    // Let's revisit later.
-    root_pointer->snapshot_pointer_ = 0;
-  }
-  ASSERT_ND(reinterpret_cast<Page*>(*new_root) ==
-    context->get_global_volatile_page_resolver().resolve_offset_newpage(
-      root_pointer->volatile_pointer_));
-
-  // the old root page is now retired
-  root->set_retired();
-  context->collect_retired_volatile_page(
-    construct_volatile_page_pointer(root->header().page_id_));
-  return kErrorCodeOk;
-}
-
-
-void MasstreeStoragePimpl::grow_root_compaction(
-  thread::Thread* context,
-  MasstreePage* root,
-  DualPagePointer* root_pointer,
-  MasstreeIntermediatePage** new_root,
-  PageVersionLockScope* root_lock) {
-  // Analogous to what MasstreeIntermediatePage::adopt_from_child_compaction() does.
-  ASSERT_ND(root->is_locked());
-  ASSERT_ND(root_lock->block_);
-  ASSERT_ND(root->is_moved());
-  ASSERT_ND(!root->is_retired());
-  ASSERT_ND(root->get_low_fence() == root->get_foster_fence()
-    || root->get_high_fence() == root->get_foster_fence());
-  DVLOG(0) << "Trivial grow-root with dummy page split";
-
-  VolatilePagePointer nonempty_child_pointer;
-  MasstreeIntermediatePage* empty_child;
-  if (root->get_low_fence() == root->get_foster_fence()) {
-    nonempty_child_pointer = root->get_foster_major();
-    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_minor());
-  } else {
-    nonempty_child_pointer = root->get_foster_minor();
-    empty_child = context->resolve_cast<MasstreeIntermediatePage>(root->get_foster_major());
-  }
-  ASSERT_ND(empty_child->is_empty_range());
-  ASSERT_ND(root
-    == context->resolve_cast<MasstreeIntermediatePage>(root_pointer->volatile_pointer_));
-  // Interestingly, no need to change snapshot pointer at all. It is logically the same thing.
-
-  *new_root = context->resolve_cast<MasstreeIntermediatePage>(nonempty_child_pointer);
-  ASSERT_ND((*new_root)->get_low_fence() == kInfimumSlice);
-  ASSERT_ND((*new_root)->get_high_fence() == kSupremumSlice);
-
-  assorted::memory_fence_seq_cst();
-  root_pointer->volatile_pointer_ = nonempty_child_pointer;
-  assorted::memory_fence_seq_cst();
-
-  // the old root page AND the empty pages are now retired
-  root_lock->set_changed();
-  ASSERT_ND(!root->is_retired());
-  root->set_retired();
-
-  // The only thread that might be retiring this empty page must be in this function,
-  // holding a page-lock in root_lock. Thus we don't need a lock in empty_grandchild.
-  ASSERT_ND(!empty_child->is_locked());  // none else holding lock on it
-  // and we can safely retire the page. We do not use set_retired because is_moved() is false
-  // It's a special retirement path.
-  empty_child->get_version_address()->status_.status_ |= PageVersionStatus::kRetiredBit;
-  context->collect_retired_volatile_page(
-    construct_volatile_page_pointer(empty_child->header().page_id_));
-
-  context->collect_retired_volatile_page(
-    construct_volatile_page_pointer(root->header().page_id_));
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -363,7 +129,7 @@ ErrorStack MasstreeStoragePimpl::load_empty() {
   ASSERT_ND(root_offset);
   MasstreeIntermediatePage* root_page = reinterpret_cast<MasstreeIntermediatePage*>(
     local_resolver.resolve_offset_newpage(root_offset));
-  control_block_->first_root_owner_.lock_.reset();
+  control_block_->first_root_locked_ = false;
   control_block_->root_page_pointer_.snapshot_pointer_ = 0;
   control_block_->root_page_pointer_.volatile_pointer_.set(kDummyNode, root_offset);
   root_page->initialize_volatile_page(
@@ -405,6 +171,7 @@ ErrorStack MasstreeStoragePimpl::load(const StorageControlBlock& snapshot_block)
   const MasstreeMetadata& meta = control_block_->meta_;
   control_block_->root_page_pointer_.snapshot_pointer_ = meta.root_snapshot_page_id_;
   control_block_->root_page_pointer_.volatile_pointer_.word = 0;
+  control_block_->first_root_locked_ = false;
 
   // So far we assume the root page always has a volatile version.
   // Create it now.
@@ -713,14 +480,10 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
 
   // root page has a foster child... time for tree growth!
   if (UNLIKELY(next_root->has_foster_child())) {
-    MasstreeIntermediatePage* new_next_root;
-    CHECK_ERROR_CODE(grow_non_first_root(context, pointer, owner, &new_next_root));
-    if (new_next_root) {
-      next_root = new_next_root;
-    } else {
-      // someone else has grown it. it's fine. we can still use the old page thanks to
-      // the immutability
-    }
+    ASSERT_ND(next_root->get_layer() > 0);
+    // Either case, we follow the old page. Master-Tree invariant guarantees it's safe
+    GrowNonFirstLayerRoot functor(context, parent, record_index);
+    CHECK_ERROR_CODE(context->run_nested_sysxct(&functor, 2U));
   }
 
   ASSERT_ND(next_root);

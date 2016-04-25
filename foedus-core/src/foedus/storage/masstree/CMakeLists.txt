@@ -2,6 +2,7 @@ set_property(GLOBAL APPEND PROPERTY ALL_FOEDUS_CORE_SRC
   ${CMAKE_CURRENT_SOURCE_DIR}/masstree_adopt_impl.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/masstree_composer_impl.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/masstree_cursor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/masstree_grow_impl.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/masstree_log_types.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/masstree_metadata.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/masstree_page_debug.cpp

@@ -51,19 +51,27 @@ class DumbSpinlock {
 
   /** Locks it if I haven't locked it yet. This method is idempotent. */
   void lock() {
-    if (locked_by_me_) {
-      return;  // already locked
-    }
-
     SPINLOCK_WHILE(true) {
-      bool expected = false;
-      if (raw_atomic_compare_exchange_weak<bool>(locked_, &expected, true)) {
+      if (try_lock()) {
         break;
       }
     }
+  }
+  /** try-version of the lock. */
+  bool try_lock() {
+    if (locked_by_me_) {
+      return true;  // already locked
+    }
 
-    ASSERT_ND(*locked_);
-    locked_by_me_ = true;
+    bool expected = false;
+    if (raw_atomic_compare_exchange_weak<bool>(locked_, &expected, true)) {
+      ASSERT_ND(*locked_);
+      locked_by_me_ = true;
+      return true;
+    } else {
+      ASSERT_ND(expected);
+      return false;
+    }
   }
 
   /** Unlocks it if I locked it. This method is idempotent. You can safely call many times. */

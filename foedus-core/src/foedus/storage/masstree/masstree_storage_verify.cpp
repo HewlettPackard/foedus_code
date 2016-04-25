@@ -73,7 +73,6 @@ ErrorStack verify_page_basic(
   KeySlice low_fence,
   HighFence high_fence) {
   CHECK_AND_ASSERT(!page->is_locked());
-  CHECK_AND_ASSERT(!page->is_retired());
   CHECK_AND_ASSERT(page->header().get_page_type() == page_type);
   CHECK_AND_ASSERT(page->is_border() || page->get_btree_level() > 0);
   CHECK_AND_ASSERT(!page->is_border() || page->get_btree_level() == 0);

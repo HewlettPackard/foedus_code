@@ -77,13 +77,15 @@ struct MasstreeStorageControlBlock final {
   // Type-specific shared members below.
 
   /**
-   * Lock to synchronize updates to root_page_pointer_.
+   * Used to synchronize updates to root_page_pointer_.
+   * The only usecase is to grow the root of the first layer.
    * This lock must be one that can be used outside of volatile page, i.e., a dumb spinlock
    * or MCS Lock because we put it in the control block. Locks that require UniversalLockId
-   * conversion can't be used here, e.g., the Extended RW Lock. We have also separate grow_root
-   * functions to deal with this issue.
+   * conversion can't be used here, e.g., the Extended RW Lock.
+   * We thus use a very different lock here separate from our main lock/commit protocol.
+   * @see GrowFirstLayerRoot
    */
-  xct::LockableXctId  first_root_owner_;
+  bool                first_root_locked_;
 };
 
 /**
@@ -114,36 +116,11 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     return control_block_->root_page_pointer_;
   }
   DualPagePointer* get_first_root_pointer_address() { return &control_block_->root_page_pointer_; }
-  xct::LockableXctId& get_first_root_owner() { return control_block_->first_root_owner_; }
 
   ErrorCode get_first_root(
     thread::Thread* context,
     bool for_write,
     MasstreeIntermediatePage** root);
-
-  /**
-   * Different grow_*_root functions for first-root and non-first-root locks.
-   * Note the different types of root_pointer_owner in grow_first_root and grow_non_first_root.
-   * Both functions calls grow_root to do the bulk of their work.
-   */
-  ErrorCode grow_first_root(
-    thread::Thread* context,
-    MasstreeIntermediatePage** new_root);
-  ErrorCode grow_non_first_root(
-    thread::Thread* context,
-    DualPagePointer* root_pointer,
-    xct::RwLockableXctId* root_pointer_owner,
-    MasstreeIntermediatePage** new_root);
-  ErrorCode grow_root(
-    thread::Thread* context,
-    DualPagePointer* root_pointer,
-    MasstreeIntermediatePage** new_root);
-  void grow_root_compaction(
-    thread::Thread* context,
-    MasstreePage* root,
-    DualPagePointer* root_pointer,
-    MasstreeIntermediatePage** new_root,
-    PageVersionLockScope* root_lock);
 
   /**
    * Find a border node in the layer that corresponds to the given key slice.
