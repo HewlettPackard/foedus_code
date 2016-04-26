@@ -167,7 +167,11 @@ LockListPosition SysxctLockList::batch_get_or_add_entries(
   if (std::is_sorted(lock_addr, lock_addr + lock_count)) {
     DVLOG(3) << "Okay, sorted.";
   } else {
-    LOG(INFO) << "Given array is not sorted. We have to sort it here. Is it intended??";
+    // Most likely we hit this case for page locks (just 2 or 3 locks)
+    // Otherwise something wrong...
+    if (UNLIKELY(lock_count > 5U)) {
+      LOG(INFO) << "Given array is not sorted. We have to sort it here. Is it intended??";
+    }
     std::sort(lock_addr, lock_addr + lock_count);
     // If this is the majority case, the is_sorted() is a wasted cost (std::sort often
     // do something like this internally), but this should almost never happen. In that
@@ -193,10 +197,9 @@ LockListPosition SysxctLockList::batch_get_or_add_entries(
     if (next_id > max_id) {
       DVLOG(3) << "Okay, no overlap. Much easier.";
     } else {
-      // Most likely we hit this case for page locks (just 2 or 3 locks)
-      // Otherwise something wrong...
+      // This is unfortunate, but it happens.. especially with pessimisitic locks
       if (UNLIKELY(lock_count > 5U)) {
-        LOG(INFO) << "Really? Overlapped entry for a large batch. This is quite unexpected!";
+        DVLOG(0) << "Overlapped entry for a large batch. Well, unfortunate. but it happens.";
       }
 
       // Fall back to the slow path
