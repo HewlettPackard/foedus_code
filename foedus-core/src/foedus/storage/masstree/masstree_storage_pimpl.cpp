@@ -40,6 +40,8 @@
 #include "foedus/storage/masstree/masstree_metadata.hpp"
 #include "foedus/storage/masstree/masstree_page_impl.hpp"
 #include "foedus/storage/masstree/masstree_record_location.hpp"
+#include "foedus/storage/masstree/masstree_reserve_impl.hpp"
+#include "foedus/storage/masstree/masstree_split_impl.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/xct/xct.hpp"
@@ -79,8 +81,13 @@ ErrorCode MasstreeStoragePimpl::get_first_root(
     ASSERT_ND(!page->header().snapshot_);
     // root page has a foster child... time for tree growth!
     // either case, we just follow the moved page. Master-Tree invariant guarantees it's safe.
-    GrowFirstLayerRoot functor(context, get_id());
-    CHECK_ERROR_CODE(context->run_nested_sysxct(&functor, 2));
+    if (control_block_->first_root_locked_) {
+      // To avoid contention, we begin it only when the lock seems uncontended.
+      DVLOG(0) << "Other thread seems growing the first-layer. let him do that";
+    } else {
+      GrowFirstLayerRoot functor(context, get_id());
+      CHECK_ERROR_CODE(context->run_nested_sysxct(&functor, 2));
+    }
   }
 
   ASSERT_ND(page->get_layer() == 0);
@@ -258,7 +265,7 @@ retry_from_layer_root:
 #endif  // NDEBUG
         if (next->has_foster_child() && !cur->is_moved()) {
           // oh, the page has foster child, so we should adopt it.
-          // Whether the adopt_from_child() actually adopted it or not,
+          // Whether Adopt actually adopted it or not,
           // we follow the "old" next page. Master-Tree invariant guarantees that it's safe.
           // This is beneficial when we lazily give up adoption in the method, eg other threads
           // holding locks in the intermediate page.
@@ -491,155 +498,6 @@ inline ErrorCode MasstreeStoragePimpl::follow_layer(
   return kErrorCodeOk;
 }
 
-ErrorCode MasstreeStoragePimpl::lock_and_expand_record(
-  thread::Thread* context,
-  PayloadLength required_payload_count,
-  MasstreeBorderPage* border,
-  SlotIndex record_index) {
-  PageVersionLockScope scope(context, border->get_version_address());
-  // Check the condition again after locking.
-  if (border->is_moved()) {
-    VLOG(0) << "Interesting. now it's split";
-    return kErrorCodeOk;
-  } else if (border->does_point_to_layer(record_index)) {
-    VLOG(0) << "Interesting. now it's pointing to next layer";
-    return kErrorCodeOk;
-  } else if (border->get_max_payload_length(record_index) >= required_payload_count) {
-    VLOG(0) << "Interesting. The record is already expanded";
-    return kErrorCodeOk;
-  }
-
-  return expand_record(
-    context,
-    required_payload_count,
-    border,
-    record_index,
-    &scope);
-}
-
-
-ErrorCode MasstreeStoragePimpl::expand_record(
-  thread::Thread* context,
-  PayloadLength physical_payload_hint,
-  MasstreeBorderPage* border,
-  SlotIndex record_index,
-  PageVersionLockScope* lock_scope) {
-  ASSERT_ND(border->is_locked());
-  ASSERT_ND(!lock_scope->released_);
-  ASSERT_ND(!border->is_moved());
-  ASSERT_ND(!border->does_point_to_layer(record_index));
-  ASSERT_ND(record_index < border->get_key_count());
-  DVLOG(2) << "Expanding record.. current max=" << border->get_max_payload_length(record_index)
-    << ", which must become " << physical_payload_hint;
-
-  ASSERT_ND(border->verify_slot_lengthes(record_index));
-  MasstreeBorderPage::Slot* slot = border->get_slot(record_index);
-  ASSERT_ND(!slot->tid_.is_moved());
-  const MasstreeBorderPage::SlotLengthPart lengthes = slot->lengthes_.components;
-  const KeyLength remainder_length = slot->remainder_length_;
-  const DataOffset record_length = MasstreeBorderPage::to_record_length(
-    remainder_length,
-    physical_payload_hint);
-  const DataOffset available = border->available_space();
-
-  // 1. Trivial expansion if the record is placed at last. Fastest.
-  if (border->get_next_offset() == lengthes.offset_ + lengthes.physical_record_length_) {
-    const DataOffset diff = record_length - lengthes.physical_record_length_;
-    DVLOG(1) << "Lucky, expanding a record at last record region. diff=" << diff;
-    if (available >= diff) {
-      DVLOG(2) << "woo. yes, we can just increase the length";
-      slot->lengthes_.components.physical_record_length_ = record_length;
-      border->increase_next_offset(diff);
-      return kErrorCodeOk;
-    }
-  }
-
-  // 2. In-page expansion. Fast.
-  if (available >= record_length) {
-    DVLOG(2) << "Okay, in-page record expansion.";
-    // We have to make sure all threads see a valid state, either new or old.
-    MasstreeBorderPage::SlotLengthPart new_lengthes = lengthes;
-    new_lengthes.offset_ = border->get_next_offset();
-    new_lengthes.physical_record_length_ = record_length;
-    const char* old_record = border->get_record_from_offset(lengthes.offset_);
-    char* new_record = border->get_record_from_offset(new_lengthes.offset_);
-
-    // 2-a. Create the new record region.
-    if (lengthes.physical_record_length_ > 0) {
-      std::memcpy(new_record, old_record, lengthes.physical_record_length_);
-    }
-
-    // 2-b. Lock the record and announce the new location in one-shot.
-    {
-      // To remove risk on deadlock in HCC, we release in-flight locks that are after this lock.
-      // All such in-flight locks must be non-mandatory locks because this is during xct.
-      // So, we can arbitraliry release them.
-      context->mcs_release_all_current_locks_at_and_after(
-        xct::xct_id_to_universal_lock_id(
-          context->get_global_volatile_page_resolver(), &slot->tid_));
-      xct::McsRwLockScope record_lock(context, &slot->tid_, false, true, false);
-      // The above lock implies a barrier here
-      ASSERT_ND(!slot->tid_.is_moved());
-      slot->write_lengthes_oneshot(new_lengthes);
-      assorted::memory_fence_release();
-      // We don't have to change TID here because we did nothing logically.
-      // Reading transactions are safe to read either old or new record regions.
-      // See comments in MasstreeCommonLogType::apply_record_prepare() for how we make it safe
-      // for writing transactions.
-    }
-
-    // Above unlock implies a barrier here
-    border->increase_next_offset(record_length);
-    return kErrorCodeOk;
-  }
-
-  // 3. ouch. by far slowest
-  DVLOG(1) << "Umm, we need to split this page for record expansion. available="
-    << available << ", record_length=" << record_length
-    << ", record_index=" << record_index
-    << ", key_count=" << border->get_key_count();
-
-  KeySlice slice = border->get_slice(record_index);
-  MasstreeBorderPage* new_child;
-  xct::McsWwLockScope new_child_lock;
-  ASSERT_ND(!new_child_lock.is_locked());
-  CHECK_ERROR_CODE(border->split_foster(
-    context,
-    slice,
-    true,  // we are splitting to make room. disable no-record-split
-    &new_child,
-    &new_child_lock));
-  ASSERT_ND(new_child->is_locked());
-  ASSERT_ND(new_child_lock.is_locked());
-  ASSERT_ND(new_child->within_fences(slice));
-  ASSERT_ND(border->is_moved());
-  ASSERT_ND(border->is_locked());
-  ASSERT_ND(!lock_scope->released_);
-
-  // Then recurse to the new child to expand. What's the new index?
-  const char* suffix = border->get_record(record_index);
-  SlotIndex new_index = new_child->find_key(slice, suffix, remainder_length);
-  ASSERT_ND(new_index < new_child->get_key_count());
-  if (new_index >= new_child->get_key_count()) {
-    // The new page is still locked by myself. This must not happen.
-    LOG(ERROR) << "Couldn't find the record in new page. This must not happen.";
-  }
-
-  // Convert McsWwLockScope to PageVersionLockScope. this is a tentative solution
-  PageVersionLockScope new_child_page_scope(&new_child_lock);
-  ASSERT_ND(!new_child_lock.is_locked());
-  ASSERT_ND(new_child_page_scope.block_ != 0);
-  CHECK_ERROR_CODE(expand_record(
-    context,
-    physical_payload_hint,
-    new_child,
-    new_index,
-    &new_child_page_scope));
-  DVLOG(2) << "Expanded record in new child";
-
-  return kErrorCodeOk;
-}
-
 ErrorCode MasstreeStoragePimpl::reserve_record(
   thread::Thread* context,
   const void* key,
@@ -675,10 +533,10 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
       }
       ASSERT_ND(border->within_fences(slice));
 
-      SlotIndex count = border->get_key_count();
-      // as done in reserve_record_new_record_apply(), we need a fence on BOTH sides.
+      const SlotIndex count = border->get_key_count();
+      // ReserveRecords, we need a fence on BOTH sides.
       // observe key count first, then verify the keys.
-      assorted::memory_fence_consume();
+      assorted::memory_fence_acquire();
       MasstreeBorderPage::FindKeyForReserveResult match = border->find_key_for_reserve(
         0,
         count,
@@ -692,121 +550,53 @@ ErrorCode MasstreeStoragePimpl::reserve_record(
         break;  // next layer
       } else if (match.match_type_ == MasstreeBorderPage::kExactMatchLocalRecord) {
         // Even in this case, if the record space is too small, we must migrate it first.
-        // This is another system transaction. After that, we retry.
-        if (border->get_max_payload_length(match.index_) < payload_count) {
-          // We haven't locked the page yet, so use lock_and_expand_record.
-          // Hopefully record expansion is not that often, so this shouldn't matter
-          CHECK_ERROR_CODE(lock_and_expand_record(
-            context,
-            physical_payload_hint,
-            border,
-            match.index_));
-          continue;  // must retry no matter what happened.
+        if (border->get_max_payload_length(match.index_) >= payload_count) {
+          // Ok, this seems to already satisfy our need. but...
+          // Up until now, all the searches/expands were physical-only.
+          // Now we finalize the XID in the search result so that precommit will
+          // catch any change since now. This also means we need to re-check
+          // the status again, and retry if pointing to next layer or moved.
+          CHECK_ERROR_CODE(result->populate_logical(cur_xct, border, match.index_, true));
+          if (result->observed_.is_next_layer() || result->observed_.is_moved()) {
+            // because the search is optimistic, we might now see a XctId with next-layer bit on.
+            // in this case, we retry.
+            VLOG(0) << "Interesting. Next-layer-retry due to concurrent transaction";
+            assorted::memory_fence_acquire();
+            continue;
+          }
+          return kErrorCodeOk;
         }
-        // Up until now, all the searches/expands were physical-only.
-        // Now we finalize the XID in the search result so that precommit will
-        // catch any change since now. This also means we need to re-check
-        // the status again, and retry if pointing to next layer or moved.
-        CHECK_ERROR_CODE(result->populate_logical(cur_xct, border, match.index_, true));
-        if (result->observed_.is_next_layer() || result->observed_.is_moved()) {
-          // because the search is optimistic, we might now see a XctId with next-layer bit on.
-          // in this case, we retry.
-          VLOG(0) << "Interesting. Next-layer-retry due to concurrent transaction";
-          continue;
-        }
-        assorted::memory_fence_consume();
-        return kErrorCodeOk;
-      } else if (match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord) {
-        // in this case, we don't need a page-wide lock. because of key-immutability,
-        // this is the only place we can have a next-layer pointer for this slice.
-        // thus we just lock the record and convert it to a next-layer pointer.
-        ASSERT_ND(match.index_ < kBorderPageMaxSlots);
-
-        // this means now we have to create a next layer.
-        // this is also one system transaction.
-
-        // Can we trivially turn this into a next-layer record?
-        if (border->get_max_payload_length(match.index_) < sizeof(DualPagePointer)) {
-          // Same as above.
-          CHECK_ERROR_CODE(lock_and_expand_record(
-            context,
-            sizeof(DualPagePointer),
-            border,
-            match.index_));
-          continue;  // must retry no matter what happened.
-        }
-
-        CHECK_ERROR_CODE(create_next_layer(context, border, match.index_));
-        // because we do this without page lock, this might have failed. in that case,
-        // we retry.
-        if (border->does_point_to_layer(match.index_)) {
-          ASSERT_ND(border->get_owner_id(match.index_)->xct_id_.is_next_layer());
-          CHECK_ERROR_CODE(follow_layer(context, true, border, match.index_, &layer_root));
-          break;  // next layer
-        } else {
-          VLOG(0) << "Because of concurrent transaction, we retry the system transaction to"
-            << " make the record into a next layer pointer";
-          continue;
-        }
-      } else {
-        ASSERT_ND(match.match_type_ == MasstreeBorderPage::kNotFound);
       }
 
-      // no matching or conflicting keys. so we will create a brand new record.
-      // this is a system transaction to just create a deleted record.
-      // for this, we need a page lock.
-      PageVersionLockScope scope(context, border->get_version_address());
-      border->assert_entries();
-      // now finally we took a lock, finalizing the version. up to now, everything could happen.
-      // check all of them and retry if fails.
-      if (UNLIKELY(border->is_moved())) {
-        continue;  // locally retries
-      }
-      // even resume the searches if new record was installed (only new record area)
-      if (count != border->get_key_count()) {
-        ASSERT_ND(count < border->get_key_count());
-        // someone else has inserted a new record. Is it conflicting?
-        // search again, but only for newly inserted record(s)
-        SlotIndex new_count = border->get_key_count();
-        match = border->find_key_for_reserve(count, new_count, slice, suffix, remainder);
-        count = new_count;
-      }
+      // In all other cases, we (probably) need to do something complex.
+      // ReserveRecords sysxct does it.
+      ReserveRecords reserve(
+        context,
+        border,
+        slice,
+        remainder,
+        suffix,
+        physical_payload_hint,  // let's allocate conservatively
+        get_meta().should_aggresively_create_next_layer(layer, remainder),
+        match.match_type_ == MasstreeBorderPage::kNotFound ? count : match.index_);
+      CHECK_ERROR_CODE(context->run_nested_sysxct(&reserve, 2U));
 
-      if (LIKELY(match.match_type_ == MasstreeBorderPage::kNotFound)) {
-        // okay, surely new record. Should be this case unless there is a race.
-        scope.set_changed();
-        if (get_meta().should_aggresively_create_next_layer(layer, remainder)) {
-          // min_layer_hint_ configuration tells that we should start with a next-layer record
-          // rather than creating a usual record and then moving it later.
-          DVLOG(1) << "Aggressively creating a next-layer.";
-          CHECK_ERROR_CODE(reserve_record_next_layer(context, border, slice, &layer_root));
-          ASSERT_ND(layer_root->get_layer() == layer + 1U);
-          break;  // next layer
-        }
-
-        CHECK_ERROR_CODE(reserve_record_new_record(
+      // We might need to split the page
+      if (reserve.out_split_needed_) {
+        SplitBorder split(
           context,
           border,
           slice,
+          false,
+          true,
           remainder,
-          suffix,
           physical_payload_hint,
-          &scope,
-          result));
-        ASSERT_ND(!scope.released_);
-        ASSERT_ND(!result->page_->is_moved());
-        ASSERT_ND(result->page_->is_locked());
-        ASSERT_ND(result->page_->get_version_address() == scope.version_);
-        ASSERT_ND(result->index_ < result->page_->get_key_count());
-        return kErrorCodeOk;
-      } else {
-        // This is rare, thus for code simplicity we just retry.
-        // It's a bit wasteful as we already know the exact match index,
-        // but let's optimize corner cases after we see bottlenecks here.
-        VLOG(1) << "Interesting. Now found something inserted by concurrent thread. "
-          << "match_type_=" << match.match_type_;
-        continue;  // retry
+          suffix);
+        CHECK_ERROR_CODE(context->run_nested_sysxct(&split, 2U));
       }
+
+      // In either case, we should resume the search.
+      continue;
     }
   }
 }
@@ -835,246 +625,54 @@ ErrorCode MasstreeStoragePimpl::reserve_record_normalized(
       }
     }
 
-    PageVersionLockScope scope(context, border->get_version_address());
-    border->assert_entries();
-    if (UNLIKELY(border->has_foster_child())) {
-      continue;
-    }
-    ASSERT_ND(!border->has_foster_child());
-    ASSERT_ND(!border->is_moved());
-    ASSERT_ND(border->is_foster_major_null());
-    ASSERT_ND(border->is_foster_minor_null());
     ASSERT_ND(border->within_fences(key));
 
     // because we never go on to second layer in this case, it's either a full match or not-found
-    SlotIndex count = border->get_key_count();
-    SlotIndex index = border->find_key_normalized(0, count, key);
+    const SlotIndex count = border->get_key_count();
+    assorted::memory_fence_acquire();
+    const SlotIndex index = border->find_key_normalized(0, count, key);
 
     if (index != kBorderPageMaxSlots) {
       // If the record space is too small, we can't insert.
-      if (border->get_max_payload_length(index) < payload_count) {
-        CHECK_ERROR_CODE(expand_record(
-          context,
-          physical_payload_hint,
-          border,
-          index,
-          &scope));
-        continue;  // retry (will see foster child)
+      if (border->get_max_payload_length(index) >= payload_count) {
+        CHECK_ERROR_CODE(result->populate_logical(cur_xct, border, index, true));
+        if (result->observed_.is_moved()) {
+          // because the search is optimistic, we might now see a XctId with next-layer bit on.
+          // in this case, we retry.
+          VLOG(0) << "Interesting. Moved by concurrent transaction";
+          assorted::memory_fence_acquire();
+          continue;
+        }
+        return kErrorCodeOk;
       }
-      scope.release();
-      CHECK_ERROR_CODE(result->populate_logical(cur_xct, border, index, true));
-      return kErrorCodeOk;
     }
 
-    scope.set_changed();
-    return reserve_record_new_record(
+    // Same as the general case.
+    ReserveRecords reserve(
       context,
       border,
       key,
       sizeof(KeySlice),
       nullptr,
       physical_payload_hint,
-      &scope,
-      result);
-  }
-}
+      false,
+      index == kBorderPageMaxSlots ? count : index);
+    CHECK_ERROR_CODE(context->run_nested_sysxct(&reserve, 2U));
 
-ErrorCode MasstreeStoragePimpl::reserve_record_new_record(
-  thread::Thread* context,
-  MasstreeBorderPage* border,
-  KeySlice key,
-  KeyLength remainder,
-  const void* suffix,
-  PayloadLength payload_count,
-  PageVersionLockScope* out_page_lock,
-  RecordLocation* result) {
-  // First, split as many times as needed until we can insert the record to this page.
-  result->clear();
-  while (true) {
-    ASSERT_ND(!out_page_lock->released_);
-    ASSERT_ND(out_page_lock->version_ == border->get_version_address());
-    ASSERT_ND(border->is_locked());
-    ASSERT_ND(!border->is_moved());
-    ASSERT_ND(border->is_foster_major_null());
-    ASSERT_ND(border->is_foster_minor_null());
-    SlotIndex count = border->get_key_count();
-    bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
-    if (early_split || !border->can_accomodate(count, remainder, payload_count)) {
-      // have to split to make room. the newly created foster child is always the place to insert.
-      if (early_split) {
-        DVLOG(1) << "Early split! cur count=" << count << ", storage=" << get_name();
-      }
-
-      MasstreeBorderPage* target;
-      xct::McsWwLockScope target_lock;
-      ASSERT_ND(!target_lock.is_locked());
-      CHECK_ERROR_CODE(border->split_foster(context, key, false, &target, &target_lock));
-      ASSERT_ND(target->is_locked());
-      ASSERT_ND(target_lock.is_locked());
-      ASSERT_ND(target->within_fences(key));
-      ASSERT_ND(target->find_key(key, suffix, remainder) == kBorderPageMaxSlots);
-
-      // go down and keep splitting. out_page_lock now also points to the new target.
-      // Convert McsWwLockScope to PageVersionLockScope. this is a tentative solution
-      PageVersionLockScope new_scope(&target_lock);
-      out_page_lock->take_over(&new_scope);
-      ASSERT_ND(!target_lock.is_locked());
-      ASSERT_ND(new_scope.released_);
-      ASSERT_ND(!out_page_lock->released_);
-      ASSERT_ND(out_page_lock->version_ == target->get_version_address());
-      border = target;
-    } else {
-      break;  // no need to split
+    if (reserve.out_split_needed_) {
+      SplitBorder split(
+        context,
+        border,
+        key,
+        false,
+        true,
+        sizeof(KeySlice),
+        physical_payload_hint,
+        nullptr);
+      CHECK_ERROR_CODE(context->run_nested_sysxct(&split, 2U));
     }
+    continue;
   }
-
-  ASSERT_ND(border->is_locked());
-  ASSERT_ND(!border->is_moved());
-  SlotIndex count = border->get_key_count();
-  ASSERT_ND(border->can_accomodate(count, remainder, payload_count));
-  ASSERT_ND(!border->should_split_early(count, get_meta().border_early_split_threshold_));
-  return reserve_record_new_record_apply(
-    context,
-    border,
-    count,
-    key,
-    remainder,
-    suffix,
-    payload_count,
-    result);
-}
-
-ErrorCode MasstreeStoragePimpl::reserve_record_new_record_apply(
-  thread::Thread* context,
-  MasstreeBorderPage* target,
-  SlotIndex target_index,
-  KeySlice slice,
-  KeyLength remainder_length,
-  const void* suffix,
-  PayloadLength payload_count,
-  RecordLocation* result) {
-  ASSERT_ND(target->is_locked());
-  ASSERT_ND(!target->is_moved());
-  ASSERT_ND(!target->is_retired());
-  ASSERT_ND(target->can_accomodate(target_index, remainder_length, payload_count));
-  ASSERT_ND(target->get_key_count() < kBorderPageMaxSlots);
-  xct::XctId initial_id;
-  initial_id.set(
-    Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
-    0);
-  initial_id.set_deleted();
-  target->reserve_record_space(
-    target_index,
-    initial_id,
-    slice,
-    suffix,
-    remainder_length,
-    payload_count);
-  // we increment key count AFTER installing the key because otherwise the optimistic read
-  // might see the record but find that the key doesn't match. we need a fence to prevent it.
-  assorted::memory_fence_release();
-  target->increment_key_count();
-  ASSERT_ND(target->get_key_count() <= kBorderPageMaxSlots);
-  ASSERT_ND(!target->is_moved());
-  ASSERT_ND(!target->is_retired());
-  target->assert_entries();
-  auto* cur_xct = &context->get_current_xct();
-  CHECK_ERROR_CODE(result->populate_logical(cur_xct, target, target_index, true));
-  return kErrorCodeOk;
-}
-
-ErrorCode MasstreeStoragePimpl::reserve_record_next_layer(
-  thread::Thread* context,
-  MasstreeBorderPage* border,
-  KeySlice slice,
-  MasstreePage** out_page) {
-  ASSERT_ND(border->is_locked());
-  ASSERT_ND(!border->is_moved());
-  ASSERT_ND(border->is_foster_major_null());
-  ASSERT_ND(border->is_foster_minor_null());
-  SlotIndex count = border->get_key_count();
-  bool early_split = border->should_split_early(count, get_meta().border_early_split_threshold_);
-  if (!early_split && border->can_accomodate(count, sizeof(KeySlice), sizeof(DualPagePointer))) {
-    CHECK_ERROR_CODE(reserve_record_next_layer_apply(context, border, slice, out_page));
-  } else {
-#ifndef NDEBUG
-    if (early_split) {
-      DVLOG(1) << "Early split! cur count=" << count << ", storage=" << get_name();
-    }
-#endif  // NDEBUG
-    // have to split to make room. the newly created foster child is always the place to insert.
-    MasstreeBorderPage* target;
-    xct::McsWwLockScope target_lock;
-    ASSERT_ND(!target_lock.is_locked());
-    CHECK_ERROR_CODE(border->split_foster(context, slice, false, &target, &target_lock));
-    ASSERT_ND(target->is_locked());
-    ASSERT_ND(target_lock.is_locked());
-    ASSERT_ND(target->within_fences(slice));
-    count = target->get_key_count();
-    if (!target->can_accomodate(count, sizeof(KeySlice), sizeof(DualPagePointer))) {
-      // this might happen if payload_count is huge. so far just error out.
-      LOG(WARNING) << "Wait, not enough space even after splits? should be pretty rare...";
-      return kErrorCodeStrTooLongPayload;
-    }
-    CHECK_ERROR_CODE(reserve_record_next_layer_apply(context, target, slice, out_page));
-  }
-  return kErrorCodeOk;
-}
-
-ErrorCode MasstreeStoragePimpl::reserve_record_next_layer_apply(
-  thread::Thread* context,
-  MasstreeBorderPage* target,
-  KeySlice slice,
-  MasstreePage** out_page) {
-  ASSERT_ND(target->is_locked());
-  ASSERT_ND(!target->is_moved());
-  ASSERT_ND(!target->is_retired());
-  const SlotIndex count = target->get_key_count();
-  ASSERT_ND(target->can_accomodate(count, sizeof(KeySlice), sizeof(DualPagePointer)));
-  xct::XctId initial_id;
-  initial_id.set(
-    Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
-    0);
-  initial_id.set_next_layer();
-
-  memory::NumaCoreMemory* memory = context->get_thread_memory();
-  memory::PagePoolOffset offset = memory->grab_free_volatile_page();
-  if (offset == 0) {
-    return kErrorCodeMemoryNoFreePages;
-  }
-
-  const memory::LocalPageResolver &resolver = context->get_local_volatile_page_resolver();
-  MasstreeBorderPage* root = reinterpret_cast<MasstreeBorderPage*>(
-    resolver.resolve_offset_newpage(offset));
-  DualPagePointer pointer;
-  pointer.snapshot_pointer_ = 0;
-  pointer.volatile_pointer_.set(context->get_numa_node(), offset);
-
-  // initialize the root page by copying the record
-  root->initialize_volatile_page(
-    get_id(),
-    pointer.volatile_pointer_,
-    target->get_layer() + 1U,
-    kInfimumSlice,    // infimum slice
-    kSupremumSlice);   // high-fence is supremum
-  ASSERT_ND(!root->is_locked());
-  ASSERT_ND(!root->is_moved());
-  ASSERT_ND(!root->is_retired());
-  ASSERT_ND(root->get_key_count() == 0);
-
-  assorted::memory_fence_release();
-  target->reserve_initially_next_layer(count, initial_id, slice, pointer);
-  assorted::memory_fence_release();
-  target->increment_key_count();
-  ASSERT_ND(target->does_point_to_layer(count));
-  ASSERT_ND(target->get_next_layer(count)->
-    volatile_pointer_.is_equivalent(pointer.volatile_pointer_));
-
-  ASSERT_ND(!target->is_moved());
-  ASSERT_ND(!target->is_retired());
-  target->assert_entries();
-  *out_page = root;
-  return kErrorCodeOk;
 }
 
 inline ErrorCode MasstreeStoragePimpl::check_next_layer_bit(xct::XctId observed) {

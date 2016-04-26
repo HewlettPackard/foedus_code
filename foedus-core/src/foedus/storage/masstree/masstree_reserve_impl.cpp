@@ -28,7 +28,33 @@ namespace foedus {
 namespace storage {
 namespace masstree {
 
+inline xct::XctId get_initial_xid() {
+  xct::XctId initial_id;
+  initial_id.set(
+    Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
+    0);
+  return initial_id;
+}
+
+inline MasstreeBorderPage* allocate_new_border_page(thread::Thread* context) {
+  memory::NumaCoreMemory* memory = context->get_thread_memory();
+  memory::PagePoolOffset offset = memory->grab_free_volatile_page();
+  if (offset == 0) {
+    return nullptr;
+  }
+
+  const auto &resolver = context->get_local_volatile_page_resolver();
+  MasstreeBorderPage* new_page
+    = reinterpret_cast<MasstreeBorderPage*>(resolver.resolve_offset_newpage(offset));
+  VolatilePagePointer new_page_pointer;
+  new_page_pointer.set(context->get_numa_node(), offset);
+  new_page->header().page_id_ = new_page_pointer.word;
+  return new_page;
+}
+
 ErrorCode ReserveRecords::run(xct::SysxctWorkspace* sysxct_workspace) {
+  out_split_needed_ = false;
+  ASSERT_ND(!should_aggresively_create_next_layer_ || remainder_length_ > sizeof(KeySlice));
   ASSERT_ND(!target_->header().snapshot_);
   CHECK_ERROR_CODE(context_->sysxct_page_lock(sysxct_workspace, reinterpret_cast<Page*>(target_)));
   ASSERT_ND(target_->is_locked());
@@ -48,16 +74,16 @@ ErrorCode ReserveRecords::run(xct::SysxctWorkspace* sysxct_workspace) {
     suffix_,
     remainder_length_);
 
+  // Let's check whether we need to split this page.
+  // If we can accomodate it without splitting the page, complete it within here.
   if (match.match_type_ == MasstreeBorderPage::kExactMatchLayerPointer) {
     // Definitelly done. The caller must folllow the next-layer
     ASSERT_ND(match.index_ < kBorderPageMaxSlots);
-    out_slot_ = match.index_;
     return kErrorCodeOk;
   } else if (match.match_type_ == MasstreeBorderPage::kExactMatchLocalRecord) {
     // Is it enough spacious?
     ASSERT_ND(match.index_ < kBorderPageMaxSlots);
     if (target_->get_max_payload_length(match.index_) >= payload_count_) {
-      out_slot_ = match.index_;
       return kErrorCodeOk;  // Yes! done.
     }
 
@@ -69,30 +95,25 @@ ErrorCode ReserveRecords::run(xct::SysxctWorkspace* sysxct_workspace) {
     // Now the state of the record is finalized. Let's check it again.
     ASSERT_ND(!record->is_moved());  // can't be moved as target_ is not moved.
     if (target_->get_max_payload_length(match.index_) >= payload_count_) {
-      out_slot_ = match.index_;
       return kErrorCodeOk;  // Yes! done.
     } else if (record->is_next_layer()) {
       DVLOG(0) << "Interesting. the record now points to next layer";
-      out_slot_ = match.index_;
       return kErrorCodeOk;  // same kExactMatchLayerPointer
     }
 
     bool expanded = target_->try_expand_record_in_page_physical(payload_count_, match.index_);
     if (expanded) {
       ASSERT_ND(target_->get_max_payload_length(match.index_) >= payload_count_);
-      out_slot_ = match.index_;
-    } else {
-      // Then we need to make room for the expansion.
-      out_split_needed_ = true;
+      return kErrorCodeOk;
     }
 
-    return kErrorCodeOk;
+    DVLOG(0) << "Ouch. need to split for allocating a space for record expansion";
   } else if (match.match_type_ == MasstreeBorderPage::kConflictingLocalRecord) {
     // We will create a next layer.
     // In this case, page-lock was actually an overkill because of key-immutability,
     // However, doing it after page-lock makes the code simpler.
     // In most cases, the caller finds the conflicting local record before calling this
-    // sysxct. No need to optimizer for this rare case.
+    // sysxct. No need to optimize for this rare case.
     ASSERT_ND(match.index_ < kBorderPageMaxSlots);
 
     auto* record = target_->get_owner_id(match.index_);
@@ -103,7 +124,6 @@ ErrorCode ReserveRecords::run(xct::SysxctWorkspace* sysxct_workspace) {
     ASSERT_ND(!record->is_moved());  // can't be moved as target_ is not moved.
     if (record->is_next_layer()) {
       DVLOG(0) << "Interesting. the record now points to next layer";
-      out_slot_ = match.index_;
       return kErrorCodeOk;  // same kExactMatchLayerPointer
     }
 
@@ -116,59 +136,91 @@ ErrorCode ReserveRecords::run(xct::SysxctWorkspace* sysxct_workspace) {
         = target_->try_expand_record_in_page_physical(sizeof(DualPagePointer), match.index_);
       if (expanded) {
         ASSERT_ND(target_->get_max_payload_length(match.index_) >= sizeof(DualPagePointer));
-      } else {
-        // Then we need to make room for the expansion.
-        out_split_needed_ = true;
-        DVLOG(0) << "Ouch. need to split for allocating a space for next-layer";
-        return kErrorCodeOk;
       }
     }
 
-    // Turn it into a next-layer
-    ASSERT_ND(target_->get_max_payload_length(match.index_) >= sizeof(DualPagePointer));
-    memory::NumaCoreMemory* memory = context_->get_thread_memory();
-    memory::PagePoolOffset offset = memory->grab_free_volatile_page();
-    if (offset == 0) {
-      return kErrorCodeMemoryNoFreePages;
+    if (target_->get_max_payload_length(match.index_) >= sizeof(DualPagePointer)) {
+      // Turn it into a next-layer
+      memory::NumaCoreMemory* memory = context_->get_thread_memory();
+      memory::PagePoolOffset offset = memory->grab_free_volatile_page();
+      if (offset == 0) {
+        return kErrorCodeMemoryNoFreePages;
+      }
+      MasstreeBorderPage* new_layer_root = reinterpret_cast<MasstreeBorderPage*>(
+        context_->get_local_volatile_page_resolver().resolve_offset_newpage(offset));
+      VolatilePagePointer new_page_id;
+      new_page_id.set(context_->get_numa_node(), offset);
+      new_layer_root->initialize_as_layer_root_physical(new_page_id, target_, match.index_);
+      return kErrorCodeOk;
     }
-    MasstreeBorderPage* new_layer_root = reinterpret_cast<MasstreeBorderPage*>(
-      context_->get_local_volatile_page_resolver().resolve_offset_newpage(offset));
-    VolatilePagePointer new_page_id;
-    new_page_id.set(context_->get_numa_node(), offset);
-    new_layer_root->initialize_as_layer_root_physical(new_page_id, target_, match.index_);
-    out_slot_ = match.index_;
-    return kErrorCodeOk;
+
+    DVLOG(0) << "Ouch. need to split for allocating a space for next-layer";
+  } else {
+    ASSERT_ND(match.match_type_ == MasstreeBorderPage::kNotFound);
+    if (should_aggresively_create_next_layer_ &&
+      target_->can_accomodate(key_count, sizeof(KeySlice), sizeof(DualPagePointer))) {
+      DVLOG(1) << "Aggressively creating a next-layer.";
+
+      MasstreeBorderPage* root = allocate_new_border_page(context_);
+      if (root == nullptr) {
+        return kErrorCodeMemoryNoFreePages;
+      }
+      DualPagePointer pointer;
+      pointer.snapshot_pointer_ = 0;
+      pointer.volatile_pointer_ = root->get_volatile_page_id();
+
+      root->initialize_volatile_page(
+        target_->header().storage_id_,
+        pointer.volatile_pointer_,
+        target_->get_layer() + 1U,
+        kInfimumSlice,    // infimum slice
+        kSupremumSlice);   // high-fence is supremum
+      ASSERT_ND(!root->is_locked());
+      ASSERT_ND(!root->is_moved());
+      ASSERT_ND(!root->is_retired());
+      ASSERT_ND(root->get_key_count() == 0);
+
+      xct::XctId initial_id = get_initial_xid();
+      initial_id.set_next_layer();
+      target_->reserve_initially_next_layer(key_count, initial_id, slice_, pointer);
+
+      assorted::memory_fence_release();
+      target_->increment_key_count();
+      ASSERT_ND(target_->does_point_to_layer(key_count));
+      ASSERT_ND(target_->get_next_layer(key_count)->volatile_pointer_ == pointer.volatile_pointer_);
+
+      ASSERT_ND(!target_->is_moved());
+      ASSERT_ND(!target_->is_retired());
+      target_->assert_entries();
+      return kErrorCodeOk;
+    }
+    if (target_->can_accomodate(key_count, remainder_length_, payload_count_)) {
+      ASSERT_ND(target_->get_key_count() < kBorderPageMaxSlots);
+      xct::XctId initial_id = get_initial_xid();
+      initial_id.set_deleted();
+      target_->reserve_record_space(
+        key_count,
+        initial_id,
+        slice_,
+        suffix_,
+        remainder_length_,
+        payload_count_);
+      // we increment key count AFTER installing the key because otherwise the optimistic read
+      // might see the record but find that the key doesn't match. we need a fence to prevent it.
+      assorted::memory_fence_release();
+      target_->increment_key_count();
+      ASSERT_ND(target_->get_key_count() <= kBorderPageMaxSlots);
+      ASSERT_ND(!target_->is_moved());
+      ASSERT_ND(!target_->is_retired());
+      target_->assert_entries();
+      return kErrorCodeOk;
+    }
+
+    DVLOG(1) << "Ouch. need to split for allocating a space for new record";
   }
 
-  // Now we are sure we will newly install a physical record. do we have enough space?
-  ASSERT_ND(match.match_type_ == MasstreeBorderPage::kNotFound);
-  if (!target_->can_accomodate(key_count, remainder_length_, payload_count_)) {
-    out_split_needed_ = true;
-    return kErrorCodeOk;
-  }
-
-  ASSERT_ND(target_->get_key_count() < kBorderPageMaxSlots);
-  xct::XctId initial_id;
-  initial_id.set(
-    Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
-    0);
-  initial_id.set_deleted();
-  target_->reserve_record_space(
-    key_count,
-    initial_id,
-    slice_,
-    suffix_,
-    remainder_length_,
-    payload_count_);
-  // we increment key count AFTER installing the key because otherwise the optimistic read
-  // might see the record but find that the key doesn't match. we need a fence to prevent it.
-  assorted::memory_fence_release();
-  target_->increment_key_count();
-  ASSERT_ND(target_->get_key_count() <= kBorderPageMaxSlots);
-  ASSERT_ND(!target_->is_moved());
-  ASSERT_ND(!target_->is_retired());
-  target_->assert_entries();
-  out_slot_ = match.index_;
+  // If we are here, we need to split the page for some reason.
+  out_split_needed_ = true;
   return kErrorCodeOk;
 }
 

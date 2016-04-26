@@ -457,7 +457,7 @@ void MasstreeBorderPage::initialize_as_layer_root_physical(
   ASSERT_ND(parent_slot->tid_.is_keylocked());
   ASSERT_ND(!parent_slot->tid_.is_moved());
   ASSERT_ND(!parent_slot->does_point_to_layer());
-  ASSERT_ND(parent->get_max_payload_length(parent_index) < sizeof(DualPagePointer));
+  ASSERT_ND(parent->get_max_payload_length(parent_index) >= sizeof(DualPagePointer));
   DualPagePointer pointer;
   pointer.snapshot_pointer_ = 0;
   pointer.volatile_pointer_ = page_id;

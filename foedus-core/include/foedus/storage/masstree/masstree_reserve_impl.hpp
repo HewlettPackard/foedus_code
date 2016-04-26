@@ -40,9 +40,9 @@ namespace masstree {
  * This system transaction does the former.
  *
  * This does nothing and returns kErrorCodeOk in the following cases:
- * \li The page turns out to already contain a physical record for the key.
+ * \li The page turns out to already contain a satisfying physical record for the key.
  * \li The page turns out to be already moved.
- * \li The page turns out to be already full.
+ * \li The page turns out to need page-split to accomodate the record.
  *
  * When the 2nd or 3rd case (or 1st case with too-short payload space) happens,
  * the caller will do something else (e.g. split/follow-foster) and retry.
@@ -78,15 +78,13 @@ struct ReserveRecords final : public xct::SysxctFunctor {
   const SlotIndex             hint_check_from_;
 
   /**
-   * [Out] in-page location of the physical record matching the key.
-   * Whenever we found or installed a matching record, this sysxts sets this value as return value.
-   * kBorderPageMaxSlots when it was impossible to install the record.
+   * When we \e CAN create a next layer for the new record, whether to make it a next-layer
+   * from the beginning, or make it as a usual record first.
+   * @see MasstreeMetadata::should_aggresively_create_next_layer()
    */
-  SlotIndex                   out_slot_;
-
+  const bool                  should_aggresively_create_next_layer_;
   /**
-   * [Out] Indicates whether we need to split the page to install the record.
-   * Implicit from out_slot_ == kBorderPageMaxSlots, but easier to see why.
+   * [Out]
    */
   bool                        out_split_needed_;
 
@@ -97,6 +95,7 @@ struct ReserveRecords final : public xct::SysxctFunctor {
     KeyLength remainder_length,
     const void* suffix,
     PayloadLength payload_count,
+    bool should_aggresively_create_next_layer,
     SlotIndex hint_check_from)
     : xct::SysxctFunctor(),
       context_(context),
@@ -106,7 +105,7 @@ struct ReserveRecords final : public xct::SysxctFunctor {
       remainder_length_(remainder_length),
       payload_count_(payload_count),
       hint_check_from_(hint_check_from),
-      out_slot_(kBorderPageMaxSlots),
+      should_aggresively_create_next_layer_(should_aggresively_create_next_layer),
       out_split_needed_(false) {
   }
   virtual ErrorCode run(xct::SysxctWorkspace* sysxct_workspace) override;

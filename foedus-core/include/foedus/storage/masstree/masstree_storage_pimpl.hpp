@@ -149,49 +149,6 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     RecordLocation* result);
 
   /**
-   * @brief Runs a system transaction to expand the record space,
-   * @param[in] context Thread context
-   * @param[in] physical_payload_hint Minimal payload size we want to guarantee
-   * @param[in,out] border The page that contains the record
-   * @param[in] record_index The record to expand
-   * @param[in,out] lock_scope Already-acquired lock on the border page
-   * @pre border->is_locked() by this thread. We receive lock_scope just to enforce that.
-   * @pre !border->is_moved(), so we can expand records or split this page.
-   * @pre border->get_max_payload_length(record_index) < payload_count. Otherwise why called.
-   * @pre !border->does_point_to_layer(record_index).
-   * @details
-   * This method tries 3 things to expand the record space, in preference order:
-   * \li If the record is currently placed at the right-most record region
-   * (or, page's next_offset == record's offset+len), we can just change the length field.
-   * We don't even need a record-lock in this case.
-   * \li If the page has enough space, we allocate a new record region and changes offset/length
-   * fields. We have to take a record-lock and increments TID so that concurrent threads
-   * detect the change at precommit.
-   * \li If none of the above works, we split this page and expand the record in the new page.
-   * When this method returns without an error, it is guaranteed that
-   * there are new foster children with the expanded record.
-   * Internally, it might not be enough to split just once
-   * to reserve a record with the given size when it is large. In that case tbis method recursively
-   * splits the page.
-   */
-  ErrorCode expand_record(
-    thread::Thread* context,
-    PayloadLength physical_payload_hint,
-    MasstreeBorderPage* border,
-    SlotIndex record_index,
-    PageVersionLockScope* lock_scope);
-  /**
-   * locks the page, invokes expand_record(), then releases the lock.
-   * When, after locking, it turns out that we can't expand, it does nothing (not an error).
-   * Hence, in either case, the caller must retry.
-   */
-  ErrorCode lock_and_expand_record(
-    thread::Thread* context,
-    PayloadLength required_payload_count,
-    MasstreeBorderPage* border,
-    SlotIndex record_index);
-
-  /**
    * Like locate_record(), this is also a logical operation.
    */
   ErrorCode reserve_record(
@@ -207,59 +164,6 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     PayloadLength payload_count,
     PayloadLength physical_payload_hint,
     RecordLocation* result);
-
-  /**
-   * @brief A sub-routine of reserve_record()/reserve_record_normalized() to allocate a new record
-   * in the given page.
-   * @pre border->is_locked() && !border->is_moved()
-   * @pre !out_page_lock->released_ && border->get_version_address() == out_page_lock->version_
-   * meaning out_page_lock is locking \b border \b initially.
-   * @post !out_page_lock->released_ && *out_page->get_version_address() == out_page_lock->version_
-   * meaning out_page_lock is locking \b out_page (which may or may not be border) \b afterwards.
-   * @post *out_page->is_locked() && !*out_page->is_moved()
-   * @details
-   * This function might internally splits the border page to make room.
-   * out_page returns the page to which the new record landed, which might be border or
-   * its foster-child if page split happens.
-   * The page split might recurse if one split is not enough to make room.
-   * In that case, out_page might be foster-grandchild or even deeper although that should
-   * happen pretty rarely.
-   */
-  ErrorCode reserve_record_new_record(
-    thread::Thread* context,
-    MasstreeBorderPage* border,
-    KeySlice key,
-    KeyLength remainder,
-    const void* suffix,
-    PayloadLength payload_count,
-    PageVersionLockScope* out_page_lock,
-    RecordLocation* result);
-
-  ErrorCode reserve_record_new_record_apply(
-    thread::Thread* context,
-    MasstreeBorderPage* target,
-    SlotIndex target_index,
-    KeySlice slice,
-    KeyLength remainder_length,
-    const void* suffix,
-    PayloadLength payload_count,
-    RecordLocation* result);
-  /**
-   * Subroutine of reserve_record() to create an initially next-layer record in border and
-   * returns the new root page of the new layer.
-   * @pre border must be locked by this thread
-   * @pre !border->is_moved()
-   */
-  ErrorCode reserve_record_next_layer(
-    thread::Thread* context,
-    MasstreeBorderPage* border,
-    KeySlice slice,
-    MasstreePage** out_page);
-  ErrorCode reserve_record_next_layer_apply(
-    thread::Thread* context,
-    MasstreeBorderPage* target,
-    KeySlice slice,
-    MasstreePage** out_page);
 
   /** implementation of get_record family. use with locate_record() */
   ErrorCode retrieve_general(
