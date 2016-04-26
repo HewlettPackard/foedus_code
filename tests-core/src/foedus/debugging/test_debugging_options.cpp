@@ -24,6 +24,7 @@
 #include "foedus/engine.hpp"
 #include "foedus/engine_options.hpp"
 #include "foedus/test_common.hpp"
+#include "foedus/assorted/spin_until_impl.hpp"
 #include "foedus/assorted/uniform_random.hpp"
 #include "foedus/debugging/debugging_supports.hpp"
 #include "foedus/memory/aligned_memory.hpp"
@@ -33,6 +34,11 @@ namespace debugging {
 DEFINE_TEST_CASE_PACKAGE(DebuggingOptionsTest, foedus.debugging);
 
 TEST(DebuggingOptionsTest, Profile) {
+  if (assorted::is_running_on_valgrind()) {
+    std::cout << "PAPI counters seem to have many valgrind issues." << std::endl;
+    std::cout << "We only occasionally turn it on, so we skip this test in valgrind" << std::endl;
+    return;
+  }
   EngineOptions options = get_tiny_options();
   Engine engine(options);
   COERCE_ERROR(engine.initialize());

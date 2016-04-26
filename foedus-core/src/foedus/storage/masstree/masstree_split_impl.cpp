@@ -551,6 +551,7 @@ void SplitIntermediate::split_impl_no_error(thread::GrabFreeVolatilePagesScope* 
 
 void SplitIntermediate::decide_strategy(SplitIntermediate::SplitStrategy* out) const {
   ASSERT_ND(target_->is_locked());
+  out->compact_adopt_ = false;
   out->total_separator_count_ = 0;
 
   // While collecting pointers from the old page, we look for the piggyback_adopt_child_

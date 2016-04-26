@@ -58,6 +58,8 @@ set(test_masstree_tpcb_individuals
   TwoThreadedContendedInc
   FourThreadedContendedInc
   )
+add_foedus_test_individual(test_masstree_split_nrsbug "InOrder;Reverse")
+
 add_foedus_test_individual(test_masstree_tpcb "${test_masstree_tpcb_individuals}")
 
 set(test_masstree_tpcc_individuals
