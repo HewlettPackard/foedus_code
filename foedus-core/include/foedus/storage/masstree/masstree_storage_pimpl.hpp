@@ -289,15 +289,6 @@ class MasstreeStoragePimpl final : public Attachable<MasstreeStorageControlBlock
     SlotIndex record_index,
     MasstreePage** page) ALWAYS_INLINE;
 
-  /**
-   * Reserve a next layer as one system transaction.
-   * parent may or maynot be locked.
-   */
-  ErrorCode create_next_layer(
-    thread::Thread* context,
-    MasstreeBorderPage* parent,
-    SlotIndex parent_index);
-
   /** defined in masstree_storage_prefetch.cpp */
   ErrorCode prefetch_pages_normalized(
     thread::Thread* context,

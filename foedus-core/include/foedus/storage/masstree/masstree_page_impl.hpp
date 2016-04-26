@@ -237,43 +237,6 @@ class MasstreePage {
     KeySlice            high_fence);
 };
 
-struct BorderSplitStrategy {
-  /**
-   * whether this page seems to have had sequential insertions, in which case we do
-   * "no-record split" as optimization. This also requires the trigerring insertion key
-   * is equal or larger than the largest slice in this page.
-   */
-  bool no_record_split_;
-  SlotIndex original_key_count_;
-  KeySlice smallest_slice_;
-  KeySlice largest_slice_;
-  /**
-   * This will be the new foster fence.
-   * Ideally, # of records below and above this are same.
-   */
-  KeySlice mid_slice_;
-};
-
-/**
- * Constructed by hierarchically reading all separators and pointers in old page.
- */
-struct IntermediateSplitStrategy {
-  enum Constants {
-    kMaxSeparators = 170,
-  };
-  /**
-   * pointers_[n] points to page that is responsible for keys
-   * separators_[n - 1] <= key < separators_[n].
-   * separators_[-1] is infimum.
-   */
-  KeySlice separators_[kMaxSeparators];  // ->1360
-  DualPagePointer pointers_[kMaxSeparators];  // -> 4080
-  KeySlice mid_separator_;  // -> 4088
-  uint16_t total_separator_count_;  // -> 4090
-  uint16_t mid_index_;  // -> 4092
-  uint32_t dummy_;      // -> 4096
-};
-
 /**
  * Max number of separators stored in the first level of intermediate pages.
  * @ingroup MASSTREE
@@ -884,7 +847,6 @@ class MasstreeBorderPage final : public MasstreePage {
     return get_slot(index)->get_max_payload_peek();
   }
 
-  bool    should_split_early(SlotIndex new_index, SlotIndex threshold) const ALWAYS_INLINE;
   bool    can_accomodate(
     SlotIndex new_index,
     KeyLength remainder_length,
@@ -1018,27 +980,6 @@ class MasstreeBorderPage final : public MasstreePage {
     MasstreeBorderPage* parent,
     SlotIndex parent_index);
 
-  /**
-   * Splits this page as a system transaction, creating a new foster child.
-   * @param[in] context Thread context
-   * @param[in] trigger The key that triggered this split
-   * @param[in] disable_no_record_split If true, we never do no-record-split (NRS).
-   * This is useful for example when we want to make room for record-expansion.
-   * Otherwise, we get stuck when the record-expansion causes a page-split that is eligible for NRS.
-   * @param[out] target the page the new key will be inserted. Either foster_child or foster_minor.
-   * @param[out] target_lock Sets the lock scope for target.
-   * @pre !header_.snapshot_ (split happens to only volatile pages)
-   * @pre is_locked() (the page must be locked)
-   * @pre !target_lock->is_locked() (give an empty object)
-   * @post iff successfully exits, target->is_locked(), and target_lock->is_locked()
-   */
-  ErrorCode split_foster(
-    thread::Thread* context,
-    KeySlice trigger,
-    bool disable_no_record_split,
-    MasstreeBorderPage** target,
-    xct::McsWwLockScope* target_lock);
-
   /** @see StorageManager::track_moved_record() */
   xct::TrackMovedRecordResult track_moved_record(
     Engine* engine,
@@ -1101,36 +1042,6 @@ class MasstreeBorderPage final : public MasstreePage {
    * 2) unused part, and 3) Slot part growing backward.
    */
   char        data_[kBorderPageDataPartSize];
-
-  /**
-   * @brief Subroutin of split_foster() to decide how we will split this page.
-   */
-  BorderSplitStrategy split_foster_decide_strategy(
-    SlotIndex key_count,
-    KeySlice trigger,
-    bool disable_no_record_split) const;
-
-  void split_foster_migrate_records(
-    const MasstreeBorderPage& copy_from,
-    SlotIndex key_count,
-    KeySlice from,
-    KeySlice to);
-
-  /**
-   * @brief Subroutin of split_foster()
-   * @return MCS block index of the \e first lock acqired. As this is done in a single transaction,
-   * following locks trivially have sequential block index from it.
-   * @details
-   * First, we have to lock all (physically) active records to advance versions.
-   * This is required because other transactions might be already in pre-commit phase to
-   * modify records in this page.
-   * This method previously used batched-version of lock-acquire, but now that owner_ids are
-   * placed in slots with fillers, we can't do so. We just loop.
-   */
-  void split_foster_lock_existing_records(
-    thread::Thread* context,
-    SlotIndex key_count,
-    xct::McsBlockIndex* out_blocks);
 
   MasstreeBorderPage* track_foster_child(
     KeySlice slice,
@@ -1664,25 +1575,6 @@ inline void MasstreeIntermediatePage::extract_separators_common(
 }
 
 
-inline bool MasstreeBorderPage::should_split_early(
-  SlotIndex new_index,
-  SlotIndex threshold) const {
-  if (LIKELY(threshold == 0 || new_index != threshold)) {  // 0 means no early split
-    return false;
-  }
-  // only when we exactly hit the threshold, we consider early split.
-  // we should do early split only when the page looks like receiving sequential inserts.
-  // if we are receiving random inserts, no point to do early split.
-  for (SlotIndex i = 1; i + 1U < new_index; ++i) {
-    // this is not a rigorous check, but fine.
-    const KeySlice prev_slice = get_slice(i - 1);
-    const KeySlice slice = get_slice(i);
-    if (prev_slice > slice) {
-      return false;
-    }
-  }
-  return true;
-}
 inline bool MasstreeBorderPage::can_accomodate(
   SlotIndex new_index,
   KeyLength remainder_length,
@@ -1847,7 +1739,6 @@ inline bool MasstreeBorderPage::will_contain_next_layer(
 
 // We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)
 STATIC_SIZE_CHECK(sizeof(MasstreePage), kCommonPageHeaderSize)
-STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), kPageSize)
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), kPageSize)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), kPageSize)

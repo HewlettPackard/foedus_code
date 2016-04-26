@@ -32,7 +32,6 @@ struct  Metadata;
 struct  Page;
 struct  PageVersion;
 struct  PageVersionLockScope;
-struct  PageVersionTryLockScope;
 class   Partitioner;
 struct  PartitionerMetadata;
 struct  Record;

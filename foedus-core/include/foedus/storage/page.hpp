@@ -259,17 +259,6 @@ struct PageVersionLockScope {
 };
 
 /**
- * An alias to explicitly mark "safe" lock scopes, which won't cause deadlocks.
- * Prefer this as much as possible.
- */
-struct PageVersionTryLockScope : public PageVersionLockScope {
-  PageVersionTryLockScope(thread::Thread* context, PageVersion* version)
-    : PageVersionLockScope(context, version, false, true) {
-  }
-  ~PageVersionTryLockScope() { release(); }
-};
-
-/**
  * @brief Just a marker to denote that a memory region represents a data page.
  * @ingroup STORAGE
  * @details
