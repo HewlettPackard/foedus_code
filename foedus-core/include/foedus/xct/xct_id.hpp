@@ -25,6 +25,7 @@
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
+#include "foedus/fwd.hpp"
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/assorted/endianness.hpp"
@@ -85,78 +86,220 @@ enum IsolationLevel {
   kSerializable,
 };
 
+/**
+ * @brief Represents a mode of lock.
+ * @ingroup XCT
+ * @details
+ * The order is important. The larger lock mode includes the smaller.
+ */
+enum LockMode {
+  /**
+   * taken_mode_: Not taken the lock yet.
+   * preferred_mode_: Implies that we shouldn't take any lock on this entry in next run.
+   */
+  kNoLock = 0,
+  /**
+   * taken_mode_: we took a read-lock, \b not write-lock yet.
+   * preferred_mode_: Implies that we should take a read-lock on this entry in next run.
+   */
+  kReadLock,
+  /**
+   * taken_mode_: we took a write-lock.
+   * preferred_mode_: Implies that we should take a write-lock on this entry in next run.
+   */
+  kWriteLock,
+};
+
+/**
+ * @brief Universally ordered identifier of each lock
+ * @ingroup XCT
+ * @details
+ * This must follow a universally consistent order even across processes.
+ *
+ * Currently we assume all locks come from volatile pages. The bits are used as:
+ * |--63--48--|--47---0--|
+ * |--NodeId--|--Offset--|
+ *
+ * NodeId: ID of the NUMA node where this lock is allocated.
+ * Offset: the lock VA's offset based off of its owner node's virtual pool's start VA.
+ *
+ * We attach the same shmem in fresh new processes in the same order
+ * and in the same machine.. most likely we get the same VA-mapping.
+ * // ASLR? Turn it off. I don't care security.
+ *
+ * So far a unitptr_t, revisit later if we need a struct over a uint64_t. Now we
+ * just compare the whole uintptr, which might cause some socket's data are always
+ * later; ideally, we can compare only the offset part. Revisit later.
+ */
+typedef uintptr_t UniversalLockId;
+
+/** This never points to a valid lock, and also evaluates less than any vaild alocks */
+const UniversalLockId kNullUniversalLockId = 0;
+
+/**
+ * @brief Index in a lock-list, either RLL or CLL.
+ * @ingroup XCT
+ * @details
+ * The value zero is guaranteed to be invalid.
+ * So, lock lists using this type must reserve index-0 to be either a dummy entry or some
+ * sentinel entry. Thanks to this contract, it's easy to initialize structs holding this type.
+ * @see kLockListPositionNull
+ */
+typedef uint32_t LockListPosition;
+const LockListPosition kLockListPositionInvalid = 0;
+
+
 /** Index in thread-local MCS block. 0 means not locked. */
 typedef uint32_t McsBlockIndex;
 /**
- * When MCS lock contains this value, this means the lock is held by a non-regular guest
- * that doesn't have a context.
+ * A special value meaning the lock is held by a non-regular guest
+ * that doesn't have a context. See the MCSg paper for more details.
  */
-const uint32_t kMcsGuestId = -1;
+const uint64_t kMcsGuestId = -1;
 
+/** Return value of acquire_async_rw. */
+struct AcquireAsyncRet {
+  /** whether we immediately acquired the lock or not */
+  bool acquired_;
+  /**
+   * the queue node we pushed.
+   * It is always set whether acquired_ or not, whether simple or extended.
+   * However, in simple case when !acquired_, the block is not used and nothing
+   * sticks to the queue. We just skip the index next time.
+   */
+  McsBlockIndex block_index_;
+};
+
+/////////////////////////////////////////////////////////////////////////////
+///
+/// Exclusive-only (WW) MCS lock classes.
+/// These are mainly used for page locks.
+///
+/////////////////////////////////////////////////////////////////////////////
 /**
- * Represents an MCS node, a pair of node-owner (thread) and its block index.
+ * Represents an exclusive-only MCS node, a pair of node-owner (thread) and its block index.
  */
-union McsNodeUnion {
-  uint64_t word;
-  struct Components {
-    uint32_t      thread_id_;
-    McsBlockIndex block_;
-  } components;
+struct McsWwBlockData {
+  /**
+   * The high 32-bits is thread_id, the low 32-bit is block-index.
+   * We so far need only 16-bits each, but reserved more bits for future use.
+   * We previously used union for this, but it caused many "accidentally non-access-once" bugs.
+   * We thus avoid using union. Not saying that union is wrong, but it's prone to such coding.
+   */
+  uint64_t word_;
 
-  bool is_valid() const ALWAYS_INLINE { return components.block_ != 0; }
-  bool is_valid_atomic() const ALWAYS_INLINE {
-    McsBlockIndex block = assorted::atomic_load_seq_cst<McsBlockIndex>(&components.block_);
-    return block != 0;
+  static uint64_t combine(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    uint64_t word = thread_id;
+    word <<= 32;
+    word |= block;
+    return word;
   }
-  void clear() ALWAYS_INLINE { word = 0; }
-  void clear_atomic() ALWAYS_INLINE { set_atomic(0, 0); }
-  void clear_release() ALWAYS_INLINE { set_release(0, 0); }
-  void set(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    McsNodeUnion new_value;
-    new_value.components.thread_id_ = thread_id;
-    new_value.components.block_ = block;
-    word = new_value.word;  // don't do *this = new_value. this must be an assignment of one int
+  static uint32_t decompose_thread_id(uint64_t word) ALWAYS_INLINE {
+    return static_cast<uint32_t>((word >> 32) & 0xFFFFFFFFUL);
+  }
+  static McsBlockIndex decompose_block(uint64_t word) ALWAYS_INLINE {
+    return static_cast<McsBlockIndex>(word & 0xFFFFFFFFUL);
+  }
+
+  McsWwBlockData() : word_(0) {}
+  explicit McsWwBlockData(uint64_t word) : word_(word) {}
+  McsWwBlockData(uint32_t thread_id, McsBlockIndex block) : word_(combine(thread_id, block)) {}
+
+  bool operator==(const McsWwBlockData& other) const { return word_ == other.word_; }
+  bool operator!=(const McsWwBlockData& other) const { return word_ != other.word_; }
+
+  uint64_t get_word_acquire() const ALWAYS_INLINE {
+    return assorted::atomic_load_acquire<uint64_t>(&word_);
+  }
+  uint64_t get_word_consume() const ALWAYS_INLINE {
+    return assorted::atomic_load_consume<uint64_t>(&word_);
+  }
+  uint64_t get_word_atomic() const ALWAYS_INLINE {
+    return assorted::atomic_load_seq_cst<uint64_t>(&word_);
+  }
+  /**
+   * The access_once semantics, which is widely used in linux.
+   * This is weaker than get_word_atomic(), but enough for many places.
+   */
+  uint64_t get_word_once() const ALWAYS_INLINE { return *(&word_); }
+  McsWwBlockData copy_once() const ALWAYS_INLINE { return McsWwBlockData(get_word_once()); }
+  McsWwBlockData copy_consume() const ALWAYS_INLINE { return McsWwBlockData(get_word_consume()); }
+  McsWwBlockData copy_acquire() const ALWAYS_INLINE { return McsWwBlockData(get_word_acquire()); }
+  McsWwBlockData copy_atomic() const ALWAYS_INLINE { return McsWwBlockData(get_word_atomic()); }
+
+  bool is_valid_relaxed() const ALWAYS_INLINE { return word_ != 0; }
+  bool is_valid_consume() const ALWAYS_INLINE { return get_word_consume() != 0; }
+  bool is_valid_acquire() const ALWAYS_INLINE { return get_word_acquire() != 0; }
+  bool is_valid_atomic()  const ALWAYS_INLINE { return get_word_atomic() != 0; }
+
+  bool is_guest_relaxed() const ALWAYS_INLINE { return word_ == kMcsGuestId; }
+  bool is_guest_acquire() const ALWAYS_INLINE { return get_word_acquire() == kMcsGuestId; }
+  bool is_guest_consume() const ALWAYS_INLINE { return get_word_consume() == kMcsGuestId; }
+  bool is_guest_atomic()  const ALWAYS_INLINE { return get_word_atomic() == kMcsGuestId; }
+  /**
+   * Carefully use this! In some places you must call get_word_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline uint32_t get_thread_id_relaxed() const ALWAYS_INLINE {
+    return McsWwBlockData::decompose_thread_id(word_);
+  }
+  /**
+   * Carefully use this! In some places you must call get_word_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline McsBlockIndex  get_block_relaxed() const ALWAYS_INLINE {
+    return McsWwBlockData::decompose_block(word_);
+  }
+  void clear() ALWAYS_INLINE { word_ = 0; }
+  void clear_atomic() ALWAYS_INLINE { assorted::atomic_store_seq_cst<uint64_t>(&word_, 0); }
+  void clear_release() ALWAYS_INLINE { assorted::atomic_store_release<uint64_t>(&word_, 0); }
+  void set_relaxed(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
+    word_ = McsWwBlockData::combine(thread_id, block);
   }
   void set_atomic(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    McsNodeUnion new_value;
-    new_value.components.thread_id_ = thread_id;
-    new_value.components.block_ = block;
-    // The following is inlined as far as the compile-unit (caller) is compiled with C++11.
-    // We observed 5%~ performance difference in TPCC with/without the inlining.
-    assorted::atomic_store_seq_cst<uint64_t>(&this->word, new_value.word);
+    set_combined_atomic(McsWwBlockData::combine(thread_id, block));
   }
   void set_release(uint32_t thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    McsNodeUnion new_value;
-    new_value.components.thread_id_ = thread_id;
-    new_value.components.block_ = block;
-    assorted::atomic_store_release<uint64_t>(&this->word, new_value.word);
+    set_combined_release(McsWwBlockData::combine(thread_id, block));
+  }
+  void set_combined_atomic(uint64_t word) ALWAYS_INLINE {
+    assorted::atomic_store_seq_cst<uint64_t>(&word_, word);
+  }
+  void set_combined_release(uint64_t word) ALWAYS_INLINE {
+    assorted::atomic_store_release<uint64_t>(&word_, word);
   }
 };
 
-/** Pre-allocated MCS block. we so far pre-allocate at most 2^16 nodes per thread. */
-struct McsBlock {
+/** Pre-allocated MCS block for WW-locks. we so far pre-allocate at most 2^16 nodes per thread. */
+struct McsWwBlock {
   /**
    * The successor of MCS lock queue after this thread (in other words, the thread that is
    * waiting for this thread). Successor is represented by thread ID and block,
    * the index in mcs_blocks_.
    */
-  McsNodeUnion  successor_;
+  McsWwBlockData successor_;
 
   /// setter/getter for successor_.
-  inline bool             has_successor() const ALWAYS_INLINE { return successor_.is_valid(); }
-  inline bool has_successor_atomic() const ALWAYS_INLINE { return successor_.is_valid_atomic(); }
-  inline uint32_t         get_successor_thread_id() const ALWAYS_INLINE {
-    return successor_.components.thread_id_;
+  inline bool has_successor_relaxed() const ALWAYS_INLINE { return successor_.is_valid_relaxed(); }
+  inline bool has_successor_consume() const ALWAYS_INLINE { return successor_.is_valid_consume(); }
+  inline bool has_successor_acquire() const ALWAYS_INLINE { return successor_.is_valid_acquire(); }
+  inline bool has_successor_atomic()  const ALWAYS_INLINE { return successor_.is_valid_atomic(); }
+  /**
+   * Carefully use this! In some places you must call copy_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline uint32_t         get_successor_thread_id_relaxed() const ALWAYS_INLINE {
+    return successor_.get_thread_id_relaxed();
   }
-  inline McsBlockIndex    get_successor_block() const ALWAYS_INLINE {
-    return successor_.components.block_;
+  /**
+   * Carefully use this! In some places you must call copy_once() then call this on the copy.
+   * We thus put "_relaxed" as suffix.
+   */
+  inline McsBlockIndex    get_successor_block_relaxed() const ALWAYS_INLINE {
+    return successor_.get_block_relaxed();
   }
-  inline void             clear_successor() ALWAYS_INLINE { successor_.clear(); }
-  inline void             clear_successor_atomic() ALWAYS_INLINE { successor_.clear_atomic(); }
-  inline void             clear_successor_release() ALWAYS_INLINE { successor_.clear_release(); }
-  inline void set_successor(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
-    successor_.set(thread_id, block);
-  }
+  inline void clear_successor_atomic() ALWAYS_INLINE { successor_.clear_atomic(); }
+  inline void clear_successor_release() ALWAYS_INLINE { successor_.clear_release(); }
   inline void set_successor_atomic(thread::ThreadId thread_id, McsBlockIndex block) ALWAYS_INLINE {
     successor_.set_atomic(thread_id, block);
   }
@@ -165,7 +308,83 @@ struct McsBlock {
   }
 };
 
-struct McsRwBlock {
+/**
+ * @brief An exclusive-only (WW) MCS lock data structure.
+ * @ingroup XCT
+ * @details
+ * This is the minimal unit of locking in our system.
+ * Unlike SILO, we employ MCS locking that scales much better on big machines.
+ * This object stores \e tail-waiter, which indicates the thread that is in the tail of the queue
+ * lock, which \e might be the owner of the lock.
+ * The MCS-lock nodes are pre-allocated for each thread and placed in shared memory.
+ *
+ * This is the original MCSg lock implementation without cancel/RW functionality.
+ * It has the guest functionality used by background threads to take page locks.
+ */
+struct McsWwLock {
+  McsWwLock() { tail_.clear(); }
+  McsWwLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
+    tail_.set_relaxed(tail_waiter, tail_waiter_block);
+  }
+
+  McsWwLock(const McsWwLock& other) CXX11_FUNC_DELETE;
+  McsWwLock& operator=(const McsWwLock& other) CXX11_FUNC_DELETE;
+
+  /** This is a "relaxed" check. Use with caution. I should have named this is_locked_relaxed..*/
+  bool      is_locked() const { return tail_.is_valid_relaxed(); }
+
+  /// The followings are implemented in thread_pimpl.cpp along with the above methods,
+  /// but these don't use any of Thread's context information.
+  void          ownerless_initial_lock();
+  void          ownerless_acquire_lock();
+  void          ownerless_release_lock();
+
+
+  /** This is a "relaxed" check. Use with caution. */
+  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_.get_thread_id_relaxed(); }
+  /** This is a "relaxed" check. Use with caution. */
+  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_.get_block_relaxed(); }
+
+  McsWwBlockData get_tail_relaxed() const ALWAYS_INLINE { return tail_; }
+  McsWwBlockData get_tail_once()    const ALWAYS_INLINE { return tail_.copy_once(); }
+  McsWwBlockData get_tail_consume() const ALWAYS_INLINE { return tail_.copy_consume(); }
+  McsWwBlockData get_tail_acquire() const ALWAYS_INLINE { return tail_.copy_acquire(); }
+  McsWwBlockData get_tail_atomic()  const ALWAYS_INLINE { return tail_.copy_atomic(); }
+
+  /** used only while page initialization */
+  void  reset() ALWAYS_INLINE { tail_.clear(); }
+
+  void  reset_guest_id_release() {
+    tail_.set_combined_release(kMcsGuestId);
+  }
+
+  /** used only for initial_lock() */
+  void  reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    tail_.set_relaxed(tail_waiter, tail_waiter_block);
+  }
+
+  void  reset_atomic() ALWAYS_INLINE { reset_atomic(0, 0); }
+  void  reset_atomic(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    tail_.set_atomic(tail_waiter, tail_waiter_block);
+  }
+  void  reset_release() ALWAYS_INLINE { reset_release(0, 0); }
+  void  reset_release(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    tail_.set_release(tail_waiter, tail_waiter_block);
+  }
+
+  friend std::ostream& operator<<(std::ostream& o, const McsWwLock& v);
+
+  McsWwBlockData tail_;
+};
+
+/////////////////////////////////////////////////////////////////////////////
+///
+/// Reader-writer (RW) MCS lock classes.
+/// These are mainly used for record locks.
+///
+/////////////////////////////////////////////////////////////////////////////
+/** Pre-allocated MCS block for simpler version of RW-locks. */
+struct McsRwSimpleBlock {
   static const uint8_t kStateClassMask       = 3U;        // [LSB + 1, LSB + 2]
   static const uint8_t kStateClassReaderFlag = 1U;        // LSB binary = 01
   static const uint8_t kStateClassWriterFlag = 2U;        // LSB binary = 10
@@ -173,9 +392,13 @@ struct McsRwBlock {
   static const uint8_t kStateBlockedFlag     = 1U << 7U;  // MSB binary = 1
   static const uint8_t kStateBlockedMask     = 1U << 7U;
 
+  static const uint8_t kStateFinalizedMask   = 4U;
+
   static const uint8_t kSuccessorClassReader = 1U;
   static const uint8_t kSuccessorClassWriter = 2U;
   static const uint8_t kSuccessorClassNone   = 3U;        // LSB binary 11
+
+  static const int32_t kTimeoutNever         = 0xFFFFFFFF;
 
   union Self {
     uint16_t data_;                       // +2 => 2
@@ -183,6 +406,7 @@ struct McsRwBlock {
       uint8_t successor_class_;
       // state_ covers:
       // Bit 0-1: my **own** class (am I a reader or writer?)
+      // Bit 2: whether we have checked the successor ("finalized", for readers only)
       // Bit 7: blocked (am I waiting for the lock or acquired?)
       uint8_t state_;
     } components_;
@@ -211,31 +435,43 @@ struct McsRwBlock {
   inline bool is_reader() ALWAYS_INLINE {
     return (self_.components_.state_ & kStateClassMask) == kStateClassReaderFlag;
   }
-
+  inline uint8_t read_state() {
+    return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_);
+  }
   inline void unblock() ALWAYS_INLINE {
-    ASSERT_ND(
-      assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedFlag);
+    ASSERT_ND(read_state() & kStateBlockedFlag);
     assorted::raw_atomic_fetch_and_bitwise_and<uint8_t>(
       &self_.components_.state_,
       static_cast<uint8_t>(~kStateBlockedMask));
-    ASSERT_ND(
-      !(assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask));
   }
   inline bool is_blocked() ALWAYS_INLINE {
-    return assorted::atomic_load_acquire<uint8_t>(&self_.components_.state_) & kStateBlockedMask;
+    return read_state() & kStateBlockedMask;
   }
-
+  inline bool is_granted() {
+    return !is_blocked();
+  }
+  inline void set_finalized() {
+    ASSERT_ND(is_reader());
+    ASSERT_ND(!is_finalized());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint8_t>(
+      &self_.components_.state_, kStateFinalizedMask);
+    ASSERT_ND(is_finalized());
+  }
+  inline bool is_finalized() {
+    ASSERT_ND(is_reader());
+    return read_state() & kStateFinalizedMask;
+  }
+  bool timeout_granted(int32_t timeout);
   inline void set_successor_class_writer() {
     // In case the caller is a reader appending after a writer or waiting reader,
     // the requester should have already set the successor class to "reader" through by CASing
     // self_.data_ from [no-successor, blocked] to [reader successor, blocked].
     ASSERT_ND(self_.components_.successor_class_ == kSuccessorClassNone);
-    assorted::atomic_store_release<uint8_t>(
-      &self_.components_.successor_class_,
-      kSuccessorClassWriter);
+    assorted::raw_atomic_fetch_and_bitwise_and<uint8_t>(
+      &self_.components_.successor_class_, kSuccessorClassWriter);
   }
   inline void set_successor_next_only(thread::ThreadId thread_id, McsBlockIndex block_index) {
-    McsRwBlock tmp;
+    McsRwSimpleBlock tmp;
     tmp.self_.data_ = 0;
     tmp.successor_thread_id_ = thread_id;
     tmp.successor_block_index_ = block_index;
@@ -273,86 +509,271 @@ struct McsRwBlock {
   }
 };
 
-/**
- * @brief An MCS lock data structure.
- * @ingroup XCT
- * @details
- * This is the minimal unit of locking in our system.
- * Unlike SILO, we employ MCS locking that scales much better on big machines.
- * This object stores \e tail-waiter, which indicates the thread that is in the tail of the queue
- * lock, which \e might be the owner of the lock.
- * The MCS-lock nodes are pre-allocated for each thread and placed in shared memory.
- */
-struct McsLock {
-  McsLock() { data_ = 0; unused_ = 0; }
-  McsLock(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) {
-    reset(tail_waiter, tail_waiter_block);
-    unused_ = 0;
+/** Pre-allocated MCS block for extended version of RW-locks. */
+struct McsRwExtendedBlock {
+  /** Pred flags:
+   *  |---31---|-----|---0---|
+   *  |my class|empty|waiting|
+   *
+   *  Next flags:
+   *  |-----31-30-----|-----|-2--|--1-0--|
+   *  |successor class|empty|busy|waiting|
+   */
+  static const uint32_t kPredFlagWaiting         = 0U;
+  static const uint32_t kPredFlagGranted         = 1U;
+  static const uint32_t kPredFlagReader          = 0U;
+  static const uint32_t kPredFlagWriter          = 1U << 31;
+  static const uint32_t kPredFlagClassMask       = 1U << 31;
+
+  static const uint32_t kSuccFlagWaiting         = 0U;
+  static const uint32_t kSuccFlagLeaving         = 1U;
+  static const uint32_t kSuccFlagDirectGranted   = 2U;
+  static const uint32_t kSuccFlagLeavingGranted  = 3U;
+  static const uint32_t kSuccFlagMask            = 3U;
+
+  static const uint32_t kSuccFlagBusy            = 4U;
+
+  static const uint32_t kSuccFlagSuccessorClassMask = 3U << 30;
+  static const uint32_t kSuccFlagSuccessorReader    = 3U << 30;
+  static const uint32_t kSuccFlagSuccessorNone      = 0U;
+  static const uint32_t kSuccFlagSuccessorWriter    = 1U << 30;
+
+  static const uint32_t kSuccIdSuccessorLeaving  = 0xFFFFFFFFU;
+  static const uint32_t kSuccIdNoSuccessor       = 0xFFFFFFFEU;
+
+  static const uint32_t kPredIdAcquired          = 0xFFFFFFFFU;
+
+#ifndef NDEBUG
+  static const uint64_t kSuccReleased            = 0xFFFFFFFFFFFFFFFFU;
+#endif
+
+  /* Special timeouts for instant return and unconditional acquire */
+  static const int32_t kTimeoutNever = 0xFFFFFFFFU;
+  static const int32_t kTimeoutZero  = 0U;
+
+  union Field {
+    uint64_t data_;
+    struct Components {
+      uint32_t flags_;
+      uint32_t id_;
+    } components_;
+  };
+
+  Field pred_;
+  Field next_;
+
+#ifndef NDEBUG
+  inline void mark_released() {
+    ASSERT_ND(pred_flag_is_granted());
+    ASSERT_ND(next_flag_is_granted());
+    set_next(kSuccReleased);
   }
 
-  McsLock(const McsLock& other) CXX11_FUNC_DELETE;
-  McsLock& operator=(const McsLock& other) CXX11_FUNC_DELETE;
-
-  /** Used only for sanity check */
-  uint8_t   last_1byte_addr() const ALWAYS_INLINE {
-    // address is surely a multiply of 4. omit that part.
-    ASSERT_ND(reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) % 4 == 0);
-    return reinterpret_cast<uintptr_t>(reinterpret_cast<const void*>(this)) / 4;
+  inline bool is_released() {
+    return get_next() == kSuccReleased;
   }
-  bool      is_locked() const { return (data_ & 0xFFFFU) != 0; }
+#endif
 
-  /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
-  McsBlockIndex acquire_lock(thread::Thread* context);
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  McsBlockIndex initial_lock(thread::Thread* context);
-  /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
-  void          release_lock(thread::Thread* context, McsBlockIndex block);
-
-  /// The followings are implemented in thread_pimpl.cpp along with the above methods,
-  /// but these don't use any of Thread's context information.
-  void          ownerless_initial_lock();
-  void          ownerless_acquire_lock();
-  void          ownerless_release_lock();
-
-
-  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return data_ >> 16U; }
-  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return data_ & 0xFFFFU; }
-
-  /** used only while page initialization */
-  void  reset() ALWAYS_INLINE { data_ = 0; }
-
-  void  reset_guest_id_release() {
-    assorted::atomic_store_release<uint32_t>(&data_, kMcsGuestId);
+  inline uint32_t read_pred_flags() {
+    return assorted::atomic_load_acquire<uint32_t>(&pred_.components_.flags_);
   }
-
-  /** used only for initial_lock() */
-  void  reset(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    data_ = to_int(tail_waiter, tail_waiter_block);
+  inline uint32_t read_next_flags() {
+    return assorted::atomic_load_acquire<uint32_t>(&next_.components_.flags_);
   }
-
-  void  reset_atomic() ALWAYS_INLINE { reset_atomic(0, 0); }
-  void  reset_atomic(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    uint32_t data = to_int(tail_waiter, tail_waiter_block);
-    assorted::atomic_store_seq_cst<uint32_t>(&data_, data);
+  inline bool is_writer() { return read_pred_flags() & kPredFlagWriter; }
+  inline bool is_reader() { return !is_writer(); }
+  inline bool pred_flag_is_waiting() {
+    return !pred_flag_is_granted();
   }
-  void  reset_release() ALWAYS_INLINE { reset_release(0, 0); }
-  void  reset_release(thread::ThreadId tail_waiter, McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    uint32_t data = to_int(tail_waiter, tail_waiter_block);
-    assorted::atomic_store_release<uint32_t>(&data_, data);
+  inline bool pred_flag_is_granted() {
+    return read_pred_flags() & kPredFlagGranted;
   }
-
-  static uint32_t to_int(
-    thread::ThreadId tail_waiter,
-    McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
-    ASSERT_ND(tail_waiter_block <= 0xFFFFU);
-    return static_cast<uint32_t>(tail_waiter) << 16 | (tail_waiter_block & 0xFFFFU);
+  inline bool next_flag_is_direct_granted() {
+    uint32_t f = (read_next_flags() & kSuccFlagMask);
+    return f == kSuccFlagDirectGranted;
   }
-
-  friend std::ostream& operator<<(std::ostream& o, const McsLock& v);
-
-  // these two will become one 64-bit integer.
-  uint32_t data_;
-  uint32_t unused_;
+  inline bool next_flag_is_leaving_granted() {
+    uint32_t f = (read_next_flags() & kSuccFlagMask);
+    return f == kSuccFlagLeavingGranted;
+  }
+  inline bool next_flag_is_granted() {
+    uint32_t f = (read_next_flags() & kSuccFlagMask);
+    return f == kSuccFlagLeavingGranted || f == kSuccFlagDirectGranted;
+  }
+  inline bool next_flag_is_leaving() {
+    return (read_next_flags() & kSuccFlagMask) == kSuccFlagLeaving;
+  }
+  inline bool next_flag_is_waiting() {
+    return (read_next_flags() & kSuccFlagMask) == kSuccFlagWaiting;
+  }
+  inline void set_next_flag_writer_successor() {
+    ASSERT_ND(!next_flag_has_successor());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &next_.components_.flags_, kSuccFlagSuccessorWriter);
+  }
+  inline void set_next_flag_reader_successor() {
+    ASSERT_ND(!next_flag_has_successor());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &next_.components_.flags_, kSuccFlagSuccessorReader);
+  }
+  inline void set_pred_flag_granted() {
+    ASSERT_ND(pred_flag_is_waiting());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &pred_.components_.flags_, kPredFlagGranted);
+  }
+  inline void set_next_flag_granted() {
+    ASSERT_ND(pred_flag_is_granted());
+    ASSERT_ND(next_flag_is_waiting() | next_flag_is_leaving());
+    if (next_flag_is_waiting()) {
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagDirectGranted);
+    } else {
+      ASSERT_ND(next_flag_is_leaving());
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagLeavingGranted);
+    }
+  }
+  inline void set_next_flag_busy_granted() {
+    ASSERT_ND(pred_flag_is_granted());
+    ASSERT_ND(next_flag_is_waiting() | next_flag_is_leaving());
+    if (next_flag_is_waiting()) {
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagDirectGranted | kSuccFlagBusy);
+    } else {
+      ASSERT_ND(next_flag_is_leaving());
+      assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+        &next_.components_.flags_, kSuccFlagLeavingGranted | kSuccFlagBusy);
+    }
+  }
+  inline void set_next_flag_leaving() {
+    assorted::raw_atomic_exchange<uint16_t>(
+      reinterpret_cast<uint16_t*>(&next_.components_.flags_),
+      static_cast<uint16_t>(kSuccFlagLeaving));
+  }
+  inline void set_next_flag_no_successor() {
+    assorted::raw_atomic_fetch_and_bitwise_and<uint32_t>(
+      &next_.components_.flags_, ~kSuccFlagSuccessorClassMask);
+  }
+  inline void set_next(uint64_t next) {
+    assorted::atomic_store_release<uint64_t>(&next_.data_, next);
+  }
+  inline bool cas_next_weak(uint64_t expected, uint64_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+     &next_.data_, &expected, desired);
+  }
+  inline bool cas_next_strong(uint64_t expected, uint64_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+     &next_.data_, &expected, desired);
+  }
+  inline void set_flags_granted() {
+    set_pred_flag_granted();
+    set_next_flag_granted();
+  }
+  inline bool next_flag_has_successor() {
+    return read_next_flags() & kSuccFlagSuccessorClassMask;
+  }
+  inline bool next_flag_has_reader_successor() {
+    return (read_next_flags() & kSuccFlagSuccessorClassMask) == kSuccFlagSuccessorReader;
+  }
+  inline bool next_flag_has_writer_successor() {
+    return (read_next_flags() & kSuccFlagSuccessorClassMask) == kSuccFlagSuccessorWriter;
+  }
+  inline bool next_flag_is_busy() {
+    return (read_next_flags() & kSuccFlagBusy) == kSuccFlagBusy;
+  }
+  inline void set_next_flag_busy() {
+    ASSERT_ND(!next_flag_is_busy());
+    assorted::raw_atomic_fetch_and_bitwise_or<uint32_t>(
+      &next_.components_.flags_, kSuccFlagBusy);
+  }
+  inline void unset_next_flag_busy() {
+    ASSERT_ND(next_flag_is_busy());
+    assorted::raw_atomic_fetch_and_bitwise_and<uint32_t>(
+      &next_.components_.flags_, ~kSuccFlagBusy);
+  }
+  inline uint32_t cas_val_next_flag_strong(uint32_t expected, uint32_t desired) {
+    assorted::raw_atomic_compare_exchange_strong<uint32_t>(
+      &next_.components_.flags_, &expected, desired);
+    return expected;
+  }
+  inline uint32_t cas_val_next_flag_weak(uint32_t expected, uint32_t desired) {
+    assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &next_.components_.flags_, &expected, desired);
+    return expected;
+  }
+  inline uint64_t cas_val_next_strong(uint64_t expected, uint64_t desired) {
+    assorted::raw_atomic_compare_exchange_strong<uint64_t>(
+      &next_.data_, &expected, desired);
+    return expected;
+  }
+  inline uint64_t cas_val_next_weak(uint64_t expected, uint64_t desired) {
+    assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+      &next_.data_, &expected, desired);
+    return expected;
+  }
+  inline uint32_t xchg_next_id(uint32_t id) {
+    return assorted::raw_atomic_exchange<uint32_t>(&next_.components_.id_, id);
+  }
+  inline bool cas_next_id_strong(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint32_t>(
+      &next_.components_.id_, &expected, desired);
+  }
+  inline bool cas_next_id_weak(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &next_.components_.id_, &expected, desired);
+  }
+  inline bool cas_pred_id_weak(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &pred_.components_.id_, &expected, desired);
+  }
+  inline bool cas_pred_id_strong(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint32_t>(
+      &pred_.components_.id_, &expected, desired);
+  }
+  inline uint32_t cas_val_pred_id_weak(uint32_t expected, uint32_t desired) {
+    assorted::raw_atomic_compare_exchange_weak<uint32_t>(
+      &pred_.components_.id_, &expected, desired);
+    return expected;
+  }
+  inline uint32_t make_next_flag_waiting_with_no_successor() { return kSuccFlagWaiting; }
+  inline uint32_t make_next_flag_waiting_with_reader_successor() {
+    return kSuccFlagWaiting | kSuccFlagSuccessorReader;
+  }
+  inline uint32_t get_pred_id() {
+    return assorted::atomic_load_acquire<uint32_t>(&pred_.components_.id_);
+  }
+  inline uint32_t get_next_id() {
+    return assorted::atomic_load_acquire<uint32_t>(&next_.components_.id_);
+  }
+  inline uint64_t get_next() {
+    return assorted::atomic_load_acquire<uint64_t>(&next_.data_);
+  }
+  inline void set_pred_id(uint32_t id) {
+    assorted::atomic_store_release<uint32_t>(&pred_.components_.id_, id);
+  }
+  inline void set_next_id(uint32_t id) {
+    assorted::atomic_store_release<uint32_t>(&next_.components_.id_, id);
+  }
+  inline uint32_t xchg_pred_id(uint32_t id) {
+    return assorted::raw_atomic_exchange<uint32_t>(&pred_.components_.id_, id);
+  }
+  inline void init_reader() {
+    pred_.components_.flags_ = kPredFlagReader;
+    next_.components_.flags_ = 0;
+    pred_.components_.id_ = next_.components_.id_ = 0;
+    ASSERT_ND(pred_flag_is_waiting());
+    ASSERT_ND(next_flag_is_waiting());
+    ASSERT_ND(is_reader());
+  }
+  inline void init_writer() {
+    pred_.components_.flags_ = kPredFlagWriter;
+    next_.components_.flags_ = 0;
+    pred_.components_.id_ = next_.components_.id_ = 0;
+    ASSERT_ND(pred_flag_is_waiting());
+    ASSERT_ND(next_flag_is_waiting());
+    ASSERT_ND(is_writer());
+  }
+  bool timeout_granted(int32_t timeout);
 };
 
 /**
@@ -379,45 +800,84 @@ struct McsRwLock {
   McsRwLock(const McsRwLock& other) CXX11_FUNC_DELETE;
   McsRwLock& operator=(const McsRwLock& other) CXX11_FUNC_DELETE;
 
-  McsBlockIndex reader_acquire(thread::Thread* context);
-  McsBlockIndex reader_release(thread::Thread* context, McsBlockIndex block);
-
-  McsBlockIndex writer_acquire(thread::Thread* context);
-  McsBlockIndex writer_release(thread::Thread* context, McsBlockIndex block);
-
-  void  reset() ALWAYS_INLINE {
-    tail_ = readers_count_ = 0;
-    next_writer_ = kNextWriterNone;
+  inline void reset() {
+    tail_ = nreaders_ = 0;
+    set_next_writer(kNextWriterNone);
+    assorted::memory_fence_release();
   }
-  void increment_readers_count() ALWAYS_INLINE {
-    assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, 1);
+  inline void increment_nreaders() {
+    assorted::raw_atomic_fetch_add<uint16_t>(&nreaders_, 1);
   }
-  uint16_t decrement_readers_count() ALWAYS_INLINE {
-    return assorted::raw_atomic_fetch_add<uint16_t>(&readers_count_, -1);
+  inline uint16_t decrement_nreaders() {
+    return assorted::raw_atomic_fetch_add<uint16_t>(&nreaders_, -1);
   }
-  bool is_locked() const { return (tail_ & 0xFFFFU) != 0; }
-
-  static uint32_t to_tail_int(
+  inline uint16_t nreaders() {
+    return assorted::atomic_load_acquire<uint16_t>(&nreaders_);
+  }
+  inline McsBlockIndex get_tail_waiter_block() const { return tail_ & 0xFFFFU; }
+  inline thread::ThreadId get_tail_waiter() const { return tail_ >> 16U; }
+  inline bool has_next_writer() const {
+    return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_) != kNextWriterNone;
+  }
+  inline void set_next_writer(thread::ThreadId thread_id) {
+    xchg_next_writer(thread_id);  // sub-word access...
+  }
+  inline thread::ThreadId get_next_writer() {
+    return assorted::atomic_load_acquire<thread::ThreadId>(&next_writer_);
+  }
+  inline thread::ThreadId xchg_next_writer(thread::ThreadId id) {
+    return assorted::raw_atomic_exchange<thread::ThreadId>(&next_writer_, id);
+  }
+  bool cas_next_writer_weak(thread::ThreadId expected, thread::ThreadId desired) {
+    return assorted::raw_atomic_compare_exchange_weak<thread::ThreadId>(
+      &next_writer_, &expected, desired);
+  }
+  bool cas_next_writer_strong(thread::ThreadId expected, thread::ThreadId desired) {
+    return assorted::raw_atomic_compare_exchange_strong<thread::ThreadId>(
+      &next_writer_, &expected, desired);
+  }
+  inline uint32_t xchg_tail(uint32_t new_tail) {
+    return assorted::raw_atomic_exchange<uint32_t>(&tail_, new_tail);
+  }
+  inline bool cas_tail_strong(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_strong<uint32_t>(&tail_, &expected, desired);
+  }
+  inline bool cas_tail_weak(uint32_t expected, uint32_t desired) {
+    return assorted::raw_atomic_compare_exchange_weak<uint32_t>(&tail_, &expected, desired);
+  }
+  static inline uint32_t to_tail_int(
     thread::ThreadId tail_waiter,
-    McsBlockIndex tail_waiter_block) ALWAYS_INLINE {
+    McsBlockIndex tail_waiter_block) {
     ASSERT_ND(tail_waiter_block <= 0xFFFFU);
     return static_cast<uint32_t>(tail_waiter) << 16 | (tail_waiter_block & 0xFFFFU);
   }
-
-  McsBlockIndex get_tail_waiter_block() const ALWAYS_INLINE { return tail_ & 0xFFFFU; }
-  thread::ThreadId get_tail_waiter() const ALWAYS_INLINE { return tail_ >> 16U; }
-  bool has_next_writer() const ALWAYS_INLINE {return next_writer_ != kNextWriterNone; }
+  inline uint32_t get_tail_int() {
+    return assorted::atomic_load_acquire<uint32_t>(&tail_);
+  }
+  bool is_locked() const {
+    return (tail_ & 0xFFFFU) != 0 || nreaders_ > 0;
+  }
 
   uint32_t tail_;                 // +4 => 4
-  /* FIXME(tzwang): ThreadId starts from 0, so we use 0xFFFF as the "invalid"
+  /* Note that threadId starts from 0, so we use 0xFFFF as the "invalid"
    * marker, unless we make the lock even larger than 8 bytes. This essentially
    * limits the largest allowed number of cores we support to 256 sockets x 256
    * cores per socket - 1.
    */
   thread::ThreadId next_writer_;  // +2 => 6
-  uint16_t readers_count_;        // +2 => 8
+  uint16_t nreaders_;             // +2 => 8
 
   friend std::ostream& operator<<(std::ostream& o, const McsRwLock& v);
+};
+
+struct McsRwAsyncMapping {
+  UniversalLockId lock_id_;
+  McsBlockIndex block_index_;
+  char padding_[16 - sizeof(McsBlockIndex) - sizeof(UniversalLockId)];
+
+  McsRwAsyncMapping(UniversalLockId lock_id, McsBlockIndex block) :
+    lock_id_(lock_id), block_index_(block) {}
+  McsRwAsyncMapping() : lock_id_(kNullUniversalLockId), block_index_(0) {}
 };
 
 const uint64_t kXctIdDeletedBit     = 1ULL << 63;
@@ -443,7 +903,7 @@ const uint64_t kMaxXctOrdinal       = (1ULL << 24) - 1U;
  * @details
  * Unlike what [TU13] Sec 4.2 defines, FOEDUS's TID is 128 bit to contain more information.
  * XctId represents a half (64bit) of TID that is used to represent persistent status of the record,
- * such as record versions. The locking-mechanism part is separated to another half; CombinedLock.
+ * such as record versions. The locking-mechanism part is separated to another half; McsWwLock.
  *
  * @par Bit Assignments
  * <table>
@@ -558,6 +1018,12 @@ struct XctId {
 
   void    set_being_written() ALWAYS_INLINE { data_ |= kXctIdBeingWrittenBit; }
   void    set_write_complete() ALWAYS_INLINE { data_ &= (~kXctIdBeingWrittenBit); }
+  /**
+   * Returns a version of this Xid whose being_written flag is off.
+   * This internally spins until the bit becomes false, so use it only where deadlock
+   * is not possible.
+   */
+  XctId   spin_while_being_written() const ALWAYS_INLINE;
   void    set_deleted() ALWAYS_INLINE { data_ |= kXctIdDeletedBit; }
   void    set_notdeleted() ALWAYS_INLINE { data_ &= (~kXctIdDeletedBit); }
   void    set_moved() ALWAYS_INLINE { data_ |= kXctIdMovedBit; }
@@ -569,7 +1035,8 @@ struct XctId {
   // we never revert it, which simplifies a concurrency control.
   // void    set_not_next_layer() ALWAYS_INLINE { data_ &= (~kXctIdNextLayerBit); }
 
-  bool    is_being_written() const ALWAYS_INLINE { return (data_ & kXctIdBeingWrittenBit) != 0; }
+  bool    is_being_written() const ALWAYS_INLINE {
+    return (assorted::atomic_load_acquire<uint64_t>(&data_) & kXctIdBeingWrittenBit) != 0; }
   bool    is_deleted() const ALWAYS_INLINE { return (data_ & kXctIdDeletedBit) != 0; }
   bool    is_moved() const ALWAYS_INLINE { return (data_ & kXctIdMovedBit) != 0; }
   bool    is_next_layer() const ALWAYS_INLINE { return (data_ & kXctIdNextLayerBit) != 0; }
@@ -630,8 +1097,8 @@ struct XctId {
  * It's not a negligible size, but still compact. Also, 16-bytes sometimes reduce false cacheline
  * sharing (well, then you might ask making it 64 bytes... but that's too much).
  *
- * @par CombinedLock and XctId
- * CombinedLock provides the locking mechanism, namely MCS locking.
+ * @par McsWwLock and XctId
+ * McsWwLock provides the locking mechanism, namely MCS locking.
  * XctId provides the record version information protected by the lock.
  *
  * @par POD
@@ -639,11 +1106,11 @@ struct XctId {
  */
 struct LockableXctId {
   /** the first 64bit: Locking part of TID */
-  McsLock       lock_;
+  McsWwLock       lock_;
   /** the second 64bit: Persistent status part of TID. */
   XctId         xct_id_;
 
-  McsLock* get_key_lock() ALWAYS_INLINE { return &lock_; }
+  McsWwLock* get_key_lock() ALWAYS_INLINE { return &lock_; }
   bool is_keylocked() const ALWAYS_INLINE { return lock_.is_locked(); }
   bool is_deleted() const ALWAYS_INLINE { return xct_id_.is_deleted(); }
   bool is_moved() const ALWAYS_INLINE { return xct_id_.is_moved(); }
@@ -676,6 +1143,8 @@ struct RwLockableXctId {
   bool is_next_layer() const ALWAYS_INLINE { return xct_id_.is_next_layer(); }
   bool needs_track_moved() const ALWAYS_INLINE { return xct_id_.needs_track_moved(); }
   bool is_being_written() const ALWAYS_INLINE { return xct_id_.is_being_written(); }
+  bool is_hot(thread::Thread* context) const;
+  void hotter(thread::Thread* context) const;
 
   /** used only while page initialization */
   void    reset() ALWAYS_INLINE {
@@ -685,102 +1154,11 @@ struct RwLockableXctId {
   friend std::ostream& operator<<(std::ostream& o, const RwLockableXctId& v);
 };
 
-/**
- * @brief Auto-release object for MCS locking.
- * @ingroup XCT
- */
-struct McsLockScope {
-  McsLockScope();
-  McsLockScope(
-    thread::Thread* context,
-    LockableXctId* lock,
-    bool acquire_now = true,
-    bool non_racy_acquire = false);
-  McsLockScope(
-    thread::Thread* context,
-    McsLock* lock,
-    bool acquire_now = true,
-    bool non_racy_acquire = false);
-  ~McsLockScope();
-
-  /// scope object is movable, but not copiable.
-  McsLockScope(const McsLockScope& other) CXX11_FUNC_DELETE;
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  McsLockScope(McsLockScope&& other);
-  McsLockScope& operator=(McsLockScope&& other);
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-
-  void initialize(thread::Thread* context, McsLock* lock, bool acquire_now, bool non_racy_acquire);
-
-  bool is_valid() const { return lock_; }
-  bool is_locked() const { return block_ != 0; }
-
-  /** Acquires the lock. Does nothing if already acquired or !is_valid(). */
-  void acquire(bool non_racy_acquire);
-  /** Release the lock if acquired. Does nothing if not or !is_valid(). */
-  void release();
-
-  /** Just for PageVersionLockScope(McsLockScope*) */
-  void move_to(storage::PageVersionLockScope* new_owner);
-
- private:
-  thread::Thread* context_;
-  McsLock*        lock_;
-  /** Non-0 when locked. 0 when already released or not yet acquired. */
-  McsBlockIndex   block_;
-};
-
-struct McsRwLockScope {
-  explicit McsRwLockScope(bool as_reader);
-  McsRwLockScope(
-    thread::Thread* context,
-    RwLockableXctId* lock,
-    bool as_reader,
-    bool acquire_now = true);
-  McsRwLockScope(
-    thread::Thread* context,
-    McsRwLock* lock,
-    bool as_reader,
-    bool acquire_now = true);
-  ~McsRwLockScope();
-
-  /// scope object is movable, but not copiable.
-  McsRwLockScope(const McsRwLockScope& other) CXX11_FUNC_DELETE;
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  McsRwLockScope(McsRwLockScope&& other);
-  McsRwLockScope& operator=(McsRwLockScope&& other);
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-
-  void initialize(
-    thread::Thread* context,
-    McsRwLock* lock,
-    bool as_reader,
-    bool acquire_now);
-
-  bool is_valid() const { return lock_; }
-  bool is_locked() const { return block_ != 0; }
-
-  /** Acquires the lock. Does nothing if already acquired or !is_valid(). */
-  void acquire();
-  /** Release the lock if acquired. Does nothing if not or !is_valid(). */
-  void release();
-
-  /** Just for PageVersionLockScope(McsRwLockScope*) */
-  void move_to(storage::PageVersionLockScope* new_owner);
-
- private:
-  thread::Thread* context_;
-  McsRwLock*      lock_;
-  /** Non-0 when locked. 0 when already released or not yet acquired. */
-  McsBlockIndex   block_;
-  bool            as_reader_;
-};
-
 class McsOwnerlessLockScope {
  public:
   McsOwnerlessLockScope();
   McsOwnerlessLockScope(
-    McsLock* lock,
+    McsWwLock* lock,
     bool acquire_now = true,
     bool non_racy_acquire = false);
   ~McsOwnerlessLockScope();
@@ -794,7 +1172,7 @@ class McsOwnerlessLockScope {
   void release();
 
  private:
-  McsLock*        lock_;
+  McsWwLock*        lock_;
   bool            locked_by_me_;
 };
 
@@ -802,17 +1180,71 @@ class McsOwnerlessLockScope {
 struct TrackMovedRecordResult {
   TrackMovedRecordResult()
     : new_owner_address_(CXX11_NULLPTR), new_payload_address_(CXX11_NULLPTR) {}
-  TrackMovedRecordResult(LockableXctId* new_owner_address, char* new_payload_address)
+  TrackMovedRecordResult(RwLockableXctId* new_owner_address, char* new_payload_address)
     : new_owner_address_(new_owner_address), new_payload_address_(new_payload_address) {}
 
-  LockableXctId* new_owner_address_;
+  RwLockableXctId* new_owner_address_;
   char* new_payload_address_;
 };
 
+inline XctId XctId::spin_while_being_written() const {
+  uint64_t copied_data = assorted::atomic_load_acquire<uint64_t>(&data_);
+  if (UNLIKELY(copied_data & kXctIdBeingWrittenBit)) {
+    while (copied_data & kXctIdBeingWrittenBit) {
+      copied_data = assorted::atomic_load_acquire<uint64_t>(&data_);
+    }
+  }
+  XctId ret;
+  ret.data_ = copied_data;
+  return ret;
+}
+
+
+/**
+ * Always use this method rather than doing the conversion yourself.
+ * @see UniversalLockId
+ */
+UniversalLockId to_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  uintptr_t lock_ptr);
+
+/**
+ * Must be same as storage::kPageSize. To avoid header dependencies,
+ * we declare a dedicated constant here and statically asserts the equivalence in cpp.
+ */
+const uint64_t kLockPageSize = 1 << 12;
+/** If you already have the numa_node, local_page_index, prefer this one. */
+inline UniversalLockId to_universal_lock_id(
+  uint64_t numa_node,
+  uint64_t local_page_index,
+  uintptr_t lock_ptr) {
+  const uint64_t in_page_offset = lock_ptr % kLockPageSize;
+  return (numa_node << 48) | (local_page_index * kLockPageSize + in_page_offset);
+}
+
+// just shorthands.
+inline UniversalLockId xct_id_to_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  RwLockableXctId* lock) {
+  return to_universal_lock_id(resolver, reinterpret_cast<uintptr_t>(lock));
+}
+inline UniversalLockId rw_lock_to_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  McsRwLock* lock) {
+  return to_universal_lock_id(resolver, reinterpret_cast<uintptr_t>(lock));
+}
+
+/**
+ * Always use this method rather than doing the conversion yourself.
+ * @see UniversalLockId
+ */
+RwLockableXctId* from_universal_lock_id(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const UniversalLockId universal_lock_id);
 
 // sizeof(XctId) must be 64 bits.
 STATIC_SIZE_CHECK(sizeof(XctId), sizeof(uint64_t))
-STATIC_SIZE_CHECK(sizeof(McsLock), 8)
+STATIC_SIZE_CHECK(sizeof(McsWwLock), 8)
 STATIC_SIZE_CHECK(sizeof(LockableXctId), 16)
 
 }  // namespace xct

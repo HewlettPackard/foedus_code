@@ -16,6 +16,7 @@
  * as provided by HP in the LICENSE.txt file that accompanied this code.
  */
 #include <stdint.h>
+#include <valgrind.h>
 #include <gtest/gtest.h>
 
 #include <iostream>
@@ -119,6 +120,12 @@ template <typename T>
 struct CasTest {
   explicit CasTest(bool weak = false) : weak_(weak) {}
   void test() {
+    if (RUNNING_ON_VALGRIND) {
+      std::cout << "This test seems to take too long time on valgrind."
+        << " There is nothing interesting in this test to run on valgrind, so"
+        << " we simply skip this test." << std::endl;
+      return;
+    }
     for (int i = 0; i < kReps; ++i) {
       CasTestImpl<T> impl(weak_);
       impl.test();

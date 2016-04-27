@@ -26,7 +26,9 @@
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_options.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
+#include "foedus/memory/numa_core_memory.hpp"
 #include "foedus/proc/proc_manager.hpp"
+#include "foedus/storage/array/array_page_impl.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/xct/xct.hpp"
@@ -39,6 +41,27 @@
 namespace foedus {
 namespace log {
 DEFINE_TEST_CASE_PACKAGE(LogBasicTest, foedus.log);
+
+constexpr storage::StorageId kDummyStorageId = 12345;
+constexpr storage::StorageId kDummyPayload = 8;
+storage::array::ArrayPage* prepare_dummy_page(
+  thread::Thread* context,
+  memory::PagePoolOffset offset) {
+  storage::array::ArrayPage* dummy_page
+    = reinterpret_cast<storage::array::ArrayPage*>(
+        context->get_local_volatile_page_resolver().resolve_offset_newpage(offset));
+  storage::VolatilePagePointer page_id;
+  page_id.set(context->get_numa_node(), offset);
+  storage::array::ArrayRange dummy_range(0, 128);
+  dummy_page->initialize_volatile_page(
+    Epoch(1U),
+    kDummyStorageId,
+    page_id,
+    kDummyPayload,
+    0,
+    dummy_range);
+  return dummy_page;
+}
 
 ErrorStack test_write_log(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
@@ -62,12 +85,13 @@ ErrorStack test_write_log(const proc::ProcArguments& args) {
   filler->populate(512);
   buffer.assert_consistent();
 
-  // hacky. just to make this transaction read-write.
-  xct::LockableXctId dummy_record;
+  // just to make this transaction read-write.
+  auto dummy_offset = context->get_thread_memory()->grab_free_volatile_page();
+  storage::array::ArrayPage* dummy_page = prepare_dummy_page(context, dummy_offset);
   context->get_current_xct().add_to_write_set(
-    12345,
-    &dummy_record,
-    reinterpret_cast<char*>(&dummy_record),
+    kDummyStorageId,
+    &dummy_page->get_leaf_record(0, kDummyPayload)->owner_id_,
+    dummy_page->get_leaf_record(0, kDummyPayload)->payload_,
     reinterpret_cast<RecordLogType*>(filler));
 
   EXPECT_EQ(committed_before, buffer.get_offset_committed());
@@ -87,6 +111,8 @@ ErrorStack test_write_log(const proc::ProcArguments& args) {
   EXPECT_EQ(tail_before + 400 + 512, buffer.get_offset_tail());
   EXPECT_EQ(buffer.get_offset_durable(), tail_before + 400 + 512);
   buffer.assert_consistent();
+
+  context->get_thread_memory()->release_free_volatile_page(dummy_offset);
   return kRetOk;
 }
 
@@ -122,11 +148,12 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
     kBufferSize - 128));
   filler->populate(kBufferSize - 128);
 
-  xct::LockableXctId dummy_record;
+  auto dummy_offset = context->get_thread_memory()->grab_free_volatile_page();
+  storage::array::ArrayPage* dummy_page = prepare_dummy_page(context, dummy_offset);
   context->get_current_xct().add_to_write_set(
-    12345,
-    &dummy_record,
-    reinterpret_cast<char*>(&dummy_record),
+    kDummyStorageId,
+    &dummy_page->get_leaf_record(0, kDummyPayload)->owner_id_,
+    dummy_page->get_leaf_record(0, kDummyPayload)->payload_,
     reinterpret_cast<RecordLogType*>(filler));
 
   buffer.assert_consistent();
@@ -150,11 +177,11 @@ ErrorStack test_buffer_wrap_around(const proc::ProcArguments& args) {
   EXPECT_EQ(256, buffer.get_offset_tail());  // a log doesn't span the end of buffer.
   buffer.assert_consistent();
 
-  // hacky. just to make this transaction read-write.
+  // just to make this transaction read-write.
   context->get_current_xct().add_to_write_set(
-    12345,
-    &dummy_record,
-    reinterpret_cast<char*>(&dummy_record),
+    kDummyStorageId,
+    &dummy_page->get_leaf_record(0, kDummyPayload)->owner_id_,
+    dummy_page->get_leaf_record(0, kDummyPayload)->payload_,
     reinterpret_cast<RecordLogType*>(filler));
   buffer.assert_consistent();
 

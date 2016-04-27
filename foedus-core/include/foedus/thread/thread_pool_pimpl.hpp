@@ -69,7 +69,6 @@ class ThreadPoolPimpl final : public DefaultInitializable {
 
   /**
    * For better performance, but for some reason this method causes an issue in MCS lock.
-   * We don't use this anywhere so far. Need to figure out what's wrong.
    */
   ThreadRef           get_thread_ref(ThreadId id) ALWAYS_INLINE;
 

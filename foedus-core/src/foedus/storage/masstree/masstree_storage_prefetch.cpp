@@ -55,6 +55,10 @@ ErrorCode MasstreeStoragePimpl::prefetch_pages_normalized_recurse(
   KeySlice from,
   KeySlice to,
   MasstreePage* p) {
+  if (p->is_empty_range()) {
+    return kErrorCodeOk;
+  }
+
   if (p->has_foster_child()) {
     MasstreePage* minor = context->resolve_cast<MasstreePage>(p->get_foster_minor());
     MasstreePage* major = context->resolve_cast<MasstreePage>(p->get_foster_major());

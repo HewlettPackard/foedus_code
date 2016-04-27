@@ -35,11 +35,15 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
+#include "foedus/thread/thread_ref.hpp"
+#include "foedus/xct/fwd.hpp"
+#include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct.hpp"
 #include "foedus/xct/xct_id.hpp"
 
 namespace foedus {
 namespace thread {
+
 /** Shared data of ThreadPimpl */
 struct ThreadControlBlock {
   // this is backed by shared memory. not instantiation. just reinterpret_cast.
@@ -49,6 +53,7 @@ struct ThreadControlBlock {
   void initialize(ThreadId my_thread_id) {
     status_ = kNotInitialized;
     mcs_block_current_ = 0;
+    mcs_rw_async_mapping_current_ = 0;
     mcs_waiting_.store(false);
     current_ticket_ = 0;
     proc_name_.clear();
@@ -72,8 +77,14 @@ struct ThreadControlBlock {
    * reset to 0 at each transaction begin.
    * This is in shared memory because other SOC might check this value (so far only
    * for sanity check).
+   * @note So far this is a shared counter between WW and RW locks.
+   * We will thus have holes in both of them. Not a big issue, but we might want
+   * dedicated counters.
    */
   uint32_t            mcs_block_current_;
+
+  /** How many async mappings for extended RW lock we have so far. */
+  uint32_t            mcs_rw_async_mapping_current_;
 
   /**
    * Whether this thread is waiting for some MCS lock.
@@ -147,6 +158,8 @@ struct ThreadControlBlock {
  */
 class ThreadPimpl final : public DefaultInitializable {
  public:
+  template<typename RW_BLOCK> friend class ThreadPimplMcsAdaptor;
+
   ThreadPimpl() = delete;
   ThreadPimpl(
     Engine* engine,
@@ -256,33 +269,52 @@ class ThreadPimpl final : public DefaultInitializable {
   /** Subroutine of collect_retired_volatile_page() just for assertion */
   bool          is_volatile_page_retired(storage::VolatilePagePointer ptr);
 
-  /** Unconditionally takes MCS lock on the given mcs_lock. */
-  xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
-  /** Unlcok an MCS lock acquired by this thread. */
-  void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
+  /** */
+  ThreadRef     get_thread_ref(ThreadId id);
 
-  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
-  void               mcs_release_reader_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
 
-  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
-  void               mcs_release_writer_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
+  ////////////////////////////////////////////////////////
+  /// MCS locks methods.
+  /// These just delegate to xct_mcs_impl.
+  /// Comments ommit as they are the same as xct_mcs_impl's.
+  template<typename FUNC>
+  void switch_mcs_impl(FUNC func);
+  bool is_simple_mcs_rw() const { return simple_mcs_rw_; }
 
-  static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
-  static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
-  static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
+  void        cll_release_all_locks_after(xct::UniversalLockId address);
+  void        cll_giveup_all_locks_after(xct::UniversalLockId address);
 
-  /** not used so far */
-  void                mcs_toolong_wait(
-    xct::McsLock* mcs_lock,
-    ThreadId predecessor_id,
-    xct::McsBlockIndex my_block,
-    xct::McsBlockIndex pred_block);
+  ErrorCode   cll_try_or_acquire_single_lock(xct::LockListPosition pos);
+  ErrorCode   cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
+  void        cll_release_all_locks();
+  xct::UniversalLockId cll_get_max_locked_id() const;
+
+
+  ////////////////////////////////////////////////////////
+  /// Sysxct-related.
+  ErrorCode run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries);
+  ErrorCode sysxct_record_lock(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::VolatilePagePointer page_id,
+    xct::RwLockableXctId* lock);
+  ErrorCode sysxct_batch_record_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::VolatilePagePointer page_id,
+    uint32_t lock_count,
+    xct::RwLockableXctId** locks);
+  ErrorCode sysxct_page_lock(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::Page* page);
+  ErrorCode sysxct_batch_page_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
+    uint32_t lock_count,
+    storage::Page** pages);
+
+  // overload to be template-friendly
+  void get_mcs_rw_my_blocks(xct::McsRwSimpleBlock** out) { *out = mcs_rw_simple_blocks_; }
+  void get_mcs_rw_my_blocks(xct::McsRwExtendedBlock** out) { *out = mcs_rw_extended_blocks_; }
+  /// MCS locks methods.
+  ////////////////////////////////////////////////////////
 
 
   Engine* const           engine_;
@@ -302,12 +334,8 @@ class ThreadPimpl final : public DefaultInitializable {
 
   /** globally and contiguously numbered ID of thread */
   const ThreadGlobalOrdinal global_ordinal_;
-  /**
-   * An optimization. Used in acquire/release lock.
-   * We don't want a function call overhead within a racy place, so we set this in init.
-   * This damages encapsulation, but we did observe a bottleneck here.
-   */
-  ThreadPoolPimpl*        pool_pimpl_;
+  /** shortcut for engine_->get_options().xct_.mcs_implementation_type_ == simple */
+  bool                    simple_mcs_rw_;
 
   /**
    * Private memory repository of this thread.
@@ -356,8 +384,130 @@ class ThreadPimpl final : public DefaultInitializable {
   void*                   task_output_memory_;
 
   /** Pre-allocated MCS blocks. index 0 is not used so that successor_block=0 means null. */
-  xct::McsBlock*          mcs_blocks_;
+  xct::McsWwBlock*          mcs_ww_blocks_;
+  xct::McsRwSimpleBlock*    mcs_rw_simple_blocks_;
+  xct::McsRwExtendedBlock*  mcs_rw_extended_blocks_;
+  xct::McsRwAsyncMapping*   mcs_rw_async_mappings_;
+
+  xct::RwLockableXctId*   canonical_address_;
 };
+
+/**
+ * @brief Implements McsAdaptorConcept over ThreadPimpl.
+ * @ingroup THREAD
+ * @details
+ * This object is instantiated for every MCS lock invocation in ThreadPimpl, but
+ * this object is essentially just the \e this pointer itself (pimpl_).
+ * The compiler will/should eliminate basically everything.
+ */
+template<typename RW_BLOCK>
+class ThreadPimplMcsAdaptor {
+ public:
+  typedef RW_BLOCK ThisRwBlock;
+
+  explicit ThreadPimplMcsAdaptor(ThreadPimpl* pimpl) : pimpl_(pimpl) {}
+  ~ThreadPimplMcsAdaptor() {}
+
+  xct::McsBlockIndex issue_new_block() {
+    // if this assertion fires, probably we are retrying something too many times
+    ASSERT_ND(pimpl_->control_block_->mcs_block_current_ < 0xFFFFU);
+    return ++pimpl_->control_block_->mcs_block_current_;
+  }
+  void               cancel_new_block(xct::McsBlockIndex the_block) {
+    ASSERT_ND(pimpl_->control_block_->mcs_block_current_ == the_block);
+    --pimpl_->control_block_->mcs_block_current_;
+  }
+  xct::McsBlockIndex get_cur_block() const { return pimpl_->control_block_->mcs_block_current_; }
+  ThreadId      get_my_id() const { return pimpl_->id_; }
+  ThreadGroupId get_my_numa_node() const { return pimpl_->numa_node_; }
+  std::atomic<bool>* me_waiting() { return &pimpl_->control_block_->mcs_waiting_; }
+
+  xct::McsWwBlock* get_ww_my_block(xct::McsBlockIndex index) {
+    ASSERT_ND(index > 0);
+    ASSERT_ND(index < 0xFFFFU);
+    ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
+    return pimpl_->mcs_ww_blocks_ + index;
+  }
+  RW_BLOCK* get_rw_my_block(xct::McsBlockIndex index) {
+    ASSERT_ND(index > 0);
+    ASSERT_ND(index < 0xFFFFU);
+    ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
+    RW_BLOCK* ret;
+    pimpl_->get_mcs_rw_my_blocks(&ret);
+    ret += index;
+    return ret;
+  }
+
+  std::atomic<bool>* other_waiting(ThreadId id) {
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    return &(other.get_control_block()->mcs_waiting_);
+  }
+  xct::McsBlockIndex get_other_cur_block(ThreadId id) {
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    return other.get_control_block()->mcs_block_current_;
+  }
+  xct::McsWwBlock* get_ww_other_block(ThreadId id, xct::McsBlockIndex index) {
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    ASSERT_ND(index <= other.get_control_block()->mcs_block_current_);
+    return other.get_mcs_ww_blocks() + index;
+  }
+  RW_BLOCK* get_rw_other_block(ThreadId id, xct::McsBlockIndex index) {
+    ASSERT_ND(index > 0);
+    ASSERT_ND(index < 0xFFFFU);
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    RW_BLOCK* ret;
+    other.get_mcs_rw_blocks(&ret);
+    ASSERT_ND(index <= other.get_control_block()->mcs_block_current_);
+    ret += index;
+    return ret;
+  }
+  RW_BLOCK* dereference_rw_tail_block(uint32_t tail_int) {
+    xct::McsRwLock tail_tmp;
+    tail_tmp.tail_ = tail_int;
+    uint32_t tail_id = tail_tmp.get_tail_waiter();
+    uint32_t tail_block = tail_tmp.get_tail_waiter_block();
+    return get_rw_other_block(tail_id, tail_block);
+  }
+  xct::McsRwExtendedBlock* get_rw_other_async_block(ThreadId id, xct::McsRwLock* lock) {
+    ASSERT_ND(id != get_my_id());
+    ThreadRef other = pimpl_->get_thread_ref(id);
+    assorted::memory_fence_acquire();
+    auto lock_id = xct::rw_lock_to_universal_lock_id(pimpl_->global_volatile_page_resolver_, lock);
+    auto* mapping = other.get_mcs_rw_async_mapping(lock_id);
+    ASSERT_ND(mapping);
+    ASSERT_ND(mapping->lock_id_ == lock_id);
+    return get_rw_other_block(id, mapping->block_index_);
+  }
+  void add_rw_async_mapping(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
+    // TLS, no concurrency control needed
+    auto index = pimpl_->control_block_->mcs_rw_async_mapping_current_;
+    ASSERT_ND(index <= pimpl_->control_block_->mcs_block_current_);
+    ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].lock_id_ == xct::kNullUniversalLockId);
+    ASSERT_ND(pimpl_->mcs_rw_async_mappings_[index].block_index_ == 0);
+    pimpl_->mcs_rw_async_mappings_[index].lock_id_ =
+      xct::rw_lock_to_universal_lock_id(pimpl_->global_volatile_page_resolver_, lock);
+    pimpl_->mcs_rw_async_mappings_[index].block_index_ = block_index;
+    ++pimpl_->control_block_->mcs_rw_async_mapping_current_;
+  }
+  void remove_rw_async_mapping(xct::McsRwLock* lock) {
+    xct::UniversalLockId lock_id =
+      xct::rw_lock_to_universal_lock_id(pimpl_->global_volatile_page_resolver_, lock);
+    ASSERT_ND(pimpl_->control_block_->mcs_rw_async_mapping_current_);
+    for (uint32_t i = 0; i < pimpl_->control_block_->mcs_rw_async_mapping_current_; ++i) {
+      if (pimpl_->mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
+        ASSERT_ND(pimpl_->mcs_rw_async_mappings_[i].block_index_);
+        pimpl_->mcs_rw_async_mappings_[i].lock_id_ = xct::kNullUniversalLockId;
+        pimpl_->mcs_rw_async_mappings_[i].block_index_= 0;
+        return;
+      }
+    }
+    ASSERT_ND(false);
+  }
+
+ private:
+  ThreadPimpl* const pimpl_;
+};
+
 
 inline ErrorCode ThreadPimpl::read_a_snapshot_page(
   storage::SnapshotPagePointer page_id,
@@ -370,6 +520,7 @@ inline ErrorCode ThreadPimpl::read_snapshot_pages(
   storage::Page* buffer) {
   return snapshot_file_set_.read_pages(page_id_begin, page_count, buffer);
 }
+
 }  // namespace thread
 }  // namespace foedus
 #endif  // FOEDUS_THREAD_THREAD_PIMPL_HPP_

@@ -101,19 +101,19 @@ ErrorStack SequentialStoragePimpl::drop() {
         VolatilePagePointer cur_pointer;
         cur_pointer.word = page->header().page_id_;
         ASSERT_ND(page == reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
-          cur_pointer.components.offset)));
-        ASSERT_ND(node == cur_pointer.components.numa_node);
+          cur_pointer.get_offset())));
+        ASSERT_ND(node == cur_pointer.get_numa_node());
         VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
         if (chunk.full()) {
           pool->release(chunk.size(), &chunk);
         }
         ASSERT_ND(!chunk.full());
-        chunk.push_back(cur_pointer.components.offset);
+        chunk.push_back(cur_pointer.get_offset());
 
-        if (next_pointer.components.offset != 0) {
-          ASSERT_ND(node == next_pointer.components.numa_node);
+        if (!next_pointer.is_null()) {
+          ASSERT_ND(node == next_pointer.get_numa_node());
           page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(
-            next_pointer.components.offset));
+            next_pointer.get_offset()));
         } else {
           page = nullptr;
         }
@@ -130,13 +130,13 @@ ErrorStack SequentialStoragePimpl::drop() {
     uint16_t node = p * 4;
     memory::NumaNodeMemoryRef* memory = engine_->get_memory_manager()->get_node_memory(node);
     memory::PagePool* pool = memory->get_volatile_pool();
-    if (control_block_->head_pointer_pages_[p].components.offset) {
-      ASSERT_ND(control_block_->head_pointer_pages_[p].components.numa_node == node);
-      pool->release_one(control_block_->head_pointer_pages_[p].components.offset);
+    if (!control_block_->head_pointer_pages_[p].is_null()) {
+      ASSERT_ND(control_block_->head_pointer_pages_[p].get_numa_node() == node);
+      pool->release_one(control_block_->head_pointer_pages_[p].get_offset());
     }
-    if (control_block_->tail_pointer_pages_[p].components.offset) {
-      ASSERT_ND(control_block_->tail_pointer_pages_[p].components.numa_node == node);
-      pool->release_one(control_block_->tail_pointer_pages_[p].components.offset);
+    if (!control_block_->tail_pointer_pages_[p].is_null()) {
+      ASSERT_ND(control_block_->tail_pointer_pages_[p].get_numa_node() == node);
+      pool->release_one(control_block_->tail_pointer_pages_[p].get_offset());
     }
   }
   std::memset(control_block_->head_pointer_pages_, 0, sizeof(control_block_->head_pointer_pages_));
@@ -200,8 +200,8 @@ ErrorStack SequentialStoragePimpl::initialize_head_tail_pages() {
     // minor todo: gracefully fail in case of out of memory
     WRAP_ERROR_CODE(pool->grab_one(&head_offset));
     WRAP_ERROR_CODE(pool->grab_one(&tail_offset));
-    control_block_->head_pointer_pages_[p] = combine_volatile_page_pointer(node, 0, 0, head_offset);
-    control_block_->tail_pointer_pages_[p] = combine_volatile_page_pointer(node, 0, 0, tail_offset);
+    control_block_->head_pointer_pages_[p].set(node, head_offset);
+    control_block_->tail_pointer_pages_[p].set(node, tail_offset);
     void* head_page =  pool->get_resolver().resolve_offset_newpage(head_offset);
     void* tail_page =  pool->get_resolver().resolve_offset_newpage(tail_offset);
     std::memset(head_page, 0, kPageSize);
@@ -226,10 +226,10 @@ ErrorCode SequentialStorageControlBlock::optimistic_read_truncate_epoch(
   }
 
   *out = Epoch(cur_truncate_epoch_.load());  // atomic!
-  CHECK_ERROR_CODE(cur_xct.add_to_read_set(
+  CHECK_ERROR_CODE(cur_xct.add_to_lock_free_read_set(
     meta_.id_,
     observed,
-    const_cast< xct::LockableXctId* >(address)));  // why it doesn't receive const? I forgot..
+    const_cast< xct::RwLockableXctId* >(address)));  // why it doesn't receive const? I forgot..
   return kErrorCodeOk;
 }
 
@@ -349,7 +349,7 @@ void SequentialStoragePimpl::append_record(
         " storage after commit.";
     }
     VolatilePagePointer new_page_pointer;
-    new_page_pointer = combine_volatile_page_pointer(node, 0, 0, new_page_offset);
+    new_page_pointer.set(node, new_page_offset);
     SequentialPage* new_page = reinterpret_cast<SequentialPage*>(
       context->get_local_volatile_page_resolver().resolve_offset_newpage(new_page_offset));
     new_page->initialize_volatile_page(get_id(), new_page_pointer);

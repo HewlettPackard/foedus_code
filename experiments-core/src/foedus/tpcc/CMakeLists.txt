@@ -48,6 +48,13 @@ configure_file(run_nvm_dl580.sh run_nvm_dl580.sh COPYONLY)
 configure_file(run_nvm_dragonhawk.sh run_nvm_dragonhawk.sh COPYONLY)
 configure_file(run_nvm.sh run_nvm.sh COPYONLY)
 
+# For HCC experiments
+configure_file(run_hcc_z820.sh run_hcc_z820.sh COPYONLY)
+configure_file(run_hcc_dl580.sh run_hcc_dl580.sh COPYONLY)
+configure_file(run_hcc_dragonhawk.sh run_hcc_dragonhawk.sh COPYONLY)
+configure_file(run_hcc_gryphonhawk.sh run_hcc_gryphonhawk.sh COPYONLY)
+configure_file(run_hcc.sh run_hcc.sh COPYONLY)
+
 add_subdirectory(hstore_related)
 
 # SILO scripts are not meant to be used from build folder. Just copy-paste them to your console.

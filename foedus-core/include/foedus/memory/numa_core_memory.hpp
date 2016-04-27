@@ -27,6 +27,7 @@
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/memory_id.hpp"
+#include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
 
@@ -46,10 +47,12 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
  public:
   /** Packs pointers to pieces of small_thread_local_memory_*/
   struct SmallThreadLocalMemoryPieces {
+    char* sysxct_workspace_memory_;
     char* xct_pointer_access_memory_;
     char* xct_page_version_memory_;
     char* xct_read_access_memory_;
     char* xct_write_access_memory_;
+    char* xct_lock_free_read_access_memory_;
     char* xct_lock_free_write_access_memory_;
   };
 
@@ -71,6 +74,10 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * Instead, The caller MUST check if the returned page is zero or not.
    */
   PagePoolOffset  grab_free_volatile_page();
+  /**
+   * Wrapper for grab_free_volatile_page().
+   */
+  storage::VolatilePagePointer grab_free_volatile_page_pointer();
   /** Same, except it's for snapshot page */
   PagePoolOffset  grab_free_snapshot_page();
   /** Returns one free volatile page to \b local page pool. */
@@ -81,6 +88,19 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
   memory::PagePool* get_volatile_pool() { return volatile_pool_; }
   memory::PagePool* get_snapshot_pool() { return snapshot_pool_; }
   PagePoolOffsetAndEpochChunk* get_retired_volatile_pool_chunk(uint16_t node);
+
+  xct::LockEntry* get_current_lock_list_memory() const {
+    return current_lock_list_memory_;
+  }
+  uint64_t get_current_lock_list_capacity() const {
+    return current_lock_list_capacity_;
+  }
+  xct::LockEntry* get_retrospective_lock_list_memory() const {
+    return retrospective_lock_list_memory_;
+  }
+  uint64_t get_retrospective_lock_list_capacity() const {
+    return retrospective_lock_list_capacity_;
+  }
 
   const SmallThreadLocalMemoryPieces& get_small_thread_local_memory_pieces() const {
     return small_thread_local_memory_pieces_;
@@ -113,6 +133,10 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * Global ID of the NUMA core this memory is allocated for.
    */
   const foedus::thread::ThreadId core_id_;
+  /**
+   * The NUMA node this memory is allocated for.
+   */
+  const foedus::thread::ThreadGroupId     numa_node_;
 
   /**
    * Local ordinal of the NUMA core this memory is allocated for.
@@ -126,10 +150,13 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * \li (used in Xct) PageVersionAccess(16b) * 1k : 16kb
    * \li (used in Xct) ReadXctAccess(32b) * 32k :1024kb
    * \li (used in Xct) WriteXctAccess(40b) * 8k : 320kb
+   * \li (used in Xct) LockFreeReadXctAccess(32b) * 128 : 4kb
    * \li (used in Xct) LockFreeWriteXctAccess(16b) * 4k : 64kb
    * \li (used in Xct) Retired pages(PagePoolOffsetAndEpochChunk=512kb) * #-of-nodes
    *  : 512kb * #nodes
-   * In total within 4MB in most cases.
+   * \li (used in Xct) RetrospectiveLock(24b) * (32k+8k) : 960kb
+   * \li (used in Xct) CurrentLock(24b) * (32k+8k) : 960kb
+   * In total within a few MBs in most cases.
    * Depending on options (esp, #nodes, xct_.max_read_set_size and max_write_set_size), this might
    * become more than that, which is not ideal. Hopefully the numbers above are sufficient.
    */
@@ -164,6 +191,13 @@ class NumaCoreMemory CXX11_FINAL : public DefaultInitializable {
    * offsets to the volatile page pool upto a safe epoch (current global epoch - 2).
    */
   PagePoolOffsetAndEpochChunk*            retired_volatile_pool_chunks_;
+
+  /** Memory to hold thread's current lock list */
+  xct::LockEntry*                       current_lock_list_memory_;
+  uint64_t                                current_lock_list_capacity_;
+  /** Memory to hold thread's retrospective lock list */
+  xct::LockEntry*                 retrospective_lock_list_memory_;
+  uint64_t                                retrospective_lock_list_capacity_;
 
   /** Pointer to this NUMA node's volatile page pool */
   PagePool*                               volatile_pool_;

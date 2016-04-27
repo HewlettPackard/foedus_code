@@ -626,6 +626,28 @@ ErrorStack tpcc_load_task(const proc::ProcArguments& args) {
   return TpccLoadTask(ctime_buffer).run(context);
 }
 
+ErrorStack tpcc_fatify_task(const proc::ProcArguments& args) {
+  thread::Thread* context = args.context_;
+  Engine* engine = args.engine_;
+  LOG(INFO) << "Fatify start";
+  debugging::StopWatch watch;
+  uint32_t desired = 32;  // context->get_engine()->get_soc_count();  // maybe 2x?
+  WRAP_ERROR_CODE(engine->get_xct_manager()->begin_xct(context, xct::kSnapshot));
+  CHECK_ERROR(storages.customers_secondary_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.customers_secondary_.verify_single_thread(context));
+  CHECK_ERROR(storages.neworders_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.neworders_.verify_single_thread(context));
+  CHECK_ERROR(storages.orderlines_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.orderlines_.verify_single_thread(context));
+  CHECK_ERROR(storages.orders_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.orders_.verify_single_thread(context));
+  CHECK_ERROR(storages.orders_secondary_.fatify_first_root(context, desired));
+  CHECK_ERROR(storages.orders_secondary_.verify_single_thread(context));
+  WRAP_ERROR_CODE(engine->get_xct_manager()->abort_xct(context));
+  watch.stop();
+  LOG(INFO) << "Fatify done in " << watch.elapsed_sec() << "sec";
+  return kRetOk;
+}
 ErrorStack verify_task(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   Engine* engine = args.engine_;
@@ -673,6 +695,7 @@ void run_test(
   Engine engine(options);
   engine.get_proc_manager()->pre_register("the_task", proc);
   engine.get_proc_manager()->pre_register("verify_task", verify_task);
+  engine.get_proc_manager()->pre_register("tpcc_fatify_task", tpcc_fatify_task);
   engine.get_proc_manager()->pre_register("tpcc_load_task", tpcc_load_task);
   COERCE_ERROR(engine.initialize());
   {
@@ -706,6 +729,8 @@ void run_test(
       COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("tpcc_load_task"));
     }
     engine.get_debug()->set_debug_log_min_threshold(debugging::DebuggingOptions::kDebugLogInfo);
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("tpcc_fatify_task"));
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("verify_task"));
     COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("the_task"));
     COERCE_ERROR(engine.uninitialize());

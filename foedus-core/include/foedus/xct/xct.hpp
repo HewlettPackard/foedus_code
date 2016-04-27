@@ -18,16 +18,14 @@
 #ifndef FOEDUS_XCT_XCT_HPP_
 #define FOEDUS_XCT_XCT_HPP_
 
-#include <cstring>
 #include <iosfwd>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/compiler.hpp"
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
-#include "foedus/error_stack.hpp"
+#include "foedus/error_code.hpp"
 #include "foedus/fwd.hpp"
-#include "foedus/assorted/atomic_fences.hpp"
 #include "foedus/log/common_log_types.hpp"
 
 // For log verification. Only in debug mode
@@ -42,6 +40,7 @@
 #include "foedus/thread/fwd.hpp"
 #include "foedus/thread/thread_id.hpp"
 #include "foedus/xct/fwd.hpp"
+#include "foedus/xct/retrospective_lock_list.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
 
@@ -49,10 +48,12 @@ namespace foedus {
 namespace xct {
 
 /**
- * @brief Represents a transaction.
+ * @brief Represents a user transaction.
  * @ingroup XCT
  * @details
  * To obtain this object, call Thread#get_current_xct().
+ * This object represents a \e user transaction as opposed to physical-only
+ * internal transactions (so called \e system transactions, SysxctScope).
  */
 class Xct {
  public:
@@ -61,13 +62,16 @@ class Xct {
     kMaxPageVersionSets = 1024,
   };
 
-  Xct(Engine* engine, thread::ThreadId thread_id);
+  Xct(Engine* engine, thread::Thread* context, thread::ThreadId thread_id);
 
   // No copy
   Xct(const Xct& other) CXX11_FUNC_DELETE;
   Xct& operator=(const Xct& other) CXX11_FUNC_DELETE;
 
-  void initialize(memory::NumaCoreMemory* core_memory, uint32_t* mcs_block_current);
+  void initialize(
+    memory::NumaCoreMemory* core_memory,
+    uint32_t* mcs_block_current,
+    uint32_t* mcs_rw_async_mapping_current);
 
   /**
    * Begins the transaction.
@@ -75,30 +79,68 @@ class Xct {
   void                activate(IsolationLevel isolation_level) {
     ASSERT_ND(!active_);
     active_ = true;
+    enable_rll_for_this_xct_ = default_rll_for_this_xct_;
+    hot_threshold_for_this_xct_ = default_hot_threshold_for_this_xct_;
+    rll_threshold_for_this_xct_ = default_rll_threshold_for_this_xct_;
     isolation_level_ = isolation_level;
     pointer_set_size_ = 0;
     page_version_set_size_ = 0;
     read_set_size_ = 0;
     write_set_size_ = 0;
+    lock_free_read_set_size_ = 0;
     lock_free_write_set_size_ = 0;
     *mcs_block_current_ = 0;
+    *mcs_rw_async_mapping_current_ = 0;
     local_work_memory_cur_ = 0;
+    current_lock_list_.clear_entries();
+    if (!retrospective_lock_list_.is_empty()) {
+      // If we have RLL, we will highly likely lock all of them.
+      // So, let's make CLL entries for all of them at the beginning.
+      // This is both for simplicity and performance.
+      current_lock_list_.prepopulate_for_retrospective_lock_list(retrospective_lock_list_);
+    }
   }
 
   /**
    * Closes the transaction.
+   * @pre Before calling this method, all locks must be already released.
    */
   void                deactivate() {
     ASSERT_ND(active_);
+    ASSERT_ND(current_lock_list_.is_empty());
     active_ = false;
     *mcs_block_current_ = 0;
+    *mcs_rw_async_mapping_current_ = 0;
   }
 
   uint32_t            get_mcs_block_current() const { return *mcs_block_current_; }
   uint32_t            increment_mcs_block_current() { return ++(*mcs_block_current_); }
+  void                decrement_mcs_block_current() { --(*mcs_block_current_); }
 
   /** Returns whether the object is an active transaction. */
   bool                is_active() const { return active_; }
+
+  bool  is_enable_rll_for_this_xct() const { return enable_rll_for_this_xct_; }
+  void  set_enable_rll_for_this_xct(bool value) { enable_rll_for_this_xct_ = value; }
+  bool  is_default_rll_for_this_xct() const { return default_rll_for_this_xct_ ; }
+  void  set_default_rll_for_this_xct(bool value) { default_rll_for_this_xct_ = value; }
+
+  uint16_t  get_hot_threshold_for_this_xct() const { return hot_threshold_for_this_xct_; }
+  void  set_hot_threshold_for_this_xct(uint16_t value) { hot_threshold_for_this_xct_ = value; }
+  uint16_t  get_default_hot_threshold_for_this_xct() const {
+    return default_hot_threshold_for_this_xct_ ; }
+  void  set_default_hot_threshold_for_this_xct(uint16_t value) {
+    default_hot_threshold_for_this_xct_ = value; }
+
+  uint16_t  get_rll_threshold_for_this_xct() const { return rll_threshold_for_this_xct_; }
+  void  set_rll_threshold_for_this_xct(uint16_t value) { rll_threshold_for_this_xct_ = value; }
+  uint16_t  get_default_rll_threshold_for_this_xct() const {
+    return default_rll_threshold_for_this_xct_ ; }
+  void  set_default_rll_threshold_for_this_xct(uint16_t value) {
+    default_rll_threshold_for_this_xct_ = value; }
+
+  SysxctWorkspace* get_sysxct_workspace() const { return sysxct_workspace_; }
+
   /** Returns if this transaction makes no writes. */
   bool                is_read_only() const {
     return write_set_size_ == 0 && lock_free_write_set_size_ == 0;
@@ -107,16 +149,19 @@ class Xct {
   IsolationLevel      get_isolation_level() const { return isolation_level_; }
   /** Returns the ID of this transaction, but note that it is not issued until commit time! */
   const XctId&        get_id() const { return id_; }
+  thread::Thread*     get_thread_context() { return context_; }
   thread::ThreadId    get_thread_id() const { return thread_id_; }
   uint32_t            get_pointer_set_size() const { return pointer_set_size_; }
   uint32_t            get_page_version_set_size() const { return page_version_set_size_; }
   uint32_t            get_read_set_size() const { return read_set_size_; }
   uint32_t            get_write_set_size() const { return write_set_size_; }
+  uint32_t            get_lock_free_read_set_size() const { return lock_free_read_set_size_; }
   uint32_t            get_lock_free_write_set_size() const { return lock_free_write_set_size_; }
   const PointerAccess*   get_pointer_set() const { return pointer_set_; }
   const PageVersionAccess*  get_page_version_set() const { return page_version_set_; }
   ReadXctAccess*      get_read_set()  { return read_set_; }
   WriteXctAccess*     get_write_set() { return write_set_; }
+  LockFreeReadXctAccess* get_lock_free_read_set() { return lock_free_read_set_; }
   LockFreeWriteXctAccess* get_lock_free_write_set() { return lock_free_write_set_; }
 
 
@@ -163,7 +208,7 @@ class Xct {
    */
   void                overwrite_to_pointer_set(
     const storage::VolatilePagePointer* pointer_address,
-    storage::VolatilePagePointer observed) ALWAYS_INLINE;
+    storage::VolatilePagePointer observed);
 
   /**
    * @brief Add the given page version to the page version set of this transaction.
@@ -181,6 +226,101 @@ class Xct {
     storage::PageVersionStatus observed);
 
   /**
+   * @brief The general logic invoked for every record read.
+   * @param[in] intended_for_write Hints whether the record will be written after this read
+   * @param[in,out] tid_address The record's TID address
+   * @param[out] observed_xid Returns the observed XID. See below for more details.
+   * @param[out] read_set_address If this method took a read-set, points to
+   * the read-set record. nullptr if it didn't.
+   * @param[in] no_readset_if_moved When this is true, and if we observe an XID whose is_moved()
+   * is on, we do not add it to readset. See the comment below for more details.
+   * @param[in] no_readset_if_next_layer When this is true, and if we observe an XID whose
+   * is_next_layer() is on, we do not add it to readset. See the comment below for more details.
+   * @return The only possible error is read-set full.
+   * @pre tid_address != nullptr && observed_xid != nullptr
+   * @pre tid_address must be pointing to somewhere in an aligned data page.
+   * We reinterpret_cast the address to acquire the enclosing page and its header.
+   * @post returns error code, or !observed_xid->is_being_written().
+   * @details
+   * You must call this method \b BEFORE reading the data, otherwise it violates the
+   * commit protocol.
+   * This method does a few things listed below:
+   *
+   * @par Observes XID
+   * Observes XID in the TID and spins until we at least observe an XID that is
+   * !observed_xid->is_being_written(). However, remember that concurrent threads might
+   * write the data and XID after this method leaves. If you want to make sure your "read"
+   * is strictly as of one time point, you must call this method in a loop.
+   * In terms of serializability, you don't need it because commit protocol will catch it.
+   *
+   * @par Takes lock(s) recommended by RLL or temperature stat.
+   * This happens only when MOCC is on, and the page is a volatile page.
+   * This method might take a PCC-like lock on this record, and also other locks
+   * to keep the transaction in canonical mode.
+   *
+   * @par Add to read set
+   * This happens only when the transaction has higher isolation level (serializable),
+   * and the page is a volatile page. To protect the read, we add the observed XID and
+   * the address to read set of this transaction.
+   *
+   * @par no_readset_if_moved/next_layer
+   * After invoking on_record_read(), we might find the observed TID tells that the
+   * record is now permanently out of our interest (e.g., moved/next-layer).
+   * In that case, the caller doesn't want to have the entry in read-set.
+   * These flags tell this method to not add such entries to read-set.
+   * Note that such a protocol is safe \b because moved/next-layer flags in the storage type
+   * is immutable once set, eg masstree storage only changes moved-flag off->on, not the
+   * other way around. deleted flag is mutable (can off->on->off), so we can't skip
+   * such readset. Use it appropriately according to the protcol in the storage type.
+   * If you are unsure, don't give "true" to these parameters. Having
+   * unnecessary read-sets is just a performance issue, not correctness.
+   */
+  ErrorCode           on_record_read(
+    bool intended_for_write,
+    RwLockableXctId* tid_address,
+    XctId* observed_xid,
+    ReadXctAccess** read_set_address,
+    bool no_readset_if_moved = false,
+    bool no_readset_if_next_layer = false);
+  /** Shortcut for a case when you don't need observed_xid/read_set_address back */
+  ErrorCode           on_record_read(
+    bool intended_for_write,
+    RwLockableXctId* tid_address,
+    bool no_readset_if_moved = false,
+    bool no_readset_if_next_layer = false) {
+    XctId dummy_xctid;
+    ReadXctAccess* dummy_read_set;
+    return on_record_read(
+      intended_for_write,
+      tid_address,
+      &dummy_xctid,
+      &dummy_read_set,
+      no_readset_if_moved ,
+      no_readset_if_next_layer);
+  }
+  /**
+   * subroutine of on_record_read() to take lock(s).
+   */
+  void on_record_read_take_locks_if_needed(
+    bool intended_for_write,
+    const storage::Page* page_address,
+    UniversalLockId lock_id,
+    RwLockableXctId* tid_address);
+
+  /**
+   * Registers a write-set related to an existing read-set.
+   * This is typically invoked after on_record_read(), which returns the read-set address.
+   * @note so far you can't reigster more than one write-set to a read-set.
+   * but, registering related read/write sets are just for performance. correctness is
+   * guaranteed even if they are not registered as "related".
+   */
+  ErrorCode           add_related_write_set(
+    ReadXctAccess* related_read_set,
+    RwLockableXctId* tid_address,
+    char* payload_address,
+    log::RecordLogType* log_entry);
+
+  /**
    * @brief Add the given record to the read set of this transaction.
    * @details
    * You must call this method \b BEFORE reading the data, otherwise it violates the
@@ -189,21 +329,24 @@ class Xct {
   ErrorCode           add_to_read_set(
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    LockableXctId* owner_id_address) ALWAYS_INLINE;
-  /** This version always adds to read set regardless of isolation level. */
-  ErrorCode           add_to_read_set_force(
+    RwLockableXctId* owner_id_address,
+    ReadXctAccess** read_set_address);
+  /** Use this in case you already have owner_lock_id. Slightly faster. */
+  ErrorCode           add_to_read_set(
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    LockableXctId* owner_id_address) ALWAYS_INLINE;
+    UniversalLockId owner_lock_id,
+    RwLockableXctId* owner_id_address,
+    ReadXctAccess** read_set_address);
 
   /**
    * @brief Add the given record to the write set of this transaction.
    */
   ErrorCode           add_to_write_set(
     storage::StorageId storage_id,
-    LockableXctId* owner_id_address,
+    RwLockableXctId* owner_id_address,
     char* payload_address,
-    log::RecordLogType* log_entry) ALWAYS_INLINE;
+    log::RecordLogType* log_entry);
 
   /**
    * @brief Add the given record to the write set of this transaction.
@@ -211,7 +354,9 @@ class Xct {
   ErrorCode           add_to_write_set(
     storage::StorageId storage_id,
     storage::Record* record,
-    log::RecordLogType* log_entry) ALWAYS_INLINE;
+    log::RecordLogType* log_entry) {
+    return add_to_write_set(storage_id, &record->owner_id_, record->payload_, log_entry);
+  }
 
   /**
    * @brief Add a pair of read and write set of this transaction.
@@ -219,9 +364,17 @@ class Xct {
   ErrorCode           add_to_read_and_write_set(
     storage::StorageId storage_id,
     XctId observed_owner_id,
-    LockableXctId* owner_id_address,
+    RwLockableXctId* owner_id_address,
     char* payload_address,
-    log::RecordLogType* log_entry) ALWAYS_INLINE;
+    log::RecordLogType* log_entry);
+
+  /**
+   * @brief Add the given record to the special read-set that is not placed in usual data pages.
+   */
+  ErrorCode           add_to_lock_free_read_set(
+    storage::StorageId storage_id,
+    XctId observed_owner_id,
+    RwLockableXctId* owner_id_address);
 
   /**
    * @brief Add the given log to the lock-free write set of this transaction.
@@ -257,6 +410,12 @@ class Xct {
     return kErrorCodeOk;
   }
 
+  xct::CurrentLockList*       get_current_lock_list() { return &current_lock_list_; }
+  const xct::CurrentLockList* get_current_lock_list() const { return &current_lock_list_; }
+  xct::RetrospectiveLockList* get_retrospective_lock_list() {
+    return &retrospective_lock_list_;
+  }
+
   /**
    * This debug method checks whether the related_read_ and related_write_ fileds in
    * read/write sets are consistent. This method is completely wiped out in release build.
@@ -268,6 +427,10 @@ class Xct {
 
  private:
   Engine* const engine_;
+  /**
+   * The thread that holds this object, or a back pointer.
+   */
+  thread::Thread* const context_;
 
   /** Thread that owns this transaction. */
   const thread::ThreadId thread_id_;
@@ -285,12 +448,52 @@ class Xct {
   bool                active_;
 
   /**
+   * @brief Whether to use Retrospective Lock List (RLL) after aborts for this transaction.
+   * @details
+   * Default value is XctOptions::enable_retrospective_lock_list_.
+   * You can overwrite the setting for the current transaction (i.e. for next transaction when
+   * this transaction aborts).
+   * This value is reset to XctOptions::enable_retrospective_lock_list_ each time a new
+   * transaction starts. So, you need to change it after every begin_xct(). To avoid it,
+   * change the system-wide default value (XctOptions::enable_retrospective_lock_list_) or
+   * overwrite the value of default_rll_for_this_xct_.
+   * @see XctOptions::enable_retrospective_lock_list_
+   * @see default_rll_for_this_xct_
+   */
+  bool                enable_rll_for_this_xct_;
+  /**
+   * A copy of XctOptions::enable_retrospective_lock_list_.
+   * enable_rll_for_this_xct_ is reset to this value at every activate().
+   * If you change this value, the effect sticks until you change it again or
+   * the next impersonation. Know what you are doing!
+   */
+  bool                default_rll_for_this_xct_;
+  /**
+   * Like above, per-xct value. @see StorageOptions::hot_threshold_
+   */
+  uint16_t            hot_threshold_for_this_xct_;
+  uint16_t            default_hot_threshold_for_this_xct_;
+  /**
+   * Like above, per-xct value. @see XctOptions::hot_threshold_for_retrospective_lock_list_
+   */
+  uint16_t            rll_threshold_for_this_xct_;
+  uint16_t            default_rll_threshold_for_this_xct_;
+
+
+  /**
+   * Workspace for a system transaction nested under this user transaction.
+   */
+  SysxctWorkspace*    sysxct_workspace_;
+
+  /**
    * How many MCS blocks we allocated in the current thread.
    * reset to 0 at each transaction begin
    * This points to ThreadControlBlock because other SOC might check this value (so far only
    * for sanity check).
    */
   uint32_t*           mcs_block_current_;
+
+  uint32_t*           mcs_rw_async_mapping_current_;
 
   ReadXctAccess*      read_set_;
   uint32_t            read_set_size_;
@@ -300,15 +503,13 @@ class Xct {
   uint32_t            write_set_size_;
   uint32_t            max_write_set_size_;
 
+  LockFreeReadXctAccess*  lock_free_read_set_;
+  uint32_t                lock_free_read_set_size_;
+  uint32_t                max_lock_free_read_set_size_;
+
   LockFreeWriteXctAccess* lock_free_write_set_;
   uint32_t                lock_free_write_set_size_;
   uint32_t                max_lock_free_write_set_size_;
-
-  // @todo we also need a special lock_free read set just for scanning xct on sequential storage.
-  // it should check if the biggest XctId the scanner read is still the biggest XctId in the list.
-  // we can easily implement it by remembering "safe" page to resume search, or just remembering
-  // tail (abort if tail has changed), and then reading all record in the page.
-  // as we don't have scanning accesses to sequential storage yet, low priority.
 
   PointerAccess*      pointer_set_;
   uint32_t            pointer_set_size_;
@@ -316,182 +517,23 @@ class Xct {
   PageVersionAccess*  page_version_set_;
   uint32_t            page_version_set_size_;
 
+  /**
+   * CLL (current-lock-list) of this thread.
+   * @see foedus::xct::CurrentLockList
+   */
+  xct::CurrentLockList    current_lock_list_;
+
+  /**
+   * RLL (retrospective-lock-list) of this thread.
+   * @see foedus::xct::RetrospectiveLockList
+   */
+  xct::RetrospectiveLockList  retrospective_lock_list_;
+
   void*               local_work_memory_;
   uint64_t            local_work_memory_size_;
   /** This value is reset to zero for each transaction, and always <= local_work_memory_size_ */
   uint64_t            local_work_memory_cur_;
 };
-
-
-inline ErrorCode Xct::add_to_pointer_set(
-  const storage::VolatilePagePointer* pointer_address,
-  storage::VolatilePagePointer observed) {
-  ASSERT_ND(pointer_address);
-  if (isolation_level_ != kSerializable) {
-    return kErrorCodeOk;
-  }
-
-  // TASK(Hideaki) even though pointer set should be small, we don't want sequential search
-  // everytime. but insertion sort requires shifting. mmm.
-  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
-    if (pointer_set_[i].address_ == pointer_address) {
-      pointer_set_[i].observed_ = observed;
-      return kErrorCodeOk;
-    }
-  }
-
-  if (UNLIKELY(pointer_set_size_ >= kMaxPointerSets)) {
-    return kErrorCodeXctPointerSetOverflow;
-  }
-
-  // no need for fence. the observed pointer itself is the only data to verify
-  pointer_set_[pointer_set_size_].address_ = pointer_address;
-  pointer_set_[pointer_set_size_].observed_ = observed;
-  ++pointer_set_size_;
-  return kErrorCodeOk;
-}
-
-inline void Xct::overwrite_to_pointer_set(
-  const storage::VolatilePagePointer* pointer_address,
-  storage::VolatilePagePointer observed) {
-  ASSERT_ND(pointer_address);
-  if (isolation_level_ != kSerializable) {
-    return;
-  }
-
-  for (uint32_t i = 0; i < pointer_set_size_; ++i) {
-    if (pointer_set_[i].address_ == pointer_address) {
-      pointer_set_[i].observed_ = observed;
-      return;
-    }
-  }
-}
-
-inline ErrorCode Xct::add_to_page_version_set(
-  const storage::PageVersion* version_address,
-  storage::PageVersionStatus observed) {
-  ASSERT_ND(version_address);
-  if (isolation_level_ != kSerializable) {
-    return kErrorCodeOk;
-  } else if (UNLIKELY(page_version_set_size_ >= kMaxPointerSets)) {
-    return kErrorCodeXctPageVersionSetOverflow;
-  }
-
-  page_version_set_[page_version_set_size_].address_ = version_address;
-  page_version_set_[page_version_set_size_].observed_ = observed;
-  ++page_version_set_size_;
-  return kErrorCodeOk;
-}
-
-inline ErrorCode Xct::add_to_read_set(
-  storage::StorageId storage_id,
-  XctId observed_owner_id,
-  LockableXctId* owner_id_address) {
-  ASSERT_ND(storage_id != 0);
-  ASSERT_ND(owner_id_address);
-  ASSERT_ND(observed_owner_id.is_valid());
-  if (isolation_level_ != kSerializable) {
-    return kErrorCodeOk;
-  }
-  return add_to_read_set_force(storage_id, observed_owner_id, owner_id_address);
-}
-inline ErrorCode Xct::add_to_read_set_force(
-  storage::StorageId storage_id,
-  XctId observed_owner_id,
-  LockableXctId* owner_id_address) {
-  ASSERT_ND(storage_id != 0);
-  ASSERT_ND(owner_id_address);
-  if (UNLIKELY(read_set_size_ >= max_read_set_size_)) {
-    return kErrorCodeXctReadSetOverflow;
-  }
-  // if the next-layer bit is ON, the record is not logically a record, so why we are adding
-  // it to read-set? we should have already either aborted or retried in this case.
-  ASSERT_ND(!observed_owner_id.is_next_layer());
-  read_set_[read_set_size_].storage_id_ = storage_id;
-  read_set_[read_set_size_].owner_id_address_ = owner_id_address;
-  read_set_[read_set_size_].observed_owner_id_ = observed_owner_id;
-  read_set_[read_set_size_].related_write_ = CXX11_NULLPTR;
-  ++read_set_size_;
-  return kErrorCodeOk;
-}
-
-inline ErrorCode Xct::add_to_write_set(
-  storage::StorageId storage_id,
-  LockableXctId* owner_id_address,
-  char* payload_address,
-  log::RecordLogType* log_entry) {
-  ASSERT_ND(storage_id != 0);
-  ASSERT_ND(owner_id_address);
-  ASSERT_ND(payload_address);
-  ASSERT_ND(log_entry);
-  if (UNLIKELY(write_set_size_ >= max_write_set_size_)) {
-    return kErrorCodeXctWriteSetOverflow;
-  }
-
-#ifndef NDEBUG
-  log::invoke_assert_valid(log_entry);
-#endif  // NDEBUG
-
-  write_set_[write_set_size_].storage_id_ = storage_id;
-  write_set_[write_set_size_].mcs_block_ = 0;
-  write_set_[write_set_size_].write_set_ordinal_ = write_set_size_;
-  write_set_[write_set_size_].owner_id_address_ = owner_id_address;
-  write_set_[write_set_size_].payload_address_ = payload_address;
-  write_set_[write_set_size_].log_entry_ = log_entry;
-  write_set_[write_set_size_].related_read_ = CXX11_NULLPTR;
-  ++write_set_size_;
-  return kErrorCodeOk;
-}
-
-inline ErrorCode Xct::add_to_write_set(
-  storage::StorageId storage_id,
-  storage::Record* record,
-  log::RecordLogType* log_entry) {
-  return add_to_write_set(storage_id, &record->owner_id_, record->payload_, log_entry);
-}
-
-inline ErrorCode Xct::add_to_read_and_write_set(
-  storage::StorageId storage_id,
-  XctId observed_owner_id,
-  LockableXctId* owner_id_address,
-  char* payload_address,
-  log::RecordLogType* log_entry) {
-  ASSERT_ND(observed_owner_id.is_valid());
-  WriteXctAccess* write = write_set_ + write_set_size_;
-  CHECK_ERROR_CODE(add_to_write_set(storage_id, owner_id_address, payload_address, log_entry));
-  ASSERT_ND(write->log_entry_ == log_entry);
-  ASSERT_ND(write->owner_id_address_ == owner_id_address);
-
-  // in this method, we force to add a read set because it's critical to confirm that
-  // the physical record we write to is still the one we found.
-  ReadXctAccess* read = read_set_ + read_set_size_;
-  CHECK_ERROR_CODE(add_to_read_set_force(storage_id, observed_owner_id, owner_id_address));
-  ASSERT_ND(read->owner_id_address_ == owner_id_address);
-  read->related_write_ = write;
-  write->related_read_ = read;
-  ASSERT_ND(read->related_write_->related_read_ == read);
-  ASSERT_ND(write->related_read_->related_write_ == write);
-  return kErrorCodeOk;
-}
-
-inline ErrorCode Xct::add_to_lock_free_write_set(
-    storage::StorageId storage_id,
-  log::RecordLogType* log_entry) {
-  ASSERT_ND(storage_id != 0);
-  ASSERT_ND(log_entry);
-  if (UNLIKELY(lock_free_write_set_size_ >= max_lock_free_write_set_size_)) {
-    return kErrorCodeXctWriteSetOverflow;
-  }
-
-#ifndef NDEBUG
-  log::invoke_assert_valid(log_entry);
-#endif  // NDEBUG
-
-  lock_free_write_set_[lock_free_write_set_size_].storage_id_ = storage_id;
-  lock_free_write_set_[lock_free_write_set_size_].log_entry_ = log_entry;
-  ++lock_free_write_set_size_;
-  return kErrorCodeOk;
-}
 
 inline bool Xct::assert_related_read_write() const {
 #ifndef NDEBUG
@@ -519,6 +561,10 @@ inline bool Xct::assert_related_read_write() const {
 #endif  // NDEBUG
   return true;
 }
+
+/// Previously we had most of read-set/write-set related methods defined here with
+/// ALWAYS_INLINE, but those methods became much longer than what they used to be.
+/// No benefit but harm to inline them at this point. Moved them to cpp.
 
 }  // namespace xct
 }  // namespace foedus

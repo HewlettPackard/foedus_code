@@ -25,6 +25,7 @@
  */
 namespace foedus {
 namespace thread {
+class   GrabFreeVolatilePagesScope;
 struct  ImpersonateSession;
 class   Rendezvous;
 class   StoppableThread;
@@ -34,6 +35,7 @@ class   ThreadGroup;
 class   ThreadGroupRef;
 struct  ThreadOptions;
 class   ThreadPimpl;
+template<typename RW_BLOCK> class ThreadPimplMcsAdaptor;
 class   ThreadPool;
 class   ThreadPoolPimpl;
 class   ThreadRef;

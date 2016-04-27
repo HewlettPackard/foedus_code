@@ -308,6 +308,12 @@ class ArrayStorage CXX11_FINAL : public Storage<ArrayStorageControlBlock> {
 
   friend std::ostream& operator<<(std::ostream& o, const ArrayStorage& v);
 
+  /**
+   * Resets all volatile pages' temperature stat to be zero in this storage.
+   * Used only in HCC-branch.
+   */
+  ErrorStack  hcc_reset_all_temperature_stat();
+
   ErrorStack  verify_single_thread(thread::Thread* context);
 };
 

@@ -65,7 +65,7 @@ ErrorStack query_task(const proc::ProcArguments& args) {
   char key[100];
   std::memset(key, 0, 100);
   uint16_t payload_capacity = 16;
-  ErrorCode result = masstree.get_record(context, key, 100, buf, &payload_capacity);
+  ErrorCode result = masstree.get_record(context, key, 100, buf, &payload_capacity, true);
   EXPECT_EQ(kErrorCodeStrKeyNotFound, result);
   Epoch commit_epoch;
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
@@ -132,7 +132,7 @@ TEST(MasstreeBasicTest, CreateAndInsert) {
   cleanup_test(options);
 }
 
-ErrorStack insert_task_long_retry(const proc::ProcArguments& args) {
+ErrorStack insert_task_long(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
@@ -161,50 +161,23 @@ ErrorStack insert_task_long_retry(const proc::ProcArguments& args) {
     }
 
     ret = xct_manager->precommit_xct(context, &commit_epoch);
-    if (ret != kErrorCodeOk) {  // retry
+    if (ret == kErrorCodeXctRaceAbort || ret == kErrorCodeXctLockAbort) {  // retry
       remaining_inserts += 2;
       continue;
+    } else {
+      COERCE_ERROR_CODE(ret);
     }
   }
   return foedus::kRetOk;
 }
 
-// Same as insert_task_long_retry, except that this one doesn't allow failures
-ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
-  thread::Thread* context = args.context_;
-  MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
-  xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-  uint64_t remaining_inserts = 2000;
-  uint32_t low = 0;
-  char data[1000];
-  memset(data, 'a', 1000);
-  Epoch commit_epoch;
-  while (remaining_inserts) {
-    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-    // Emulate two key partitions
-    for (uint64_t high = 0; high < 2; high++) {
-      uint64_t keynum = (high << 32) | (uint64_t)low++;
-      keynum = (uint64_t)foedus::storage::hash::hashinate(&keynum, sizeof(keynum));
-      foedus::assorted::FixedString<36> key;
-      key.assign("user" + std::to_string(keynum));
-      COERCE_ERROR_CODE(masstree.insert_record(context, key.data(), key.length(), data, 1000));
-      if (!--remaining_inserts)
-        break;
-    }
-    COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-  }
-  return foedus::kRetOk;
-}
-
-// CreateAndInsertLong[Retry, Coerce]
-// These two guys test inserting records with large payload (e.g., 1000 bytes)
-// and more complex keys (e.g., worker-id partitioned and hashed key space).
-TEST(MasstreeBasicTest, CreateAndInsertLongRetry) {
+// Test inserting records with large payload (e.g., 1000 bytes)
+TEST(MasstreeBasicTest, CreateAndInsertLong) {
   EngineOptions options = get_tiny_options();
   options.memory_.page_pool_size_mb_per_node_ = 128;
   options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
   Engine engine(options);
-  engine.get_proc_manager()->pre_register("insert_task_long_retry", insert_task_long_retry);
+  engine.get_proc_manager()->pre_register("insert_task_long", insert_task_long);
   COERCE_ERROR(engine.initialize());
   {
     UninitializeGuard guard(&engine);
@@ -213,28 +186,7 @@ TEST(MasstreeBasicTest, CreateAndInsertLongRetry) {
     Epoch epoch;
     COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
     EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task_long_retry"));
-    COERCE_ERROR(storage.debugout_single_thread(&engine));
-    COERCE_ERROR(engine.uninitialize());
-  }
-  cleanup_test(options);
-}
-
-TEST(MasstreeBasicTest, CreateAndInsertLongCoerce) {
-  EngineOptions options = get_tiny_options();
-  options.memory_.page_pool_size_mb_per_node_ = 128;
-  options.memory_.page_pool_size_mb_per_node_ *= 2U;  // for rigorous_check
-  Engine engine(options);
-  engine.get_proc_manager()->pre_register("insert_task_long_coerce", insert_task_long_coerce);
-  COERCE_ERROR(engine.initialize());
-  {
-    UninitializeGuard guard(&engine);
-    MasstreeMetadata meta("ggg");
-    MasstreeStorage storage;
-    Epoch epoch;
-    COERCE_ERROR(engine.get_storage_manager()->create_masstree(&meta, &storage, &epoch));
-    EXPECT_TRUE(storage.exists());
-    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task_long_coerce"));
+    COERCE_ERROR(engine.get_thread_pool()->impersonate_synchronous("insert_task_long"));
     COERCE_ERROR(storage.debugout_single_thread(&engine));
     COERCE_ERROR(engine.uninitialize());
   }
@@ -255,7 +207,7 @@ ErrorStack insert_read_task(const proc::ProcArguments& args) {
   uint64_t data2;
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
   uint16_t data_capacity = sizeof(data2);
-  WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, &data2, &data_capacity));
+  WRAP_ERROR_CODE(masstree.get_record_normalized(context, key, &data2, &data_capacity, true));
   EXPECT_EQ(data, data2);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -302,7 +254,12 @@ ErrorStack overwrite_task(const proc::ProcArguments& args) {
 
   uint64_t data3;
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-  WRAP_ERROR_CODE(masstree.get_record_primitive_normalized<uint64_t>(context, key, &data3, 0));
+  WRAP_ERROR_CODE(masstree.get_record_primitive_normalized<uint64_t>(
+    context,
+    key,
+    &data3,
+    0,
+    true));
   EXPECT_EQ(data2, data3);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -359,9 +316,9 @@ ErrorStack next_layer_task(const proc::ProcArguments& args) {
   // now read both
   uint64_t data;
   WRAP_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key1, 16, &data, 0));
+  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key1, 16, &data, 0, true));
   EXPECT_EQ(data1, data);
-  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key2, 16, &data, 0));
+  WRAP_ERROR_CODE(masstree.get_record_primitive<uint64_t>(context, key2, 16, &data, 0, true));
   EXPECT_EQ(data2, data);
   WRAP_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
 
@@ -523,14 +480,16 @@ ErrorStack expand_task(const proc::ProcArguments& args) {
         context,
         kKeyNormalized[i],
         retrieved,
-        &retrieved_capacity));
+        &retrieved_capacity,
+        true));
     } else {
       CHECK_ERROR(storage.get_record(
         context,
         kKey[i].data(),
         kKeyLen,
         retrieved,
-        &retrieved_capacity));
+        &retrieved_capacity,
+        true));
     }
     CHECK_ERROR(xct_manager->precommit_xct(context, &commit_epoch));
 

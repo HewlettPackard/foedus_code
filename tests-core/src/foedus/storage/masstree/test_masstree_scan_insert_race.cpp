@@ -51,6 +51,8 @@ const int32_t kKeyMaxLength = kKeyPrefixLength + 32;  // 4 bytes "user" + 32 cha
 const int kMaxNodes = 4;
 const int kMaxCores = 4;
 const uint32_t max_scan_length = 10000;
+const uint16_t kPayload = 100;   // the larger, the longer test...
+const uint32_t kInsertCount = 1000;   // the larger, the longer test...
 
 int core_count = 0;
 std::unique_ptr<uint32_t[]> local_key_counter;
@@ -100,15 +102,15 @@ ErrorStack insert_task_long_coerce(const proc::ProcArguments& args) {
   thread::Thread* context = args.context_;
   MasstreeStorage masstree = context->get_engine()->get_storage_manager()->get_masstree("ggg");
   xct::XctManager* xct_manager = context->get_engine()->get_xct_manager();
-  int64_t remaining_inserts = 10000;
-  char data[1000];
-  memset(data, 'a', 1000);
+  int64_t remaining_inserts = kInsertCount;
+  char data[kPayload];
+  std::memset(data, 'a', kPayload);
   Epoch commit_epoch;
   while (remaining_inserts > 0) {
     for (int i = 0; i < core_count; i++) {
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       auto& key = next_insert_key(i);
-      COERCE_ERROR_CODE(masstree.insert_record(context, key.ptr(), key.size(), data, 1000));
+      COERCE_ERROR_CODE(masstree.insert_record(context, key.ptr(), key.size(), data, kPayload));
       COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
     }
     remaining_inserts -= core_count;
@@ -130,15 +132,15 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
   // 5 seconds
   while (duration.peek_elapsed_ns() < 5000000 * 1000ULL) {
     // Randomly choose to insert or scan
-    char data[1000];
-    memset(data, 'a', 1000);
+    char data[kPayload];
+    std::memset(data, 'a', kPayload);
     ErrorCode ret = kErrorCodeOk;
     Epoch commit_epoch;
     if (trnd.uniform_within(1, 100) <= 5) {
       // insert
       COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
       YcsbKey& key = next_insert_key(worker_id);
-      ret = masstree.insert_record(context, key.ptr(), key.size(), data, 1000);
+      ret = masstree.insert_record(context, key.ptr(), key.size(), data, kPayload);
       if (ret == kErrorCodeOk) {
         ret = xct_manager->precommit_xct(context, &commit_epoch);
       } else {
@@ -167,14 +169,14 @@ ErrorStack insert_scan_task(const proc::ProcArguments& args) {
         while (nrecs-- > 0 && cursor.is_valid_record()) {
           len += cursor.get_payload_length();
           const char *pr = reinterpret_cast<const char *>(cursor.get_payload());
-          memcpy(data, pr, 1000);
+          std::memcpy(data, pr, kPayload);
           cursor.next();
         }
         ret = xct_manager->precommit_xct(context, &commit_epoch);
         if (ret != kErrorCodeOk) {
           WRAP_ERROR_CODE(xct_manager->abort_xct(context));
         }
-        ASSERT_ND(len % 1000 == 0);
+        ASSERT_ND(len % kPayload == 0);
       }
     }
   }

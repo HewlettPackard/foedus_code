@@ -82,6 +82,13 @@ ErrorStack MasstreeStoragePimpl::debugout_single_thread_recurse(
     LOG(INFO) << "Reached write-out max. skip the following";
     return kRetOk;
   }
+  // Implementation note:
+  // So far we don't follow foster-twins in debugout_xxx, so this is irrelevant.
+  // However, if we change it later to follow foster-twins,
+  // do not forget about empty-range intermediate pages that only appear as foster twins.
+  // Empty-range border pages are fine. We just see zero records.
+  // Foster-twins are sooner or later adopted, and Master-Tree invariant for intermediate page
+  // guarantees that we can just read the old page. no need to follow foster-twins.
 
   LOG(INFO) << *parent;
   uint16_t key_count = parent->get_key_count();
@@ -136,6 +143,58 @@ ErrorStack MasstreeStoragePimpl::debugout_single_thread_follow(
       WRAP_ERROR_CODE(files->read_page(pointer.snapshot_pointer_, page));
       CHECK_ERROR(debugout_single_thread_recurse(engine, files, page, false, remaining_pages));
     }
+  }
+  return kRetOk;
+}
+
+
+ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat() {
+  LOG(INFO) << "**"
+    << std::endl << "***************************************************************"
+    << std::endl << "***   Reseting " << MasstreeStorage(engine_, control_block_) << "'s "
+    << std::endl << "*** temperature stat for HCC"
+    << std::endl << "***************************************************************";
+
+  DualPagePointer pointer = control_block_->root_page_pointer_;
+  if (pointer.volatile_pointer_.is_null()) {
+    LOG(INFO) << "No volatile pages.";
+  } else {
+    CHECK_ERROR(hcc_reset_all_temperature_stat_follow(pointer.volatile_pointer_));
+  }
+
+  LOG(INFO) << "Done resettting";
+  return kRetOk;
+}
+
+
+ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_recurse(MasstreePage* parent) {
+  uint16_t key_count = parent->get_key_count();
+  if (parent->is_border()) {
+    MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(parent);
+    casted->header().hotness_.reset();
+    for (uint16_t i = 0; i < key_count; ++i) {
+      if (casted->does_point_to_layer(i)) {
+        CHECK_ERROR(hcc_reset_all_temperature_stat_follow(
+          casted->get_next_layer(i)->volatile_pointer_));
+      }
+    }
+  } else {
+    MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(parent);
+    for (MasstreeIntermediatePointerIterator it(casted); it.is_valid(); it.next()) {
+      CHECK_ERROR(hcc_reset_all_temperature_stat_follow(
+        it.get_pointer().volatile_pointer_));
+    }
+  }
+
+  return kRetOk;
+}
+
+ErrorStack MasstreeStoragePimpl::hcc_reset_all_temperature_stat_follow(
+  VolatilePagePointer page_id) {
+  if (page_id.is_null()) {
+    MasstreePage* page = reinterpret_cast<MasstreePage*>(
+      engine_->get_memory_manager()->get_global_volatile_page_resolver().resolve_offset(page_id));
+    CHECK_ERROR(hcc_reset_all_temperature_stat_recurse(page));
   }
   return kRetOk;
 }

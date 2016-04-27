@@ -19,339 +19,166 @@
 
 #include <glog/logging.h>
 
-#include <vector>
-
 #include "foedus/assert_nd.hpp"
 #include "foedus/debugging/stop_watch.hpp"
-#include "foedus/memory/numa_core_memory.hpp"
-#include "foedus/storage/masstree/masstree_page_impl.hpp"
+#include "foedus/storage/masstree/masstree_adopt_impl.hpp"
+#include "foedus/storage/masstree/masstree_cursor.hpp"
+#include "foedus/storage/masstree/masstree_split_impl.hpp"
 
 namespace foedus {
 namespace storage {
 namespace masstree {
 
-uint32_t count_children(const MasstreeIntermediatePage* page) {
-  // this method assumes the page is locked. otherwise the following is not accurate.
+uint32_t count_children_approximate(const MasstreeIntermediatePage* page) {
+  // this method doesn't need page-lock, but instead it might be inaccurate
+  const uint16_t key_count = page->get_key_count();
   uint32_t current_count = 0;
-  for (MasstreeIntermediatePointerIterator it(page); it.is_valid(); it.next()) {
-    ++current_count;
+  for (uint16_t minipage_index = 0; minipage_index <= key_count; ++minipage_index) {
+    const auto& minipage = page->get_minipage(minipage_index);
+    current_count += minipage.key_count_ + 1;
   }
   return current_count;
 }
-
-struct Child {
-  VolatilePagePointer pointer_;
-  KeySlice            low_;
-  KeySlice            high_;
-  uint32_t            index_;
-  uint32_t            index_mini_;
-};
-
-std::vector<Child> list_children(const MasstreeIntermediatePage* page) {
-  std::vector<Child> ret;
-  for (MasstreeIntermediatePointerIterator it(page); it.is_valid(); it.next()) {
-    VolatilePagePointer pointer = it.get_pointer().volatile_pointer_;
-    Child child = {pointer, it.get_low_key(), it.get_high_key(), it.index_, it.index_mini_};
-    ASSERT_ND(!pointer.is_null());
-    ret.emplace_back(child);
-  }
-  return ret;
+ErrorCode MasstreeStoragePimpl::approximate_count_root_children(
+  thread::Thread* context,
+  uint32_t* out) {
+  *out = 0;
+  MasstreeIntermediatePage* root;
+  CHECK_ERROR_CODE(get_first_root(context, true, &root));
+  *out = count_children_approximate(root);
+  return kErrorCodeOk;
 }
+
+constexpr uint32_t kIntermediateAlmostFull = kMaxIntermediatePointers * 9U / 10U;
 
 ErrorStack MasstreeStoragePimpl::fatify_first_root(
   thread::Thread* context,
-  uint32_t desired_count) {
-  LOG(INFO) << "Masstree-" << get_name() << " being fatified for " << desired_count;
+  uint32_t desired_count,
+  bool disable_no_record_split) {
+  LOG(INFO) << "Masstree-" << get_name() << " being fatified for " << desired_count
+    << ", disable_no_record_split=" << disable_no_record_split;
 
-  if (desired_count > kMaxIntermediatePointers) {
+  if (desired_count > kIntermediateAlmostFull) {
     LOG(INFO) << "desired_count too large. adjusted to the max";
-    desired_count = kMaxIntermediatePointers;
+    desired_count = kIntermediateAlmostFull;
+  }
+  uint32_t initial_children;
+  WRAP_ERROR_CODE(approximate_count_root_children(context, &initial_children));
+  LOG(INFO) << "initial_children=" << initial_children;
+
+  // We keep doubling the direct root-children
+  debugging::StopWatch watch;
+  watch.start();
+  uint16_t iterations = 0;
+  for (uint32_t count = initial_children; count < desired_count && iterations < 10U; ++iterations) {
+    CHECK_ERROR(fatify_first_root_double(context, disable_no_record_split));
+    uint32_t new_count;
+    WRAP_ERROR_CODE(approximate_count_root_children(context, &new_count));
+    if (count == new_count) {
+      LOG(WARNING) << "Not enough descendants for further fatification. Stopped here";
+      break;
+    }
+    count = new_count;
   }
 
-  // Check if the volatile page is moved. If so, grow it.
-  while (true) {
+  uint32_t after_children;
+  WRAP_ERROR_CODE(approximate_count_root_children(context, &after_children));
+  watch.stop();
+  LOG(INFO) << "fatify done: Iterations=" << iterations
+    << ", took " << watch.elapsed_us() << "us in total."
+    << " child count: " << initial_children << "->" << after_children;
+
+  return kRetOk;
+}
+
+ErrorStack MasstreeStoragePimpl::fatify_first_root_double(
+  thread::Thread* context,
+  bool disable_no_record_split) {
+  // We invoke split sysxct and adopt sysxct many times.
+  debugging::StopWatch watch;
+  watch.start();
+  uint16_t root_retries = 0;
+  KeySlice cur_slice = kInfimumSlice;
+  uint16_t skipped_children = 0;
+  uint16_t adopted_children = 0;
+  uint32_t initial_children;
+  WRAP_ERROR_CODE(approximate_count_root_children(context, &initial_children));
+  while (cur_slice != kSupremumSlice) {
+    if (initial_children + adopted_children >= kIntermediateAlmostFull) {
+      LOG(INFO) << "Root page nearing full. Stopped fatification";
+      break;
+    }
+
+    // Get a non-moved root. This might trigger grow-root.
+    // grow-root is a non-mandatory operation, so we might keep seeing a moved root.
     MasstreeIntermediatePage* root;
     WRAP_ERROR_CODE(get_first_root(context, true, &root));
-
-    if (root->has_foster_child()) {
-      // oh, the root page needs to grow
-      LOG(INFO) << "oh, the root page needs to grow";
-      WRAP_ERROR_CODE(grow_root(
-        context,
-        &get_first_root_pointer(),
-        &get_first_root_owner(),
-        &root));
-      // then retry
-    } else {
-      break;
-    }
-  }
-
-  while (true) {
-    // lock the first root.
-    xct::McsLockScope owner_scope(context, &get_first_root_owner());
-    LOG(INFO) << "Locked the root page owner address.";
-    MasstreeIntermediatePage* root;
-    WRAP_ERROR_CODE(get_first_root(context, true, &root));
-    PageVersionLockScope scope(context, root->get_version_address());
-    LOG(INFO) << "Locked the root page itself.";
-    if (root->has_foster_child()) {
-      LOG(WARNING) << "Mm, I thought I grew the root, but concurrent xct again moved it. "
-        << " Gave up fatifying. Should be super-rare.";
-      return kRetOk;
-    }
-
-    ASSERT_ND(root->is_locked());
-    ASSERT_ND(!root->is_moved());
-    uint32_t current_count = count_children(root);
-    LOG(INFO) << "Masstree-" << get_name() << " currently has " << current_count << " children";
-
-    if (current_count >= desired_count || current_count >= (kMaxIntermediatePointers / 2U)) {
-      LOG(INFO) << "Already enough fat. Done";
-      break;
-    }
-
-    LOG(INFO) << "Splitting...";
-    CHECK_ERROR(fatify_first_root_double(context));
-
-    WRAP_ERROR_CODE(get_first_root(context, true, &root));
-    uint32_t new_count = count_children(root);
-    if (new_count == current_count) {
-      LOG(INFO) << "Seems like we can't split any more.";
-      break;
-    }
-  }
-
-  return kRetOk;
-}
-
-ErrorStack split_a_child(
-  thread::Thread* context,
-  MasstreeIntermediatePage* root,
-  Child original,
-  std::vector<Child>* out) {
-  ASSERT_ND(!original.pointer_.is_null());
-  MasstreeIntermediatePage::MiniPage& minipage = root->get_minipage(original.index_);
-  ASSERT_ND(
-    minipage.pointers_[original.index_mini_].volatile_pointer_.is_equivalent(original.pointer_));
-  MasstreePage* original_page = context->resolve_cast<MasstreePage>(original.pointer_);
-  ASSERT_ND(original_page->get_low_fence() == original.low_);
-  ASSERT_ND(original_page->get_high_fence() == original.high_);
-
-  // lock it first.
-  PageVersionLockScope scope(context, original_page->get_version_address());
-  ASSERT_ND(original_page->is_locked());
-
-  // if it already has a foster child, nothing to do.
-  if (!original_page->is_moved()) {
-    if (original_page->is_border()) {
-      MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(original_page);
-      if (casted->get_key_count() < 2U) {
-        // Then, no split possible.
-        LOG(INFO) << "This border page can't be split anymore";
-        out->emplace_back(original);
-        return kRetOk;
+    ASSERT_ND(root->get_low_fence() == kInfimumSlice);
+    ASSERT_ND(root->get_high_fence() == kSupremumSlice);
+    if (root->is_moved()) {
+      ++root_retries;
+      if (root_retries > 50U) {
+        LOG(WARNING) << "Hm? there might be some contention to prevent grow-root. Gave up";
+        break;
       }
-      // trigger doesn't matter. just make sure it doesn't cause no-record-split. so, use low_fence.
-      // also, specify disable_nrs
-      KeySlice trigger = casted->get_low_fence();
-      MasstreeBorderPage* after = casted;
-      xct::McsLockScope after_lock;
-      casted->split_foster(context, trigger, true, &after, &after_lock);
-      ASSERT_ND(after->is_locked());
-      ASSERT_ND(after_lock.is_locked());
-      ASSERT_ND(casted->is_moved());
-    } else {
-      MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(original_page);
-      uint32_t pointers = count_children(casted);
-      if (pointers < 2U) {
-        LOG(INFO) << "This intermediate page can't be split anymore";
-        out->emplace_back(original);
-        return kRetOk;
+      continue;
+    }
+
+    root_retries = 0;
+    const auto minipage_index = root->find_minipage(cur_slice);
+    auto& minipage = root->get_minipage(minipage_index);
+    auto pointer_index = minipage.find_pointer(cur_slice);
+
+    MasstreePage* child;
+    WRAP_ERROR_CODE(follow_page(
+      context,
+      true,
+      minipage.pointers_ + pointer_index,
+      &child));
+    ASSERT_ND(!child->header().snapshot_);
+    cur_slice = child->get_high_fence();  // go on to next
+
+    if (!child->is_moved()) {
+      // Split the child so that we can adopt it to the root
+      if (child->is_border()) {
+        if (child->get_key_count() >= 2U) {
+          MasstreeBorderPage* casted = reinterpret_cast<MasstreeBorderPage*>(child);
+          auto low_slice = child->get_low_fence();
+          auto high_slice = child->get_high_fence();
+          auto mid_slice = low_slice + (high_slice - low_slice) / 2U;
+          SplitBorder split(context, casted, mid_slice, disable_no_record_split);
+          WRAP_ERROR_CODE(context->run_nested_sysxct(&split, 2U));
+        } else {
+          ++skipped_children;
+          continue;  // not worth splitting
+        }
+      } else {
+        MasstreeIntermediatePage* casted = reinterpret_cast<MasstreeIntermediatePage*>(child);
+        uint32_t grandchild_count = count_children_approximate(casted);
+        if (grandchild_count >= 2U) {
+          SplitIntermediate split(context, casted);
+          WRAP_ERROR_CODE(context->run_nested_sysxct(&split, 2U));
+        } else {
+          ++skipped_children;
+          continue;  // not worth splitting
+        }
       }
-      WRAP_ERROR_CODE(casted->split_foster_no_adopt(context));
-    }
-  } else {
-    LOG(INFO) << "lucky, already split. just adopt";
-  }
-
-  ASSERT_ND(original_page->is_moved());
-
-  VolatilePagePointer minor_pointer = original_page->get_foster_minor();
-  VolatilePagePointer major_pointer = original_page->get_foster_major();
-  ASSERT_ND(!minor_pointer.is_null());
-  ASSERT_ND(!major_pointer.is_null());
-  MasstreePage* minor = context->resolve_cast<MasstreePage>(minor_pointer);
-  MasstreePage* major = context->resolve_cast<MasstreePage>(major_pointer);
-  KeySlice middle = original_page->get_foster_fence();
-  ASSERT_ND(minor->get_low_fence() == original.low_);
-  ASSERT_ND(minor->get_high_fence() == middle);
-  ASSERT_ND(major->get_low_fence() == middle);
-  ASSERT_ND(major->get_high_fence() == original.high_);
-
-  Child minor_out = {minor_pointer, original.low_, middle, 0, 0};
-  out->emplace_back(minor_out);
-  Child major_out = {major_pointer, middle, original.high_, 0, 0};
-  out->emplace_back(major_out);
-  return kRetOk;
-}
-
-// defined here just for fatify code
-void MasstreeIntermediatePage::split_foster_migrate_records_new_first_root(const void* arg) {
-  ASSERT_ND(!header().snapshot_);
-  ASSERT_ND(!is_moved());
-  ASSERT_ND(!is_retired());
-  ASSERT_ND(get_low_fence() == kInfimumSlice);
-  ASSERT_ND(is_high_fence_supremum());
-  ASSERT_ND(get_layer() == 0);
-  ASSERT_ND(!is_border());
-
-  const std::vector<Child>* new_children = reinterpret_cast< const std::vector<Child>* >(arg);
-  // we have to mold the pointer list into IntermediateSplitStrategy.
-  IntermediateSplitStrategy strategy;
-  std::memset(&strategy, 0, sizeof(strategy));
-  for (uint32_t i = 0; i < new_children->size(); ++i) {
-    const Child& child = new_children->at(i);
-    strategy.separators_[i] = child.high_;
-    strategy.pointers_[i].volatile_pointer_ = child.pointer_;
-  }
-  strategy.total_separator_count_ = new_children->size();
-  strategy.mid_separator_ = kSupremumSlice;
-  strategy.mid_index_ = new_children->size();
-  split_foster_migrate_records(strategy, 0, new_children->size(), kSupremumSlice);
-}
-
-void verify_new_root(
-  thread::Thread* context,
-  MasstreeIntermediatePage* new_root,
-  const std::vector<Child>& new_children) {
-  // this verification runs even in release mode. we must be super careful on root page.
-  uint32_t count = new_children.size();
-  uint32_t actual_count = count_children(new_root);
-  ASSERT_ND(actual_count == count);
-  if (actual_count != count) {
-    LOG(FATAL) << "Child count doesn't match! expected=" << count << ", actual=" << actual_count;
-  }
-
-  ASSERT_ND(!new_root->is_border());
-  ASSERT_ND(new_root->get_layer() == 0);
-  ASSERT_ND(new_root->get_low_fence() == kInfimumSlice);
-  ASSERT_ND(new_root->is_high_fence_supremum());
-
-  uint32_t cur = 0;
-  for (MasstreeIntermediatePointerIterator it(new_root); it.is_valid(); it.next()) {
-    ASSERT_ND(it.get_pointer().snapshot_pointer_ == 0);
-    VolatilePagePointer pointer = it.get_pointer().volatile_pointer_;
-    ASSERT_ND(!pointer.is_null());
-    if (pointer.is_null()) {
-      LOG(FATAL) << "Nullptr? wtf";
     }
 
-    const Child& child = new_children[cur];
-    ASSERT_ND(pointer.is_equivalent(child.pointer_));
-    ASSERT_ND(it.get_low_key() == child.low_);
-    ASSERT_ND(it.get_high_key() == child.high_);
-    if (!pointer.is_equivalent(child.pointer_)
-        || it.get_low_key() != child.low_
-        || it.get_high_key() != child.high_) {
-      LOG(FATAL) << "Separator or pointer does not match!";
-    }
-
-    MasstreePage* page = context->resolve_cast<MasstreePage>(pointer);
-    ASSERT_ND(page->get_low_fence() == child.low_);
-    ASSERT_ND(page->get_high_fence() == child.high_);
-    if (page->get_low_fence() != child.low_
-      || page->get_high_fence() != child.high_) {
-      LOG(FATAL) << "Fence key doesnt match!";
-    }
-    ++cur;
+    Adopt adopt(context, root, child);
+    WRAP_ERROR_CODE(context->run_nested_sysxct(&adopt, 2U));
+    ++adopted_children;
   }
 
-  ASSERT_ND(cur == count);
-}
-
-ErrorStack MasstreeStoragePimpl::fatify_first_root_double(thread::Thread* context) {
-  MasstreeIntermediatePage* root;
-  WRAP_ERROR_CODE(get_first_root(context, true, &root));
-  ASSERT_ND(root->is_locked());
-  ASSERT_ND(!root->is_moved());
-
-  // assure that all children have volatile version
-  for (MasstreeIntermediatePointerIterator it(root); it.is_valid(); it.next()) {
-    if (it.get_pointer().volatile_pointer_.is_null()) {
-      MasstreePage* child;
-      WRAP_ERROR_CODE(follow_page(
-        context,
-        true,
-        const_cast<DualPagePointer*>(&it.get_pointer()),
-        &child));
-    }
-    ASSERT_ND(!it.get_pointer().volatile_pointer_.is_null());
-  }
-
-  std::vector<Child> original_children = list_children(root);
-  ASSERT_ND(original_children.size() * 2U <= kMaxIntermediatePointers);
-  std::vector<Child> new_children;
-  for (const Child& child : original_children) {
-    CHECK_ERROR(split_a_child(context, root, child, &new_children));
-  }
-  ASSERT_ND(new_children.size() >= original_children.size());
-
-  memory::NumaCoreMemory* memory = context->get_thread_memory();
-  memory::PagePoolOffset new_offset = memory->grab_free_volatile_page();
-  if (new_offset == 0) {
-    return ERROR_STACK(kErrorCodeMemoryNoFreePages);
-  }
-  // from now on no failure (we grabbed a free page).
-
-  VolatilePagePointer new_pointer = combine_volatile_page_pointer(
-    context->get_numa_node(),
-    kVolatilePointerFlagSwappable,  // pointer to root page might be swapped!
-    get_first_root_pointer().volatile_pointer_.components.mod_count + 1,
-    new_offset);
-  MasstreeIntermediatePage* new_root
-    = context->resolve_newpage_cast<MasstreeIntermediatePage>(new_pointer);
-  new_root->initialize_volatile_page(
-    get_id(),
-    new_pointer,
-    0,
-    root->get_btree_level(),  // same as current root. this is not grow_root
-    kInfimumSlice,
-    kSupremumSlice);
-  // no concurrent access to the new page, but just for the sake of assertion in the func.
-  PageVersionLockScope new_scope(context, new_root->get_version_address());
-  new_root->split_foster_migrate_records_new_first_root(&new_children);
-  ASSERT_ND(count_children(new_root) == new_children.size());
-  verify_new_root(context, new_root, new_children);
-
-  // set the new first-root pointer.
-  assorted::memory_fence_release();
-  get_first_root_pointer().volatile_pointer_.word = new_pointer.word;
-  // first-root snapshot pointer is unchanged.
-
-  // old root page and the direct children are now retired
-  assorted::memory_fence_acq_rel();
-  root->set_moved();  // not quite moved, but assertions assume that.
-  root->set_retired();
-  context->collect_retired_volatile_page(
-    construct_volatile_page_pointer(root->header().page_id_));
-  for (const Child& child : original_children) {
-    MasstreePage* original_page = context->resolve_cast<MasstreePage>(child.pointer_);
-    if (original_page->is_moved()) {
-      PageVersionLockScope scope(context, original_page->get_version_address());
-      original_page->set_retired();
-      context->collect_retired_volatile_page(child.pointer_);
-    } else {
-      // This means, the page had too small records to split. We must keep it.
-    }
-  }
-  assorted::memory_fence_acq_rel();
-
-  LOG(INFO) << "Split done. " << original_children.size() << " -> " << new_children.size();
+  uint32_t after_children;
+  WRAP_ERROR_CODE(approximate_count_root_children(context, &after_children));
+  watch.stop();
+  LOG(INFO) << "fatify_double: adopted " << adopted_children << " root-children and skipped "
+    << skipped_children << " that are already too sparse in " << watch.elapsed_us() << "us."
+    << " child count: " << initial_children << "->" << after_children;
 
   return kRetOk;
 }
-
 }  // namespace masstree
 }  // namespace storage
 }  // namespace foedus

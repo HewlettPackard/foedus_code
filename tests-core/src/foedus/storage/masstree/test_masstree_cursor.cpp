@@ -153,8 +153,10 @@ TEST(MasstreeCursorTest, OnePage) {
 }
 
 TEST(MasstreeCursorTest, OneLayer) {
+  // TODO(Hideaki) write testcases!
 }
 TEST(MasstreeCursorTest, TwoLayers) {
+  // TODO(Hideaki) write testcases!
 }
 
 }  // namespace masstree

@@ -71,7 +71,7 @@ struct SequentialStorageControlBlock final {
    * \li Scan-operations take this as a read-set.
    * \li Truncate-operation locks it and update cur_truncate_epoch_.
    */
-  xct::LockableXctId  cur_truncate_epoch_tid_;
+  xct::RwLockableXctId  cur_truncate_epoch_tid_;
 
   /** @copydoc foedus::storage::sequential::SequentialMetadata::truncate_epoch_ */
   std::atomic< Epoch::EpochInteger >  cur_truncate_epoch_;
@@ -206,7 +206,7 @@ class SequentialStoragePimpl final : public Attachable<SequentialStorageControlB
           CHECK_ERROR_CODE(handler(page));
 
           VolatilePagePointer next_pointer = page->next_page().volatile_pointer_;
-          memory::PagePoolOffset offset = next_pointer.components.offset;
+          memory::PagePoolOffset offset = next_pointer.get_offset();
           if (offset != 0) {
             page = reinterpret_cast<SequentialPage*>(resolver.resolve_offset(offset));
           } else {

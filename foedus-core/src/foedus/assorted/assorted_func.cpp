@@ -88,31 +88,47 @@ std::string get_current_executable_path() {
   return std::string(buf, len);
 }
 
+const char* kUpperHexChars = "0123456789ABCDEF";
 std::ostream& operator<<(std::ostream& o, const Hex& v) {
-  std::ios::fmtflags old_flags = o.flags();
-  o << "0x";
-  if (v.fix_digits_ >= 0) {
-    o.width(v.fix_digits_);
-    o.fill('0');
+  // Duh, even if I recover the flags, not good to contaminate the given ostream object.
+  // std::ios::fmtflags old_flags = o.flags();
+  // o << "0x";
+  // if (v.fix_digits_ >= 0) {
+  //   o.width(v.fix_digits_);
+  //   o.fill('0');
+  // }
+  // o << std::hex << std::uppercase << v.val_;
+  // o.flags(old_flags);
+
+  // Let's do it ourselves
+  char buffer[17];
+  buffer[16] = 0;
+  for (uint16_t i = 0; i < 16U; ++i) {
+    buffer[i] = kUpperHexChars[(v.val_ >> ((15 - i) * 4)) & 0xFU];
   }
-  o << std::hex << std::uppercase << v.val_;
-  o.flags(old_flags);
+  uint16_t start_pos;
+  for (start_pos = 0; start_pos < 15U; ++start_pos) {
+    if (buffer[start_pos] != '0') {
+      break;
+    }
+    if (v.fix_digits_ >= 0 && start_pos > 16 - v.fix_digits_) {
+      break;
+    }
+  }
+
+  o << "0x" << (buffer + start_pos);
   return o;
 }
 
 std::ostream& operator<<(std::ostream& o, const HexString& v) {
-  std::ios::fmtflags old_flags = o.flags();
+  // Same above
   o << "0x";
-  o.width(2);
-  o.fill('0');
-  o << std::hex << std::uppercase;
   for (uint32_t i = 0; i < v.str_.size() && i < v.max_bytes_; ++i) {
     if (i > 0 && i % 8U == 0) {
       o << " ";  // put space for every 8 bytes for readability
     }
-    o << static_cast<uint16_t>(v.str_[i]);
+    o << kUpperHexChars[(v.str_[i] >> 4) & 0xFU] << kUpperHexChars[v.str_[i] & 0xFU];
   }
-  o.flags(old_flags);
   if (v.max_bytes_ != -1U && v.str_.size() > v.max_bytes_) {
     o << " ...(" << (v.str_.size() - v.max_bytes_) << " more bytes)";
   }

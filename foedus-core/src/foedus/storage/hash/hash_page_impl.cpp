@@ -72,9 +72,7 @@ void HashDataPage::initialize_volatile_page(
   VolatilePagePointer page_id,
   const Page* parent,
   HashBin bin,
-  uint8_t bin_bits,
   uint8_t bin_shifts) {
-  ASSERT_ND(bin_bits + bin_shifts == 64U);
   std::memset(this, 0, kPageSize);
   header_.init_volatile(page_id, storage_id, kHashDataPageType);
   bin_ = bin;
@@ -105,17 +103,32 @@ void HashDataPage::initialize_snapshot_page(
   protected_set_bin_shifts(bin_shifts);
 }
 
-DataPageSlotIndex HashDataPage::search_key(
+DataPageSlotIndex HashDataPage::search_key_physical(
   HashValue hash,
   const BloomFilterFingerprint& fingerprint,
   const void* key,
-  uint16_t key_length,
-  uint16_t record_count,
-  xct::XctId* observed) const {
+  KeyLength key_length,
+  DataPageSlotIndex record_count,
+  DataPageSlotIndex check_from) const {
   // invariant checks
   ASSERT_ND(hash == hashinate(key, key_length));
   ASSERT_ND(DataPageBloomFilter::extract_fingerprint(hash) == fingerprint);
   ASSERT_ND(record_count <= get_record_count());  // it must be increasing.
+
+#ifndef NDEBUG
+  // Check the invariant on check_from
+  for (uint16_t i = 0; i < check_from; ++i) {
+    const Slot& s = get_slot(i);
+    if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length) {
+      continue;
+    } else if (s.tid_.xct_id_.is_moved()) {
+      continue;
+    }
+
+    const char* data = record_from_offset(s.offset_);
+    ASSERT_ND(s.key_length_ != key_length || std::memcmp(data, key, key_length) != 0);
+  }
+#endif  // NDEBUG
 
   // check bloom filter first.
   if (!bloom_filter_.contains(fingerprint)) {
@@ -123,13 +136,16 @@ DataPageSlotIndex HashDataPage::search_key(
   }
 
   // then most likely this page contains it. let's check one by one.
-  for (uint16_t i = 0; i < record_count; ++i) {
+  for (uint16_t i = check_from; i < record_count; ++i) {
     const Slot& s = get_slot(i);
     if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length) {
       continue;
     }
-    xct::XctId xid = s.tid_.xct_id_;
-    if (xid.is_moved()) {
+    // At this point, we don't take read-set (this is a physical search).
+    // We thus mind seeing being-written. The logical check will follow.
+    // We can also simply check is_moved because the flag is guaranteed to remain once set.
+    // But, remember, it might be NOW being moved, so a logical read-set must follow.
+    if (s.tid_.xct_id_.is_moved()) {
       // not so rare. this happens.
       DVLOG(1) << "Hash matched, but the record was moved";
       continue;
@@ -137,7 +153,6 @@ DataPageSlotIndex HashDataPage::search_key(
 
     const char* data = record_from_offset(s.offset_);
     if (s.key_length_ == key_length && std::memcmp(data, key, key_length) == 0) {
-      *observed = xid;
       return i;
     }
     // hash matched, but key didn't match? wow, that's rare
@@ -177,6 +192,9 @@ DataPageSlotIndex HashDataPage::reserve_record(
     Epoch::kEpochInitialCurrent,  // TODO(Hideaki) this should be something else
     0);
   initial_id.set_deleted();
+  // FIXME(tzwang): do this in a more meaningful place,
+  // e.g., have something like get_new_slot.
+  slot.tid_.reset();
   slot.tid_.xct_id_ = initial_id;
 
   // we install the fingerprint to bloom filter BEFORE we increment key count.
@@ -233,9 +251,8 @@ void hash_data_volatile_page_init(const VolatilePageInitArguments& args) {
     bin = parent->get_bin();
   }
   HashStorage storage(args.context_->get_engine(), storage_id);
-  uint8_t bin_bits = storage.get_bin_bits();
   uint8_t bin_shifts = storage.get_bin_shifts();
-  page->initialize_volatile_page(storage_id, args.page_id, args.parent_, bin, bin_bits, bin_shifts);
+  page->initialize_volatile_page(storage_id, args.page_id, args.parent_, bin, bin_shifts);
 }
 
 // Parallel page release for shutdown/drop. simpler than masstree package
@@ -265,7 +282,7 @@ void HashIntermediatePage::release_pages_recursive_parallel(Engine* engine) {
     std::vector<std::thread> threads;
     for (uint8_t i = 0; i < kHashIntermediatePageFanout; ++i) {
       VolatilePagePointer pointer = pointers_[i].volatile_pointer_;
-      if (pointer.components.offset != 0) {
+      if (!pointer.is_null()) {
         threads.emplace_back(release_parallel, engine, pointer);
       }
     }
@@ -277,8 +294,8 @@ void HashIntermediatePage::release_pages_recursive_parallel(Engine* engine) {
     VolatilePagePointer volatile_id;
     volatile_id.word = header().page_id_;
     memory::PagePool* pool = engine->get_memory_manager()->get_node_memory(
-      volatile_id.components.numa_node)->get_volatile_pool();
-    pool->release_one(volatile_id.components.offset);
+      volatile_id.get_numa_node())->get_volatile_pool();
+    pool->release_one(volatile_id.get_offset());
   }
 }
 
@@ -287,7 +304,7 @@ void HashIntermediatePage::release_pages_recursive(
   memory::PageReleaseBatch* batch) {
   for (uint8_t i = 0; i < kHashIntermediatePageFanout; ++i) {
     VolatilePagePointer pointer = pointers_[i].volatile_pointer_;
-    if (pointer.components.offset != 0) {
+    if (!pointer.is_null()) {
       Page* page = page_resolver.resolve_offset(pointer);
       if (get_level() == 0) {
         HashDataPage* child = reinterpret_cast<HashDataPage*>(page);
@@ -300,7 +317,7 @@ void HashIntermediatePage::release_pages_recursive(
         ASSERT_ND(child->get_level() + 1U == get_level());
         child->release_pages_recursive(page_resolver, batch);
       }
-      pointer.components.offset = 0;
+      pointer.clear();
     }
   }
 
@@ -312,13 +329,13 @@ void HashIntermediatePage::release_pages_recursive(
 void HashDataPage::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& page_resolver,
   memory::PageReleaseBatch* batch) {
-  if (next_page_.volatile_pointer_.components.offset != 0) {
+  if (!next_page_.volatile_pointer_.is_null()) {
     HashDataPage* next = reinterpret_cast<HashDataPage*>(
       page_resolver.resolve_offset(next_page_.volatile_pointer_));
     ASSERT_ND(next->header().get_in_layer_level() == 0);
     ASSERT_ND(next->get_bin() == get_bin());
     next->release_pages_recursive(page_resolver, batch);
-    next_page_.volatile_pointer_.components.offset = 0;
+    next_page_.volatile_pointer_.clear();
   }
 
   VolatilePagePointer volatile_id;

@@ -102,7 +102,7 @@ ErrorCode TpceClientTask::do_trade_update() {
     TradeT key = outputs[i].id_;
     TradeData payload;
     uint16_t payload_capacity = sizeof(payload);
-    CHECK_ERROR_CODE(trades.get_record<TradeT>(context_, key, &payload, &payload_capacity));
+    CHECK_ERROR_CODE(trades.get_record<TradeT>(context_, key, &payload, &payload_capacity, true));
     outputs[fetched_rows].acct_id_ = payload.ca_id_;
     std::memcpy(outputs[fetched_rows].exec_name_, payload.exec_name_, sizeof(payload.exec_name_));
     outputs[fetched_rows].is_cash_ = payload.is_cash_;

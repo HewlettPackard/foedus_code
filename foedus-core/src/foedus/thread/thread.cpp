@@ -17,6 +17,8 @@
  */
 #include "foedus/thread/thread.hpp"
 
+#include <glog/logging.h>
+
 #include <ostream>
 
 #include "foedus/engine.hpp"
@@ -32,6 +34,7 @@ Thread::Thread(
   ThreadId id,
   ThreadGlobalOrdinal global_ordinal)
   : pimpl_(nullptr) {
+  lock_rnd_.set_current_seed(global_ordinal);
   pimpl_ = new ThreadPimpl(engine, this, id, global_ordinal);
 }
 Thread::~Thread() {
@@ -136,6 +139,38 @@ storage::Page* Thread::resolve_newpage(memory::PagePoolOffset offset) const {
   return get_local_volatile_page_resolver().resolve_offset_newpage(offset);
 }
 
+bool Thread::is_hot_page(const storage::Page* page) const {
+  const uint16_t threshold = pimpl_->current_xct_.get_hot_threshold_for_this_xct();
+  return page->get_header().hotness_.value_ >= threshold;
+}
+
+ErrorCode GrabFreeVolatilePagesScope::grab(uint32_t count) {
+  if (count_) {
+    release();
+  }
+  memory::NumaCoreMemory* memory = context_->get_thread_memory();
+  for (uint32_t i = 0; i < count; ++i) {
+    offsets_[i] = memory->grab_free_volatile_page();
+    if (offsets_[i] == 0) {
+      for (uint32_t j = 0; j < i; ++j) {
+        memory->release_free_volatile_page(offsets_[j]);
+      }
+      return kErrorCodeMemoryNoFreePages;
+    }
+  }
+  count_ = count;
+  return kErrorCodeOk;
+}
+
+void GrabFreeVolatilePagesScope::release() {
+  memory::NumaCoreMemory* memory = context_->get_thread_memory();
+  for (uint32_t i = 0; i < count_; ++i) {
+    if (offsets_[i] != 0) {
+      memory->release_free_volatile_page(offsets_[i]);
+    }
+  }
+  count_ = 0;
+}
 
 }  // namespace thread
 }  // namespace foedus

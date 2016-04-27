@@ -44,8 +44,11 @@
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pool.hpp"
 #include "foedus/thread/thread_pool_pimpl.hpp"
+#include "foedus/xct/sysxct_functor.hpp"
+#include "foedus/xct/sysxct_impl.hpp"
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_manager.hpp"
+#include "foedus/xct/xct_mcs_impl.hpp"
 
 namespace foedus {
 namespace thread {
@@ -64,12 +67,15 @@ ThreadPimpl::ThreadPimpl(
     snapshot_cache_hashtable_(nullptr),
     snapshot_page_pool_(nullptr),
     log_buffer_(engine, id),
-    current_xct_(engine, id),
+    current_xct_(engine, holder, id),
     snapshot_file_set_(engine),
     control_block_(nullptr),
     task_input_memory_(nullptr),
     task_output_memory_(nullptr),
-    mcs_blocks_(nullptr) {
+    mcs_ww_blocks_(nullptr),
+    mcs_rw_simple_blocks_(nullptr),
+    mcs_rw_extended_blocks_(nullptr),
+    canonical_address_(nullptr) {
 }
 
 ErrorStack ThreadPimpl::initialize_once() {
@@ -81,9 +87,15 @@ ErrorStack ThreadPimpl::initialize_once() {
   control_block_->initialize(id_);
   task_input_memory_ = anchors->task_input_memory_;
   task_output_memory_ = anchors->task_output_memory_;
-  mcs_blocks_ = anchors->mcs_lock_memories_;
+  mcs_ww_blocks_ = anchors->mcs_ww_lock_memories_;
+  mcs_rw_simple_blocks_ = anchors->mcs_rw_simple_lock_memories_;
+  mcs_rw_extended_blocks_ = anchors->mcs_rw_extended_lock_memories_;
+  mcs_rw_async_mappings_ = anchors->mcs_rw_async_mappings_memories_;
 
-  pool_pimpl_ = engine_->get_thread_pool()->get_pimpl();
+  auto mcs_type = engine_->get_options().xct_.mcs_implementation_type_;
+  ASSERT_ND(mcs_type == xct::XctOptions::kMcsImplementationTypeSimple
+    || mcs_type == xct::XctOptions::kMcsImplementationTypeExtended);
+  simple_mcs_rw_ = mcs_type == xct::XctOptions::kMcsImplementationTypeSimple;
   node_memory_ = engine_->get_memory_manager()->get_local_memory();
   core_memory_ = node_memory_->get_core_memory(id_);
   if (engine_->get_options().cache_.snapshot_cache_enabled_) {
@@ -92,7 +104,10 @@ ErrorStack ThreadPimpl::initialize_once() {
     snapshot_cache_hashtable_ = nullptr;
   }
   snapshot_page_pool_ = node_memory_->get_snapshot_pool();
-  current_xct_.initialize(core_memory_, &control_block_->mcs_block_current_);
+  current_xct_.initialize(
+    core_memory_,
+    &control_block_->mcs_block_current_,
+    &control_block_->mcs_rw_async_mapping_current_);
   CHECK_ERROR(snapshot_file_set_.initialize());
   CHECK_ERROR(log_buffer_.initialize());
   global_volatile_page_resolver_
@@ -171,6 +186,16 @@ void ThreadPimpl::handle_tasks() {
     if (control_block_->status_ == kWaitingForExecution) {
       control_block_->output_len_ = 0;
       control_block_->status_ = kRunningTask;
+
+      // Reset the default value of enable_rll_for_this_xct etc to system-wide setting
+      // for every impersonation.
+      current_xct_.set_default_rll_for_this_xct(
+        engine_->get_options().xct_.enable_retrospective_lock_list_);
+      current_xct_.set_default_hot_threshold_for_this_xct(
+        engine_->get_options().storage_.hot_threshold_);
+      current_xct_.set_default_rll_threshold_for_this_xct(
+        engine_->get_options().xct_.hot_threshold_for_retrospective_lock_list_);
+
       const proc::ProcName& proc_name = control_block_->proc_name_;
       VLOG(0) << "Thread-" << id_ << " retrieved a task: " << proc_name;
       proc::Proc proc = nullptr;
@@ -272,20 +297,17 @@ ErrorCode ThreadPimpl::install_a_volatile_page(
   // copy from snapshot version
   storage::Page* snapshot_page;
   CHECK_ERROR_CODE(find_or_read_a_snapshot_page(pointer->snapshot_pointer_, &snapshot_page));
-  memory::PagePoolOffset offset = core_memory_->grab_free_volatile_page();
-  if (UNLIKELY(offset == 0)) {
+  storage::VolatilePagePointer volatile_pointer = core_memory_->grab_free_volatile_page_pointer();
+  const auto offset = volatile_pointer.get_offset();
+  if (UNLIKELY(volatile_pointer.is_null())) {
     return kErrorCodeMemoryNoFreePages;
   }
+  ASSERT_ND(offset < local_volatile_page_resolver_.end_);
   storage::Page* page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
   std::memcpy(page, snapshot_page, storage::kPageSize);
   // We copied from a snapshot page, so the snapshot flag is on.
   ASSERT_ND(page->get_header().snapshot_);
   page->get_header().snapshot_ = false;  // now it's volatile
-  storage::VolatilePagePointer volatile_pointer = storage::combine_volatile_page_pointer(
-    numa_node_,
-    0,
-    0,
-    offset);
   page->get_header().page_id_ = volatile_pointer.word;  // and correct page ID
 
   *installed_page = place_a_new_volatile_page(offset, pointer);
@@ -297,13 +319,10 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
   storage::DualPagePointer* pointer) {
   while (true) {
     storage::VolatilePagePointer cur_pointer = pointer->volatile_pointer_;
-    storage::VolatilePagePointer new_pointer = storage::combine_volatile_page_pointer(
-      numa_node_,
-      0,
-      cur_pointer.components.mod_count + 1,
-      new_offset);
+    storage::VolatilePagePointer new_pointer;
+    new_pointer.set(numa_node_, new_offset);
     // atomically install it.
-    if (cur_pointer.components.offset == 0 &&
+    if (cur_pointer.is_null() &&
       assorted::raw_atomic_compare_exchange_strong<uint64_t>(
         &(pointer->volatile_pointer_.word),
         &(cur_pointer.word),
@@ -312,10 +331,10 @@ storage::Page* ThreadPimpl::place_a_new_volatile_page(
       return local_volatile_page_resolver_.resolve_offset_newpage(new_offset);
       break;
     } else {
-      if (cur_pointer.components.offset != 0) {
+      if (!cur_pointer.is_null()) {
         // someone else has installed it!
         VLOG(0) << "Interesting. Lost race to install a volatile page. ver-b. Thread-" << id_
-          << ", local offset=" << new_offset << " winning offset=" << cur_pointer.components.offset;
+          << ", local offset=" << new_offset << " winning=" << cur_pointer;
         core_memory_->release_free_volatile_page(new_offset);
         storage::Page* placed_page = global_volatile_page_resolver_.resolve_offset(cur_pointer);
         ASSERT_ND(placed_page->get_header().snapshot_ == false);
@@ -403,7 +422,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
   storage::VolatilePagePointer volatile_pointer = pointer->volatile_pointer_;
   bool followed_snapshot = false;
   if (pointer->snapshot_pointer_ == 0) {
-    if (volatile_pointer.components.offset == 0) {
+    if (volatile_pointer.is_null()) {
       // both null, so the page is not created yet.
       if (tolerate_null_pointer) {
         *page = nullptr;
@@ -416,10 +435,10 @@ ErrorCode ThreadPimpl::follow_page_pointer(
         if (UNLIKELY(offset == 0)) {
           return kErrorCodeMemoryNoFreePages;
         }
+        ASSERT_ND(offset < local_volatile_page_resolver_.end_);
         storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
         storage::VolatilePagePointer new_page_id;
-        new_page_id.components.numa_node = numa_node_;
-        new_page_id.components.offset = offset;
+        new_page_id.set(numa_node_, offset);
         storage::VolatilePageInitArguments args = {
           holder_,
           new_page_id,
@@ -439,7 +458,7 @@ ErrorCode ThreadPimpl::follow_page_pointer(
     }
   } else {
     // if there is a snapshot page, we have a few more choices.
-    if (volatile_pointer.components.offset != 0) {
+    if (!volatile_pointer.is_null()) {
       // we have a volatile page, which is guaranteed to be latest
       *page = global_volatile_page_resolver_.resolve_offset(volatile_pointer);
     } else if (will_modify) {
@@ -548,8 +567,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_read_batch(
           }
           storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
           storage::VolatilePagePointer new_page_id;
-          new_page_id.components.numa_node = numa_node_;
-          new_page_id.components.offset = offset;
+          new_page_id.set(numa_node_, offset);
           storage::VolatilePageInitArguments args = {
             holder_,
             new_page_id,
@@ -607,8 +625,7 @@ ErrorCode ThreadPimpl::follow_page_pointers_for_write_batch(
       }
       storage::Page* new_page = local_volatile_page_resolver_.resolve_offset_newpage(offset);
       storage::VolatilePagePointer new_page_id;
-      new_page_id.components.numa_node = numa_node_;
-      new_page_id.components.offset = offset;
+      new_page_id.set(numa_node_, offset);
       storage::VolatilePageInitArguments args = {
         holder_,
         new_page_id,
@@ -747,6 +764,11 @@ ErrorCode ThreadPimpl::on_snapshot_cache_miss(
   return kErrorCodeOk;
 }
 
+ThreadRef ThreadPimpl::get_thread_ref(ThreadId id) {
+  auto* pool_pimpl = engine_->get_thread_pool()->get_pimpl();
+  return pool_pimpl->get_thread_ref(id);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 ///
 ///      Retired page handling methods
@@ -754,14 +776,14 @@ ErrorCode ThreadPimpl::on_snapshot_cache_miss(
 ////////////////////////////////////////////////////////////////////////////////
 void ThreadPimpl::collect_retired_volatile_page(storage::VolatilePagePointer ptr) {
   ASSERT_ND(is_volatile_page_retired(ptr));
-  uint16_t node = ptr.components.numa_node;
+  uint16_t node = ptr.get_numa_node();
   Epoch current_epoch = engine_->get_xct_manager()->get_current_global_epoch_weak();
   Epoch safe_epoch = current_epoch.one_more().one_more();
   memory::PagePoolOffsetAndEpochChunk* chunk = core_memory_->get_retired_volatile_pool_chunk(node);
   if (chunk->full()) {
     flush_retired_volatile_page(node, current_epoch, chunk);
   }
-  chunk->push_back(ptr.components.offset, safe_epoch);
+  chunk->push_back(ptr.get_offset(), safe_epoch);
 }
 
 void ThreadPimpl::flush_retired_volatile_page(
@@ -801,502 +823,244 @@ bool ThreadPimpl::is_volatile_page_retired(storage::VolatilePagePointer ptr) {
 ////////////////////////////////////////////////////////////////////////////////
 ///
 ///      MCS Locking methods
+/// We previously had the locking algorithm implemented here, but we separated it
+/// to xct_mcs_impl.cpp/hpp. We now have only delegation here.
 ///
 ////////////////////////////////////////////////////////////////////////////////
 
+/////////////////////////////////////////
+/// Thread -> ThreadPimpl forwardings
+xct::McsRwSimpleBlock* Thread::get_mcs_rw_simple_blocks() {
+  return pimpl_->mcs_rw_simple_blocks_;
+}
+xct::McsRwExtendedBlock* Thread::get_mcs_rw_extended_blocks() {
+  return pimpl_->mcs_rw_extended_blocks_;
+}
+
 // Put Thread methods here to allow inlining.
-xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsLock* mcs_lock) {
-  return pimpl_->mcs_acquire_lock(mcs_lock);
+void Thread::cll_release_all_locks() {
+  pimpl_->cll_release_all_locks();
 }
-xct::McsBlockIndex Thread::mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size) {
-  // lock in address order. so, no deadlock possible
-  // we have to lock them whether the record is deleted or not. all physical records.
-  xct::McsBlockIndex head_lock_index = 0;
-  for (uint16_t i = 0; i < batch_size; ++i) {
-    xct::McsBlockIndex block = pimpl_->mcs_acquire_lock(mcs_locks[i]);
-    ASSERT_ND(block > 0);
-    if (i == 0) {
-      head_lock_index = block;
-    } else {
-      ASSERT_ND(head_lock_index + i == block);
-    }
-  }
-  return head_lock_index;
+void Thread::cll_release_all_locks_after(xct::UniversalLockId address) {
+  pimpl_->cll_release_all_locks_after(address);
 }
-void Thread::mcs_release_lock_batch(
-  xct::McsLock** mcs_locks,
-  xct::McsBlockIndex head_block,
-  uint16_t batch_size) {
-  for (uint16_t i = 0; i < batch_size; ++i) {
-    pimpl_->mcs_release_lock(mcs_locks[i], head_block + i);
-  }
+void Thread::cll_giveup_all_locks_after(xct::UniversalLockId address) {
+  pimpl_->cll_giveup_all_locks_after(address);
+}
+ErrorCode Thread::cll_try_or_acquire_single_lock(xct::LockListPosition pos) {
+  return pimpl_->cll_try_or_acquire_single_lock(pos);
+}
+ErrorCode Thread::cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos) {
+  return pimpl_->cll_try_or_acquire_multiple_locks(upto_pos);
 }
 
-xct::McsBlockIndex Thread::mcs_initial_lock(xct::McsLock* mcs_lock) {
-  return pimpl_->mcs_initial_lock(mcs_lock);
-}
-void Thread::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_release_lock(mcs_lock, block_index);
-}
-
-xct::McsBlockIndex Thread::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
-  return pimpl_->mcs_acquire_reader_lock(mcs_rw_lock);
-}
-
-void Thread::mcs_release_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_release_reader_lock(mcs_rw_lock, block_index);
-}
-
-xct::McsBlockIndex Thread::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock) {
-  return pimpl_->mcs_acquire_writer_lock(mcs_rw_lock);
-}
-
-void Thread::mcs_release_writer_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_release_writer_lock(mcs_rw_lock, block_index);
-}
-
-void Thread::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
-  ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
-}
-
-void Thread::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {
-  ThreadPimpl::mcs_ownerless_acquire_lock(mcs_lock);
-}
-
-void Thread::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
-  ThreadPimpl::mcs_ownerless_release_lock(mcs_lock);
-}
-
+/////////////////////////////////////////
+/// ThreadPimpl MCS implementations
 inline void assert_mcs_aligned(const void* address) {
   ASSERT_ND(address);
   ASSERT_ND(reinterpret_cast<uintptr_t>(address) % 4 == 0);
 }
 
-void ThreadPimpl::mcs_toolong_wait(
-  xct::McsLock* mcs_lock,
-  ThreadId predecessor_id,
-  xct::McsBlockIndex my_block,
-  xct::McsBlockIndex pred_block) {
-  uint32_t count = current_xct_.get_write_set_size();
-  xct::WriteXctAccess* write_sets = current_xct_.get_write_set();
-  uint32_t index = count + 1;
-  for (uint32_t i = 0; i < count; ++i) {
-    if (i > 0 && write_sets[i - 1].owner_id_address_ > write_sets[i].owner_id_address_) {
-      LOG(ERROR) << "mmm? unsorted?? this might be not within precommit, which is possible";
-    }
-    if (write_sets[i].owner_id_address_->get_key_lock() == mcs_lock) {
-      index = i;
-    }
-  }
-  LOG(ERROR) << "I'm waiting here for long time. me=" << id_ << "(block=" << my_block << "), pred="
-    << predecessor_id << "(block=" << pred_block << "), lock=" << *mcs_lock
-    << ", lock_addr=" << mcs_lock
-    << ", write-set " << index << "/" << count;
+template<typename RW_BLOCK>
+xct::McsImpl< ThreadPimplMcsAdaptor< RW_BLOCK >, RW_BLOCK > get_mcs_impl(ThreadPimpl* pimpl) {
+  ThreadPimplMcsAdaptor< RW_BLOCK > adaptor(pimpl);
+  xct::McsImpl< ThreadPimplMcsAdaptor< RW_BLOCK > , RW_BLOCK> impl(adaptor);
+  return impl;
 }
 
-/** Spin locally until the given condition returns false */
-template <typename COND>
-void spin_until(COND spin_while_cond) {
-  DVLOG(1) << "Locally spinning...";
-  uint64_t spins = 0;
-  while (spin_while_cond()) {
-    ++spins;
-    if ((spins & 0xFFFFFFU) == 0) {
-      assorted::spinlock_yield();
-    }
-  }
-  DVLOG(1) << "Spin ended. Spent " << spins << " spins";
-}
+/////////////////////////////////////////
+/// RW-locks. These switch implementations.
+/// we could shorten it if we assume C++14 (lambda with auto),
+/// but not much. Doesn't matter.
 
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsLock* mcs_lock) {
-  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
-  // Also, the performance of this method really matters, especially that of common path.
-  // Check objdump -d. Everything in common path should be inlined.
-  // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
-  ASSERT_ND(!control_block_->mcs_waiting_);
-  assert_mcs_aligned(mcs_lock);
-  // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
-  ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
-  xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
-  ASSERT_ND(block_index > 0);
-  xct::McsBlock* my_block = mcs_blocks_ + block_index;
-  my_block->clear_successor_release();
-  control_block_->mcs_waiting_.store(true, std::memory_order_release);
-  uint32_t desired = xct::McsLock::to_int(id_, block_index);
-  uint32_t group_tail = desired;
-  uint32_t* address = &(mcs_lock->data_);
-  assert_mcs_aligned(address);
-
-  uint32_t pred_int = 0;
-  while (true) {
-    // if it's obviously locked by a guest, we should wait until it's released.
-    // so far this is busy-wait, we can do sth. to prevent priority inversion later.
-    if (UNLIKELY(*address == xct::kMcsGuestId)) {
-      spin_until([address]{
-        return assorted::atomic_load_acquire<uint32_t>(address) == xct::kMcsGuestId;
-      });
-    }
-
-    // atomic op should imply full barrier, but make sure announcing the initialized new block.
-    ASSERT_ND(group_tail != xct::kMcsGuestId);
-    ASSERT_ND(group_tail != 0);
-    ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != group_tail);
-    pred_int = assorted::raw_atomic_exchange<uint32_t>(address, group_tail);
-    ASSERT_ND(pred_int != group_tail);
-    ASSERT_ND(pred_int != desired);
-
-    if (pred_int == 0) {
-      // this means it was not locked.
-      ASSERT_ND(mcs_lock->is_locked());
-      DVLOG(2) << "Okay, got a lock uncontended. me=" << id_;
-      control_block_->mcs_waiting_.store(false, std::memory_order_release);
-      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
-      return block_index;
-    } else if (UNLIKELY(pred_int == xct::kMcsGuestId)) {
-      // ouch, I don't want to keep the guest ID! return it back.
-      // This also determines the group_tail of this queue
-      group_tail = assorted::raw_atomic_exchange<uint32_t>(address, xct::kMcsGuestId);
-      ASSERT_ND(group_tail != 0 && group_tail != xct::kMcsGuestId);
-      continue;
-    } else {
-      break;
-    }
-  }
-
-  ASSERT_ND(pred_int != 0 && pred_int != xct::kMcsGuestId);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
-  xct::McsLock old;
-  old.data_ = pred_int;
-  ASSERT_ND(mcs_lock->is_locked());
-  ThreadId predecessor_id = old.get_tail_waiter();
-  ASSERT_ND(predecessor_id != id_);
-  xct::McsBlockIndex predecessor_block = old.get_tail_waiter_block();
-  DVLOG(0) << "mm, contended, we have to wait.. me=" << id_ << " pred=" << predecessor_id;
-  ASSERT_ND(decompose_numa_node(predecessor_id) < engine_->get_options().thread_.group_count_);
-  ASSERT_ND(decompose_numa_local_ordinal(predecessor_id) <
-    engine_->get_options().thread_.thread_count_per_group_);
-
-  ThreadRef predecessor = pool_pimpl_->get_thread_ref(predecessor_id);
-  ASSERT_ND(control_block_->mcs_waiting_);
-  ASSERT_ND(predecessor.get_control_block()->mcs_block_current_ >= predecessor_block);
-  xct::McsBlock* pred_block = predecessor.get_mcs_blocks() + predecessor_block;
-  ASSERT_ND(!pred_block->has_successor());
-#ifndef NDEBUG
-  if (UNLIKELY(predecessor.get_control_block()->my_thread_id_ != predecessor_id)) {
-    LOG(FATAL) << "wtf. predecessor_id=" << predecessor_id
-      << ", but " << predecessor.get_control_block()->my_thread_id_;
-  }
-#endif  // NDEBUG
-
-  pred_block->set_successor_release(id_, block_index);
-
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
-  spin_until([this]{ return this->control_block_->mcs_waiting_.load(std::memory_order_acquire); });
-  DVLOG(1) << "Okay, now I hold the lock. me=" << id_ << ", ex-pred=" << predecessor_id;
-  ASSERT_ND(!control_block_->mcs_waiting_);
-  ASSERT_ND(mcs_lock->is_locked());
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != 0);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != xct::kMcsGuestId);
-  return block_index;
-}
-
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
-  ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
-  xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
-  ASSERT_ND(block_index > 0);
-  // TODO(tzwang): make this a static_size_check...
-  ASSERT_ND(sizeof(xct::McsRwBlock) == sizeof(xct::McsBlock));
-  xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_blocks_ + block_index;
-
-  // So I'm a reader
-  my_block->init_reader();
-  ASSERT_ND(my_block->is_blocked() && my_block->is_reader());
-  ASSERT_ND(!my_block->has_successor());
-  ASSERT_ND(my_block->successor_block_index_ == 0);
-
-  // Now ready to XCHG
-  uint32_t tail_desired = xct::McsRwLock::to_tail_int(id_, block_index);
-  uint32_t* tail_address = &(mcs_rw_lock->tail_);
-  uint32_t pred_tail_int = assorted::raw_atomic_exchange<uint32_t>(tail_address, tail_desired);
-
-  if (pred_tail_int == 0) {
-    mcs_rw_lock->increment_readers_count();
-    my_block->unblock();  // reader successors will know they don't need to wait
+void ThreadPimpl::cll_release_all_locks_after(xct::UniversalLockId address) {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    cll->release_all_after(address, &impl);
   } else {
-    // See if the predecessor is a reader; if so, if it already acquired the lock.
-    xct::McsRwLock old;
-    old.tail_ = pred_tail_int;
-    xct::McsBlockIndex pred_block_index = old.get_tail_waiter_block();
-    ThreadId pred_id = old.get_tail_waiter();
-    ThreadRef pred = pool_pimpl_->get_thread_ref(pred_id);
-    xct::McsRwBlock* pred_block = (xct::McsRwBlock *)pred.get_mcs_blocks() + pred_block_index;
-    uint16_t* pred_state_address = &pred_block->self_.data_;
-    uint16_t pred_state_expected = pred_block->make_blocked_with_no_successor_state();
-    uint16_t pred_state_desired = pred_block->make_blocked_with_reader_successor_state();
-    if (!pred_block->is_reader() || assorted::raw_atomic_compare_exchange_strong<uint16_t>(
-      pred_state_address,
-      &pred_state_expected,
-      pred_state_desired)) {
-      // Predecessor is a writer or a waiting reader. The successor class field and the
-      // blocked state in pred_block are separated, so we can blindly set_successor().
-      pred_block->set_successor_next_only(id_, block_index);
-      spin_until([my_block]{ return my_block->is_blocked(); });
-    } else {
-      // Join the active, reader predecessor
-      ASSERT_ND(!pred_block->is_blocked());
-      mcs_rw_lock->increment_readers_count();
-      pred_block->set_successor_next_only(id_, block_index);
-      my_block->unblock();
-    }
-  }
-
-  if (my_block->has_reader_successor()) {
-    spin_until([my_block]{ return !my_block->successor_is_ready(); });
-    // Unblock the reader successor
-    thread::ThreadRef successor = pool_pimpl_->get_thread_ref(my_block->successor_thread_id_);
-    xct::McsRwBlock* successor_block =
-      (xct::McsRwBlock *)successor.get_mcs_blocks() + my_block->successor_block_index_;
-    mcs_rw_lock->increment_readers_count();
-    successor_block->unblock();
-  }
-  return block_index;
-}
-
-void ThreadPimpl::mcs_release_reader_lock(
-  xct::McsRwLock* mcs_rw_lock,
-  xct::McsBlockIndex block_index) {
-  ASSERT_ND(block_index > 0);
-  ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
-  xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_blocks_ + block_index;
-  // Make sure there is really no successor or wait for it
-  uint32_t* tail_address = &mcs_rw_lock->tail_;
-  uint32_t expected = xct::McsRwLock::to_tail_int(id_, block_index);
-  if (my_block->successor_is_ready() ||
-    !assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
-    // Have to wait for the successor to install itself after me
-    // Don't check for my_block->has_successor()! It only tells whether the state bit
-    // is set, not whether successor_thread_id_ and successor_block_index_ are set.
-    if (UNLIKELY(!(my_block->successor_is_ready()))) {
-      spin_until([my_block]{ return !(my_block->successor_is_ready()); });
-    }
-    if (my_block->has_writer_successor()) {
-      assorted::raw_atomic_exchange<ThreadId>(
-        &mcs_rw_lock->next_writer_,
-        my_block->successor_thread_id_);
-    }
-  }
-
-  if (mcs_rw_lock->decrement_readers_count() == 1) {
-    // I'm the last active reader
-    ThreadId next_writer = assorted::atomic_load_acquire<ThreadId>(&mcs_rw_lock->next_writer_);
-    uint16_t nreaders = assorted::atomic_load_acquire<uint16_t>(&mcs_rw_lock->readers_count_);
-    if (next_writer != xct::McsRwLock::kNextWriterNone &&
-        nreaders == 0 &&
-        assorted::raw_atomic_compare_exchange_strong<ThreadId>(
-          &mcs_rw_lock->next_writer_,
-          &next_writer,
-          xct::McsRwLock::kNextWriterNone)) {
-      // I have a waiting writer, wake it up
-      ThreadRef writer = pool_pimpl_->get_thread_ref(next_writer);
-      // Assuming a thread can wait for one and only one MCS lock at any instant
-      // before starting to acquire the next.
-      xct::McsRwBlock *writer_block =
-        (xct::McsRwBlock *)writer.get_mcs_blocks() + writer.get_control_block()->mcs_block_current_;
-      ASSERT_ND(writer_block->is_blocked());
-      ASSERT_ND(!writer_block->is_reader());
-      writer_block->unblock();
-    }
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    cll->release_all_after(address, &impl);
   }
 }
 
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock) {
-  ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
-  xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
-  ASSERT_ND(block_index > 0);
-  // TODO(tzwang): make this a static_size_check...
-  ASSERT_ND(sizeof(xct::McsRwBlock) == sizeof(xct::McsBlock));
-  xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_blocks_ + block_index;
-
-  my_block->init_writer();
-  ASSERT_ND(my_block->is_blocked() && !my_block->is_reader());
-  ASSERT_ND(!my_block->has_successor());
-  ASSERT_ND(my_block->successor_block_index_ == 0);
-
-  // Now ready to XCHG
-  uint32_t tail_desired = xct::McsRwLock::to_tail_int(id_, block_index);
-  uint32_t* tail_address = &(mcs_rw_lock->tail_);
-  uint32_t pred_tail_int = assorted::raw_atomic_exchange<uint32_t>(tail_address, tail_desired);
-  ASSERT_ND(pred_tail_int != tail_desired);
-  ThreadId old_next_writer = 0xFFFFU;
-  if (pred_tail_int == 0) {
-    assorted::raw_atomic_exchange<ThreadId>(&mcs_rw_lock->next_writer_, id_);
-    uint16_t nreaders = assorted::atomic_load_acquire<uint16_t>(&mcs_rw_lock->readers_count_);
-    if (nreaders == 0) {
-      old_next_writer = assorted::raw_atomic_exchange<ThreadId>(
-        &mcs_rw_lock->next_writer_,
-        xct::McsRwLock::kNextWriterNone);
-      if (old_next_writer == id_) {
-        my_block->unblock();
-        return block_index;
-      }
-    }
+void ThreadPimpl::cll_giveup_all_locks_after(xct::UniversalLockId address) {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    cll->giveup_all_after(address, &impl);
   } else {
-    xct::McsRwLock old;
-    old.tail_ = pred_tail_int;
-    xct::McsBlockIndex pred_block_index = old.get_tail_waiter_block();
-    ThreadId pred_id = old.get_tail_waiter();
-    ThreadRef pred = pool_pimpl_->get_thread_ref(pred_id);
-    xct::McsRwBlock* pred_block = (xct::McsRwBlock *)pred.get_mcs_blocks() + pred_block_index;
-    pred_block->set_successor_class_writer();
-    pred_block->set_successor_next_only(id_, block_index);
-  }
-  spin_until([my_block]{ return my_block->is_blocked(); });
-  return block_index;
-}
-
-void ThreadPimpl::mcs_release_writer_lock(
-  xct::McsRwLock* mcs_rw_lock,
-  xct::McsBlockIndex block_index) {
-  ASSERT_ND(block_index > 0);
-  ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
-  xct::McsRwBlock* my_block = (xct::McsRwBlock *)mcs_blocks_ + block_index;
-  uint32_t* tail_address = &mcs_rw_lock->tail_;
-  uint32_t expected = xct::McsRwLock::to_tail_int(id_, block_index);
-  if (my_block->successor_is_ready() ||
-    !assorted::raw_atomic_compare_exchange_strong<uint32_t>(tail_address, &expected, 0)) {
-    if (UNLIKELY(!my_block->successor_is_ready())) {
-      spin_until([my_block]{ return !(my_block->successor_is_ready()); });
-    }
-    ASSERT_ND(my_block->successor_is_ready());
-    ThreadRef successor = pool_pimpl_->get_thread_ref(my_block->successor_thread_id_);
-    xct::McsRwBlock* successor_block =
-      (xct::McsRwBlock *)successor.get_mcs_blocks() + my_block->successor_block_index_;
-    ASSERT_ND(successor_block->is_blocked());
-    if (successor_block->is_reader()) {
-      mcs_rw_lock->increment_readers_count();
-    }
-    successor_block->unblock();
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    cll->giveup_all_after(address, &impl);
   }
 }
 
-void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock) {
-  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
-  // Also, the performance of this method really matters, especially that of common path.
-  // Check objdump -d. Everything in common path should be inlined.
-  // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
-  assert_mcs_aligned(mcs_lock);
-  uint32_t* address = &(mcs_lock->data_);
-  assert_mcs_aligned(address);
-  spin_until([mcs_lock, address]{
-    uint32_t old_int = xct::McsLock::to_int(0, 0);
-    return !assorted::raw_atomic_compare_exchange_weak<uint32_t>(
-      address,
-      &old_int,
-      xct::kMcsGuestId);
-  });
-  DVLOG(1) << "Okay, now I hold the lock. me=guest";
-  ASSERT_ND(mcs_lock->is_locked());
-}
-xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsLock* mcs_lock) {
-  // Basically _all_ writes in this function must come with release barrier.
-  // This method itself doesn't need barriers, but then we need to later take a seq_cst barrier
-  // in an appropriate place. That's hard to debug, so just take release barriers here.
-  // Also, everything should be inlined.
-  assert_mcs_aligned(mcs_lock);
-  ASSERT_ND(!control_block_->mcs_waiting_);
-  ASSERT_ND(!mcs_lock->is_locked());
-  // so far we allow only 2^16 MCS blocks per transaction. we might increase later.
-  ASSERT_ND(current_xct_.get_mcs_block_current() < 0xFFFFU);
-  xct::McsBlockIndex block_index = current_xct_.increment_mcs_block_current();
-  ASSERT_ND(block_index > 0);
-  xct::McsBlock* my_block = mcs_blocks_ + block_index;
-  my_block->clear_successor_release();
-  mcs_lock->reset_release(id_, block_index);
-  return block_index;
-}
-
-void ThreadPimpl::mcs_ownerless_initial_lock(xct::McsLock* mcs_lock) {
-  assert_mcs_aligned(mcs_lock);
-  ASSERT_ND(!mcs_lock->is_locked());
-  mcs_lock->reset_guest_id_release();
-}
-
-void ThreadPimpl::mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index) {
-  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
-  // Also, the performance of this method really matters, especially that of common path.
-  // Check objdump -d. Everything in common path should be inlined.
-  // Also, check minimal sufficient lock/mfences.
-  assert_mcs_aligned(mcs_lock);
-  ASSERT_ND(!control_block_->mcs_waiting_);
-  ASSERT_ND(mcs_lock->is_locked());
-  ASSERT_ND(block_index > 0);
-  ASSERT_ND(current_xct_.get_mcs_block_current() >= block_index);
-  const uint32_t myself = xct::McsLock::to_int(id_, block_index);
-  uint32_t* address = &(mcs_lock->data_);
-  xct::McsBlock* block = mcs_blocks_ + block_index;
-  if (!block->has_successor()) {
-    // okay, successor "seems" nullptr (not contended), but we have to make it sure with atomic CAS
-    uint32_t expected = myself;
-    assert_mcs_aligned(address);
-    bool swapped = assorted::raw_atomic_compare_exchange_strong<uint32_t>(address, &expected, 0);
-    if (swapped) {
-      // we have just unset the locked flag, but someone else might have just acquired it,
-      // so we can't put assertion here.
-      ASSERT_ND(id_ == 0 || mcs_lock->get_tail_waiter() != id_);
-      ASSERT_ND(expected == myself);
-      ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
-      DVLOG(2) << "Okay, release a lock uncontended. me=" << id_;
-      return;
-    }
-    ASSERT_ND(expected != 0);
-    ASSERT_ND(expected != xct::kMcsGuestId);
-    DVLOG(0) << "Interesting contention on MCS release. I thought it's null, but someone has just "
-      " jumped in. me=" << id_ << ", mcs_lock=" << *mcs_lock;
-    // wait for someone else to set the successor
-    ASSERT_ND(mcs_lock->is_locked());
-    if (UNLIKELY(!block->has_successor())) {
-      spin_until([block]{ return !block->has_successor_atomic(); });
-    }
+ErrorCode ThreadPimpl::cll_try_or_acquire_single_lock(xct::LockListPosition pos) {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    return cll->try_or_acquire_single_lock(pos, &impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    return cll->try_or_acquire_single_lock(pos, &impl);
   }
-  ThreadId successor_id = block->get_successor_thread_id();
-  DVLOG(1) << "Okay, I have a successor. me=" << id_ << ", succ=" << successor_id;
-  ASSERT_ND(successor_id != id_);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
+}
 
-  ThreadRef successor = pool_pimpl_->get_thread_ref(successor_id);
-  ThreadControlBlock* successor_cb = successor.get_control_block();
-  ASSERT_ND(successor_cb->mcs_block_current_ >= block->get_successor_block());
-  ASSERT_ND(successor_cb->mcs_waiting_);
-  ASSERT_ND(mcs_lock->is_locked());
-#ifndef NDEBUG
-  if (UNLIKELY(successor_cb->my_thread_id_ != successor_id)) {
-    LOG(FATAL) << "wtf. successor_id=" << successor_id << ", but " << successor_cb->my_thread_id_;
-  } else if (UNLIKELY(!successor_cb->mcs_waiting_.load())) {
-    LOG(FATAL) << "wtf";
+ErrorCode ThreadPimpl::cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos) {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    return cll->try_or_acquire_multiple_locks(upto_pos, &impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    return cll->try_or_acquire_multiple_locks(upto_pos, &impl);
   }
-#endif  // NDEBUG
+}
+void ThreadPimpl::cll_release_all_locks() {
+  xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  if (is_simple_mcs_rw()) {
+    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
+    return cll->release_all_locks(&impl);
+  } else {
+    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
+    return cll->release_all_locks(&impl);
+  }
+}
 
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
-  successor_cb->mcs_waiting_.store(false, std::memory_order_release);
-  ASSERT_ND(assorted::atomic_load_seq_cst<uint32_t>(address) != myself);
+xct::UniversalLockId ThreadPimpl::cll_get_max_locked_id() const {
+  const xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
+  return cll->get_max_locked_id();
 }
-void ThreadPimpl::mcs_ownerless_release_lock(xct::McsLock* mcs_lock) {
-  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
-  // Also, the performance of this method really matters, especially that of common path.
-  // Check objdump -d. Everything in common path should be inlined.
-  // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
-  assert_mcs_aligned(mcs_lock);
-  uint32_t* address = &(mcs_lock->data_);
-  assert_mcs_aligned(address);
-  ASSERT_ND(mcs_lock->is_locked());
-  spin_until([address]{
-    uint32_t old_int = xct::kMcsGuestId;
-    return !assorted::raw_atomic_compare_exchange_weak<uint32_t>(address, &old_int, 0);
-  });
-  DVLOG(1) << "Okay, guest released the lock.";
+
+
+struct ThreadPimplCllReleaseAllFunctor {
+  explicit ThreadPimplCllReleaseAllFunctor(ThreadPimpl* pimpl) : pimpl_(pimpl) {}
+  void operator()() const {
+    pimpl_->cll_release_all_locks();
+  }
+  ThreadPimpl* const pimpl_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+///
+///      Sysxct methods
+///
+////////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////
+/// Thread -> ThreadPimpl forwardings
+ErrorCode Thread::run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries) {
+  return pimpl_->run_nested_sysxct(functor, max_retries);
 }
+ErrorCode Thread::sysxct_record_lock(
+  xct::SysxctWorkspace* sysxct_workspace,
+  storage::VolatilePagePointer page_id,
+  xct::RwLockableXctId* lock) {
+  return pimpl_->sysxct_record_lock(sysxct_workspace, page_id, lock);
+}
+ErrorCode Thread::sysxct_batch_record_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
+  storage::VolatilePagePointer page_id,
+  uint32_t lock_count,
+  xct::RwLockableXctId** locks) {
+  return pimpl_->sysxct_batch_record_locks(sysxct_workspace, page_id, lock_count, locks);
+}
+ErrorCode Thread::sysxct_page_lock(xct::SysxctWorkspace* sysxct_workspace, storage::Page* page) {
+  return pimpl_->sysxct_page_lock(sysxct_workspace, page);
+}
+ErrorCode Thread::sysxct_batch_page_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
+  uint32_t lock_count,
+  storage::Page** pages) {
+  return pimpl_->sysxct_batch_page_locks(sysxct_workspace, lock_count, pages);
+}
+
+/////////////////////////////////////////
+/// Impl. mostly just forwarding to SysxctLockList
+ErrorCode ThreadPimpl::run_nested_sysxct(
+  xct::SysxctFunctor* functor,
+  uint32_t max_retries) {
+  xct::SysxctWorkspace* workspace = current_xct_.get_sysxct_workspace();
+  xct::UniversalLockId enclosing_max_lock_id = cll_get_max_locked_id();
+  ThreadPimplCllReleaseAllFunctor release_functor(this);
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return xct::run_nested_sysxct_impl(
+        functor,
+        adaptor,
+        max_retries,
+        workspace,
+        enclosing_max_lock_id,
+        release_functor);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return xct::run_nested_sysxct_impl(
+        functor,
+        adaptor,
+        max_retries,
+        workspace,
+        enclosing_max_lock_id,
+        release_functor);
+  }
+}
+
+ErrorCode ThreadPimpl::sysxct_record_lock(
+  xct::SysxctWorkspace* sysxct_workspace,
+  storage::VolatilePagePointer page_id,
+  xct::RwLockableXctId* lock) {
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.request_record_lock(adaptor, page_id, lock);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.request_record_lock(adaptor, page_id, lock);
+  }
+}
+ErrorCode ThreadPimpl::sysxct_batch_record_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
+  storage::VolatilePagePointer page_id,
+  uint32_t lock_count,
+  xct::RwLockableXctId** locks) {
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_record_locks(adaptor, page_id, lock_count, locks);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_record_locks(adaptor, page_id, lock_count, locks);
+  }
+}
+ErrorCode ThreadPimpl::sysxct_page_lock(
+  xct::SysxctWorkspace* sysxct_workspace,
+  storage::Page* page) {
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.request_page_lock(adaptor, page);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.request_page_lock(adaptor, page);
+  }
+}
+ErrorCode ThreadPimpl::sysxct_batch_page_locks(
+  xct::SysxctWorkspace* sysxct_workspace,
+  uint32_t lock_count,
+  storage::Page** pages) {
+  ASSERT_ND(sysxct_workspace->running_sysxct_);
+  auto& sysxct_lock_list = sysxct_workspace->lock_list_;
+  if (is_simple_mcs_rw()) {
+    ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_page_locks(adaptor, lock_count, pages);
+  } else {
+    ThreadPimplMcsAdaptor< xct::McsRwExtendedBlock > adaptor(this);
+    return sysxct_lock_list.batch_request_page_locks(adaptor, lock_count, pages);
+  }
+}
+
 static_assert(
   sizeof(ThreadControlBlock) <= soc::ThreadMemoryAnchors::kThreadMemorySize,
   "ThreadControlBlock is too large.");

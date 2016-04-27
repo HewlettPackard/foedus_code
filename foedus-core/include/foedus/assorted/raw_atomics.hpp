@@ -72,12 +72,13 @@ inline bool raw_atomic_compare_exchange_strong(T* target, T* expected, T desired
  */
 template <typename T>
 inline bool raw_atomic_compare_exchange_weak(T* target, T* expected, T desired) {
-  if (*target != *expected) {
-    *expected = *target;
-    return false;
-  } else {
-    return raw_atomic_compare_exchange_strong<T>(target, expected, desired);
-  }
+  return ::__atomic_compare_exchange_n(
+    target,
+    expected,
+    desired,
+    true,  // weak
+    __ATOMIC_SEQ_CST,
+    __ATOMIC_SEQ_CST);
 }
 
 /**
@@ -173,7 +174,16 @@ template <typename T>
 inline T raw_atomic_fetch_and_bitwise_or(T* target, T operand) {
   return ::__atomic_fetch_or(target, operand, __ATOMIC_SEQ_CST);
 }
-
+/**
+ * @brief Atomic fetch-bitwise-xor for raw primitive types rather than std::atomic<T>
+ * @tparam T integer type
+ * @return the previous value.
+ * @ingroup ASSORTED
+ */
+template <typename T>
+inline T raw_atomic_fetch_and_bitwise_xor(T* target, T operand) {
+  return ::__atomic_fetch_xor(target, operand, __ATOMIC_SEQ_CST);
+}
 }  // namespace assorted
 }  // namespace foedus
 

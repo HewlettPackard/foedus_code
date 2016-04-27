@@ -23,6 +23,7 @@
 namespace foedus {
 namespace memory {
 MemoryOptions::MemoryOptions() {
+  suppress_memory_prescreening_ = false;
   use_numa_alloc_ = true;
   interleave_numa_alloc_ = false;
   use_mmap_hugepages_ = false;
@@ -33,6 +34,7 @@ MemoryOptions::MemoryOptions() {
 }
 
 ErrorStack MemoryOptions::load(tinyxml2::XMLElement* element) {
+  EXTERNALIZE_LOAD_ELEMENT(element, suppress_memory_prescreening_);
   EXTERNALIZE_LOAD_ELEMENT(element, use_numa_alloc_);
   EXTERNALIZE_LOAD_ELEMENT(element, interleave_numa_alloc_);
   EXTERNALIZE_LOAD_ELEMENT(element, use_mmap_hugepages_);
@@ -46,6 +48,8 @@ ErrorStack MemoryOptions::load(tinyxml2::XMLElement* element) {
 ErrorStack MemoryOptions::save(tinyxml2::XMLElement* element) const {
   CHECK_ERROR(insert_comment(element, "Set of options for memory manager"));
 
+  EXTERNALIZE_SAVE_ELEMENT(element, suppress_memory_prescreening_,
+    "Whether to tolerate insufficient hugepages etc in the prescreen check.");
   EXTERNALIZE_SAVE_ELEMENT(element, use_numa_alloc_,
     "Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode() to allocate memories"
     " in NumaCoreMemory and NumaNodeMemory.\n"

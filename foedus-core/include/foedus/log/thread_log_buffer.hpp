@@ -259,9 +259,9 @@ struct ThreadLogBufferMeta CXX11_FINAL {
  * Do not include this header from a client program unless you know what you are doing.
  *
  * @par Circular buffers
- * @copydoc foedus::log::ThreadLogBufferMeta
+ * @see foedus::log::ThreadLogBufferMeta
  * @par Epoch marks
- * @copydoc foedus::log::ThreadEpockMark
+ * @see foedus::log::ThreadEpockMark
  */
 class ThreadLogBuffer CXX11_FINAL : public DefaultInitializable {
  public:

@@ -83,7 +83,8 @@ ErrorCode HashStorage::get_record(
   uint16_t key_length,
   const HashCombo& combo,
   void* payload,
-  uint16_t* payload_capacity) {
+  uint16_t* payload_capacity,
+  bool read_only) {
   HashStoragePimpl pimpl(this);
   return pimpl.get_record(
     context,
@@ -91,7 +92,8 @@ ErrorCode HashStorage::get_record(
     key_length,
     combo,
     payload,
-    payload_capacity);
+    payload_capacity,
+    read_only);
 }
 
 ErrorCode HashStorage::get_record_part(
@@ -101,7 +103,8 @@ ErrorCode HashStorage::get_record_part(
   const HashCombo& combo,
   void* payload,
   uint16_t payload_offset,
-  uint16_t payload_count) {
+  uint16_t payload_count,
+  bool read_only) {
   HashStoragePimpl pimpl(this);
   return pimpl.get_record_part(
     context,
@@ -110,7 +113,8 @@ ErrorCode HashStorage::get_record_part(
     combo,
     payload,
     payload_offset,
-    payload_count);
+    payload_count,
+    read_only);
 }
 
 template <typename PAYLOAD>
@@ -120,7 +124,8 @@ ErrorCode HashStorage::get_record_primitive(
   uint16_t key_length,
   const HashCombo& combo,
   PAYLOAD* payload,
-  uint16_t payload_offset) {
+  uint16_t payload_offset,
+  bool read_only) {
   HashStoragePimpl pimpl(this);
   return pimpl.get_record_primitive(
     context,
@@ -128,7 +133,8 @@ ErrorCode HashStorage::get_record_primitive(
     key_length,
     combo,
     payload,
-    payload_offset);
+    payload_offset,
+    read_only);
 }
 
 ErrorCode HashStorage::insert_record(
@@ -248,7 +254,7 @@ std::ostream& operator<<(std::ostream& o, const HashStorage& v) {
 }
 
 xct::TrackMovedRecordResult HashStorage::track_moved_record(
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   HashStoragePimpl pimpl(this);
   return pimpl.track_moved_record(old_address, write_set);
@@ -263,6 +269,12 @@ ErrorStack HashStorage::verify_single_thread(thread::Thread* context) {
   HashStoragePimpl pimpl(this);
   return pimpl.verify_single_thread(context);
 }
+
+ErrorStack HashStorage::hcc_reset_all_temperature_stat() {
+  HashStoragePimpl pimpl(this);
+  return pimpl.hcc_reset_all_temperature_stat();
+}
+
 
 ErrorStack HashStorage::debugout_single_thread(
   Engine* engine,
@@ -281,7 +293,8 @@ ErrorStack HashStorage::debugout_single_thread(
     uint16_t key_length, \
     const HashCombo& combo, \
     x* payload, \
-    uint16_t payload_offset)
+    uint16_t payload_offset, \
+    bool read_only)
 INSTANTIATE_ALL_NUMERIC_TYPES(EXPIN_2);
 
 #define EXPIN_3(x) template ErrorCode HashStorage::overwrite_record_primitive< x > \

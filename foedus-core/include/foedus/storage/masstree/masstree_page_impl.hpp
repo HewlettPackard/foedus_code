@@ -72,20 +72,56 @@ class MasstreePage {
   // simple accessors
   PageHeader&         header() { return header_; }
   const PageHeader&   header() const { return header_; }
+  VolatilePagePointer get_volatile_page_id() const {
+    ASSERT_ND(!header_.snapshot_);
+    return VolatilePagePointer(header_.page_id_);
+  }
+  SnapshotPagePointer get_snapshot_page_id() const {
+    ASSERT_ND(header_.snapshot_);
+    return static_cast<SnapshotPagePointer>(header_.page_id_);
+  }
 
   bool                is_border() const ALWAYS_INLINE {
     ASSERT_ND(header_.get_page_type() == kMasstreeBorderPageType ||
       header_.get_page_type() == kMasstreeIntermediatePageType);
     return header_.get_page_type() == kMasstreeBorderPageType;
   }
+  /**
+   * An empty-range page, either intermediate or border, never has any entries.
+   * Such a page exists for short duration after a special page-split for
+   * record compaction/expansion and page restructuring.
+   * Such a page always appears as one of foster-twins: it will be never adopted to be a real child.
+   * Also guaranteed to not have any foster twins under it.
+   * Wan safely skip such a page while following foster twins.
+   */
+  bool                is_empty_range() const ALWAYS_INLINE { return low_fence_ == high_fence_; }
   KeySlice            get_low_fence() const ALWAYS_INLINE { return low_fence_; }
   KeySlice            get_high_fence() const ALWAYS_INLINE { return high_fence_; }
   bool                is_high_fence_supremum() const ALWAYS_INLINE {
     return high_fence_ == kSupremumSlice;
   }
+  bool                is_low_fence_infimum() const ALWAYS_INLINE {
+    return low_fence_ == kInfimumSlice;
+  }
+  bool                is_layer_root() const ALWAYS_INLINE {
+    return is_low_fence_infimum() && is_high_fence_supremum();
+  }
   KeySlice            get_foster_fence() const ALWAYS_INLINE { return foster_fence_; }
+  bool  is_foster_minor_null() const ALWAYS_INLINE { return foster_twin_[0].is_null(); }
+  bool  is_foster_major_null() const ALWAYS_INLINE { return foster_twin_[1].is_null(); }
   VolatilePagePointer get_foster_minor() const ALWAYS_INLINE { return foster_twin_[0]; }
   VolatilePagePointer get_foster_major() const ALWAYS_INLINE { return foster_twin_[1]; }
+  void                set_foster_twin(VolatilePagePointer minor, VolatilePagePointer major) {
+    foster_twin_[0] = minor;
+    foster_twin_[1] = major;
+  }
+  void                install_foster_twin(
+    VolatilePagePointer minor,
+    VolatilePagePointer major,
+    KeySlice foster_fence) {
+    set_foster_twin(minor, major);
+    foster_fence_ = foster_fence;
+  }
 
   bool                within_fences(KeySlice slice) const ALWAYS_INLINE {
     return slice >= low_fence_ && (is_high_fence_supremum() || slice < high_fence_);
@@ -127,16 +163,8 @@ class MasstreePage {
   PageVersion& get_version() ALWAYS_INLINE { return header_.page_version_; }
   const PageVersion* get_version_address() const ALWAYS_INLINE { return &header_.page_version_; }
   PageVersion* get_version_address() ALWAYS_INLINE { return &header_.page_version_; }
-  xct::McsLock* get_lock_address() ALWAYS_INLINE { return &header_.page_version_.lock_; }
+  xct::McsWwLock* get_lock_address() ALWAYS_INLINE { return &header_.page_version_.lock_; }
 
-  /**
-   * @brief Locks the page, spinning if necessary.
-   */
-  void              lock(thread::Thread* context) ALWAYS_INLINE {
-    if (!header_.snapshot_) {
-      header_.page_version_.lock(context);
-    }
-  }
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
   bool              is_moved() const ALWAYS_INLINE { return header_.page_version_.is_moved(); }
   bool              is_retired() const ALWAYS_INLINE { return header_.page_version_.is_retired(); }
@@ -151,17 +179,13 @@ class MasstreePage {
   /** As the name suggests, this should be used only by composer. foster twin should be immutable */
   void              set_foster_major_offset_unsafe(memory::PagePoolOffset offset) ALWAYS_INLINE {
     ASSERT_ND(header_.snapshot_);
-    foster_twin_[1].components.offset = offset;
+    foster_twin_[1].set_offset_unsafe(offset);
   }
   /** As the name suggests, this should be used only by composer. fence should be immutable */
   void              set_high_fence_unsafe(KeySlice high_fence) ALWAYS_INLINE {
     ASSERT_ND(header_.snapshot_);
     high_fence_ = high_fence;
   }
-
-  MasstreePage* track_foster_child(
-    KeySlice slice,
-    const memory::GlobalVolatilePageResolver& resolver);
 
   /** defined in masstree_page_debug.cpp. */
   friend std::ostream& operator<<(std::ostream& o, const MasstreePage& v);
@@ -205,43 +229,6 @@ class MasstreePage {
     KeySlice            high_fence);
 };
 
-struct BorderSplitStrategy {
-  /**
-   * whether this page seems to have had sequential insertions, in which case we do
-   * "no-record split" as optimization. This also requires the trigerring insertion key
-   * is equal or larger than the largest slice in this page.
-   */
-  bool no_record_split_;
-  SlotIndex original_key_count_;
-  KeySlice smallest_slice_;
-  KeySlice largest_slice_;
-  /**
-   * This will be the new foster fence.
-   * Ideally, # of records below and above this are same.
-   */
-  KeySlice mid_slice_;
-};
-
-/**
- * Constructed by hierarchically reading all separators and pointers in old page.
- */
-struct IntermediateSplitStrategy {
-  enum Constants {
-    kMaxSeparators = 170,
-  };
-  /**
-   * pointers_[n] points to page that is responsible for keys
-   * separators_[n - 1] <= key < separators_[n].
-   * separators_[-1] is infimum.
-   */
-  KeySlice separators_[kMaxSeparators];  // ->1360
-  DualPagePointer pointers_[kMaxSeparators];  // -> 4080
-  KeySlice mid_separator_;  // -> 4088
-  uint16_t total_separator_count_;  // -> 4090
-  uint16_t mid_index_;  // -> 4092
-  uint32_t dummy_;      // -> 4096
-};
-
 /**
  * Max number of separators stored in the first level of intermediate pages.
  * @ingroup MASSTREE
@@ -274,6 +261,7 @@ const uint32_t kMaxIntermediatePointers
  */
 class MasstreeIntermediatePage final : public MasstreePage {
  public:
+  friend struct SplitIntermediate;
   struct MiniPage {
     MiniPage() = delete;
     MiniPage(const MiniPage& other) = delete;
@@ -361,37 +349,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
     KeySlice            high_fence);
 
   /**
-   * Splits this page as a physical-only operation, creating a new foster twin, adopting
-   * the given child to one of them.
-   * @param[in] context Thread context
-   * @param[in,out] trigger_child the child page that has a foster child which caused this split.
-   * @pre !header_.snapshot_ (split happens to only volatile pages)
-   * @pre is_locked() (the page must be locked)
-   */
-  ErrorCode split_foster_and_adopt(thread::Thread* context, MasstreePage* trigger_child);
-  /**
-   * same as split_foster_and_adopt() except this does not adopt the new page, and
-   * ignores the possibility of no-record-split.
-   */
-  ErrorCode split_foster_no_adopt(thread::Thread* context);
-
-  /**
-   * @brief Adopts a foster-child of given child as an entry in this page.
-   * @pre this and child pages are volatile pages (snapshot pages don't have foster child,
-   * so this is always trivially guaranteed).
-   * @details
-   * This method doesn't assume this and other pages are locked.
-   * So, when we lock child, we might find out that the foster child is already adopted.
-   * In that case, and in other cases where adoption is impossible, we do nothing.
-   * This method can also cause split.
-   */
-  ErrorCode adopt_from_child(
-    thread::Thread* context,
-    KeySlice searching_slice,
-    MasstreePage* child);
-
-
-  /**
    * Appends a new poiner and separator in an existing mini page, used only by snapshot composer.
    * @pre header_.snapshot
    * @pre !is_full_snapshot()
@@ -406,8 +363,29 @@ class MasstreeIntermediatePage final : public MasstreePage {
   void      append_minipage_snapshot(KeySlice low_fence, SnapshotPagePointer pointer);
   /** Whether this page is full of poiters, used only by snapshot composer (or when no race) */
   bool      is_full_snapshot() const;
-  /** Retrieves separators defining the index, used only by snapshot composer (or when no race) */
+  /** Retrieves separators defining the index, used only by snapshot composer, thus no race */
   void      extract_separators_snapshot(
+    uint8_t index,
+    uint8_t index_mini,
+    KeySlice* separator_low,
+    KeySlice* separator_high) const {
+    ASSERT_ND(header_.snapshot_);
+    extract_separators_common(index, index_mini, separator_low, separator_high);
+  }
+  /**
+   * Retrieves separators defining the index, used for volatile page, which requires
+   * appropriate locks or retries by the caller. The caller must be careful!
+   */
+  void      extract_separators_volatile(
+    uint8_t index,
+    uint8_t index_mini,
+    KeySlice* separator_low,
+    KeySlice* separator_high) const {
+    ASSERT_ND(!header_.snapshot_);
+    extract_separators_common(index, index_mini, separator_low, separator_high);
+  }
+  /** Retrieves separators defining the index, used only by snapshot composer (or when no race) */
+  void      extract_separators_common(
     uint8_t index,
     uint8_t index_mini,
     KeySlice* separator_low,
@@ -415,14 +393,10 @@ class MasstreeIntermediatePage final : public MasstreePage {
 
   void verify_separators() const;
 
-
-  /**
-   * This public version of split_foster_migrate_records() is not for general use.
-   * It's only for constructing a new first-layer root, and so far only used from fatify code.
-   * Thus defined in masstree_storage_fatify.cpp.
-   * We shouldn't expose this kind of feature in general.
-   */
-  void split_foster_migrate_records_new_first_root(const void* strategy);
+  /** Place a new separator for a new minipage */
+  void set_separator(uint8_t minipage_index, KeySlice new_separator) {
+    separators_[minipage_index] = new_separator;
+  }
 
   /** defined in masstree_page_debug.cpp. */
   friend std::ostream& operator<<(std::ostream& o, const MasstreeIntermediatePage& v);
@@ -441,18 +415,6 @@ class MasstreeIntermediatePage final : public MasstreePage {
   char                reserved_[104];    // -> 256
 
   MiniPage            mini_pages_[10];  // +384 * 10 -> 4096
-
-  ErrorCode local_rebalance(thread::Thread* context);
-  void split_foster_decide_strategy(IntermediateSplitStrategy* out) const;
-  void split_foster_migrate_records(
-    const IntermediateSplitStrategy &strategy,
-    uint16_t from,
-    uint16_t to,
-    KeySlice expected_last_separator);
-  void adopt_from_child_norecord_first_level(
-    thread::Thread* context,
-    uint8_t minipage_index,
-    MasstreePage* child);
 };
 
 /**
@@ -481,6 +443,7 @@ class MasstreeIntermediatePage final : public MasstreePage {
  */
 class MasstreeBorderPage final : public MasstreePage {
  public:
+  friend struct SplitBorder;
   /**
    * A piece of Slot object that must be read/written in one-shot, meaning no one reads
    * half-written values whether it reads old values or new values.
@@ -538,7 +501,7 @@ class MasstreeBorderPage final : public MasstreePage {
     /**
      * TID of the record.
      */
-    xct::LockableXctId  tid_;       // +16 -> 16
+    xct::RwLockableXctId  tid_;       // +16 -> 16
 
     /**
      * Stores mutable length information of the record. Because these are mutable,
@@ -847,10 +810,10 @@ class MasstreeBorderPage final : public MasstreePage {
     return get_slot(index)->lengthes_.components.offset_;
   }
 
-  xct::LockableXctId* get_owner_id(SlotIndex index) ALWAYS_INLINE {
+  xct::RwLockableXctId* get_owner_id(SlotIndex index) ALWAYS_INLINE {
     return &get_slot(index)->tid_;
   }
-  const xct::LockableXctId* get_owner_id(SlotIndex index) const ALWAYS_INLINE {
+  const xct::RwLockableXctId* get_owner_id(SlotIndex index) const ALWAYS_INLINE {
     return &get_slot(index)->tid_;
   }
 
@@ -876,7 +839,6 @@ class MasstreeBorderPage final : public MasstreePage {
     return get_slot(index)->get_max_payload_peek();
   }
 
-  bool    should_split_early(SlotIndex new_index, SlotIndex threshold) const ALWAYS_INLINE;
   bool    can_accomodate(
     SlotIndex new_index,
     KeyLength remainder_length,
@@ -988,35 +950,37 @@ class MasstreeBorderPage final : public MasstreePage {
   }
 
   /**
-   * Splits this page as a system transaction, creating a new foster child.
-   * @param[in] context Thread context
-   * @param[in] trigger The key that triggered this split
-   * @param[in] disable_no_record_split If true, we never do no-record-split (NRS).
-   * This is useful for example when we want to make room for record-expansion.
-   * Otherwise, we get stuck when the record-expansion causes a page-split that is eligible for NRS.
-   * @param[out] target the page the new key will be inserted. Either foster_child or foster_minor.
-   * @param[out] target_lock Sets the lock scope for target.
-   * @pre !header_.snapshot_ (split happens to only volatile pages)
-   * @pre is_locked() (the page must be locked)
-   * @pre !target_lock->is_locked() (give an empty object)
-   * @post iff successfully exits, target->is_locked(), and target_lock->is_locked()
+   * A physical-only method to expand a record within this page without any logical change.
+   * @pre !header_.snapshot_: only for volatile page
+   * @pre is_locked() && !is_moved()
+   * @pre get_slot(record_index)->is_locked() && !get_slot(record_index)->is_moved()
+   * @return This method might fail if there isn't enough space. In that case it returns false.
    */
-  ErrorCode split_foster(
-    thread::Thread* context,
-    KeySlice trigger,
-    bool disable_no_record_split,
-    MasstreeBorderPage** target,
-    xct::McsLockScope* target_lock);
+  bool try_expand_record_in_page_physical(PayloadLength payload_count, SlotIndex record_index);
+  /**
+   * A physical-only method to initialize this page as a volatile page of a layer-root
+   * pointed from the given parent record. It merely migrates the parent record without
+   * any logical change.
+   * @pre !parent->header_.snapshot_: only for volatile page
+   * @pre parent->is_locked() && !parent->is_moved()
+   * @pre parent->get_slot(parent_index)->is_locked()
+   * @pre !parent->get_slot(parent_index)->is_moved()
+   * @pre !parent->get_slot(parent_index)->does_point_to_layer()
+   */
+  void initialize_as_layer_root_physical(
+    VolatilePagePointer page_id,
+    MasstreeBorderPage* parent,
+    SlotIndex parent_index);
 
   /** @see StorageManager::track_moved_record() */
   xct::TrackMovedRecordResult track_moved_record(
     Engine* engine,
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
   /** This one further tracks it to next layer. Instead it requires a non-null write_set. */
   xct::TrackMovedRecordResult track_moved_record_next_layer(
     Engine* engine,
-    xct::LockableXctId* old_address);
+    xct::RwLockableXctId* old_address);
 
   /** @returns whether the length information seems okay. used only for assertions. */
   bool verify_slot_lengthes(SlotIndex index) const;
@@ -1071,35 +1035,9 @@ class MasstreeBorderPage final : public MasstreePage {
    */
   char        data_[kBorderPageDataPartSize];
 
-  /**
-   * @brief Subroutin of split_foster() to decide how we will split this page.
-   */
-  BorderSplitStrategy split_foster_decide_strategy(
-    SlotIndex key_count,
-    KeySlice trigger,
-    bool disable_no_record_split) const;
-
-  void split_foster_migrate_records(
-    const MasstreeBorderPage& copy_from,
-    SlotIndex key_count,
-    KeySlice from,
-    KeySlice to);
-
-  /**
-   * @brief Subroutin of split_foster()
-   * @return MCS block index of the \e first lock acqired. As this is done in a single transaction,
-   * following locks trivially have sequential block index from it.
-   * @details
-   * First, we have to lock all (physically) active records to advance versions.
-   * This is required because other transactions might be already in pre-commit phase to
-   * modify records in this page.
-   * This method previously used batched-version of lock-acquire, but now that owner_ids are
-   * placed in slots with fillers, we can't do so. We just loop.
-   */
-  void split_foster_lock_existing_records(
-    thread::Thread* context,
-    SlotIndex key_count,
-    xct::McsBlockIndex* out_blocks);
+  MasstreeBorderPage* track_foster_child(
+    KeySlice slice,
+    const memory::GlobalVolatilePageResolver& resolver);
 };
 
 /**
@@ -1108,7 +1046,13 @@ class MasstreeBorderPage final : public MasstreePage {
  */
 struct MasstreeIntermediatePointerIterator final {
   explicit MasstreeIntermediatePointerIterator(const MasstreeIntermediatePage* page)
-    : page_(page), index_(0), index_mini_(0) {}
+    : page_(page), index_(0), index_mini_(0) {
+      if (page->is_empty_range()) {
+        // Empty-range page has zero pointers, which is special.
+        ASSERT_ND(!page->header().snapshot_);
+        index_ = 1;  // so that initial is_valid returns false.
+      }
+    }
 
   void next() {
     if (!is_valid()) {
@@ -1592,13 +1536,12 @@ inline void MasstreeIntermediatePage::append_minipage_snapshot(
   set_key_count(key_count + 1);
 }
 
-inline void MasstreeIntermediatePage::extract_separators_snapshot(
+inline void MasstreeIntermediatePage::extract_separators_common(
   uint8_t index,
   uint8_t index_mini,
   KeySlice* separator_low,
   KeySlice* separator_high) const {
   ASSERT_ND(!is_border());
-  ASSERT_ND(header_.snapshot_);
   uint8_t key_count = get_key_count();
   ASSERT_ND(index <= key_count);
   const MasstreeIntermediatePage::MiniPage& minipage = get_minipage(index);
@@ -1624,25 +1567,6 @@ inline void MasstreeIntermediatePage::extract_separators_snapshot(
 }
 
 
-inline bool MasstreeBorderPage::should_split_early(
-  SlotIndex new_index,
-  SlotIndex threshold) const {
-  if (LIKELY(threshold == 0 || new_index != threshold)) {  // 0 means no early split
-    return false;
-  }
-  // only when we exactly hit the threshold, we consider early split.
-  // we should do early split only when the page looks like receiving sequential inserts.
-  // if we are receiving random inserts, no point to do early split.
-  for (SlotIndex i = 1; i + 1U < new_index; ++i) {
-    // this is not a rigorous check, but fine.
-    const KeySlice prev_slice = get_slice(i - 1);
-    const KeySlice slice = get_slice(i);
-    if (prev_slice > slice) {
-      return false;
-    }
-  }
-  return true;
-}
 inline bool MasstreeBorderPage::can_accomodate(
   SlotIndex new_index,
   KeyLength remainder_length,
@@ -1807,7 +1731,6 @@ inline bool MasstreeBorderPage::will_contain_next_layer(
 
 // We must place static asserts at the end, otherwise doxygen gets confused (most likely its bug)
 STATIC_SIZE_CHECK(sizeof(MasstreePage), kCommonPageHeaderSize)
-STATIC_SIZE_CHECK(sizeof(IntermediateSplitStrategy), kPageSize)
 STATIC_SIZE_CHECK(sizeof(MasstreeBorderPage), kPageSize)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage::MiniPage), 128 + 256)
 STATIC_SIZE_CHECK(sizeof(MasstreeIntermediatePage), kPageSize)

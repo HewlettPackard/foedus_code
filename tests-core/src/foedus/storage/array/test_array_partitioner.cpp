@@ -78,24 +78,24 @@ TEST(ArrayPartitionerTest, InitialPartition) {
     COERCE_ERROR(engine.get_thread_pool()->impersonate_on_numa_node_synchronous(0, "populate"));
     COERCE_ERROR(engine.get_thread_pool()->impersonate_on_numa_node_synchronous(1, "populate"));
     VolatilePagePointer root_ptr = out.get_control_block()->root_page_pointer_.volatile_pointer_;
-    EXPECT_EQ(0, root_ptr.components.numa_node);
+    EXPECT_EQ(0, root_ptr.get_numa_node());
     const memory::GlobalVolatilePageResolver& resolver
       = engine.get_memory_manager()->get_global_volatile_page_resolver();
     ArrayPage* root = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(root_ptr));
-    EXPECT_EQ(0, root->get_interior_record(0).volatile_pointer_.components.numa_node);
-    EXPECT_EQ(1U, root->get_interior_record(1).volatile_pointer_.components.numa_node);
+    EXPECT_EQ(0, root->get_interior_record(0).volatile_pointer_.get_numa_node());
+    EXPECT_EQ(1U, root->get_interior_record(1).volatile_pointer_.get_numa_node());
     ArrayPage* left = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(
       root->get_interior_record(0).volatile_pointer_));
     ArrayPage* right = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(
       root->get_interior_record(1).volatile_pointer_));
     for (uint16_t i = 0; i < 150; ++i) {
-      EXPECT_EQ(0, left->get_interior_record(i).volatile_pointer_.components.numa_node) << i;
+      EXPECT_EQ(0, left->get_interior_record(i).volatile_pointer_.get_numa_node()) << i;
     }
     for (uint16_t i = 150; i < kInteriorFanout; ++i) {
-      EXPECT_EQ(1U, left->get_interior_record(i).volatile_pointer_.components.numa_node) << i;
+      EXPECT_EQ(1U, left->get_interior_record(i).volatile_pointer_.get_numa_node()) << i;
     }
     for (uint16_t i = 0; i < 300U - kInteriorFanout; ++i) {
-      EXPECT_EQ(1U, right->get_interior_record(i).volatile_pointer_.components.numa_node) << i;
+      EXPECT_EQ(1U, right->get_interior_record(i).volatile_pointer_.get_numa_node()) << i;
     }
     COERCE_ERROR(engine.uninitialize());
   }

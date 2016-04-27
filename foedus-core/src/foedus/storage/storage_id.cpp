@@ -37,6 +37,10 @@ void describe_snapshot_pointer(std::ostream* o_ptr, SnapshotPagePointer pointer)
     << "\" />";
 }
 
+std::ostream& operator<<(std::ostream& o, const VolatilePagePointer& v) {
+  describe_volatile_pointer(&o, v);
+  return o;
+}
 void describe_volatile_pointer(std::ostream* o_ptr, VolatilePagePointer pointer) {
   std::ostream& o = *o_ptr;
   if (pointer.is_null()) {
@@ -44,10 +48,8 @@ void describe_volatile_pointer(std::ostream* o_ptr, VolatilePagePointer pointer)
     return;
   }
   o << "<VolatilePointer"
-    << " node=\"" << static_cast<int>(pointer.components.numa_node)
-    << "\" offset=\"" << pointer.components.offset
-    << "\" flags=\"" << assorted::Hex(pointer.components.flags)
-    << "\" modCount=\"" << pointer.components.mod_count
+    << " node=\"" << static_cast<int>(pointer.get_numa_node())
+    << "\" offset=\"" << pointer.get_offset()
     << "\" />";
 }
 

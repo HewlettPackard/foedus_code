@@ -119,6 +119,9 @@ class ArrayStoragePimpl final {
   ErrorStack  verify_single_thread(thread::Thread* context);
   ErrorStack  verify_single_thread(thread::Thread* context, ArrayPage* page);
 
+  ErrorStack  hcc_reset_all_temperature_stat();
+  ErrorStack  hcc_reset_all_temperature_stat_intermediate(VolatilePagePointer intermediate_page_id);
+
   /** defined in array_storage_prefetch.cpp */
   ErrorCode   prefetch_pages(
     thread::Thread* context,

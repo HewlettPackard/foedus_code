@@ -28,6 +28,8 @@
 #include "foedus/memory/engine_memory.hpp"
 #include "foedus/memory/numa_node_memory.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
+#include "foedus/xct/retrospective_lock_list.hpp"
+#include "foedus/xct/sysxct_impl.hpp"
 #include "foedus/xct/xct_access.hpp"
 #include "foedus/xct/xct_id.hpp"
 #include "foedus/xct/xct_options.hpp"
@@ -41,13 +43,18 @@ NumaCoreMemory::NumaCoreMemory(
   : engine_(engine),
     node_memory_(node_memory),
     core_id_(core_id),
+    numa_node_(thread::decompose_numa_node(core_id)),
     core_local_ordinal_(thread::decompose_numa_local_ordinal(core_id)),
     free_volatile_pool_chunk_(nullptr),
     free_snapshot_pool_chunk_(nullptr),
     retired_volatile_pool_chunks_(nullptr),
+    current_lock_list_memory_(nullptr),
+    current_lock_list_capacity_(0),
+    retrospective_lock_list_memory_(nullptr),
+    retrospective_lock_list_capacity_(0),
     volatile_pool_(nullptr),
     snapshot_pool_(nullptr) {
-  ASSERT_ND(thread::decompose_numa_node(core_id_) == node_memory->get_numa_node());
+  ASSERT_ND(numa_node_ == node_memory->get_numa_node());
   ASSERT_ND(core_id_ == thread::compose_thread_id(node_memory->get_numa_node(),
                           core_local_ordinal_));
 }
@@ -57,15 +64,24 @@ uint64_t NumaCoreMemory::calculate_local_small_memory_size(const EngineOptions& 
   // for the "shift" part, we calculate conservatively then skip it at the end.
   // it's a wasted memory, but negligible.
   memory_size += static_cast<uint64_t>(options.thread_.thread_count_per_group_) << 12;
+  memory_size += sizeof(xct::SysxctWorkspace);
   memory_size += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
   memory_size += sizeof(xct::PointerAccess) * xct::Xct::kMaxPointerSets;
   const xct::XctOptions& xct_opt = options.xct_;
   const uint16_t nodes = options.thread_.group_count_;
   memory_size += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
   memory_size += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
+  memory_size += sizeof(xct::LockFreeReadXctAccess)
+    * xct_opt.max_lock_free_read_set_size_;
   memory_size += sizeof(xct::LockFreeWriteXctAccess)
     * xct_opt.max_lock_free_write_set_size_;
   memory_size += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
+
+  // In reality almost no chance we take as many locks as all read/write-sets,
+  // but let's simplify that. Not much memory anyways.
+  const uint64_t total_access_sets = xct_opt.max_read_set_size_ + xct_opt.max_write_set_size_;
+  memory_size += sizeof(xct::LockEntry) * total_access_sets;
+  memory_size += sizeof(xct::LockEntry) * total_access_sets;
   return memory_size;
 }
 
@@ -82,7 +98,7 @@ ErrorStack NumaCoreMemory::initialize_once() {
   // allocate small_thread_local_memory_. it's a collection of small memories
   uint64_t memory_size = calculate_local_small_memory_size(engine_->get_options());
   if (memory_size > (1U << 21)) {
-    LOG(INFO) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
+    VLOG(1) << "mm, small_local_memory_size is more than 2MB(" << memory_size << ")."
       " not a big issue, but consumes one more TLB entry...";
   }
   CHECK_ERROR(node_memory_->allocate_numa_memory(memory_size, &small_thread_local_memory_));
@@ -94,6 +110,8 @@ ErrorStack NumaCoreMemory::initialize_once() {
   // "shift" 4kb for each thread on this node so that memory banks are evenly used.
   // in many architecture, 13th- or 14th- bits are memory banks (see [JEONG11])
   memory += static_cast<uint64_t>(core_local_ordinal_) << 12;
+  small_thread_local_memory_pieces_.sysxct_workspace_memory_ = memory;
+  memory += sizeof(xct::SysxctWorkspace);
   small_thread_local_memory_pieces_.xct_page_version_memory_ = memory;
   memory += sizeof(xct::PageVersionAccess) * xct::Xct::kMaxPageVersionSets;
   small_thread_local_memory_pieces_.xct_pointer_access_memory_ = memory;
@@ -102,10 +120,20 @@ ErrorStack NumaCoreMemory::initialize_once() {
   memory += sizeof(xct::ReadXctAccess) * xct_opt.max_read_set_size_;
   small_thread_local_memory_pieces_.xct_write_access_memory_ = memory;
   memory += sizeof(xct::WriteXctAccess) * xct_opt.max_write_set_size_;
+  small_thread_local_memory_pieces_.xct_lock_free_read_access_memory_ = memory;
+  memory += sizeof(xct::LockFreeReadXctAccess) * xct_opt.max_lock_free_read_set_size_;
   small_thread_local_memory_pieces_.xct_lock_free_write_access_memory_ = memory;
   memory += sizeof(xct::LockFreeWriteXctAccess) * xct_opt.max_lock_free_write_set_size_;
   retired_volatile_pool_chunks_ = reinterpret_cast<PagePoolOffsetAndEpochChunk*>(memory);
   memory += sizeof(memory::PagePoolOffsetAndEpochChunk) * nodes;
+
+  const uint64_t total_access_sets = xct_opt.max_read_set_size_ + xct_opt.max_write_set_size_;
+  current_lock_list_memory_ = reinterpret_cast<xct::LockEntry*>(memory);
+  current_lock_list_capacity_ = total_access_sets;
+  memory += sizeof(xct::LockEntry) * total_access_sets;
+  retrospective_lock_list_memory_ = reinterpret_cast<xct::LockEntry*>(memory);
+  retrospective_lock_list_capacity_ = total_access_sets;
+  memory += sizeof(xct::LockEntry) * total_access_sets;
 
   memory += static_cast<uint64_t>(thread_per_group - core_local_ordinal_) << 12;
   ASSERT_ND(reinterpret_cast<char*>(small_thread_local_memory_.get_block())
@@ -176,6 +204,11 @@ PagePoolOffset NumaCoreMemory::grab_free_volatile_page() {
   }
   ASSERT_ND(!free_volatile_pool_chunk_->empty());
   return free_volatile_pool_chunk_->pop_back();
+}
+storage::VolatilePagePointer NumaCoreMemory::grab_free_volatile_page_pointer() {
+  storage::VolatilePagePointer ret;
+  ret.set(numa_node_, grab_free_volatile_page());
+  return ret;
 }
 void NumaCoreMemory::release_free_volatile_page(PagePoolOffset offset) {
   if (UNLIKELY(free_volatile_pool_chunk_->full())) {
