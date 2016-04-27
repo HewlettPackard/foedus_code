@@ -268,6 +268,7 @@ struct Runner {
     }
     bool try_succeeded_at_least_once = false;
     for (uint32_t i = 0; i < kTries; ++i) {
+      assorted::yield_if_valgrind();  // for try_succeeded_at_least_once on valgrind
       if (i_am_latter) {
         McsBlockIndex block1 = impl.acquire_unconditional_rw_writer(get_lock(l1));
         McsBlockIndex block2;
