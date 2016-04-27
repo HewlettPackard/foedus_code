@@ -56,8 +56,15 @@ int DumpLog::dump_to_stdout() {
         ||  log::get_log_code_kind(entry->get_type()) == log::kEngineLogs
         ||  log::get_log_code_kind(entry->get_type()) == log::kStorageLogs;
       if (important_log || enclosure_->verbose_ > kBrief) {
-        std::cout << "    <Log offset=\"" << assorted::Hex(offset) << "\"" << " len=\""
-          << assorted::Hex(entry->log_length_) << "\">";
+        std::cout << "    <Log offset=\"" << assorted::Hex(offset) << "\""
+          << " len=\"" << assorted::Hex(entry->log_length_) << "\""
+          << " type=\"" << assorted::Hex(entry->log_type_code_) << "\""
+          << " storage_id=\"" << assorted::Hex(entry->storage_id_) << "\"";
+        if (entry->log_length_ >= 8U) {
+          std::cout << " xct_id_epoch=\"" << entry->xct_id_.get_epoch_int() << "\"";
+          std::cout << " xct_id_ordinal=\"" << entry->xct_id_.get_ordinal() << "\"";
+        }
+        std::cout << ">";
         if (important_log || enclosure_->verbose_ == kDetail) {
           log::invoke_ostream(entry, &std::cout);
         } else {
