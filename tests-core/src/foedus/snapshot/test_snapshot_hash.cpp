@@ -81,7 +81,7 @@ ErrorStack verify_task(const proc::ProcArguments& args) {
     uint64_t key = i;
     uint64_t data;
     uint16_t capacity = sizeof(data);
-    ErrorCode ret = hash.get_record(context, &key, sizeof(key), &data, &capacity);
+    ErrorCode ret = hash.get_record(context, &key, sizeof(key), &data, &capacity, true);
     EXPECT_EQ(kErrorCodeOk, ret) << i;
     EXPECT_EQ(i, key) << i;
     EXPECT_EQ(i + kDataAddendum, data) << i;
@@ -149,7 +149,7 @@ ErrorStack verify_varlen_task(const proc::ProcArguments& args) {
 
     uint64_t data;
     uint16_t capacity = sizeof(data);
-    ErrorCode ret = hash.get_record(context, buffer, len, &data, &capacity);
+    ErrorCode ret = hash.get_record(context, buffer, len, &data, &capacity, true);
     EXPECT_EQ(kErrorCodeOk, ret) << i;
     EXPECT_EQ(i + kDataAddendum, data) << i;
     EXPECT_EQ(sizeof(data), capacity) << i;

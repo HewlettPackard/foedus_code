@@ -116,7 +116,7 @@ struct SequentialAppendLogType : public log::RecordLogType {
   void            apply_record(
     thread::Thread* context,
     StorageId storage_id,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* payload) ALWAYS_INLINE {
     // It's a lock-free write set, so it doesn't have record info.
     ASSERT_ND(owner_id == CXX11_NULLPTR);

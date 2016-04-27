@@ -146,7 +146,7 @@ void HashPartitioner::design_partition_task(uint16_t task) {
     ASSERT_ND(interval = 1ULL);
     ASSERT_ND(storage.get_levels() == 1U);
     VLOG(2) << "Task-" << task << " is trivial.";
-    data_->bin_owners_[task] = pointer.components.numa_node;
+    data_->bin_owners_[task] = pointer.get_numa_node();
   } else {
     HashIntermediatePage* child
       = reinterpret_cast<HashIntermediatePage*>(resolver.resolve_offset(pointer));
@@ -171,7 +171,7 @@ void HashPartitioner::design_partition_task_recurse(
       std::memset(data_->bin_owners_ + sub_begin, 0, interval);
     } else if (page->get_level() == 0) {
       ASSERT_ND(interval = 1ULL);
-      data_->bin_owners_[sub_begin] = pointer.components.numa_node;
+      data_->bin_owners_[sub_begin] = pointer.get_numa_node();
     } else {
       HashIntermediatePage* child
         = reinterpret_cast<HashIntermediatePage*>(resolver.resolve_offset(pointer));

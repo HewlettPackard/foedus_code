@@ -72,12 +72,13 @@ inline bool raw_atomic_compare_exchange_strong(T* target, T* expected, T desired
  */
 template <typename T>
 inline bool raw_atomic_compare_exchange_weak(T* target, T* expected, T desired) {
-  if (*target != *expected) {
-    *expected = *target;
-    return false;
-  } else {
-    return raw_atomic_compare_exchange_strong<T>(target, expected, desired);
-  }
+  return ::__atomic_compare_exchange_n(
+    target,
+    expected,
+    desired,
+    true,  // weak
+    __ATOMIC_SEQ_CST,
+    __ATOMIC_SEQ_CST);
 }
 
 /**

@@ -117,7 +117,7 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * Previously it was 64, but now kBorderPageMaxSlots is 100 for 4kb pages.
    */
   xct::TrackMovedRecordResult track_moved_record(
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
 
   //// Masstree API
@@ -132,6 +132,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
    * the payload. This is set whether the payload capacity was too small or not.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @details
    * When payload_capacity is smaller than the actual payload, this method returns
    * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
@@ -144,7 +146,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     const void* key,
     KeyLength key_length,
     void* payload,
-    PayloadLength* payload_capacity);
+    PayloadLength* payload_capacity,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this Masstree.
@@ -154,6 +157,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
    * @param[in] payload_count How many bytes we copy.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @pre payload_offset + payload_count must be within the record's actual payload size
    * (returns kErrorCodeStrTooShortPayload if not)
    */
@@ -163,7 +168,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     KeyLength key_length,
     void* payload,
     PayloadLength payload_offset,
-    PayloadLength payload_count);
+    PayloadLength payload_count,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this Masstree as a primitive value.
@@ -172,6 +178,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @param[in] key_length Byte size of key.
    * @param[out] payload Receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
    * (returns kErrorCodeStrTooShortPayload if not)
    * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
@@ -182,7 +190,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     const void* key,
     KeyLength key_length,
     PAYLOAD* payload,
-    PayloadLength payload_offset);
+    PayloadLength payload_offset,
+    bool read_only);
 
   /**
    * @brief Retrieves an entire record of the given primitive key in this Masstree.
@@ -191,12 +200,15 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
    * the payload. This is set whether the payload capacity was too small or not.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    */
   ErrorCode   get_record_normalized(
     thread::Thread* context,
     KeySlice key,
     void* payload,
-    PayloadLength* payload_capacity);
+    PayloadLength* payload_capacity,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given primitive key in this Masstree.
@@ -208,7 +220,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     KeySlice key,
     void* payload,
     PayloadLength payload_offset,
-    PayloadLength payload_count);
+    PayloadLength payload_count,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given primitive key in this Masstree as a primitive value.
@@ -220,7 +233,8 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     thread::Thread* context,
     KeySlice key,
     PAYLOAD* payload,
-    PayloadLength payload_offset);
+    PayloadLength payload_offset,
+    bool read_only);
 
   // insert_record() methods
 
@@ -537,6 +551,12 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
     bool volatile_only = false,
     uint32_t max_pages = 1024U);
 
+  /**
+   * Resets all volatile pages' temperature stat to be zero in this storage.
+   * Used only in HCC-branch.
+   */
+  ErrorStack  hcc_reset_all_temperature_stat();
+
   /** Arguments for peek_volatile_page_boundaries() */
   struct PeekBoundariesArguments {
     /** [IN] slices of higher layers that lead to the B-trie layer of interest. null if 1st layer */
@@ -573,6 +593,9 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * @param[in] context Thread context
    * @param[in] desired_count Does nothing if the root of first layer already has this
    * many children.
+   * @param[in] disable_no_record_split when this method triggers page splits,
+   * whether to always split pages in half, ignoring chance for no-record-split.
+   * usually you should just leave the default value.
    * @details
    * This is a special-purpose, physical-only method that does nothing logically.
    * It increases the number of direct children in first root, which is useful when we partition
@@ -580,7 +603,10 @@ class MasstreeStorage CXX11_FINAL : public Storage<MasstreeStorageControlBlock> 
    * but we so far restrict the use of this method to performance benchmarks.
    * @todo testcase for this method. TDD? shut up.
    */
-  ErrorStack  fatify_first_root(thread::Thread* context, uint32_t desired_count);
+  ErrorStack  fatify_first_root(
+    thread::Thread* context,
+    uint32_t desired_count,
+    bool disable_no_record_split = true);
 
   /**
    * @param[in] layer B-trie layer most border pages would be in.

@@ -193,6 +193,21 @@ struct HashBinRange {
   HashBin end_;
 };
 
+typedef uint16_t DataPageSlotIndex;
+const DataPageSlotIndex kSlotNotFound = 0xFFFFU;
+
+/**
+ * @brief Represents a byte-length of a key in this package.
+ * @ingroup HASH
+ */
+typedef uint16_t KeyLength;
+
+/**
+ * @brief Represents a byte-length of a payload in this package.
+ * @ingroup HASH
+ */
+typedef uint16_t PayloadLength;
+
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

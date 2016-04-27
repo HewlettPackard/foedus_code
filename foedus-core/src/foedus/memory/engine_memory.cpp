@@ -141,10 +141,7 @@ ErrorStack EngineMemory::grab_one_volatile_page(
   PagePoolOffset offset;
   WRAP_ERROR_CODE(pool->grab_one(&offset));
   *page = pool->get_resolver().resolve_offset_newpage(offset);
-  pointer->components.numa_node = node;
-  pointer->components.flags = 0;
-  pointer->components.mod_count = 0;
-  pointer->components.offset = offset;
+  pointer->set(node, offset);
   return kRetOk;
 }
 

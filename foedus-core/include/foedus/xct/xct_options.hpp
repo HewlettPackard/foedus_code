@@ -39,12 +39,17 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
     kDefaultMaxReadSetSize = 32 << 10,
     /** Default value for max_write_set_size_. */
     kDefaultMaxWriteSetSize = 8 << 10,
+    /** Default value for max_lock_free_read_set_size_. */
+    kDefaultMaxLockFreeReadSetSize = 1 << 8,
     /** Default value for max_lock_free_write_set_size_. */
     kDefaultMaxLockFreeWriteSetSize = 4 << 10,
     /** Default value for local_work_memory_size_mb_. */
     kDefaultLocalWorkMemorySizeMb = 2,
     /** Default value for epoch_advance_interval_ms_. */
     kDefaultEpochAdvanceIntervalMs = 20,
+    kMcsImplementationTypeSimple = 0,
+    kMcsImplementationTypeExtended = 1,
+    kDefaultHotThreshold = 256,  // OCC by default (for test cases and benchamrks that don't set it)
   };
 
   /**
@@ -69,6 +74,14 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * We pre-allocate this much memory for each NumaCoreMemory. So, don't make it too large.
    */
   uint32_t    max_write_set_size_;
+
+  /**
+   * @brief The maximum number of lock-free read-set one transaction can have.
+   * @details
+   * Default is very small (256) because this is the number of sequential storages
+   * a xct accesses, not the number of records.
+   */
+  uint32_t    max_lock_free_read_set_size_;
 
   /**
    * @brief The maximum number of lock-free write-set one transaction can have.
@@ -97,6 +110,58 @@ struct XctOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * until the epoch advances.
    */
   uint32_t    epoch_advance_interval_ms_;
+
+  /**
+   * @brief Whether to use Retrospective Lock List (RLL) after aborts
+   * @details
+   * Default is true.
+   * When enabled, we remember read/write-sets on abort and use it as RLL on next run.
+   * This is a system-wide setting, which can be overwritten by individual transactions.
+   * See Xct::enable_rll_for_this_xct_. In short, this is a default value for that one.
+   * @ref RLL
+   */
+  bool        enable_retrospective_lock_list_;
+
+  /**
+   * @brief When we construct Retrospective Lock List (RLL) after aborts, we add
+   * read-locks on records whose hotness exceeds this value.
+   * @details
+   * This value should be a bit lower than the threshold we trigger read-locks
+   * without RLL (StorageOptions::hot_threshold_). Otherwise, the next run might often
+   * take a read-lock the RLL discarded due to a concurrent abort, which might violate canonical
+   * order.
+   * @ref RLL
+   */
+  uint16_t    hot_threshold_for_retrospective_lock_list_;
+
+  /**
+   * @brief Whether precommit always releases all locks that violate canonical mode before
+   * taking X-locks.
+   * @details
+   * Default is (so far) true.
+   * This option has pros and cons. We need to keep an eye on which is better.
+   * When true, precommit_lock function releases all locks (S or X) that are after any of
+   * X-locks we are going to take. In worst case, a subtle page split, which slightly violates
+   * canonical order, triggers releaseing a large number of X-locks that need to be taken again
+   * and a large number of S-locks that would have reduced the chance of abort. Wasted effort!
+   *
+   * However, on the other hand, this allows us to take all X-locks unconditionally without any
+   * fear of deadlocks or false conflicts. Otherwise we have to \e try some X-locks conditionally
+   * and abort if couldn't immediately acquire the lock. In some cases, this would avoid unnecessary
+   * RaceAbort. So... really not sure which is better. The default value is so far true
+   * because the policy is simpler.
+   * @ref RLL
+   */
+  bool        force_canonical_xlocks_in_precommit_;
+
+  /**
+   * @brief Defines which implementation of MCS locks to use for RW locks.
+   * @details
+   * So far we allow "kMcsImplementationTypeSimple" and "kMcsImplementationTypeExtended".
+   * For WW locks, we always use our MCSg lock.
+   * @see foedus::xct::McsImpl
+   */
+  uint16_t    mcs_implementation_type_;
 };
 }  // namespace xct
 }  // namespace foedus

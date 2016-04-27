@@ -70,7 +70,7 @@ TEST(SharedMemoryRepoTest, Alone) {
     EXPECT_NE(nullptr, thread_anchors_->thread_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_input_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_output_memory_);
-    EXPECT_NE(nullptr, thread_anchors_->mcs_lock_memories_);
+    EXPECT_NE(nullptr, thread_anchors_->mcs_ww_lock_memories_);
   }
 
   repo.deallocate_shared_memories();
@@ -137,7 +137,7 @@ TEST(SharedMemoryRepoTest, Attach) {
     EXPECT_NE(nullptr, thread_anchors_->thread_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_input_memory_);
     EXPECT_NE(nullptr, thread_anchors_->task_output_memory_);
-    EXPECT_NE(nullptr, thread_anchors_->mcs_lock_memories_);
+    EXPECT_NE(nullptr, thread_anchors_->mcs_ww_lock_memories_);
   }
 
   child.deallocate_shared_memories();

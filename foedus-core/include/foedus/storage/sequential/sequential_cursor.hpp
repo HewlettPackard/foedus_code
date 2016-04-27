@@ -361,13 +361,13 @@ struct SequentialRecordBatch CXX11_FINAL {
     ASSERT_ND(index < record_count_);
     return reinterpret_cast<const uint16_t*>(data_ + sizeof(data_))[-index - 1];
   }
-  const xct::LockableXctId* get_owner_id_from_offset(uint16_t offset) const {
+  const xct::RwLockableXctId* get_owner_id_from_offset(uint16_t offset) const {
     ASSERT_ND(offset + record_count_ * sizeof(uint16_t) <= kDataSize);
-    return reinterpret_cast<const xct::LockableXctId*>(data_ + offset);
+    return reinterpret_cast<const xct::RwLockableXctId*>(data_ + offset);
   }
   const char*    get_payload_from_offset(uint16_t offset) const {
     ASSERT_ND(offset + record_count_ * sizeof(uint16_t) <= kDataSize);
-    return data_ + offset + sizeof(xct::LockableXctId);
+    return data_ + offset + sizeof(xct::RwLockableXctId);
   }
   Epoch          get_epoch_from_offset(uint16_t offset) const {
     return get_owner_id_from_offset(offset)->xct_id_.get_epoch();
@@ -398,7 +398,7 @@ class SequentialRecordIterator CXX11_FINAL {
       }
 
       ++cur_record_;
-      cur_offset_ += assorted::align8(cur_record_length_) + sizeof(xct::LockableXctId);
+      cur_offset_ += assorted::align8(cur_record_length_) + sizeof(xct::RwLockableXctId);
       cur_record_length_ = batch_->get_record_length(cur_record_);
       cur_record_epoch_ = batch_->get_epoch_from_offset(cur_offset_);
       ASSERT_ND(cur_record_epoch_.is_valid());
@@ -437,7 +437,7 @@ class SequentialRecordIterator CXX11_FINAL {
     ASSERT_ND(is_valid());
     return batch_->get_payload_from_offset(cur_offset_);
   }
-  const xct::LockableXctId* get_cur_record_owner_id() const ALWAYS_INLINE {
+  const xct::RwLockableXctId* get_cur_record_owner_id() const ALWAYS_INLINE {
     ASSERT_ND(is_valid());
     return batch_->get_owner_id_from_offset(cur_offset_);
   }

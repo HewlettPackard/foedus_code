@@ -210,6 +210,60 @@ ErrorStack HashStoragePimpl::debugout_single_thread_data(
   return kRetOk;
 }
 
+ErrorStack HashStoragePimpl::hcc_reset_all_temperature_stat() {
+  LOG(INFO) << "**"
+    << std::endl << "***************************************************************"
+    << std::endl << "***   Reseting " << HashStorage(engine_, control_block_) << "'s "
+    << std::endl << "*** temperature stat for HCC"
+    << std::endl << "***************************************************************";
+
+  DualPagePointer pointer = control_block_->root_page_pointer_;
+  if (pointer.volatile_pointer_.is_null()) {
+    LOG(INFO) << "No volatile pages.";
+  } else {
+    CHECK_ERROR(hcc_reset_all_temperature_stat_intermediate(pointer.volatile_pointer_));
+  }
+
+  LOG(INFO) << "Done resettting";
+  return kRetOk;
+}
+
+ErrorStack HashStoragePimpl::hcc_reset_all_temperature_stat_intermediate(
+  VolatilePagePointer intermediate_page_id) {
+  const auto& resolver = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  HashIntermediatePage* page
+    = reinterpret_cast<HashIntermediatePage*>(resolver.resolve_offset(intermediate_page_id));
+  ASSERT_ND(page);
+  const bool bottom = page->get_level() == 0;
+  for (uint8_t i = 0; i < kHashIntermediatePageFanout; ++i) {
+    DualPagePointer pointer = page->get_pointer(i);
+    if (pointer.volatile_pointer_.is_null()) {
+      continue;
+    }
+    if (bottom) {
+      CHECK_ERROR(hcc_reset_all_temperature_stat_data(pointer.volatile_pointer_));
+    } else {
+      CHECK_ERROR(hcc_reset_all_temperature_stat_intermediate(pointer.volatile_pointer_));
+    }
+  }
+
+  return kRetOk;
+}
+
+ErrorStack HashStoragePimpl::hcc_reset_all_temperature_stat_data(VolatilePagePointer head_page_id) {
+  const auto& resolver = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  HashDataPage* head = reinterpret_cast<HashDataPage*>(resolver.resolve_offset(head_page_id));
+  for (HashDataPage* cur = head; cur;) {
+    cur->header().hotness_.reset();
+    VolatilePagePointer next_id = cur->next_page().volatile_pointer_;
+    cur = nullptr;
+    if (!next_id.is_null()) {
+      cur = reinterpret_cast<HashDataPage*>(resolver.resolve_offset(next_id));
+    }
+  }
+  return kRetOk;
+}
+
 }  // namespace hash
 }  // namespace storage
 }  // namespace foedus

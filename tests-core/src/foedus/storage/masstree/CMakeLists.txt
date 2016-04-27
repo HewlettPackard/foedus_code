@@ -3,8 +3,7 @@ set(test_masstree_basic_individuals
   CreateAndQuery
   CreateAndInsert
   CreateAndInsertAndRead
-  CreateAndInsertLongRetry
-  CreateAndInsertLongCoerce
+  CreateAndInsertLong
   Overwrite
   NextLayer
   CreateAndDrop
@@ -18,8 +17,10 @@ set(test_masstree_basic_individuals
 add_foedus_test_individual(test_masstree_basic "${test_masstree_basic_individuals}")
 
 add_foedus_test_individual(test_masstree_cursor "Empty;OnePage;OneLayer;TwoLayers")
+add_foedus_test_individual(test_masstree_cursor_nrsbug "Nrs;NoNrs")
 
 add_foedus_test_individual(test_masstree_grow_race "Contended")
+add_foedus_test_individual(test_masstree_grow_sorted_race "Contended")
 
 add_foedus_test_individual(test_masstree_scan_insert_race "CreateAndInsertAndScan")
 
@@ -57,6 +58,8 @@ set(test_masstree_tpcb_individuals
   TwoThreadedContendedInc
   FourThreadedContendedInc
   )
+add_foedus_test_individual(test_masstree_split_nrsbug "InOrder;Reverse")
+
 add_foedus_test_individual(test_masstree_tpcb "${test_masstree_tpcb_individuals}")
 
 set(test_masstree_tpcc_individuals

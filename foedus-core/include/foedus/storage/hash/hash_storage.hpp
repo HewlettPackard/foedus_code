@@ -84,11 +84,17 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * Also, no chance of cannot-track case.
    */
   xct::TrackMovedRecordResult track_moved_record(
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
 
   ErrorStack  verify_single_thread(Engine* engine);
   ErrorStack  verify_single_thread(thread::Thread* context);
+
+  /**
+   * Resets all volatile pages' temperature stat to be zero in this storage.
+   * Used only in HCC-branch.
+   */
+  ErrorStack  hcc_reset_all_temperature_stat();
 
   /**
    * @brief A super-expensive and single-thread only debugging feature to write out
@@ -136,6 +142,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in,out] payload_capacity [In] Byte size of the payload buffer, [Out] length of
    * the payload. This is set whether the payload capacity was too small or not.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @details
    * When payload_capacity is smaller than the actual payload, this method returns
    * kErrorCodeStrTooSmallPayloadBuffer and payload_capacity is set to be the required length.
@@ -148,9 +156,10 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* key,
     uint16_t key_length,
     void* payload,
-    uint16_t* payload_capacity) {
+    uint16_t* payload_capacity,
+    bool read_only) {
     HashCombo c(combo(key, key_length));
-    return get_record(context, key, key_length, c, payload, payload_capacity);
+    return get_record(context, key, key_length, c, payload, payload_capacity, read_only);
   }
 
   /** Overlord to receive key as a primitive type. */
@@ -159,9 +168,10 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     thread::Thread* context,
     KEY key,
     void* payload,
-    uint16_t* payload_capacity) {
+    uint16_t* payload_capacity,
+    bool read_only) {
     HashCombo c(combo<KEY>(&key));
-    return get_record(context, &key, sizeof(key), c, payload, payload_capacity);
+    return get_record(context, &key, sizeof(key), c, payload, payload_capacity, read_only);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -171,7 +181,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     void* payload,
-    uint16_t* payload_capacity);
+    uint16_t* payload_capacity,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this hash storage.
@@ -181,6 +192,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[out] payload Buffer to receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
    * @param[in] payload_count How many bytes we copy.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @pre payload_offset + payload_count must be within the record's actual payload size
    * (returns kErrorCodeStrTooShortPayload if not)
    */
@@ -190,7 +203,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t key_length,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count) {
+    uint16_t payload_count,
+    bool read_only) {
     HashCombo c(combo(key, key_length));
     return get_record_part(
       context,
@@ -199,7 +213,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
       c,
       payload,
       payload_offset,
-      payload_count);
+      payload_count,
+      read_only);
   }
 
   /** Overlord to receive key as a primitive type. */
@@ -209,9 +224,18 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     KEY key,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count) {
+    uint16_t payload_count,
+    bool read_only) {
     HashCombo c(combo<KEY>(&key));
-    return get_record_part(context, &key, sizeof(key), c, payload, payload_offset, payload_count);
+    return get_record_part(
+      context,
+      &key,
+      sizeof(key),
+      c,
+      payload,
+      payload_offset,
+      payload_count,
+      read_only);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -222,7 +246,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const HashCombo& combo,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    bool read_only);
 
   /**
    * @brief Retrieves a part of the given key in this storage as a primitive value.
@@ -231,6 +256,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
    * @param[in] key_length Byte size of key.
    * @param[out] payload Receive the payload of the record.
    * @param[in] payload_offset We copy from this byte position of the record.
+   * @param[in] read_only Whether this read will not be followed by writes. When MOCC triggers
+   * pessimistic lock, this guides us to take either read- or write-lock.
    * @pre payload_offset + sizeof(PAYLOAD) must be within the record's actual payload size
    * (returns kErrorCodeStrTooShortPayload if not)
    * @tparam PAYLOAD primitive type of the payload. all integers and floats are allowed.
@@ -241,7 +268,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     const void* key,
     uint16_t key_length,
     PAYLOAD* payload,
-    uint16_t payload_offset) {
+    uint16_t payload_offset,
+    bool read_only) {
     HashCombo c(combo(key, key_length));
     return get_record_primitive<PAYLOAD>(
       context,
@@ -249,7 +277,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
       key_length,
       c,
       payload,
-      payload_offset);
+      payload_offset,
+      read_only);
   }
 
   /** Overlord to receive key as a primitive type. */
@@ -258,7 +287,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     thread::Thread* context,
     KEY key,
     PAYLOAD* payload,
-    uint16_t payload_offset) {
+    uint16_t payload_offset,
+    bool read_only) {
     HashCombo c(combo<KEY>(&key));
     return get_record_primitive<PAYLOAD>(
       context,
@@ -266,7 +296,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
       sizeof(key),
       c,
       payload,
-      payload_offset);
+      payload_offset,
+      read_only);
   }
 
   /** If you have already computed HashCombo, use this. */
@@ -277,7 +308,8 @@ class HashStorage CXX11_FINAL : public Storage<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     PAYLOAD* payload,
-    uint16_t payload_offset);
+    uint16_t payload_offset,
+    bool read_only);
 
   // insert_record() methods
 

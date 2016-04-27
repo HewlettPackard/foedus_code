@@ -1845,12 +1845,12 @@ ErrorStack MasstreeComposeContext::close_level_grow_subtree(
   uint8_t cur_btree_level = 0;
   for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
     MasstreePage* page = get_page(cur);
-    ASSERT_ND(page->get_foster_minor().is_null());
+    ASSERT_ND(page->is_foster_minor_null());
     FenceAndPointer child;
     child.pointer_ = page_id_base_ + cur;
     child.low_fence_ = page->get_low_fence();
     children.emplace_back(child);
-    cur = page->get_foster_major().components.offset;
+    cur = page->get_foster_major().get_offset();
     page->set_foster_major_offset_unsafe(0);  // no longer needed
     cur_btree_level = page->get_btree_level();
   }
@@ -1906,14 +1906,14 @@ ErrorStack MasstreeComposeContext::pushup_non_root() {
   bool is_head = true;
   for (memory::PagePoolOffset cur = last->head_; cur != 0;) {
     MasstreePage* page = get_page(cur);
-    ASSERT_ND(page->get_foster_minor().is_null());
+    ASSERT_ND(page->is_foster_minor_null());
     SnapshotPagePointer pointer = page_id_base_ + cur;
     KeySlice low_fence = page->get_low_fence();
     ASSERT_ND(cur != last->head_ || low_fence == last->low_fence_);  // first entry's low_fence
     ASSERT_ND(cur != last->tail_ || page->get_high_fence() == last->high_fence_);  // tail's high
-    ASSERT_ND(cur != last->tail_ || page->get_foster_major().is_null());  // iff tail, has no next
-    ASSERT_ND(cur == last->tail_ || !page->get_foster_major().is_null());
-    cur = page->get_foster_major().components.offset;
+    ASSERT_ND(cur != last->tail_ || page->is_foster_major_null());  // iff tail, has no next
+    ASSERT_ND(cur == last->tail_ || !page->is_foster_major_null());
+    cur = page->get_foster_major().get_offset();
     page->set_foster_major_offset_unsafe(0);  // no longer needed
 
     // before pushing up the pointer, we might have to consume original pointers
@@ -1989,7 +1989,7 @@ ErrorStack MasstreeComposeContext::close_last_level() {
       ASSERT_ND(page->get_high_fence() > prev);
       ASSERT_ND(page->get_layer() == last->layer_);
       prev = page->get_high_fence();
-      cur = page->get_foster_major().components.offset;
+      cur = page->get_foster_major().get_offset();
       if (page->is_border()) {
         ASSERT_ND(page->get_key_count() > 0);
       }
@@ -2188,7 +2188,7 @@ ErrorCode MasstreeComposeContext::close_level_register_page_boundaries() {
     ASSERT_ND(page->get_high_fence() > prev);
     ASSERT_ND(page->get_layer() == last->layer_);
     prev = page->get_high_fence();
-    cur = page->get_foster_major().components.offset;
+    cur = page->get_foster_major().get_offset();
   }
   ASSERT_ND(prev == last->high_fence_);
   ASSERT_ND(counted == last->page_count_);
@@ -2242,8 +2242,8 @@ ErrorCode MasstreeComposeContext::close_level_register_page_boundaries() {
     page_boundary_sort_[page_boundary_elements_].info_pos_ = page_boundary_info_cur_pos_;
     ++page_boundary_elements_;
     page_boundary_info_cur_pos_ += info->dynamic_sizeof() / 8U;
-    ASSERT_ND(page->get_foster_major().components.offset || cur == last->tail_);
-    cur = page->get_foster_major().components.offset;
+    ASSERT_ND(!page->get_foster_major().is_null() || cur == last->tail_);
+    cur = page->get_foster_major().get_offset();
     prev_high = high;
   }
 

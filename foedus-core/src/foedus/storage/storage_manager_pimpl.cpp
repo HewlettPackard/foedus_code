@@ -118,7 +118,7 @@ ErrorStack StorageManagerPimpl::initialize_read_latest_snapshot() {
       ASSERT_ND(!exists(snapshot_block.meta_.name_));
       block->initialize();
       block->root_page_pointer_.snapshot_pointer_ = snapshot_block.meta_.root_snapshot_page_id_;
-      block->root_page_pointer_.volatile_pointer_.components.offset = 0;
+      block->root_page_pointer_.volatile_pointer_.clear();
 
       block->meta_.type_ = snapshot_block.meta_.type_;
       switch (snapshot_block.meta_.type_) {
@@ -368,20 +368,34 @@ void StorageManagerPimpl::create_storage_apply(const Metadata& metadata) {
   ASSERT_ND(get_storage(id)->exists());
 }
 
-
-
+ErrorStack StorageManagerPimpl::hcc_reset_all_temperature_stat(StorageId storage_id) {
+  StorageControlBlock* block = storages_ + storage_id;
+  ASSERT_ND(block->exists());
+  StorageType type = block->meta_.type_;
+  if (type == kMasstreeStorage) {
+    CHECK_ERROR(masstree::MasstreeStorage(engine_, block).hcc_reset_all_temperature_stat());
+  } else if (type == kHashStorage) {
+    CHECK_ERROR(hash::HashStorage(engine_, block).hcc_reset_all_temperature_stat());
+  } else if (type == kArrayStorage) {
+    CHECK_ERROR(array::ArrayStorage(engine_, block).hcc_reset_all_temperature_stat());
+  } else {
+    // Seq storage doesn't need it.
+    LOG(WARNING) << "This storage type doesn't need HCC counter reset. type=" << type;
+  }
+  return kRetOk;
+}
 
 // define here to allow inline
 xct::TrackMovedRecordResult StorageManager::track_moved_record(
   StorageId storage_id,
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   return pimpl_->track_moved_record(storage_id, old_address, write_set);
 }
 
 xct::TrackMovedRecordResult StorageManagerPimpl::track_moved_record(
   StorageId storage_id,
-  xct::LockableXctId* old_address,
+  xct::RwLockableXctId* old_address,
   xct::WriteXctAccess* write_set) {
   // so far Masstree and Hash have tracking
   StorageControlBlock* block = storages_ + storage_id;

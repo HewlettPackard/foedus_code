@@ -21,6 +21,7 @@
 
 #include "foedus/fwd.hpp"
 #include "foedus/initializable.hpp"
+#include "foedus/assorted/uniform_random.hpp"
 #include "foedus/log/fwd.hpp"
 #include "foedus/memory/fwd.hpp"
 #include "foedus/memory/page_resolver.hpp"
@@ -118,6 +119,7 @@ class Thread CXX11_FINAL : public virtual Initializable {
   template <typename P> P* resolve_newpage_cast(memory::PagePoolOffset offset) const {
     return reinterpret_cast<P*>(resolve_newpage(offset));
   }
+
 
   /**
    * Find the given page in snapshot cache, reading it if not found.
@@ -271,46 +273,91 @@ class Thread CXX11_FINAL : public virtual Initializable {
   void          collect_retired_volatile_page(storage::VolatilePagePointer ptr);
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
-  xct::McsBlockIndex  mcs_acquire_lock(xct::McsLock* mcs_lock);
+  xct::McsRwSimpleBlock* get_mcs_rw_simple_blocks();
+  xct::McsRwExtendedBlock* get_mcs_rw_extended_blocks();
+  ///////////////////////////////////////////////////////////////////////////////
+  ///
+  ///  Methods related to Current Lock List (CLL)
+  ///  These are the only interface in Thread to lock records. We previously had
+  ///  methods to directly lock without CLL, but we now prohibit bypassing CLL.
+  ///  CLL guarantees deadlock-free lock handling.
+  ///  CLL only handle record locks. In FOEDUS, normal transactions never
+  ///  take page lock. Only system transactions are allowed to take page locks.
+  ///
+  /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_single_lock() */
+  ErrorCode cll_try_or_acquire_single_lock(xct::LockListPosition pos);
+  /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_multiple_locks() */
+  ErrorCode cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
   /**
-   * Unconditionally takes multiple MCS locks.
-   * @return MCS block index of the \e first lock acqired. As this is done in a row,
-   * following locks trivially have sequential block index from it.
+   * This \e gives-up locks in CLL that are not yet taken.
+   * preferred mode will be set to either NoLock or same as taken_mode,
+   * and all incomplete async locks will be cancelled.
    */
-  xct::McsBlockIndex  mcs_acquire_lock_batch(xct::McsLock** mcs_locks, uint16_t batch_size);
+  void      cll_giveup_all_locks_after(xct::UniversalLockId address);
+  void      cll_giveup_all_locks_at_and_after(xct::UniversalLockId address) {
+    if (address == xct::kNullUniversalLockId) {
+      cll_giveup_all_locks_after(xct::kNullUniversalLockId);
+    } else {
+      cll_giveup_all_locks_after(address - 1U);
+    }
+  }
   /**
-   * This doesn't use any atomic operation to take a lock. only allowed when there is no race.
-   * TASK(Hideaki): This will be renamed to mcs_non_racy_lock(). "initial_lock" is ambiguous.
+   * Release all locks in CLL of this thread whose addresses are canonically ordered
+   * before the parameter. This is used where we need to rule out the risk of deadlock.
    */
-  xct::McsBlockIndex  mcs_initial_lock(xct::McsLock* mcs_lock);
-  /** Unlcok an MCS lock acquired by this thread. */
-  void                mcs_release_lock(xct::McsLock* mcs_lock, xct::McsBlockIndex block_index);
-  /** corresponds to mcs_acquire_lock_batch() */
-  void                mcs_release_lock_batch(
-    xct::McsLock** mcs_locks,
-    xct::McsBlockIndex head_block,
-    uint16_t batch_size);
+  void      cll_release_all_locks_after(xct::UniversalLockId address);
+  /** same as mcs_release_all_current_locks_after(address - 1) */
+  void      cll_release_all_locks_at_and_after(xct::UniversalLockId address) {
+    if (address == xct::kNullUniversalLockId) {
+      cll_release_all_locks_after(xct::kNullUniversalLockId);
+    } else {
+      cll_release_all_locks_after(address - 1U);
+    }
+  }
+  void      cll_release_all_locks();
 
+  ///////////////////////////////////////////////////////////////////////////////
+  ///
+  ///  Methods related to System transactions (sysxct) nested under this thread.
+  ///
   /**
-   * MCS reader-writer lock methods.
+   * @see foedus::xct::run_nested_sysxct_impl()
    */
-  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock);
-  void               mcs_release_reader_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
-
-  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock);
-  void               mcs_release_writer_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
-
+  ErrorCode run_nested_sysxct(xct::SysxctFunctor* functor, uint32_t max_retries = 0);
   /**
-   * Ownerless versions of mcs_acquire/release_lock().
-   * These are static methods, no context needed.
+   * Takes a lock for a sysxct running under this thread.
+   * @pre sysxct_workspace->running_sysxct_
+   * @pre the record lock must be within the page of the given ID
    */
-  static void mcs_ownerless_acquire_lock(xct::McsLock* mcs_lock);
-  static void mcs_ownerless_release_lock(xct::McsLock* mcs_lock);
-  static void mcs_ownerless_initial_lock(xct::McsLock* mcs_lock);
+  ErrorCode sysxct_record_lock(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::VolatilePagePointer page_id,
+    xct::RwLockableXctId* lock);
+  /**
+   * Takes a bunch of locks in the same page for a sysxct running under this thread.
+   * @pre sysxct_workspace->running_sysxct_
+   * @pre the record locks must be within the page of the given ID
+   */
+  ErrorCode sysxct_batch_record_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
+    storage::VolatilePagePointer page_id,
+    uint32_t lock_count,
+    xct::RwLockableXctId** locks);
+  /**
+   * Takes a page lock in the same page for a sysxct running under this thread.
+   * @pre sysxct_workspace->running_sysxct_
+   */
+  ErrorCode sysxct_page_lock(xct::SysxctWorkspace* sysxct_workspace, storage::Page* page);
+  /**
+   * Takes a bunch of page locks for a sysxct running under this thread.
+   * @pre sysxct_workspace->running_sysxct_
+   */
+  ErrorCode sysxct_batch_page_locks(
+    xct::SysxctWorkspace* sysxct_workspace,
+    uint32_t lock_count,
+    storage::Page** pages);
+  /// Currently we don't have sysxct_release_locks() etc. All locks will be automatically
+  /// released when the sysxct ends. Probably this is enough as sysxct should be short-living.
 
   /** @see foedus::xct::InCommitEpochGuard  */
   Epoch*        get_in_commit_epoch_address();
@@ -318,10 +365,60 @@ class Thread CXX11_FINAL : public virtual Initializable {
   /** Returns the pimpl of this object. Use it only when you know what you are doing. */
   ThreadPimpl*  get_pimpl() const { return pimpl_; }
 
+  inline assorted::UniformRandom& get_lock_rnd() { return lock_rnd_; }
+
+  /**
+   * @returns whether the given page had enough aborts to justify pessimisitic locking.
+   * @ingroup RLL
+   */
+  bool          is_hot_page(const storage::Page* page) const;
+
   friend std::ostream& operator<<(std::ostream& o, const Thread& v);
 
  private:
   ThreadPimpl*    pimpl_;
+
+  // The following should be in pimpl. later.
+  assorted::UniformRandom lock_rnd_;
+};
+
+/**
+ * Obtains multiple free volatile pages at once and releases them automatically
+ * when this object gets out of scope.
+ * You can also dispatch some of the grabbed pages, which means they will NOT be
+ * released.
+ */
+class GrabFreeVolatilePagesScope {
+ public:
+  GrabFreeVolatilePagesScope(Thread* context, memory::PagePoolOffset* offsets)
+    : context_(context), offsets_(offsets), count_(0) {}
+  ~GrabFreeVolatilePagesScope() {
+    release();
+  }
+
+  /**
+    * If this thread doesn't have enough free pages, no page is obtained,
+    * returning kErrorCodeMemoryNoFreePages.
+    */
+  ErrorCode grab(uint32_t count);
+  /** Idempotent. You can release it at any moment. */
+  void      release();
+  uint32_t  get_count() const { return count_; }
+
+  /** Call this when the page is placed somewhere */
+  void                    dispatch(uint32_t index) {
+    ASSERT_ND(index < count_);
+    offsets_[index] = 0;  // This entry will be skipped in release()
+  }
+  memory::PagePoolOffset  get(uint32_t index) const {
+    ASSERT_ND(index < count_);
+    return offsets_[index];
+  }
+
+ private:
+  Thread* const                 context_;
+  memory::PagePoolOffset* const offsets_;
+  uint32_t                      count_;
 };
 
 }  // namespace thread

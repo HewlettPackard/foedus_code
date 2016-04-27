@@ -21,7 +21,11 @@
 
 #include <ostream>
 
+#include "foedus/engine.hpp"
+#include "foedus/engine_options.hpp"
+#include "foedus/memory/page_resolver.hpp"
 #include "foedus/thread/thread.hpp"
+#include "foedus/xct/xct.hpp"
 
 namespace foedus {
 namespace storage {
@@ -66,6 +70,7 @@ std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
   o << "<masstree_layer_>" << static_cast<int>(v.masstree_layer_) << "</masstree_layer_>";
   o << "<masstree_in_layer_level_>" << static_cast<int>(v.masstree_in_layer_level_)
     << "</masstree_in_layer_level_>";
+  o << "<hotness_>" << static_cast<int>(v.hotness_.value_) << "</hotness_>";
   o << std::endl << "<stat_last_updater_node_>" << static_cast<int>(v.stat_last_updater_node_)
     << "</stat_last_updater_node_>";
   o << v.page_version_;
@@ -73,50 +78,31 @@ std::ostream& operator<<(std::ostream& o, const PageHeader& v) {
   return o;
 }
 
-PageVersionLockScope::PageVersionLockScope(
-  thread::Thread* context,
-  PageVersion* version,
-  bool non_racy_lock) {
-  context_ = context;
-  version_ = version;
-  changed_ = false;
-  released_ = false;
-  if (non_racy_lock) {
-    block_ = context->mcs_initial_lock(&version->lock_);
-  } else {
-    block_ = context->mcs_acquire_lock(&version->lock_);
-  }
+bool PageHeader::contains_hot_records(thread::Thread* context) {
+  return hotness_.value_ >= context->get_current_xct().get_hot_threshold_for_this_xct();
 }
 
-PageVersionLockScope::PageVersionLockScope(xct::McsLockScope* move_from) {
-  ASSERT_ND(move_from->is_locked());
-  context_ = nullptr;
-  version_ = nullptr;
-  changed_ = false;
-  released_ = false;
-  move_from->move_to(this);
-  ASSERT_ND(!move_from->is_locked());
-}
+void assert_within_valid_volatile_page_impl(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const void* address) {
+  const Page* page = to_page(reinterpret_cast<const void*>(address));
+  ASSERT_ND(!page->get_header().snapshot_);
 
+  VolatilePagePointer vpp = construct_volatile_page_pointer(page->get_header().page_id_);
+  ASSERT_ND(vpp.get_numa_node() < resolver.numa_node_count_);
+  ASSERT_ND(vpp.get_offset() >= resolver.begin_);
+  ASSERT_ND(vpp.get_offset() < resolver.end_);
 
-void PageVersionLockScope::release() {
-  if (!released_) {
-    if (changed_) {
-      version_->increment_version_counter();
-    }
-    context_->mcs_release_lock(&version_->lock_, block_);
-    released_ = true;
-  }
-}
-
-void PageVersionLockScope::take_over(PageVersionLockScope* move_from) {
-  release();
-  *this = *move_from;
-  move_from->context_ = nullptr;
-  move_from->version_ = nullptr;
-  move_from->block_ = 0;
-  move_from->changed_ = false;
-  move_from->released_ = true;
+  const Page* same_page = resolver.resolve_offset(vpp);
+  ASSERT_ND(same_page->get_header().page_id_ == page->get_header().page_id_);
+  ASSERT_ND(!same_page->get_header().snapshot_);
+  /// Ah, oh, finally realized why I occasionally hit assertions here.
+  /// When we have multiple VA mappings (eg emulated fork mode), it is possible
+  /// that base + offset becomes a different address even if pointing to the same physical page.
+  /// Unfortunately we can't do this check.. but only page-ID check.
+  // const uintptr_t int_address = reinterpret_cast<uintptr_t>(address);
+  // ASSERT_ND(int_address >= base + vpp.components.offset * kPageSize);
+  // ASSERT_ND(int_address < base + (vpp.components.offset + 1U) * kPageSize);
 }
 
 }  // namespace storage

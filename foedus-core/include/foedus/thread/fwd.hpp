@@ -25,6 +25,7 @@
  */
 namespace foedus {
 namespace thread {
+class   GrabFreeVolatilePagesScope;
 struct  ImpersonateSession;
 class   Rendezvous;
 class   StoppableThread;

@@ -290,7 +290,7 @@ class PageReleaseBatch CXX11_FINAL {
    * This internally batches the pages to return. At the end, call release_all() to flush it.
    */
   void        release(storage::VolatilePagePointer page_id) {
-    release(page_id.components.numa_node, page_id.components.offset);
+    release(page_id.get_numa_node(), page_id.get_offset());
   }
 
   /**

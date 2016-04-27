@@ -114,9 +114,9 @@ void Composer::drop_root_volatile(const Composer::DropVolatilesArguments& args) 
 void Composer::DropVolatilesArguments::drop(
   Engine* engine,
   VolatilePagePointer pointer) const {
-  uint16_t node = pointer.components.numa_node;
+  uint16_t node = pointer.get_numa_node();
   ASSERT_ND(node < engine->get_soc_count());
-  ASSERT_ND(pointer.components.offset > 0);
+  ASSERT_ND(!pointer.is_null());
 #ifndef NDEBUG
   // let's fill the page with garbage to help debugging
   std::memset(
@@ -133,7 +133,7 @@ void Composer::DropVolatilesArguments::drop(
     ASSERT_ND(chunk->empty());
   }
   ASSERT_ND(!chunk->full());
-  chunk->push_back(pointer.components.offset);
+  chunk->push_back(pointer.get_offset());
   ++(*dropped_count_);
 }
 

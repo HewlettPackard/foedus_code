@@ -240,7 +240,7 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
    */
   xct::TrackMovedRecordResult track_moved_record(
     StorageId storage_id,
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
 
   /** Returns pimpl object. Use this only if you know what you are doing. */

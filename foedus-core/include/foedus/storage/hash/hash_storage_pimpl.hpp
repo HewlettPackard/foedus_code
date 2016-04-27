@@ -114,7 +114,7 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
 
 
   xct::TrackMovedRecordResult track_moved_record(
-    xct::LockableXctId* old_address,
+    xct::RwLockableXctId* old_address,
     xct::WriteXctAccess* write_set);
   xct::TrackMovedRecordResult track_moved_record_search(
     HashDataPage* page,
@@ -127,6 +127,11 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
   ErrorStack  verify_single_thread(thread::Thread* context);
   ErrorStack  verify_single_thread_intermediate(Engine* engine, HashIntermediatePage* page);
   ErrorStack  verify_single_thread_data(Engine* engine, HashDataPage* head);
+
+  /** For stupid reasons (I'm lazy!) these are defined in _debug.cpp. */
+  ErrorStack  hcc_reset_all_temperature_stat();
+  ErrorStack  hcc_reset_all_temperature_stat_intermediate(VolatilePagePointer intermediate_page_id);
+  ErrorStack  hcc_reset_all_temperature_stat_data(VolatilePagePointer head_page_id);
 
   /** These are defined in hash_storage_debug.cpp */
   ErrorStack debugout_single_thread(
@@ -168,7 +173,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     void* payload,
-    uint16_t* payload_capacity);
+    uint16_t* payload_capacity,
+    bool read_only);
 
   /** @see foedus::storage::hash::HashStorage::get_record_primitive() */
   template <typename PAYLOAD>
@@ -178,7 +184,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     uint16_t key_length,
     const HashCombo& combo,
     PAYLOAD* payload,
-    uint16_t payload_offset) {
+    uint16_t payload_offset,
+    bool read_only) {
     // at this point, there isn't enough benefit to do optimization specific to this case.
     // hash-lookup is anyway dominant. memcpy-vs-primitive is not the issue.
     return get_record_part(
@@ -188,7 +195,8 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
       combo,
       payload,
       payload_offset,
-      sizeof(PAYLOAD));
+      sizeof(PAYLOAD),
+      read_only);
   }
 
   /** @see foedus::storage::hash::HashStorage::get_record_part() */
@@ -199,7 +207,15 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     const HashCombo& combo,
     void* payload,
     uint16_t payload_offset,
-    uint16_t payload_count);
+    uint16_t payload_count,
+    bool read_only);
+
+
+  /** Used in the following methods */
+  ErrorCode register_record_write_log(
+    thread::Thread* context,
+    const RecordLocation& location,
+    log::RecordLogType* log_entry);
 
   /** @see foedus::storage::hash::HashStorage::insert_record() */
   ErrorCode insert_record(
@@ -320,34 +336,18 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     const HashCombo& combo,
     HashDataPage** bin_head);
 
-  /** return value of locate_record() */
-  struct RecordLocation {
-    /** Address of the slot. null if not found. */
-    HashDataPage::Slot* slot_;
-    /** Address of the record. null if not found. */
-    char* record_;
-    /**
-     * TID as of locate_record() identifying the record.
-     * guaranteed to be not is_moved (then automatically retried), though the \b current
-     * TID might be now moved, in which case pre-commit will catch it.
-     */
-    xct::XctId observed_;
-
-    void clear() {
-      slot_ = nullptr;
-      record_ = nullptr;
-      observed_.data_ = 0;
-    }
-  };
-
   /**
    * @brief Usually follows locate_bin to locate the exact physical record for the key, or
    * create a new one if not exists (only when for_write).
    * @param[in] context Thread context
    * @param[in] for_write Whether we are seeking the record to modify
+   * @param[in] physical_only If true, we skip observing XID and registering readset
+   * in a finalized fashion, see RecordLocation.
    * @param[in] create_if_notfound Whether we will create a new physical record if not exists
    * @param[in] create_payload_length If this method creates a physical record, it makes sure
    * the record can accomodate at least this size of payload.
+   * @param[in] key The searching key.
+   * @param[in] key_length Byte length of the searching key.
    * @param[in] combo Hash values. Also the result of this method.
    * @param[in] bin_head Pointer to the first data page of the bin.
    * @param[out] result Information on the found slot.
@@ -355,14 +355,16 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
    * @pre bin_head != nullptr
    * @pre bin_head must be volatile page if for_write
    * @details
-   * If the exact record is not found, this method protects the result by adding page version set.
-   * Delete/update are just done in that case.
+   * If the exact record is not found, this method protects the result by adding page version set
+   * if physical_only is false.
    * If create_if_notfound is true (an insert case), this method creates a new physical record for
    * the key with a deleted-state as a system transaction.
+   * @see RecordLocation
    */
   ErrorCode   locate_record(
     thread::Thread* context,
     bool for_write,
+    bool physical_only,
     bool create_if_notfound,
     uint16_t create_payload_length,
     const void* key,
@@ -371,90 +373,87 @@ class HashStoragePimpl final : public Attachable<HashStorageControlBlock> {
     HashDataPage* bin_head,
     RecordLocation* result);
 
-  ErrorCode   reserve_record(
+  /** locate_record()'s physical_only version. Invoke this rather than locate_record directly */
+  ErrorCode   locate_record_physical_only(
+    thread::Thread* context,
+    bool for_write,
+    bool create_if_notfound,
+    uint16_t create_payload_length,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* bin_head,
+    RecordLocation* result) {
+    return locate_record(
+      context,
+      for_write,
+      true,
+      create_if_notfound,
+      create_payload_length,
+      key,
+      key_length,
+      combo,
+      bin_head,
+      result);
+  }
+  /** locate_record()'s logical+physical version. Invoke this rather than locate_record directly */
+  ErrorCode   locate_record_logical(
+    thread::Thread* context,
+    bool for_write,
+    bool create_if_notfound,
+    uint16_t create_payload_length,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* bin_head,
+    RecordLocation* result) {
+    return locate_record(
+      context,
+      for_write,
+      false,
+      create_if_notfound,
+      create_payload_length,
+      key,
+      key_length,
+      combo,
+      bin_head,
+      result);
+  }
+
+  /** Simpler version of locate_record for when we are in snapshot world. */
+  ErrorCode locate_record_in_snapshot(
+    thread::Thread* context,
+    const void* key,
+    uint16_t key_length,
+    const HashCombo& combo,
+    HashDataPage* bin_head,
+    RecordLocation* result);
+
+  /**
+   * Subroutine of locate_record() to create/migrate a physical record of the given key in the page
+   * or its next pages.
+   * This method has the following possible outcomes:
+   * \li Created a new physical record of the key in the given page or its next pages.
+   * \li Did nothing because we found an existing record of the key in the given page or its next
+   * pages.
+   *
+   * In either case, new_location returns the index of the record, thus it's never a kSlotNotFound.
+   *
+   * This method is \e physical-only. It doesn't add any read-set or take logical record locks.
+   * Thus, even \e seemingly right after calling this method, you might find the new_location
+   * points to a moved record. It might happen. The caller is responsible to do a logical
+   * lock/readset etc and retries if necessary. But, this method does guarantee that the
+   * new_location points to a record of the given key that was at least at some point valid.
+   */
+  ErrorCode   locate_record_reserve_physical(
     thread::Thread* context,
     const void* key,
     uint16_t key_length,
     const HashCombo& combo,
     uint16_t payload_length,
-    HashDataPage* page,
+    HashDataPage** page_in_out,
     uint16_t examined_records,
-    RecordLocation* result);
-
-  /**
-   * subroutine in locate_record() and reserve_record() to look for the key in one page.
-   * result returns null pointers if not found, \b assuming the record_count.
-   */
-  void search_key_in_a_page(
-    const void* key,
-    uint16_t key_length,
-    const HashCombo& combo,
-    HashDataPage* page,
-    uint16_t record_count,
-    RecordLocation* result);
-
-  /**
-   * @brief Moves a physical record to a later position.
-   * @details
-   * This method moves an existing record to a larger index in the same page, or to a next
-   * page if this page is already full or has next page.
-   * This method constituites a system transaction that logically does nothing, either
-   * the record is deleted or not.
-   * If the record is already migrated because of concurrent threads, this method does nothing
-   * but returning the new location.
-   *
-   * @par Concurrency Control
-   * Assuming that record migration doesn't happen that often, we do lots of page-locks
-   * in this function. The order of the locking is:
-   * \li lock cur_page, which finalizes the existence of the key and next-page in cur_page.
-   * \li lock cur_index, which finalizes the state and the current record.
-   * \li lock tail_page (if moves on to next page)
-   * \li create a new record in tail_page, \b rel-barrier, \b then set is_moved flag in cur_slot.
-   * (this means there is no moment where an is_moved record does not have a new location.
-   * otherwise we have to spin for the new record in other places.)
-   * \li unlock in reverse order.
-   *
-   * @par Invariants for Deadlock Avoidance
-   * This method must be called where the calling thread has no locks either on pages or on records
-   * in this hash bucket. Assuming that, this method has no chance of deadlock.
-   *
-   * @par Contracts and Non-Contracts
-   * \li Contract: The new location is always set as far as kErrorCodeOk is returned.
-   * Only possible error codes are out-of-freepages and other serious errors.
-   * \li Contract: The new location is of the exact given key.
-   * \li Non-Contract: Might be moved again.
-   * This method does \b NOT promise that the returned location is not moved.
-   * The caller must call it again in that case.
-   * \li Non-Contract: The new location might \b NOT have a sufficient space.
-   * The caller must call it again in that case.
-   */
-  ErrorCode migrate_record(
-    thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
-    const HashCombo& combo,
-    HashDataPage* cur_page,
-    DataPageSlotIndex cur_index,
-    uint16_t payload_count,
-    RecordLocation* new_location);
-  /** Subroutine of migrate_record() to implement the 4th step above. */
-  void migrate_record_move(
-    thread::Thread* context,
-    const void* key,
-    uint16_t key_length,
-    const HashCombo& combo,
-    HashDataPage* cur_page,
-    DataPageSlotIndex cur_index,
-    HashDataPage* tail_page,
-    uint16_t payload_count,
-    RecordLocation* new_location);
-
-  /** Appends a next page to a given already-locked volatile data page. */
-  ErrorCode append_next_volatile_page(
-    thread::Thread* context,
-    HashDataPage* page,
-    PageVersionLockScope* scope,
-    HashDataPage** next_page);
+    DataPageSlotIndex* new_location);
 };
 static_assert(sizeof(HashStoragePimpl) <= kPageSize, "HashStoragePimpl is too large");
 static_assert(

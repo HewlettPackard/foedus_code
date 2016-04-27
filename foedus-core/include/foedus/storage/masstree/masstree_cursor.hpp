@@ -33,6 +33,7 @@
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/storage/masstree/fwd.hpp"
 #include "foedus/storage/masstree/masstree_id.hpp"
+#include "foedus/storage/masstree/masstree_record_location.hpp"
 #include "foedus/storage/masstree/masstree_storage.hpp"
 #include "foedus/thread/fwd.hpp"
 #include "foedus/xct/xct_id.hpp"
@@ -81,13 +82,32 @@ class MasstreeCursor CXX11_FINAL {
    */
   struct Route {
     enum MovedPageSearchStatus {
-      kNotMovedPage = 0,
+      /**
+       * This means \e either was_stably_moved() is false or it's intermediate page, in which
+       * case we don't neeed to follow foster twins. If it's a border page whose
+       * was_stably_moved() returns true, the status might be one of the followings.
+       */
+      kNone = 0,
       kMovedPageSearchedNeither = 1,
       kMovedPageSearchedOne = 2,
       kMovedPageSearchedBoth = 3,
     };
     MasstreePage* page_;
-    /** version as of getting calculating order_. */
+    /**
+     * version as of calculating order_.
+     * We also guarantee that we retrieved key_count_ and key_count_mini_ \e as-of OR \e after
+     * this version.
+     *
+     * Q: Why it could be "after"?
+     * A: When we find that an intermediate page now has more separators,
+     * we need to re-search (rebase) in the page. In that case, the only thing we care
+     * is key_count_ and key_count_mini_. Version number of intermediate pages has no effect
+     * .. except is_moved(). But, even in that case, intermediate page has an invariant that
+     * we can just search in the old page. Thus, in either case, we don't update stable_
+     * but only re-retrieve key_count_ and key_count_mini_.
+     *
+     * @invariant Once constructed this Route object, stable_ is immutable. We won't update it.
+     */
     PageVersionStatus stable_;
     /** index in ordered keys. in interior, same. */
     SlotIndex index_;
@@ -133,6 +153,12 @@ class MasstreeCursor CXX11_FINAL {
     bool    is_valid_record() const ALWAYS_INLINE {
       return index_ < key_count_;
     }
+    /**
+     * In almost all places of the cursor code, we check is_moved() only on the stable version
+     * so that the cursor can consistently decide whether to follow foster-twins or not.
+     * So, we shouldn't have any "is_moved" in the file other than this.
+     */
+    bool    was_stably_moved() const { return stable_.is_moved(); }
     void setup_order();
   };
   enum SearchType {
@@ -318,24 +344,29 @@ class MasstreeCursor CXX11_FINAL {
   uint16_t    route_count_;
 
   /**
-   * This is set to true when the cur_route() should be skipped over to find a next valid
-   * record. Whenever this is true, is_valid_record() must be false.
+   * This is set to true when the cursor is in a half-baked state.
+   * The cur_route() should be skipped over to find a next valid
+   * record.
    * This becomes true in a few cases.
    * \li the initial locate() didn't find a matching record because it unluckily hit the page
    * boundary.
    * \li locate() or proceed_deep() ran into an empty border page.
    *
-   * Receiving this flag, locate() and next() are responsible to invoke next() to resolve the
-   * state. next() then sees this flag and moves on to next page/record.
-   * When the control is returned to the user code, this flag must be always false.
+   * Receiving this flag, open() and next() are responsible to invoke proceed_pop() to resolve the
+   * state. When the control is returned to the user code, this flag must be always false.
    */
   bool        should_skip_cur_route_;
 
   bool        cur_key_next_layer_;
   KeyLength   cur_key_in_layer_remainder_;
   KeySlice    cur_key_in_layer_slice_;
-  xct::XctId  cur_key_observed_owner_id_;
-  xct::LockableXctId* cur_key_owner_id_address;
+  /**
+   * Like in per-record operation, now we mix logical operation into cursors.
+   * The cursor logically observes XctId, potentially taking locks or read-sets.
+   */
+  RecordLocation cur_key_location_;
+  // xct::XctId  cur_key_observed_owner_id_;
+  xct::RwLockableXctId* cur_key_owner_id_address;
 
   /** full big-endian key to terminate search. allocated in transaction's local work memory */
   char*       end_key_;
@@ -373,12 +404,16 @@ class MasstreeCursor CXX11_FINAL {
 
   /**
    * This method is the only place we \e increment route_count_ to push an entry to routes_.
-   * It takes a stable version of the page and
+   * It takes a stable version of the page and pushes it to the routes_.
    */
   ErrorCode push_route(MasstreePage* page);
-  void      fetch_cur_record(MasstreeBorderPage* page, SlotIndex record);
+  /**
+   * This is now a logical operation that might add lock/readset.
+   * You can't use this method to "peek" cur record. Be careful!
+   */
+  ErrorCode fetch_cur_record_logical(MasstreeBorderPage* page, SlotIndex record);
   void      check_end_key();
-  bool      is_cur_key_next_layer() const { return cur_key_observed_owner_id_.is_next_layer(); }
+  bool      is_cur_key_next_layer() const { return cur_key_location_.observed_.is_next_layer(); }
   KeyCompareResult compare_cur_key_aginst_search_key(KeySlice slice, uint8_t layer) const;
   KeyCompareResult compare_cur_key_aginst_end_key() const;
   KeyCompareResult compare_cur_key(
@@ -415,13 +450,41 @@ class MasstreeCursor CXX11_FINAL {
     return end_key_length_ == kKeyLengthExtremum;
   }
 
-  ErrorCode follow_foster(KeySlice slice);
+  ErrorCode follow_foster_border(KeySlice slice);
   void extract_separators(KeySlice* separator_low, KeySlice* separator_high) const ALWAYS_INLINE;
 
-  // locate_xxx is for initial search
+  /// locate_xxx is for initial search
+  /// All of them have the same post condition.
+  /// 1) cur_route()->page_->is_border()
+  ///  The bottom of the tree is always a border page. We go down until we find a boder page
+  ///  that is responsible for the searching key.
+  ///  We recursively call them, so this post condition is met whenever any of them returns.
+  /// 2) should_skip_cur_route_ || (!should_skip_cur_route_ && is_valid_record())
+  ///  Although the found border page is resposible for the given search condition,
+  ///  they might not contain any record to return (eg empty page), in which case
+  ///  they set should_skip_cur_route_ flag and the caller is responsible to call proceed_route().
+  /**
+   * [Initial Search] Go down until it locates the border page under the current layer.
+   * @pre cur_route()->page_->is_layer_root()
+   * @pre cur_route()->page_->get_layer() == layer
+   * @post the common conditions above
+   */
   ErrorCode locate_layer(uint8_t layer);
+  /**
+   * [Initial Search] Go down until it locates the border page under the current layer.
+   * @pre cur_route()->page_->is_border()
+   * @post the common conditions above
+   */
   ErrorCode locate_border(KeySlice slice);
+  /**
+   * [Initial Search] Subroutine of locate_border() to follow a next-layer pointer.
+   */
   ErrorCode locate_next_layer();
+  /**
+   * [Initial Search] Go down until it locates the border page under the current intermediate page.
+   * @pre !cur_route()->page_->is_border()
+   * @post the common conditions above
+   */
   ErrorCode locate_descend(KeySlice slice);
 
   // proceed_xxx is for next
@@ -434,6 +497,8 @@ class MasstreeCursor CXX11_FINAL {
   ErrorCode proceed_deeper_border();
   ErrorCode proceed_deeper_intermediate();
   void      proceed_route_intermediate_rebase_separator();
+
+  void set_should_skip_cur_route();
 
   MasstreePage* resolve_volatile(VolatilePagePointer ptr) const;
 

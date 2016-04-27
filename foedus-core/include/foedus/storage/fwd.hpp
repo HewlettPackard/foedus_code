@@ -31,7 +31,6 @@ struct  DualPagePointer;
 struct  Metadata;
 struct  Page;
 struct  PageVersion;
-struct  PageVersionLockScope;
 class   Partitioner;
 struct  PartitionerMetadata;
 struct  Record;

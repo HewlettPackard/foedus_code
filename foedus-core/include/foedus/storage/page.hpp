@@ -26,6 +26,8 @@
 #include "foedus/cxx11.hpp"
 #include "foedus/epoch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/assorted/prob_counter.hpp"
+#include "foedus/memory/fwd.hpp"
 #include "foedus/storage/fwd.hpp"
 #include "foedus/storage/storage_id.hpp"
 #include "foedus/thread/fwd.hpp"
@@ -93,9 +95,11 @@ struct PageVersionStatus CXX11_FINAL {
     status_ |= kHasNextPageBit;
   }
 
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   uint32_t  get_version_counter() const ALWAYS_INLINE {
     return status_ & kVersionMask;
   }
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   void      increment_version_counter() ALWAYS_INLINE {
     // we do this only when we insert a new key or split, so this never overflows.
     ASSERT_ND(get_version_counter() < kVersionMask);
@@ -112,7 +116,7 @@ struct PageVersionStatus CXX11_FINAL {
  * @ingroup STORAGE
  * @details
  * Each page has this in the header.
- * Unlike [YANDONG12], this is just an McsLock.
+ * Unlike [YANDONG12], this is just an McsWwLock.
  * We maintain key count and permutation differently from [YANDONG12].
  *
  * "is_deleted" flag is called "is_retired" to clarify what deletion means for a page.
@@ -152,77 +156,21 @@ struct PageVersion CXX11_FINAL {
     status_.set_has_next_page();
   }
 
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   uint32_t  get_version_counter() const ALWAYS_INLINE {
     return status_.get_version_counter();
   }
+  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
   void      increment_version_counter() ALWAYS_INLINE {
     ASSERT_ND(is_locked());
     status_.increment_version_counter();
   }
 
-  /**
-  * @brief Locks the page, spinning if necessary.
-  */
-  xct::McsBlockIndex lock(thread::Thread* context) ALWAYS_INLINE {
-    return lock_.acquire_lock(context);
-  }
-
-  /**
-  * @brief Unlocks the given page version, assuming the caller has locked it.
-  * @pre is_locked()
-  * @pre this thread locked it (can't check it, but this is the rule)
-  * @details
-  * This method also increments the version counter to declare a change in this page.
-  */
-  void unlock_changed(thread::Thread* context, xct::McsBlockIndex block) ALWAYS_INLINE {
-    increment_version_counter();
-    lock_.release_lock(context, block);
-  }
-  /** this one doesn't increment the counter. used when the lock owner didn't make any change */
-  void unlock_nochange(thread::Thread* context, xct::McsBlockIndex block) ALWAYS_INLINE {
-    lock_.release_lock(context, block);
-  }
-
-
   friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
 
-  xct::McsLock      lock_;    // +8 -> 8
+  xct::McsWwLock      lock_;    // +8 -> 8
   PageVersionStatus status_;  // +4 -> 12
   uint32_t          unused_;  // +4 -> 16. this space might be used for interesting range "lock".
-};
-STATIC_SIZE_CHECK(sizeof(PageVersion), 16)
-
-struct PageVersionLockScope {
-  PageVersionLockScope(thread::Thread* context, PageVersion* version, bool non_racy_lock = false);
-  ~PageVersionLockScope() { release(); }
-
-  /**
-   * Convert an existing McsLockScope on page-version to this object.
-   * This is a tentative solution. Now that page-version doesn't need version counter,
-   * we should be able to use McsLockScope everywhere.
-   * @pre move_from->is_locked()
-   * @post !move_from->is_locked() (we steal the lock from the arg)
-   */
-  explicit PageVersionLockScope(xct::McsLockScope* move_from);
-
-  /**
-   * A \e move operator that takes over the other lock, consisting of:
-   * \li Releases this lock if !released
-   * \li Copies all members in move_from
-   * \li Sets "released_" in move_from without releasing the lock
-   *
-   * We don't need c++11 in this case because everything in this object are pointers.
-   */
-  void take_over(PageVersionLockScope* move_from);
-
-  void set_changed() { changed_ = true; }
-  void release();
-
-  thread::Thread* context_;
-  PageVersion* version_;
-  xct::McsBlockIndex block_;
-  bool changed_;
-  bool released_;
 };
 
 /**
@@ -301,7 +249,23 @@ struct PageHeader CXX11_FINAL {
    * Depending on page type, this might not be even maintained (eg implicit in sequential pages).
    */
   uint8_t       stat_last_updater_node_;       // +1 -> 23
-  uint8_t       reserved_;       // +1 -> 24
+
+  /**
+   * Loosely maintained statistics on data temperature.
+   * This is a probabilistic counter: 0->1 = 100%, 1->2 = 50%, 2->3 = 25%, etc.
+   * So it grows exponentially, which should make it easy enough to tell an obviously
+   * hot record/page.
+   *
+   * XXX(tzwang): This field only makes sense for volatile pages.
+   *
+   * Among the preceeding word-size-algned fields (masstree_layer_, masstree_in_layer_level_,
+   * and stat_last_updater_node_), masstree_* are not changed once page constructed;
+   * stat_last_updater_node_ is loosely maintained stat. So we don't need to use atomic
+   * write for this field.
+   *
+   * Assuming 4-byte word size ($getconf WORD_BIT).
+   */
+  assorted::ProbCounter hotness_;            // +1 -> 24
   /**
    * Used in several storage types as concurrency control mechanism for the page.
    */
@@ -329,8 +293,8 @@ struct PageHeader CXX11_FINAL {
     key_count_ = 0;
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
-    stat_last_updater_node_ = page_id.components.numa_node;
-    reserved_ = 0;
+    stat_last_updater_node_ = page_id.get_numa_node();
+    hotness_.reset();
     page_version_.reset();
   }
 
@@ -347,18 +311,14 @@ struct PageHeader CXX11_FINAL {
     masstree_layer_ = 0;
     masstree_in_layer_level_ = 0;
     stat_last_updater_node_ = extract_numa_node_from_snapshot_pointer(page_id);
-    reserved_ = 0;
+    hotness_.reset();
     page_version_.reset();
   }
 
-  void      increment_key_count() ALWAYS_INLINE {
-    ASSERT_ND(snapshot_ || page_version_.is_locked());
-    ++key_count_;
-  }
-  void      set_key_count(uint8_t key_count) ALWAYS_INLINE {
-    ASSERT_ND(snapshot_ || page_version_.is_locked());
-    key_count_ = key_count;
-  }
+  void      increment_key_count() ALWAYS_INLINE { ++key_count_; }
+  void      set_key_count(uint8_t key_count) ALWAYS_INLINE { key_count_ = key_count;  }
+
+  bool contains_hot_records(thread::Thread* context);
 };
 
 /**
@@ -376,6 +336,14 @@ struct Page CXX11_FINAL {
   PageHeader&  get_header()              { return header_; }
   const PageHeader&  get_header() const  { return header_; }
   PageType     get_page_type() const     { return header_.get_page_type(); }
+  VolatilePagePointer get_volatile_page_id() const {
+    ASSERT_ND(!header_.snapshot_);
+    return VolatilePagePointer(header_.page_id_);
+  }
+  SnapshotPagePointer get_snapshot_page_id() const {
+    ASSERT_ND(header_.snapshot_);
+    return static_cast<SnapshotPagePointer>(header_.page_id_);
+  }
   char*        get_data() { return data_; }
   const char*  get_data() const { return data_; }
 
@@ -446,9 +414,30 @@ inline void assert_valid_volatile_page(const Page* page, uint32_t offset) {
   ASSERT_ND(type < kDummyLastPageType);
   VolatilePagePointer pointer;
   pointer.word = page->get_header().page_id_;
-  ASSERT_ND(pointer.components.offset == offset);
+  ASSERT_ND(pointer.get_offset() == offset);
 #endif  // NDEBUG
 }
+
+// Defined in cpp. Don't directly invoke because it causes overhead to invoke one func.
+void assert_within_valid_volatile_page_impl(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const void* address);
+
+// Use this instead. In release version, this method is completely eliminated by compiler
+#ifndef NDEBUG
+inline void assert_within_valid_volatile_page(
+  const memory::GlobalVolatilePageResolver& resolver,
+  const void* address) {
+  assert_within_valid_volatile_page_impl(resolver, address);
+}
+#else  // NDEBUG
+inline void assert_within_valid_volatile_page(
+  const memory::GlobalVolatilePageResolver& /*resolver*/,
+  const void* /*address*/) {
+}
+#endif  // NDEBUG
+
+STATIC_SIZE_CHECK(sizeof(PageVersion), 16)
 
 }  // namespace storage
 }  // namespace foedus

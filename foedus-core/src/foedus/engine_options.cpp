@@ -174,13 +174,22 @@ ErrorStack EngineOptions::prescreen(std::ostream* details_out) const {
   *details_out << error_messages;
 
   if (has_any_error) {
-    *details_out
-      << "**********************************************************" << std::endl
-      << "**** ENVIRONMENT PRESCREENING FAILED." << std::endl
-      << "**** FOEDUS does not start up because of issues listed above." << std::endl
-      << "**********************************************************" << std::endl;
-
-    return ERROR_STACK_MSG(kErrorCodeEnvPrescreenFailed, error_messages.c_str());
+    if (memory_.suppress_memory_prescreening_) {
+      *details_out
+        << "**********************************************************" << std::endl
+        << "**** ENVIRONMENT PRESCREENING DETECTED SOME ISSUES." << std::endl
+        << "**** HOWEVER, suppress_memory_prescreening option was specified." << std::endl
+        << "**** FOEDUS will start up." << std::endl
+        << "**********************************************************" << std::endl;
+      return kRetOk;
+    } else {
+      *details_out
+        << "**********************************************************" << std::endl
+        << "**** ENVIRONMENT PRESCREENING FAILED." << std::endl
+        << "**** FOEDUS does not start up because of issues listed above." << std::endl
+        << "**********************************************************" << std::endl;
+      return ERROR_STACK_MSG(kErrorCodeEnvPrescreenFailed, error_messages.c_str());
+    }
   } else {
     return kRetOk;
   }

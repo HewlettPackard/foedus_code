@@ -24,6 +24,7 @@
 #include <sys/wait.h>
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -83,17 +84,28 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   xct_manager_ = engine_->get_xct_manager();
 #ifdef YCSB_HASH_STORAGE
   user_table_ = engine_->get_storage_manager()->get_hash("ycsb_user_table");
+  extra_table_ = engine_->get_storage_manager()->get_hash("ycsb_extra_table");
 #else
   user_table_ = engine_->get_storage_manager()->get_masstree("ycsb_user_table");
+  extra_table_ = engine_->get_storage_manager()->get_masstree("ycsb_extra_table");
 #endif
   channel_ = get_channel(engine_);
+  outputs_->cur_bucket_ = 0;
+  std::memset(outputs_->bucketed_throughputs_, 0, sizeof(outputs_->bucketed_throughputs_));
   // TODO(tzwang): so far we only support homogeneous systems: each processor has exactly the same
   // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
   // figure out how many cores we have (basically by adding individual core counts up).
   uint32_t total_thread_count = engine_->get_options().thread_.get_total_thread_count();
 
-  std::vector<YcsbKey> access_keys;
-  access_keys.reserve(workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+  std::vector<YcsbKey> user_keys;
+  std::vector<YcsbKey> extra_keys;
+  const uint32_t conservative_size
+    = workload_.reps_per_tx_
+    + workload_.rmw_additional_reads_
+    + workload_.extra_table_rmws_
+    + workload_.extra_table_reads_;
+  user_keys.reserve(conservative_size);
+  extra_keys.reserve(conservative_size);
 
   // Wait for the driver's order
   channel_->exit_nodes_--;
@@ -101,25 +113,89 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
+
+  bool cur_flip_workload = channel_->shifted_workload_;
+  uint32_t cur_bucket_throughput = 0;
+  uint32_t cur_bucket_abort = 0;
+  uint32_t total_extra_ops = workload_.extra_table_rmws_+ workload_.extra_table_reads_;
   while (!is_stop_requested()) {
+    // per every transaction (probably not too frequent), check if we are told to move on
+    if (output_bucketed_throughput_) {
+      if (outputs_->cur_bucket_ != channel_->cur_output_bucket_) {
+        // Finalize current bucket.
+        outputs_->bucketed_throughputs_[outputs_->cur_bucket_] = ThroughputAndAbort {
+          cur_bucket_throughput,
+          cur_bucket_abort
+        };
+        cur_bucket_throughput = 0;
+        cur_bucket_abort = 0;
+        outputs_->cur_bucket_ = channel_->cur_output_bucket_;
+      }
+      // Also, did we switch workload?
+      if (cur_flip_workload != channel_->shifted_workload_) {
+        cur_flip_workload = channel_->shifted_workload_;
+        // normal table's access is still read-only.
+        // change extra table's RMWs <-> Reads
+        if (cur_flip_workload) {
+          workload_.extra_table_rmws_ = total_extra_ops;
+          workload_.extra_table_reads_ = 0;
+        } else {
+          workload_.extra_table_rmws_ = 0;
+          workload_.extra_table_reads_ = total_extra_ops;
+        }
+        // a rendezvous barrier
+        ++channel_->shift_ack_count_;  // seq_cst!
+        while (channel_->shift_done_.load() == false) {
+          std::this_thread::sleep_for(std::chrono::microseconds(2));
+          continue;
+        }
+      }
+    }
+
     uint16_t xct_type = rnd_xct_select_.uniform_within(1, 100);
     // remember the random seed to repeat the same transaction on abort/retry.
     uint64_t rnd_seed = rnd_xct_select_.get_current_seed();
     uint64_t scan_length_rnd_seed = rnd_scan_length_select_.get_current_seed();
 
     // Get x different keys first
-    if (access_keys.size() == 0) {
+    if (user_keys.size() == 0) {
       for (int32_t i = 0; i < workload_.reps_per_tx_ + workload_.rmw_additional_reads_; i++) {
         YcsbKey k = build_rmw_key();
-        while (std::find(access_keys.begin(), access_keys.end(), k) != access_keys.end()) {
-          k = build_rmw_key();
+        if (workload_.distinct_keys_) {
+          while (std::find(user_keys.begin(), user_keys.end(), k) != user_keys.end()) {
+            k = build_rmw_key();
+          }
         }
-        access_keys.push_back(k);
+        user_keys.push_back(k);
+      }
+
+      if (sort_keys_) {
+        std::sort(user_keys.begin(), user_keys.end());
       }
     }
-    ASSERT_ND((int32_t)access_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+    ASSERT_ND(
+      (int32_t)user_keys.size() == workload_.reps_per_tx_ + workload_.rmw_additional_reads_);
+
+    if (extra_keys.size() == 0) {
+      for (int32_t i = 0; i < workload_.extra_table_rmws_ + workload_.extra_table_reads_; ++i) {
+        YcsbKey k = build_extra_key();
+        if (workload_.distinct_keys_) {
+          while (std::find(extra_keys.begin(), extra_keys.end(), k) != extra_keys.end()) {
+            k = build_extra_key();
+          }
+        }
+        extra_keys.push_back(k);
+      }
+
+      if (sort_keys_) {
+        std::sort(extra_keys.begin(), extra_keys.end());
+      }
+    }
+    ASSERT_ND((int32_t)extra_keys.size()
+      == workload_.extra_table_rmws_ + workload_.extra_table_reads_);
 
     // abort-retry loop
+    bool abort_gave_up = false;
     while (!is_stop_requested()) {
       rnd_xct_select_.set_current_seed(rnd_seed);
       rnd_scan_length_select_.set_current_seed(scan_length_rnd_seed);
@@ -129,10 +205,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
           YcsbKey key;
           uint32_t high = worker_id_;
-          uint32_t* low = &local_key_counter_->key_counter_;
+          uint32_t* low = &local_key_counter_->user_key_counter_;
           if (random_inserts_) {
             high = rnd_record_select_.uniform_within(0, total_thread_count - 1);
-            low = &(get_local_key_counter(engine_, high)->key_counter_);
+            low = &(get_local_key_counter(engine_, high)->user_key_counter_);
           }
           ret = do_insert(build_key(worker_id_, *low));
           // Only increment the key counter if committed to avoid holes in the key space and
@@ -150,14 +226,14 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
       } else {
         if (xct_type <= workload_.read_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_read(access_keys[reps]);
+            ret = do_read(&user_table_, user_keys[reps]);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
         } else if (xct_type <= workload_.update_percent_) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
-            ret = do_update(access_keys[reps]);
+            ret = do_update(user_keys[reps]);
             if (ret != kErrorCodeOk) {
               break;
             }
@@ -170,37 +246,55 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
           for (int32_t reps = 0; reps < workload_.reps_per_tx_; reps++) {
             auto nrecs = rnd_scan_length_select_.uniform_within(1, max_scan_length());
             increment_total_scans();
-            ret = do_scan(access_keys[reps], nrecs);
+            ret = do_scan(user_keys[reps], nrecs);
             if (ret != kErrorCodeOk) {
               break;
             }
           }
 #endif
         } else {  // read-modify-write
-          for (int32_t i = 0; i < workload_.reps_per_tx_; i++) {
-            ret = do_rmw(access_keys[i]);
+          // We handle accesses to the extra table here as well.
+          // Do Extra first, then normal. Do RMWs first, then reads
+
+          for (int32_t i = 0; i < workload_.extra_table_rmws_; ++i) {
+            ret = do_rmw(&extra_table_, extra_keys[i]);
             if (ret != kErrorCodeOk) {
-              break;
+              goto finish;
             }
           }
-          if (ret == kErrorCodeOk) {
-            for (int32_t i = 0; i < workload_.rmw_additional_reads_; i++) {
-              ret = do_read(access_keys[workload_.reps_per_tx_ + i]);
-              if (ret != kErrorCodeOk) {
-                break;
-              }
+
+          for (int32_t i = 0; i < workload_.extra_table_reads_; ++i) {
+            ret = do_read(&extra_table_, extra_keys[workload_.extra_table_rmws_ + i]);
+            if (ret != kErrorCodeOk) {
+              goto finish;
+            }
+          }
+
+          for (int32_t i = 0; i < workload_.reps_per_tx_; ++i) {
+            ret = do_rmw(&user_table_, user_keys[i]);
+            if (ret != kErrorCodeOk) {
+              goto finish;
+            }
+          }
+
+          for (int32_t i = 0; i < workload_.rmw_additional_reads_; ++i) {
+            ret = do_read(&user_table_, user_keys[workload_.reps_per_tx_ + i]);
+            if (ret != kErrorCodeOk) {
+              goto finish;
             }
           }
         }
       }
 
+    finish:
       // Done with data access, try to commit
       Epoch commit_epoch;
       if (ret == kErrorCodeOk) {
         ret = xct_manager_->precommit_xct(context_, &commit_epoch);
         if (ret == kErrorCodeOk) {
           ASSERT_ND(!context->is_running_xct());
-          access_keys.clear();
+          user_keys.clear();
+          extra_keys.clear();
           break;
         }
       } else {
@@ -212,6 +306,23 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
 
       if (ret == kErrorCodeXctRaceAbort) {
         increment_race_aborts();
+        ++cur_bucket_abort;
+        // after each abort, check if we need to move on. if so, give up.
+        // this is required to exclude "sticking" transaction after bucket/workload switch
+        if (outputs_->cur_bucket_ != channel_->cur_output_bucket_
+          || cur_flip_workload != channel_->shifted_workload_) {
+          abort_gave_up = true;
+          break;
+        }
+        continue;
+      } else if (ret == kErrorCodeXctLockAbort) {
+        increment_lock_aborts();
+        ++cur_bucket_abort;
+        if (outputs_->cur_bucket_ != channel_->cur_output_bucket_
+          || cur_flip_workload != channel_->shifted_workload_) {
+          abort_gave_up = true;
+          break;
+        }
         continue;
       } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
         ret == kErrorCodeXctPointerSetOverflow ||
@@ -234,7 +345,10 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
         }
       }
     }
-    ++outputs_->processed_;
+    if (!abort_gave_up) {
+      ++outputs_->processed_;
+      ++cur_bucket_throughput;
+    }
     if (UNLIKELY(outputs_->processed_ % (1U << 8) == 0)) {  // it's just stats. not too frequent
       outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
       outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();
@@ -245,7 +359,13 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   return kRetOk;
 }
 
-ErrorCode YcsbClientTask::do_read(const YcsbKey& key) {
+ErrorCode YcsbClientTask::do_read(
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashStorage* table,
+#else
+  storage::masstree::MasstreeStorage* table,
+#endif
+  const YcsbKey& key) {
   YcsbRecord r;
   if (read_all_fields_) {
 #ifdef YCSB_HASH_STORAGE
@@ -253,13 +373,13 @@ ErrorCode YcsbClientTask::do_read(const YcsbKey& key) {
 #else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
-    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
+    CHECK_ERROR_CODE(table->get_record(context_, key.ptr(), key.size(), &r, &payload_len, true));
   } else {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
-    CHECK_ERROR_CODE(user_table_.get_record_part(context_,
-      key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
+    CHECK_ERROR_CODE(table->get_record_part(context_,
+      key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength, true));
   }
   return kErrorCodeOk;
 }
@@ -281,7 +401,13 @@ ErrorCode YcsbClientTask::do_update(const YcsbKey& key) {
   return kErrorCodeOk;
 }
 
-ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
+ErrorCode YcsbClientTask::do_rmw(
+#ifdef YCSB_HASH_STORAGE
+  storage::hash::HashStorage* table,
+#else
+  storage::masstree::MasstreeStorage* table,
+#endif
+  const YcsbKey& key) {
   YcsbRecord r;
 
   // Read
@@ -291,20 +417,32 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
 #else
     foedus::storage::masstree::PayloadLength payload_len = sizeof(YcsbRecord);
 #endif
-    CHECK_ERROR_CODE(user_table_.get_record(context_, key.ptr(), key.size(), &r, &payload_len));
+    CHECK_ERROR_CODE(table->get_record(
+      context_,
+      key.ptr(),
+      key.size(),
+      &r,
+      &payload_len,
+      false));
   } else {
     // Randomly pick one field to read
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
     uint32_t offset = field * kFieldLength;
-    CHECK_ERROR_CODE(user_table_.get_record_part(context_,
-      key.ptr(), key.size(), &r.data_[offset], offset, kFieldLength));
+    CHECK_ERROR_CODE(table->get_record_part(
+      context_,
+      key.ptr(),
+      key.size(),
+      &r.data_[offset],
+      offset,
+      kFieldLength,
+      false));
   }
 
   // Modify-Write
   if (write_all_fields_) {
     r = YcsbRecord('w');
     CHECK_ERROR_CODE(
-      user_table_.overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
+      table->overwrite_record(context_, key.ptr(), key.size(), &r, 0, sizeof(r)));
   } else {
     // Randomly pick one filed to update
     uint32_t field = rnd_field_select_.uniform_within(0, kFields - 1);
@@ -312,7 +450,7 @@ ErrorCode YcsbClientTask::do_rmw(const YcsbKey& key) {
     char* f = r.get_field(field);
     YcsbRecord::initialize_field(f);  // modify the field
     CHECK_ERROR_CODE(
-      user_table_.overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
+      table->overwrite_record(context_, key.ptr(), key.size(), f, offset, kFieldLength));
   }
   return kErrorCodeOk;
 }

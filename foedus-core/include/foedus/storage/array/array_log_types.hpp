@@ -135,7 +135,7 @@ struct ArrayOverwriteLogType : public ArrayCommonUpdateLogType {
   void apply_record(
     thread::Thread* context,
     StorageId storage_id,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* payload) const ALWAYS_INLINE;
 
   void assert_valid() const ALWAYS_INLINE;
@@ -209,7 +209,7 @@ struct ArrayIncrementLogType : public ArrayCommonUpdateLogType {
   void apply_record(
     thread::Thread* context,
     StorageId storage_id,
-    xct::LockableXctId* owner_id,
+    xct::RwLockableXctId* owner_id,
     char* payload) const ALWAYS_INLINE;
 
   /**
@@ -261,7 +261,7 @@ inline void ArrayOverwriteLogType::populate_primitive(
 inline void ArrayOverwriteLogType::apply_record(
   thread::Thread* /*context*/,
   StorageId /*storage_id*/,
-  xct::LockableXctId* /*owner_id*/,
+  xct::RwLockableXctId* /*owner_id*/,
   char* payload) const {
   ASSERT_ND(payload_count_ < kDataSize);
   std::memcpy(payload + payload_offset_, payload_, payload_count_);
@@ -303,7 +303,7 @@ inline void increment(T* payload, const T* addendum) {
 inline void ArrayIncrementLogType::apply_record(
   thread::Thread* /*context*/,
   StorageId /*storage_id*/,
-  xct::LockableXctId* /*owner_id*/,
+  xct::RwLockableXctId* /*owner_id*/,
   char* payload) const {
   switch (get_value_type()) {
     // 32 bit data types

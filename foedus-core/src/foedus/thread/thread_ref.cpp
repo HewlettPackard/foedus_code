@@ -39,7 +39,10 @@ ThreadRef::ThreadRef()
   control_block_(nullptr),
   task_input_memory_(nullptr),
   task_output_memory_(nullptr),
-  mcs_blocks_(nullptr) {}
+  mcs_ww_blocks_(nullptr),
+  mcs_rw_simple_blocks_(nullptr),
+  mcs_rw_extended_blocks_(nullptr),
+  mcs_rw_async_mappings_(nullptr) {}
 
 ThreadRef::ThreadRef(Engine* engine, ThreadId id) : engine_(engine), id_(id) {
   soc::SharedMemoryRepo* memory_repo = engine->get_soc_manager()->get_shared_memory_repo();
@@ -47,7 +50,10 @@ ThreadRef::ThreadRef(Engine* engine, ThreadId id) : engine_(engine), id_(id) {
   control_block_ = anchors->thread_memory_;
   task_input_memory_ = anchors->task_input_memory_;
   task_output_memory_ = anchors->task_output_memory_;
-  mcs_blocks_ = anchors->mcs_lock_memories_;
+  mcs_ww_blocks_ = anchors->mcs_ww_lock_memories_;
+  mcs_rw_simple_blocks_ = anchors->mcs_rw_simple_lock_memories_;
+  mcs_rw_extended_blocks_ = anchors->mcs_rw_extended_lock_memories_;
+  mcs_rw_async_mappings_ = anchors->mcs_rw_async_mappings_memories_;
 }
 
 bool ThreadRef::try_impersonate(
@@ -140,6 +146,16 @@ Epoch ThreadGroupRef::get_min_in_commit_epoch() const {
   return ret;
 }
 
+xct::McsRwAsyncMapping* ThreadRef::get_mcs_rw_async_mapping(xct::UniversalLockId lock_id) {
+  uint32_t nmappings = control_block_->mcs_rw_async_mapping_current_;
+  for (uint32_t i = 0; i < nmappings; ++i) {
+    if (mcs_rw_async_mappings_[i].lock_id_ == lock_id) {
+      return mcs_rw_async_mappings_ + i;
+    }
+  }
+  ASSERT_ND(false);
+  return nullptr;
+}
 
 std::ostream& operator<<(std::ostream& o, const ThreadGroupRef& v) {
   o << "<ThreadGroupRef>";

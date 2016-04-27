@@ -137,8 +137,8 @@ ErrorStack ArrayPartitioner::design_partition(
   for (uint16_t child = 0; child < direct_children; ++child) {
     const DualPagePointer &pointer = root_page->get_interior_record(child);
     PartitionId partition;
-    if (pointer.volatile_pointer_.components.offset != 0) {
-      partition = pointer.volatile_pointer_.components.numa_node;
+    if (!pointer.volatile_pointer_.is_null()) {
+      partition = pointer.volatile_pointer_.get_numa_node();
     } else {
       // if no volatile page, see snapshot page owner.
       partition = extract_numa_node_from_snapshot_pointer(pointer.snapshot_pointer_);

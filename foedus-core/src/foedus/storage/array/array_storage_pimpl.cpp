@@ -51,7 +51,7 @@
 namespace foedus {
 namespace storage {
 namespace array {
-
+// FIXME(tzwang): overwrite_record here doesn't add to read set, should we?
 // Defines ArrayStorage methods so that we can inline implementation calls
 uint16_t    ArrayStorage::get_payload_size() const  { return control_block_->meta_.payload_size_; }
 ArrayOffset ArrayStorage::get_array_size()   const  { return control_block_->meta_.array_size_; }
@@ -208,13 +208,13 @@ void ArrayStoragePimpl::release_pages_recursive(
   const memory::GlobalVolatilePageResolver& resolver,
   memory::PageReleaseBatch* batch,
   VolatilePagePointer volatile_page_id) {
-  ASSERT_ND(volatile_page_id.components.offset != 0);
+  ASSERT_ND(!volatile_page_id.is_null());
   ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(volatile_page_id));
   if (!page->is_leaf()) {
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {
       DualPagePointer &child_pointer = page->get_interior_record(i);
       VolatilePagePointer child_page_id = child_pointer.volatile_pointer_;
-      if (child_page_id.components.offset != 0) {
+      if (!child_page_id.is_null()) {
         // then recurse
         release_pages_recursive(resolver, batch, child_page_id);
         child_pointer.volatile_pointer_.word = 0;
@@ -379,15 +379,8 @@ inline ErrorCode ArrayStoragePimpl::get_record(
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
-  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    &context->get_current_xct(),
-    get_id(),
-    &record->owner_id_,
-    snapshot_record,
-    [record, payload, payload_offset, payload_count](xct::XctId /*observed*/){
-      std::memcpy(payload, record->payload_ + payload_offset, payload_count);
-      return kErrorCodeOk;
-    }));
+  CHECK_ERROR_CODE(context->get_current_xct().on_record_read(false, &record->owner_id_));
+  std::memcpy(payload, record->payload_ + payload_offset, payload_count);
   return kErrorCodeOk;
 }
 
@@ -401,16 +394,9 @@ ErrorCode ArrayStoragePimpl::get_record_primitive(
   Record *record = nullptr;
   bool snapshot_record;
   CHECK_ERROR_CODE(locate_record_for_read(context, offset, &record, &snapshot_record));
-  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    &context->get_current_xct(),
-    get_id(),
-    &record->owner_id_,
-    snapshot_record,
-    [record, payload, payload_offset](xct::XctId /*observed*/){
-      char* ptr = record->payload_ + payload_offset;
-      *payload = *reinterpret_cast<const T*>(ptr);
-      return kErrorCodeOk;
-    }));
+  CHECK_ERROR_CODE(context->get_current_xct().on_record_read(false, &record->owner_id_));
+  char* ptr = record->payload_ + payload_offset;
+  *payload = *reinterpret_cast<const T*>(ptr);
   return kErrorCodeOk;
 }
 
@@ -424,9 +410,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload(
   xct::Xct& current_xct = context->get_current_xct();
   if (!snapshot_record &&
     current_xct.get_isolation_level() != xct::kDirtyRead) {
-    xct::XctId observed(record->owner_id_.xct_id_);
-    assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &record->owner_id_));
+    CHECK_ERROR_CODE(current_xct.on_record_read(false, &record->owner_id_));
   }
   *payload = record->payload_;
   return kErrorCodeOk;
@@ -439,9 +423,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write(
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, record));
   xct::Xct& current_xct = context->get_current_xct();
   if (current_xct.get_isolation_level() != xct::kDirtyRead) {
-    xct::XctId observed((*record)->owner_id_.xct_id_);
-    assorted::memory_fence_consume();
-    CHECK_ERROR_CODE(current_xct.add_to_read_set(get_id(), observed, &((*record)->owner_id_)));
+    CHECK_ERROR_CODE(current_xct.on_record_read(true, &(*record)->owner_id_));
   }
   return kErrorCodeOk;
 }
@@ -508,24 +490,12 @@ ErrorCode ArrayStoragePimpl::increment_record(
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
 
   // this is get_record + overwrite_record
-  T tmp;
-  T* tmp_address = &tmp;
-  // NOTE if we directly pass value and increment there, we might do it multiple times!
-  // optimistic_read_protocol() retries if there are version mismatch.
-  // so it must be idempotent. be careful!
-  // Only Array's increment can be the rare "write-set only" log.
-  // other increments have to check deletion bit at least.
-  // To make use of it, we do have array increment log with primitive type as parameter.
-  CHECK_ERROR_CODE(xct::optimistic_read_protocol(
-    &context->get_current_xct(),
-    get_id(),
-    &record->owner_id_,
-    false,
-    [record, tmp_address, payload_offset](xct::XctId /*observed*/){
-      char* ptr = record->payload_ + payload_offset;
-      *tmp_address = *reinterpret_cast<const T*>(ptr);
-      return kErrorCodeOk;
-    }));
+  // NOTE This version is like other storage's increment implementation.
+  // Taking read-set (and potentially locks), read the value, then remember the overwrite log.
+  // However the increment_record_oneshot() below is pretty different.
+  CHECK_ERROR_CODE(context->get_current_xct().on_record_read(true, &record->owner_id_));
+  char* ptr = record->payload_ + payload_offset;
+  T tmp = *reinterpret_cast<const T*>(ptr);
   *value += tmp;
   uint16_t log_length = ArrayOverwriteLogType::calculate_log_length(sizeof(T));
   ArrayOverwriteLogType* log_entry = reinterpret_cast<ArrayOverwriteLogType*>(
@@ -547,6 +517,9 @@ ErrorCode ArrayStoragePimpl::increment_record_oneshot(
   ASSERT_ND(payload_offset + sizeof(T) <= get_payload_size());
   Record *record = nullptr;
   CHECK_ERROR_CODE(locate_record_for_write(context, offset, &record));
+  // Only Array's increment can be the rare "write-set only" log.
+  // other increments have to check deletion bit at least.
+  // To make use of it, we do have array increment log with primitive type as parameter.
   ValueType type = to_value_type<T>();
   uint16_t log_length = ArrayIncrementLogType::calculate_log_length(type);
   ArrayIncrementLogType* log_entry = reinterpret_cast<ArrayIncrementLogType*>(
@@ -721,11 +694,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_primitive_batch(
   if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
-        xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
-        CHECK_ERROR_CODE(current_xct.add_to_read_set(
-          get_id(),
-          observed,
-          &record_batch[i]->owner_id_));
+        CHECK_ERROR_CODE(current_xct.on_record_read(false, &record_batch[i]->owner_id_));
       }
     }
     assorted::memory_fence_consume();
@@ -763,11 +732,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_payload_batch(
   if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
       if (!snapshot_record_batch[i]) {
-        xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
-        CHECK_ERROR_CODE(current_xct.add_to_read_set(
-          get_id(),
-          observed,
-          &record_batch[i]->owner_id_));
+        CHECK_ERROR_CODE(current_xct.on_record_read(false, &record_batch[i]->owner_id_));
       }
     }
     assorted::memory_fence_consume();
@@ -792,11 +757,7 @@ inline ErrorCode ArrayStoragePimpl::get_record_for_write_batch(
   xct::Xct& current_xct = context->get_current_xct();
   if (current_xct.get_isolation_level() != xct::kDirtyRead) {
     for (uint8_t i = 0; i < batch_size; ++i) {
-      xct::XctId observed(record_batch[i]->owner_id_.xct_id_);
-      CHECK_ERROR_CODE(current_xct.add_to_read_set(
-        get_id(),
-        observed,
-        &record_batch[i]->owner_id_));
+      CHECK_ERROR_CODE(current_xct.on_record_read(true, &record_batch[i]->owner_id_));
     }
     assorted::memory_fence_consume();
   }
@@ -989,13 +950,60 @@ ErrorStack ArrayStoragePimpl::verify_single_thread(thread::Thread* context, Arra
     for (uint16_t i = 0; i < kInteriorFanout; ++i) {
       DualPagePointer &child_pointer = page->get_interior_record(i);
       VolatilePagePointer page_id = child_pointer.volatile_pointer_;
-      if (page_id.components.offset != 0) {
+      if (!page_id.is_null()) {
         // then recurse
         ArrayPage* child_page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(page_id));
         CHECK_ERROR(verify_single_thread(context, child_page));
       }
     }
   }
+  return kRetOk;
+}
+
+
+ErrorStack ArrayStorage::hcc_reset_all_temperature_stat() {
+  ArrayStoragePimpl pimpl(this);
+  return pimpl.hcc_reset_all_temperature_stat();
+}
+
+ErrorStack ArrayStoragePimpl::hcc_reset_all_temperature_stat() {
+  LOG(INFO) << "**"
+    << std::endl << "***************************************************************"
+    << std::endl << "***   Reseting " << ArrayStorage(engine_, control_block_) << "'s "
+    << std::endl << "*** temperature stat for HCC"
+    << std::endl << "***************************************************************";
+
+  DualPagePointer pointer = control_block_->root_page_pointer_;
+  if (pointer.volatile_pointer_.is_null()) {
+    LOG(INFO) << "No volatile pages.";
+  } else {
+    CHECK_ERROR(hcc_reset_all_temperature_stat_intermediate(pointer.volatile_pointer_));
+  }
+
+  LOG(INFO) << "Done resettting";
+  return kRetOk;
+}
+
+ErrorStack ArrayStoragePimpl::hcc_reset_all_temperature_stat_intermediate(
+  VolatilePagePointer intermediate_page_id) {
+  const auto& resolver = engine_->get_memory_manager()->get_global_volatile_page_resolver();
+  ArrayPage* page = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(intermediate_page_id));
+  ASSERT_ND(page);
+  ASSERT_ND(!page->is_leaf());
+  const bool bottom = page->get_level() == 1U;
+  for (uint8_t i = 0; i < kInteriorFanout; ++i) {
+    VolatilePagePointer page_id = page->get_interior_record(i).volatile_pointer_;
+    if (page_id.is_null()) {
+      continue;
+    }
+    if (bottom) {
+      ArrayPage* leaf = reinterpret_cast<ArrayPage*>(resolver.resolve_offset(page_id));
+      leaf->header().hotness_.reset();
+    } else {
+      CHECK_ERROR(hcc_reset_all_temperature_stat_intermediate(page_id));
+    }
+  }
+
   return kRetOk;
 }
 

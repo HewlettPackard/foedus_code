@@ -75,17 +75,9 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
   cur->prefetch_general();
   while (!cur->is_border()) {
     ASSERT_ND(cur->within_fences(slice));
-    if (UNLIKELY(cur->has_foster_child())) {
-      // follow one of foster-twin.
-      if (cur->within_foster_minor(slice)) {
-        cur = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(cur->get_foster_minor()));
-      } else {
-        cur = reinterpret_cast<MasstreePage*>(resolver.resolve_offset(cur->get_foster_major()));
-      }
-      ASSERT_ND(cur->within_fences(slice));
-      continue;
-    }
-
+    // We do NOT follow foster-twins here.
+    // Foster-twins are sooner or later adopted, and Master-Tree invariant for intermediate page
+    // guarantees that we can just read the old page. no need to follow foster-twins.
     const MasstreeIntermediatePage* page = reinterpret_cast<const MasstreeIntermediatePage*>(cur);
     uint8_t minipage_index = page->find_minipage(slice);
     const MasstreeIntermediatePage::MiniPage& minipage = page->get_minipage(minipage_index);
@@ -134,9 +126,9 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_next_layer(
 
   VolatilePagePointer pointer = border->get_next_layer(rec)->volatile_pointer_;
   if (UNLIKELY(pointer.is_null()
-    || pointer.components.numa_node >= resolver.numa_node_count_
-    || pointer.components.offset < resolver.begin_
-    || pointer.components.offset >= resolver.end_)) {
+    || pointer.get_numa_node() >= resolver.numa_node_count_
+    || pointer.get_offset() < resolver.begin_
+    || pointer.get_offset() >= resolver.end_)) {
     LOG(INFO) << "Encountered invalid page during peeking. Gives up finding a page boundary hint";
     return kErrorCodeOk;
   }
@@ -220,9 +212,9 @@ ErrorCode MasstreeStoragePimpl::peek_volatile_page_boundaries_this_layer_recurse
     // recurse to find more. note that it might contain pages of interest
     // even if boundary < args.from_ because it's a *low*-fence.
     if (needs_recurse && !pointer.is_null()) {
-      if (LIKELY(pointer.components.numa_node < resolver.numa_node_count_
-        && pointer.components.offset >= resolver.begin_
-        && pointer.components.offset < resolver.end_)) {
+      if (LIKELY(pointer.get_numa_node() < resolver.numa_node_count_
+        && pointer.get_offset() >= resolver.begin_
+        && pointer.get_offset() < resolver.end_)) {
         const MasstreeIntermediatePage* next
           = reinterpret_cast<const MasstreeIntermediatePage*>(resolver.resolve_offset(pointer));
         if (next->is_border()) {

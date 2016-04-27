@@ -92,6 +92,18 @@ DEFINE_bool(high_priority, false, "Set high priority to threads. Needs 'rtprio 9
 DEFINE_int32(warehouses, 16, "Number of warehouses.");
 DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 
+// A bit different from YCSB experiment.
+// We don't vary many things in this TPCC experiment, so we just represent the configurations
+// by just one parameter.
+DEFINE_int32(hcc_policy, 1, "Specifies configurations about HCC/MOCC."
+  " default: 0 (MOCC, RLL-on, threshold 10)"
+  " 1 (OCC, RLL-off, threshold 256)"
+  " 2 (PCC, RLL-off, threshold 0)"
+);
+
+DEFINE_bool(suppress_memory_prescreen, false, "Whether to turn off environment check.");
+
+
 #ifdef OLAP_MODE
 DEFINE_bool(dirty_read, false, "[Experimental] Whether to use dirty-read isolation level."
   " Can be used only in OLAP_MODE.");
@@ -161,21 +173,23 @@ TpccDriver::Result TpccDriver::run() {
     }
 
 #ifndef OLAP_MODE
-    const uint64_t kMaxWaitMs = 60 * 1000;
+    const uint64_t kMaxWaitMs = 180 * 1000;
     const uint64_t kIntervalMs = 10;
 #else  // OLAP_MODE
     const uint64_t kMaxWaitMs = 1000 * 1000;
     const uint64_t kIntervalMs = 100;
 #endif  // OLAP_MODE
-    uint64_t wait_count = 0;
+    debugging::StopWatch load_duration;
     for (uint16_t i = 0; i < sessions.size();) {
       assorted::memory_fence_acquire();
-      if (wait_count * kIntervalMs > kMaxWaitMs) {
+      // We initially used "kIntervalMs * wait_count", but it resulted in a
+      // way earlier timeout (like 1 min) due to spurious wakeups. let's use timer.
+      const uint64_t load_elapsed_ms = load_duration.peek_elapsed_ns() / 1000000ULL;
+      if (load_elapsed_ms > kMaxWaitMs) {
         LOG(FATAL) << "Data population is taking much longer than expected. Quiting.";
       }
       if (sessions[i].is_running()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(kIntervalMs));
-        ++wait_count;
         continue;
       }
       LOG(INFO) << "loader_result[" << i << "]=" << sessions[i].get_result();
@@ -186,7 +200,8 @@ TpccDriver::Result TpccDriver::run() {
       ++i;
     }
 
-    LOG(INFO) << "Completed data load";
+    load_duration.stop();
+    LOG(INFO) << "Completed data load in " << load_duration.elapsed_sec() << " sec";
   }
 
 
@@ -461,6 +476,9 @@ int driver_main(int argc, char **argv) {
   }
 
   EngineOptions options;
+  if (FLAGS_suppress_memory_prescreen) {
+    options.memory_.suppress_memory_prescreening_ = true;
+  }
 
   fs::Path savepoint_path(folder);
   savepoint_path /= "savepoint.xml";
@@ -614,6 +632,38 @@ int driver_main(int argc, char **argv) {
     std::cout << "Will duplicate binaries and exec workers in child processes" << std::endl;
     options.soc_.soc_type_ = kChildLocalSpawned;
   }
+
+  switch (FLAGS_hcc_policy) {
+    case 0:
+      // " default: 0 (MOCC, RLL-on, threshold 50)"
+      options.storage_.hot_threshold_ = 10;
+      options.xct_.hot_threshold_for_retrospective_lock_list_ = 9;
+      options.xct_.enable_retrospective_lock_list_ = true;
+      options.xct_.force_canonical_xlocks_in_precommit_ = true;
+      // No options about paralell locks. we use simple locks in this experiment
+      break;
+    case 1:
+      // " 1 (OCC, RLL-off, threshold 256)"
+      options.storage_.hot_threshold_ = 256;
+      options.xct_.hot_threshold_for_retrospective_lock_list_ = 256;
+      options.xct_.enable_retrospective_lock_list_ = false;
+      options.xct_.force_canonical_xlocks_in_precommit_ = true;
+      break;
+    case 2:
+      // " 2 (PCC, RLL-off, threshold 0)"
+      options.storage_.hot_threshold_ = 0;
+      options.xct_.hot_threshold_for_retrospective_lock_list_ = 0;
+      options.xct_.enable_retrospective_lock_list_ = false;
+      options.xct_.force_canonical_xlocks_in_precommit_ = true;
+      break;
+    default:
+      LOG(FATAL) << "Unknown hcc_policy value:" << FLAGS_hcc_policy;
+  }
+  std::cout
+    << "hcc_policy value:" << FLAGS_hcc_policy
+    << ", Hot record threshold: " << options.storage_.hot_threshold_
+    << ", RLL:" << options.xct_.enable_retrospective_lock_list_
+    << std::endl;
 
   TpccDriver::Result result;
   {

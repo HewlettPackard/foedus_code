@@ -94,71 +94,117 @@ ErrorStack ycsb_load_task(const proc::ProcArguments& args) {
   return task.run(
     context,
     inputs->load_node_,
-    inputs->records_per_thread_,
+    inputs->user_records_per_thread_,
+    inputs->extra_records_per_thread_,
     inputs->sort_load_keys_,
-    inputs->spread_);
+    inputs->user_table_spread_,
+    inputs->extra_table_spread_);
 }
 
 ErrorStack YcsbLoadTask::run(
   thread::Thread* context,
   uint16_t node,
-  uint64_t records_per_thread,
+  uint64_t user_records_per_thread,
+  uint64_t extra_records_per_thread,
   bool sort_load_keys,
-  bool spread) {
+  bool user_table_spread,
+  bool extra_table_spread) {
   Engine* engine = context->get_engine();
 #ifdef YCSB_HASH_STORAGE
   auto user_table = engine->get_storage_manager()->get_hash("ycsb_user_table");
+  auto extra_table = engine->get_storage_manager()->get_hash("ycsb_extra_table");
 #else
   auto user_table = engine->get_storage_manager()->get_masstree("ycsb_user_table");
+  auto extra_table = engine->get_storage_manager()->get_masstree("ycsb_extra_table");
 #endif
-  auto* xct_manager = engine->get_xct_manager();
 
   // Now populate the table, round-robin for each worker id (as the high bits) in my group.
   debugging::StopWatch watch;
   auto& options = engine->get_options();
-  uint64_t inserted = 0;
-  std::vector<YcsbKey> keys;
+  uint64_t user_inserted = 0;
+  uint64_t extra_inserted = 0;
+  std::vector<YcsbKey> user_keys;
+  std::vector<YcsbKey> extra_keys;
 
   // Insert (equal number of) records on behalf of each worker
-  Epoch commit_epoch;
-  for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
-    auto remaining_inserts = records_per_thread;
-    uint32_t high = node * options.thread_.thread_count_per_group_ + ordinal, low = 0;
-    YcsbKey key;
-    while (true) {
-      key.build(high, low++);
-      if (sort_load_keys) {
-        keys.push_back(key);
-      } else {
-        YcsbRecord r('a');
-        COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-        COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-        COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
+  if (user_table_spread || node == 0) {
+    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
+      auto remaining_user_inserts = user_records_per_thread;
+      uint32_t high = node * options.thread_.thread_count_per_group_ + ordinal, low = 0;
+      YcsbKey key;
+      while (remaining_user_inserts) {
+        key.build(high, low++);
+        user_keys.push_back(key);
+        user_inserted++;
+        --remaining_user_inserts;
       }
-      inserted++;
-      if (--remaining_inserts == 0) {
+      ASSERT_ND(remaining_user_inserts == 0);
+      if (!user_table_spread) {  // do it on behalf of only one worker
         break;
       }
     }
-    ASSERT_ND(remaining_inserts == 0);
-    if (!spread) {  // do it on behalf of only one worker
-      break;
+  }
+
+  if (extra_table_spread || node == 0) {
+    for (uint16_t ordinal = 0; ordinal < options.thread_.thread_count_per_group_; ordinal++) {
+      if (!extra_table_spread && ordinal != 0) {
+        break;
+      }
+      auto remaining_extra_inserts = extra_records_per_thread;
+      uint32_t high = node * options.thread_.thread_count_per_group_ + ordinal, low = 0;
+      YcsbKey key;
+      while (remaining_extra_inserts) {
+        key.build(high, low++);
+        extra_keys.push_back(key);
+        extra_inserted++;
+        --remaining_extra_inserts;
+      }
+      ASSERT_ND(remaining_extra_inserts == 0);
+      if (!extra_table_spread) {  // do it on behalf of only one worker
+        break;
+      }
     }
   }
 
   if (sort_load_keys) {
-    ASSERT_ND(keys.size());
-    std::sort(keys.begin(), keys.end());
-    for (auto &key : keys) {
-      YcsbRecord r('a');
-      COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
-      COERCE_ERROR_CODE(user_table.insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
-      COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
-    }
+    ASSERT_ND(user_keys.size());
+    std::sort(user_keys.begin(), user_keys.end());
+    std::sort(extra_keys.begin(), extra_keys.end());
+  }
+
+  if (user_keys.size()) {
+    COERCE_ERROR(load_table(context, user_keys, &user_table));
+  }
+  if (extra_keys.size()) {
+    COERCE_ERROR(load_table(context, extra_keys, &extra_table));
+  }
+
+  watch.stop();
+  LOG(INFO) << "[YCSB] Loaded " << user_inserted << " user table records, "
+    << extra_inserted << " extra table records in " << watch.elapsed_sec() << "s";
+  return kRetOk;
+}
+
+ErrorStack YcsbLoadTask::load_table(
+  thread::Thread* context,
+  const std::vector<YcsbKey>& keys,
+#ifndef YCSB_HASH_STORAGE
+  storage::masstree::MasstreeStorage* table) {
+#else
+  storage::hash::HashStorage* table) {
+#endif
+  Engine* engine = context->get_engine();
+  auto* xct_manager = engine->get_xct_manager();
+  Epoch commit_epoch;
+
+  for (auto &key : keys) {
+    YcsbRecord r('a');
+    COERCE_ERROR_CODE(xct_manager->begin_xct(context, xct::kSerializable));
+    COERCE_ERROR_CODE(
+      table->insert_record(context, key.ptr(), key.size(), &r, sizeof(r)));
+    COERCE_ERROR_CODE(xct_manager->precommit_xct(context, &commit_epoch));
   }
   COERCE_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
-  watch.stop();
-  LOG(INFO) << "[YCSB] Loaded " << inserted << " records in " << watch.elapsed_sec() << "s";
   return kRetOk;
 }
 

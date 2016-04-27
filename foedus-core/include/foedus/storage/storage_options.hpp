@@ -30,6 +30,7 @@ struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
   enum Constants {
     kDefaultMaxStorages = 1 << 9,
     kDefaultPartitionerDataMemoryMb = 1,
+    kDefaultHotThreshold = 256,  // OCC by default (for test cases and benchamrks that don't set it)
   };
   /**
    * Constructs option values with default values.
@@ -48,6 +49,11 @@ struct StorageOptions CXX11_FINAL : public virtual externalize::Externalizable {
    * So far, this must be less than 4GB.
    */
   uint32_t                partitioner_data_memory_mb_;
+
+  /**
+   * Page hotness >= this value will be considered hot (hybrid CC only).
+   */
+  uint64_t                hot_threshold_;
 
   EXTERNALIZABLE(StorageOptions);
 };

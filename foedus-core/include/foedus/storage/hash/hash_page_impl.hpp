@@ -69,6 +69,14 @@ class HashIntermediatePage final {
 
   PageHeader&             header() { return header_; }
   const PageHeader&       header() const { return header_; }
+  VolatilePagePointer     get_volatile_page_id() const {
+    ASSERT_ND(!header_.snapshot_);
+    return VolatilePagePointer(header_.page_id_);
+  }
+  SnapshotPagePointer     get_snapshot_page_id() const {
+    ASSERT_ND(header_.snapshot_);
+    return static_cast<SnapshotPagePointer>(header_.page_id_);
+  }
   DualPagePointer&        get_pointer(uint16_t index) { return pointers_[index]; }
   const DualPagePointer&  get_pointer(uint16_t index) const { return pointers_[index]; }
   DualPagePointer*        get_pointer_address(uint16_t index) { return pointers_ + index; }
@@ -129,9 +137,6 @@ class HashIntermediatePage final {
   DualPagePointer     pointers_[kHashIntermediatePageFanout];
 };
 
-typedef uint16_t DataPageSlotIndex;
-const DataPageSlotIndex kSlotNotFound = 0xFFFFU;
-
 /**
  * @brief Represents an individual data page in \ref HASH.
  * @ingroup HASH
@@ -149,6 +154,7 @@ const DataPageSlotIndex kSlotNotFound = 0xFFFFU;
  */
 class HashDataPage final {
  public:
+  friend struct ReserveRecords;
   /**
    * Fix-sized slot for each record, which is placed at the end of data region.
    */
@@ -156,7 +162,7 @@ class HashDataPage final {
     /**
      * TID of the record.
      */
-    xct::LockableXctId tid_;            // +16 -> 16
+    xct::RwLockableXctId tid_;            // +16 -> 16
 
     /**
      * Byte offset in data_ where this record starts.
@@ -203,7 +209,6 @@ class HashDataPage final {
     VolatilePagePointer page_id,
     const Page* parent,
     HashBin bin,
-    uint8_t bin_bits,
     uint8_t bin_shifts);
   void initialize_snapshot_page(
     StorageId storage_id,
@@ -219,6 +224,16 @@ class HashDataPage final {
   // simple accessors
   PageHeader&               header() { return header_; }
   const PageHeader&         header() const { return header_; }
+  bool                      is_locked() const { return header_.page_version_.is_locked(); }
+
+  VolatilePagePointer       get_volatile_page_id() const {
+    ASSERT_ND(!header_.snapshot_);
+    return VolatilePagePointer(header_.page_id_);
+  }
+  SnapshotPagePointer       get_snapshot_page_id() const {
+    ASSERT_ND(header_.snapshot_);
+    return static_cast<SnapshotPagePointer>(header_.page_id_);
+  }
 
   inline const DualPagePointer&  next_page() const ALWAYS_INLINE { return next_page_; }
   inline DualPagePointer&   next_page() ALWAYS_INLINE { return next_page_; }
@@ -234,6 +249,10 @@ class HashDataPage final {
     return reinterpret_cast<const Slot*>(this + 1)[-record - 1];
   }
   inline Slot&              get_slot(DataPageSlotIndex record) ALWAYS_INLINE {
+    return reinterpret_cast<Slot*>(this + 1)[-record - 1];
+  }
+  inline Slot&              get_new_slot(DataPageSlotIndex record) ALWAYS_INLINE {
+    // Only in this method, record is okay to be == key_count
     return reinterpret_cast<Slot*>(this + 1)[-record - 1];
   }
   /** same as &get_slot(), but this is more explicit and easier to understand/maintain */
@@ -343,7 +362,10 @@ class HashDataPage final {
    * @param[in] key full key.
    * @param[in] key_length full key length.
    * @param[in] record_count how many records this page \e supposedly contains. See below.
-   * @param[out] observed When the key is found, we save its TID to this variable
+   * @param[in] check_from From which record we start searching. If you know that records before
+   * this index do definitely not contain the keys, this will speed up the search.
+   * The caller must guarantee that none of the records before this index have the key
+   * or they have been moved.
    * @return index of the slot that has the key. kSlotNotFound if not found (including
    * the case where an exactly-matched record's TID says it's "moved").
    * @invariant hash == hashinate(key, key_length)
@@ -355,14 +377,20 @@ class HashDataPage final {
    *
    * This method searches for a physical slot no matter whether the record is logically deleted.
    * However, "moved" records are completely ignored.
+   *
+   * This method is \e physical-only.
+   * The returend record might be now being modified or moved. The only contract is the
+   * returend slot (if not kSlotNotFound) points to a physical record whose key is exactly
+   * same as the given one. It is trivially guaranteed because key/hash in physical records
+   * in our hash pages are immutable.
    */
-  DataPageSlotIndex search_key(
+  DataPageSlotIndex search_key_physical(
     HashValue hash,
     const BloomFilterFingerprint& fingerprint,
     const void* key,
-    uint16_t key_length,
-    uint16_t record_count,
-    xct::XctId* observed) const;
+    KeyLength key_length,
+    DataPageSlotIndex record_count,
+    DataPageSlotIndex check_from = 0) const;
 
   /** returns whether the slot contains the exact key specified */
   inline bool compare_slot_key(

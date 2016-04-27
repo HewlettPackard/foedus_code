@@ -24,14 +24,25 @@
  */
 namespace foedus {
 namespace xct {
+class   CurrentLockList;
 struct  InCommitEpochGuard;
 struct  LockableXctId;
+struct  LockEntry;
+struct  LockFreeReadXctAccess;
 struct  LockFreeWriteXctAccess;
-struct  McsBlock;
-struct  McsLock;
-struct  McsLockScope;
+struct  McsRwLock;
+struct  McsRwBlock;  // To be removed
+struct  McsRwSimpleBlock;
+struct  McsRwExtendedBlock;
+struct  McsRwAsyncMapping;
+struct  McsWwLock;
+struct  McsWwBlock;
 struct  PointerAccess;
 struct  ReadXctAccess;
+class   RetrospectiveLockList;
+struct  RwLockableXctId;
+struct  SysxctFunctor;
+struct  SysxctWorkspace;
 struct  WriteXctAccess;
 class   Xct;
 struct  XctId;
