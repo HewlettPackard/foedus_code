@@ -281,21 +281,6 @@ McsWwLockScope& McsWwLockScope::operator=(McsWwLockScope&& other) {
   return *this;
 }
 
-void McsWwLockScope::move_to(storage::PageVersionLockScope* new_owner) {
-  ASSERT_ND(is_locked());
-  new_owner->context_ = context_;
-  // PageVersion's first member is McsWwLock, so this is ok.
-  new_owner->version_ = reinterpret_cast<storage::PageVersion*>(lock_);
-  ASSERT_ND(lock_ == &new_owner->version_->lock_);
-  new_owner->block_ = block_;
-  new_owner->changed_ = false;
-  new_owner->released_ = false;
-  context_ = nullptr;
-  lock_ = nullptr;
-  block_ = 0;
-  ASSERT_ND(!is_locked());
-}
-
 void McsWwLockScope::acquire(bool non_racy_acquire) {
   if (is_valid()) {
     if (block_ == 0) {

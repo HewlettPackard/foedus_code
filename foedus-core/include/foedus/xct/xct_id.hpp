@@ -1204,9 +1204,6 @@ struct McsWwLockScope {
   /** Release the lock if acquired. Does nothing if not or !is_valid(). */
   void release();
 
-  /** Just for PageVersionLockScope(McsWwLockScope*) */
-  void move_to(storage::PageVersionLockScope* new_owner);
-
  private:
   thread::Thread* context_;
   McsWwLock*        lock_;

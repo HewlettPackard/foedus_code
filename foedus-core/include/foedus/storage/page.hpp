@@ -198,67 +198,6 @@ struct PageVersion CXX11_FINAL {
 };
 
 /**
- * Scope object for locking a page.
- * Be very careful on chance of deadlock!
- * In most cases, we do not need page lock immediately, like child adopt which we can delay.
- * In such a case, prefer PageVersionTryLockScope.
- * Otherwise, you should release locks in CLL beforehand or make sure you lock only one page
- * at a time.
- */
-struct PageVersionLockScope {
-  /**
-   * Obtains a lock on the page so that we will automatically release it when this object
-   * gets out of scope.
-   * @param[in,out] context The current thread
-   * @param[in,out] version The page to lock
-   * @param[in] non_racy_lock Give true only when this page has no chance of racy accesses,
-   * such as you are workign on a new page. In that case, the locking itself is unnecessary
-   * and probably we are doing it just for faking assertions (eg operations only allowed with lock).
-   * @param[in] try_lock Obtain the lock in try mode. In try mode, we don't wait for
-   * lock acquisition. When we can't take the lock, we immediately give up.
-   * Check is_locked() to see whether you got the lock or not. Ignored if non_racy_lock.
-   */
-  PageVersionLockScope(
-    thread::Thread* context,
-    PageVersion* version,
-    bool non_racy_lock = false,
-    bool try_lock = false);
-  ~PageVersionLockScope() { release(); }
-
-  /**
-   * Convert an existing McsWwLockScope on page-version to this object.
-   * This is a tentative solution. Now that page-version doesn't need version counter,
-   * we should be able to use McsWwLockScope everywhere.
-   * @pre move_from->is_locked()
-   * @post !move_from->is_locked() (we steal the lock from the arg)
-   */
-  explicit PageVersionLockScope(xct::McsWwLockScope* move_from);
-
-  /**
-   * A \e move operator that takes over the other lock, consisting of:
-   * \li Releases this lock if !released
-   * \li Copies all members in move_from
-   * \li Sets "released_" in move_from without releasing the lock
-   *
-   * We don't need c++11 in this case because everything in this object are pointers.
-   */
-  void take_over(PageVersionLockScope* move_from);
-
-  // TASK(Hideaki) deprecated. we don't need page-version number any more. No longer used in any way
-  void set_changed() { changed_ = true; }
-
-  bool is_locked() { return !released_; }
-  /** @note idempotent. feel free to call it yourself or let the destructor call it */
-  void release();
-
-  thread::Thread* context_;
-  PageVersion* version_;
-  xct::McsBlockIndex block_;
-  bool changed_;
-  bool released_;
-};
-
-/**
  * @brief Just a marker to denote that a memory region represents a data page.
  * @ingroup STORAGE
  * @details

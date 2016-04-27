@@ -82,60 +82,6 @@ bool PageHeader::contains_hot_records(thread::Thread* context) {
   return hotness_.value_ >= context->get_current_xct().get_hot_threshold_for_this_xct();
 }
 
-PageVersionLockScope::PageVersionLockScope(
-  thread::Thread* context,
-  PageVersion* version,
-  bool non_racy_lock,
-  bool try_lock) {
-  context_ = context;
-  version_ = version;
-  changed_ = false;
-  released_ = false;
-  if (non_racy_lock) {
-    block_ = context->mcs_initial_lock(&version->lock_);
-  } else {
-    if (try_lock) {
-      block_ = context->mcs_acquire_try_lock(&version->lock_);
-      if (block_ == 0) {
-        released_ = true;
-      }
-    } else {
-      block_ = context->mcs_acquire_lock(&version->lock_);
-    }
-  }
-}
-
-PageVersionLockScope::PageVersionLockScope(xct::McsWwLockScope* move_from) {
-  ASSERT_ND(move_from->is_locked());
-  context_ = nullptr;
-  version_ = nullptr;
-  changed_ = false;
-  released_ = false;
-  move_from->move_to(this);
-  ASSERT_ND(!move_from->is_locked());
-}
-
-
-void PageVersionLockScope::release() {
-  if (!released_) {
-    if (changed_) {
-      version_->increment_version_counter();
-    }
-    context_->mcs_release_lock(&version_->lock_, block_);
-    released_ = true;
-  }
-}
-
-void PageVersionLockScope::take_over(PageVersionLockScope* move_from) {
-  release();
-  *this = *move_from;
-  move_from->context_ = nullptr;
-  move_from->version_ = nullptr;
-  move_from->block_ = 0;
-  move_from->changed_ = false;
-  move_from->released_ = true;
-}
-
 void assert_within_valid_volatile_page_impl(
   const memory::GlobalVolatilePageResolver& resolver,
   const void* address) {
