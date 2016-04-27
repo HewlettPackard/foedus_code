@@ -192,7 +192,7 @@ struct SplitIntermediate final : public xct::SysxctFunctor {
    * The core implementation after locking relevant pages and acquiring free page resource.
    * This method never fails because all lock/resource are already taken.
    * @pre target_->is_locked()
-   * @pre free_pages->get_count() >= 3
+   * @pre free_pages->get_count() >= 2
    * @pre piggyback_adopt_child_ == nullptr || piggyback_adopt_child_->is_locked()
    * @pre target_->has_foster_child()) : should be checked after locking before calling
    * @pre piggyback_adopt_child_ == nullptr || !piggyback_adopt_child_->is_retired(): same above

@@ -72,9 +72,7 @@ void HashDataPage::initialize_volatile_page(
   VolatilePagePointer page_id,
   const Page* parent,
   HashBin bin,
-  uint8_t bin_bits,
   uint8_t bin_shifts) {
-  ASSERT_ND(bin_bits + bin_shifts == 64U);
   std::memset(this, 0, kPageSize);
   header_.init_volatile(page_id, storage_id, kHashDataPageType);
   bin_ = bin;
@@ -109,12 +107,28 @@ DataPageSlotIndex HashDataPage::search_key_physical(
   HashValue hash,
   const BloomFilterFingerprint& fingerprint,
   const void* key,
-  uint16_t key_length,
-  uint16_t record_count) const {
+  KeyLength key_length,
+  DataPageSlotIndex record_count,
+  DataPageSlotIndex check_from) const {
   // invariant checks
   ASSERT_ND(hash == hashinate(key, key_length));
   ASSERT_ND(DataPageBloomFilter::extract_fingerprint(hash) == fingerprint);
   ASSERT_ND(record_count <= get_record_count());  // it must be increasing.
+
+#ifndef NDEBUG
+  // Check the invariant on check_from
+  for (uint16_t i = 0; i < check_from; ++i) {
+    const Slot& s = get_slot(i);
+    if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length) {
+      continue;
+    } else if (s.tid_.xct_id_.is_moved()) {
+      continue;
+    }
+
+    const char* data = record_from_offset(s.offset_);
+    ASSERT_ND(s.key_length_ != key_length || std::memcmp(data, key, key_length) != 0);
+  }
+#endif  // NDEBUG
 
   // check bloom filter first.
   if (!bloom_filter_.contains(fingerprint)) {
@@ -122,17 +136,16 @@ DataPageSlotIndex HashDataPage::search_key_physical(
   }
 
   // then most likely this page contains it. let's check one by one.
-  for (uint16_t i = 0; i < record_count; ++i) {
+  for (uint16_t i = check_from; i < record_count; ++i) {
     const Slot& s = get_slot(i);
     if (LIKELY(s.hash_ != hash) || s.key_length_ != key_length) {
       continue;
     }
-    // although this is a physical-only search, we can avoid being_written/moved cases.
-    //  being_written: guaranteed to go away soon, so no drawback to wait here.
-    //  moved: once set, guaranteed to remain. so we can safely skip it.
-    //         but, remember, it might be NOW being moved, which caller must take care.
-    xct::XctId xid = s.tid_.xct_id_.spin_while_being_written();
-    if (xid.is_moved()) {
+    // At this point, we don't take read-set (this is a physical search).
+    // We thus mind seeing being-written. The logical check will follow.
+    // We can also simply check is_moved because the flag is guaranteed to remain once set.
+    // But, remember, it might be NOW being moved, so a logical read-set must follow.
+    if (s.tid_.xct_id_.is_moved()) {
       // not so rare. this happens.
       DVLOG(1) << "Hash matched, but the record was moved";
       continue;
@@ -238,9 +251,8 @@ void hash_data_volatile_page_init(const VolatilePageInitArguments& args) {
     bin = parent->get_bin();
   }
   HashStorage storage(args.context_->get_engine(), storage_id);
-  uint8_t bin_bits = storage.get_bin_bits();
   uint8_t bin_shifts = storage.get_bin_shifts();
-  page->initialize_volatile_page(storage_id, args.page_id, args.parent_, bin, bin_bits, bin_shifts);
+  page->initialize_volatile_page(storage_id, args.page_id, args.parent_, bin, bin_shifts);
 }
 
 // Parallel page release for shutdown/drop. simpler than masstree package

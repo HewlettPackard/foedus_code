@@ -467,9 +467,9 @@ ErrorCode SplitIntermediate::run(xct::SysxctWorkspace* sysxct_workspace) {
 
   // 3 free volatile pages needed.
   // foster-minor/major (will be placed in successful case), and SplitStrategy (will be discarded)
-  memory::PagePoolOffset offsets[3];
+  memory::PagePoolOffset offsets[2];
   thread::GrabFreeVolatilePagesScope free_pages_scope(context_, offsets);
-  CHECK_ERROR_CODE(free_pages_scope.grab(3));
+  CHECK_ERROR_CODE(free_pages_scope.grab(2));
   split_impl_no_error(&free_pages_scope);
   return kErrorCodeOk;
 }
@@ -488,14 +488,14 @@ void SplitIntermediate::split_impl_no_error(thread::GrabFreeVolatilePagesScope* 
   const uint8_t key_count = target_->get_key_count();
   target_->verify_separators();
 
-  // 3 free volatile pages needed.
-  // foster-minor/major (will be placed in successful case), and SplitStrategy (will be discarded)
+  // 2 free volatile pages needed.
+  // foster-minor/major (will be placed in successful case)
   const auto& resolver = context_->get_local_volatile_page_resolver();
 
-  SplitStrategy* strategy
-    = reinterpret_cast<SplitStrategy*>(resolver.resolve_offset_newpage(free_pages->get(2)));
-  decide_strategy(strategy);
-  const KeySlice new_foster_fence = strategy->mid_separator_;
+  // SplitStrategy on heap. 4kb is not too large on heap
+  SplitStrategy strategy;
+  decide_strategy(&strategy);
+  const KeySlice new_foster_fence = strategy.mid_separator_;
 
   MasstreeIntermediatePage* twin[2];
   VolatilePagePointer new_pointers[2];
@@ -514,14 +514,14 @@ void SplitIntermediate::split_impl_no_error(thread::GrabFreeVolatilePagesScope* 
       i == 0 ? new_foster_fence : target_->high_fence_);
   }
 
-  migrate_pointers(*strategy, 0, strategy->mid_index_ + 1, new_foster_fence, twin[0]);
-  if (strategy->compact_adopt_) {
+  migrate_pointers(strategy, 0, strategy.mid_index_ + 1, new_foster_fence, twin[0]);
+  if (strategy.compact_adopt_) {
     twin[1]->set_key_count(0);  // right is empty-range
   } else {
     migrate_pointers(
-      *strategy,
-      strategy->mid_index_ + 1,
-      strategy->total_separator_count_,
+      strategy,
+      strategy.mid_index_ + 1,
+      strategy.total_separator_count_,
       target_->high_fence_,
       twin[1]);
   }

@@ -1432,7 +1432,6 @@ ErrorCode HashStoragePimpl::append_next_volatile_page(
     new_pointer,
     reinterpret_cast<Page*>(page),
     bin,
-    get_bin_bits(),
     get_bin_shifts());
   assorted::memory_fence_release();  // so that others don't see uninitialized page
   page->next_page().volatile_pointer_ = new_pointer;

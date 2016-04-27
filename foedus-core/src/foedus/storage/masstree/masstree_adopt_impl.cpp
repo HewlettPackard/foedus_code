@@ -200,9 +200,9 @@ ErrorCode Adopt::adopt_case_b(
 
   // Reuse SplitIntermediate. We are directly invoking the sysxct's internal logic
   // rather than nesting sysxct.
-  memory::PagePoolOffset offsets[3];
+  memory::PagePoolOffset offsets[2];
   thread::GrabFreeVolatilePagesScope free_pages_scope(context_, offsets);
-  CHECK_ERROR_CODE(free_pages_scope.grab(3));
+  CHECK_ERROR_CODE(free_pages_scope.grab(2));
   SplitIntermediate split(context_, parent_, old_);
   split.split_impl_no_error(&free_pages_scope);
   ASSERT_ND(old_->is_retired());  // the above internally retires old page

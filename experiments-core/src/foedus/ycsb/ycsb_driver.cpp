@@ -129,6 +129,8 @@ DEFINE_bool(aggressive_release, true, "Enable aggressive lock-release to restore
 
 DEFINE_bool(shifting_workload, false, "whether to run the shifting workloads.");
 
+DEFINE_bool(suppress_memory_prescreen, false, "Whether to turn off environment check.");
+
 
 YcsbWorkload YcsbWorkloadA('A', 0,  50U,  100U, 0,    0);     // Workload A - 50% read, 50% update
 YcsbWorkload YcsbWorkloadB('B', 0,  95U,  100U, 0,    0);     // Workload B - 95% read, 5% update
@@ -229,6 +231,9 @@ int driver_main(int argc, char **argv) {
   }
 
   EngineOptions options;
+  if (FLAGS_suppress_memory_prescreen) {
+    options.memory_.suppress_memory_prescreening_ = true;
+  }
 
   fs::Path savepoint_path(folder);
   savepoint_path /= "savepoint.xml";

@@ -42,6 +42,19 @@ struct MemoryOptions CXX11_FINAL : public virtual externalize::Externalizable {
   MemoryOptions();
 
   /**
+   * @brief Whether to tolerate insufficient hugepages etc in the prescreen check.
+   * @details
+   * The default is false.
+   * When true, we don't throw an error at the startup prescreening, which might
+   * be too conservatively estimating available memories in the environment.
+   * Even in the case, we still output the warning messages to the log.
+   * In general we do recommend leaving it to false because the user should be
+   * aware of a chance of insufficient memories before costly initializations.
+   * It's always a good idea to have margins in available memory.
+   */
+  bool        suppress_memory_prescreening_;
+
+  /**
    * @brief Whether to use ::numa_alloc_interleaved()/::numa_alloc_onnode() to allocate memories
    * in NumaCoreMemory and NumaNodeMemory.
    * @details

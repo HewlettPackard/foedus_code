@@ -101,6 +101,9 @@ DEFINE_int32(hcc_policy, 1, "Specifies configurations about HCC/MOCC."
   " 2 (PCC, RLL-off, threshold 0)"
 );
 
+DEFINE_bool(suppress_memory_prescreen, false, "Whether to turn off environment check.");
+
+
 #ifdef OLAP_MODE
 DEFINE_bool(dirty_read, false, "[Experimental] Whether to use dirty-read isolation level."
   " Can be used only in OLAP_MODE.");
@@ -473,6 +476,9 @@ int driver_main(int argc, char **argv) {
   }
 
   EngineOptions options;
+  if (FLAGS_suppress_memory_prescreen) {
+    options.memory_.suppress_memory_prescreening_ = true;
+  }
 
   fs::Path savepoint_path(folder);
   savepoint_path /= "savepoint.xml";
