@@ -333,13 +333,6 @@ struct McsWwLock {
   /** This is a "relaxed" check. Use with caution. I should have named this is_locked_relaxed..*/
   bool      is_locked() const { return tail_.is_valid_relaxed(); }
 
-  /** Equivalent to context->mcs_acquire_lock(this). Actually that's more preferred. */
-  McsBlockIndex acquire_lock(thread::Thread* context);
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  McsBlockIndex initial_lock(thread::Thread* context);
-  /** Equivalent to context->mcs_release_lock(this). Actually that's more preferred. */
-  void          release_lock(thread::Thread* context, McsBlockIndex block);
-
   /// The followings are implemented in thread_pimpl.cpp along with the above methods,
   /// but these don't use any of Thread's context information.
   void          ownerless_initial_lock();
@@ -1159,116 +1152,6 @@ struct RwLockableXctId {
     xct_id_.data_ = 0;
   }
   friend std::ostream& operator<<(std::ostream& o, const RwLockableXctId& v);
-};
-
-/**
- * @brief Auto-release object for WW MCS locking.
- * @ingroup XCT
- * @details
- * This is so far used only in page-locking during physical structual operations (SMO).
- * We always lock only one public (excluding private pages that are yet to be read by others)
- * page at a time, so always unconditional lock without worry on deadlocks.
- */
-struct McsWwLockScope {
-  McsWwLockScope();
-  McsWwLockScope(
-    thread::Thread* context,
-    LockableXctId* lock,
-    bool acquire_now = true,
-    bool non_racy_acquire = false);
-  McsWwLockScope(
-    thread::Thread* context,
-    McsWwLock* lock,
-    bool acquire_now = true,
-    bool non_racy_acquire = false);
-  ~McsWwLockScope();
-
-  /// scope object is movable, but not copiable.
-  McsWwLockScope(const McsWwLockScope& other) CXX11_FUNC_DELETE;
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  McsWwLockScope(McsWwLockScope&& other);
-  McsWwLockScope& operator=(McsWwLockScope&& other);
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-
-  void initialize(
-    thread::Thread* context,
-    McsWwLock* lock,
-    bool acquire_now,
-    bool non_racy_acquire);
-
-  bool is_valid() const { return lock_; }
-  bool is_locked() const { return block_ != 0; }
-
-  /** Acquires the lock. Does nothing if already acquired or !is_valid(). */
-  void acquire(bool non_racy_acquire);
-  /** Release the lock if acquired. Does nothing if not or !is_valid(). */
-  void release();
-
- private:
-  thread::Thread* context_;
-  McsWwLock*        lock_;
-  /** Non-0 when locked. 0 when already released or not yet acquired. */
-  McsBlockIndex   block_;
-};
-
-/**
- * @brief Auto-release object for WW MCS locking.
- * @ingroup XCT
- * @details
- * This is used in a few record-locking during physical structual operations (SMO).
- * Because this lock is unconditional, we have to be careful on risk of deadlocks when we do that.
- * We recommend using the "try" version whenever possible, and writing a safe code
- * that does appropriate handling if the try fails.
- */
-struct McsRwLockScope {
-  explicit McsRwLockScope(bool as_reader);
-  McsRwLockScope(
-    thread::Thread* context,
-    RwLockableXctId* lock,
-    bool as_reader,
-    bool acquire_now,
-    bool is_try_acquire);
-  McsRwLockScope(
-    thread::Thread* context,
-    McsRwLock* lock,
-    bool as_reader,
-    bool acquire_now,
-    bool is_try_acquire);
-  ~McsRwLockScope();
-
-  /// scope object is movable, but not copiable.
-  McsRwLockScope(const McsRwLockScope& other) CXX11_FUNC_DELETE;
-#ifndef DISABLE_CXX11_IN_PUBLIC_HEADERS
-  McsRwLockScope(McsRwLockScope&& other);
-  McsRwLockScope& operator=(McsRwLockScope&& other);
-#endif  // DISABLE_CXX11_IN_PUBLIC_HEADERS
-
-  void initialize(
-    thread::Thread* context,
-    McsRwLock* lock,
-    bool as_reader,
-    bool acquire_now,
-    bool is_try_acquire);
-
-  bool is_valid() const { return lock_; }
-  bool is_locked() const { return block_ != 0; }
-
-  /** Embodies both of the followings. @return whether we acquired or not */
-  bool acquire_general(bool is_try_acquire);
-  /** Unconditionally acquires. Does nothing if already acquired or !is_valid(). */
-  void unconditional_acquire();
-  /** Instanteneously try to acquire. @return whether we acquired or not */
-  bool try_acquire();
-
-  /** Release the lock if acquired. Does nothing if not or !is_valid(). */
-  void release();
-
- private:
-  thread::Thread* context_;
-  McsRwLock*      lock_;
-  /** Non-0 when locked. 0 when already released or not yet acquired. */
-  McsBlockIndex   block_;
-  bool            as_reader_;
 };
 
 class McsOwnerlessLockScope {

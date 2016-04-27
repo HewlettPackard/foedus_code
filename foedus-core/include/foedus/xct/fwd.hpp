@@ -36,7 +36,6 @@ struct  McsRwSimpleBlock;
 struct  McsRwExtendedBlock;
 struct  McsRwAsyncMapping;
 struct  McsWwLock;
-struct  McsWwLockScope;
 struct  McsWwBlock;
 struct  PointerAccess;
 struct  ReadXctAccess;

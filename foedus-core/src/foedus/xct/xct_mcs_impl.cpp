@@ -188,51 +188,6 @@ McsBlockIndex McsWwImpl<ADAPTOR>::acquire_try(McsWwLock* mcs_lock) {
 }
 
 template <typename ADAPTOR>
-void McsWwImpl<ADAPTOR>::ownerless_acquire_unconditional(McsWwLock* mcs_lock) {
-  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
-  // Also, the performance of this method really matters, especially that of common path.
-  // Check objdump -d. Everything in common path should be inlined.
-  // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
-  assert_mcs_aligned(mcs_lock);
-  auto* int_address = &(mcs_lock->tail_.word_);
-  assert_mcs_aligned(int_address);
-  spin_until([mcs_lock, int_address]{
-    McsWwBlockData old;
-    ASSERT_ND(!old.is_valid_relaxed());
-    return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-      int_address,
-      &old.word_,
-      kMcsGuestId);
-  });
-  DVLOG(1) << "Okay, now I hold the lock. me=guest";
-  ASSERT_ND(mcs_lock->is_locked());
-}
-
-template <typename ADAPTOR>
-bool McsWwImpl<ADAPTOR>::ownerless_acquire_try(McsWwLock* mcs_lock) {
-  // Similar to acquire_try()
-  assert_mcs_aligned(mcs_lock);
-  auto* int_address = &(mcs_lock->tail_.word_);
-  assert_mcs_aligned(int_address);
-  McsWwBlockData pred;                      // purely local copy. okay to be always relaxed.
-  ASSERT_ND(!pred.is_valid_relaxed());
-  bool swapped = assorted::raw_atomic_compare_exchange_weak<uint64_t>(
-    &(mcs_lock->tail_.word_),
-    &pred.word_,
-    kMcsGuestId);
-
-  if (swapped) {
-    ASSERT_ND(mcs_lock->is_locked());
-    DVLOG(2) << "Okay, got a guest lock uncontended.";
-    // We can't test is_guest here because we might now have a successor swapping it.
-    ASSERT_ND(!pred.is_valid_relaxed());
-    return true;
-  } else {
-    return true;
-  }
-}
-
-template <typename ADAPTOR>
 McsBlockIndex McsWwImpl<ADAPTOR>::initial(McsWwLock* mcs_lock) {
   // Basically _all_ writes in this function must come with release barrier.
   // This method itself doesn't need barriers, but then we need to later take a seq_cst barrier
@@ -251,13 +206,6 @@ McsBlockIndex McsWwImpl<ADAPTOR>::initial(McsWwLock* mcs_lock) {
   const thread::ThreadId id = adaptor_.get_my_id();
   mcs_lock->reset_release(id, block_index);
   return block_index;
-}
-
-template <typename ADAPTOR>
-void McsWwImpl<ADAPTOR>::ownerless_initial(McsWwLock* mcs_lock) {
-  assert_mcs_aligned(mcs_lock);
-  ASSERT_ND(!mcs_lock->is_locked());
-  mcs_lock->reset_guest_id_release();
 }
 
 template <typename ADAPTOR>
@@ -318,8 +266,59 @@ void McsWwImpl<ADAPTOR>::release(McsWwLock* mcs_lock, McsBlockIndex block_index)
   ASSERT_ND(address->copy_atomic() != myself);
 }
 
-template <typename ADAPTOR>
-void McsWwImpl<ADAPTOR>::ownerless_release(McsWwLock* mcs_lock) {
+//////////////////////////////////////////////////////////////
+///  Ownerless interface for WW-lock implementations
+//////////////////////////////////////////////////////////////
+void McsWwOwnerlessImpl::ownerless_acquire_unconditional(McsWwLock* mcs_lock) {
+  // Basically _all_ writes in this function must come with some memory barrier. Be careful!
+  // Also, the performance of this method really matters, especially that of common path.
+  // Check objdump -d. Everything in common path should be inlined.
+  // Also, check minimal sufficient mfences (note, xchg implies lock prefix. not a compiler's bug!).
+  assert_mcs_aligned(mcs_lock);
+  auto* int_address = &(mcs_lock->tail_.word_);
+  assert_mcs_aligned(int_address);
+  spin_until([mcs_lock, int_address]{
+    McsWwBlockData old;
+    ASSERT_ND(!old.is_valid_relaxed());
+    return assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+      int_address,
+      &old.word_,
+      kMcsGuestId);
+  });
+  DVLOG(1) << "Okay, now I hold the lock. me=guest";
+  ASSERT_ND(mcs_lock->is_locked());
+}
+
+bool McsWwOwnerlessImpl::ownerless_acquire_try(McsWwLock* mcs_lock) {
+  // Similar to acquire_try()
+  assert_mcs_aligned(mcs_lock);
+  auto* int_address = &(mcs_lock->tail_.word_);
+  assert_mcs_aligned(int_address);
+  McsWwBlockData pred;                      // purely local copy. okay to be always relaxed.
+  ASSERT_ND(!pred.is_valid_relaxed());
+  bool swapped = assorted::raw_atomic_compare_exchange_weak<uint64_t>(
+    &(mcs_lock->tail_.word_),
+    &pred.word_,
+    kMcsGuestId);
+
+  if (swapped) {
+    ASSERT_ND(mcs_lock->is_locked());
+    DVLOG(2) << "Okay, got a guest lock uncontended.";
+    // We can't test is_guest here because we might now have a successor swapping it.
+    ASSERT_ND(!pred.is_valid_relaxed());
+    return true;
+  } else {
+    return true;
+  }
+}
+
+void McsWwOwnerlessImpl::ownerless_initial(McsWwLock* mcs_lock) {
+  assert_mcs_aligned(mcs_lock);
+  ASSERT_ND(!mcs_lock->is_locked());
+  mcs_lock->reset_guest_id_release();
+}
+
+void McsWwOwnerlessImpl::ownerless_release(McsWwLock* mcs_lock) {
   // Basically _all_ writes in this function must come with some memory barrier. Be careful!
   // Also, the performance of this method really matters, especially that of common path.
   // Check objdump -d. Everything in common path should be inlined.

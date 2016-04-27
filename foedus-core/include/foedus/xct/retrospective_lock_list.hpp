@@ -477,11 +477,10 @@ class CurrentLockList {
    * Release all locks in CLL whose addresses are canonically ordered
    * before the parameter. This is used where we need to rule out the risk of deadlock.
    * Unlike clear_entries(), this leaves the entries.
-   * TODO(Hideaki) this has some bug when address!=kNullUniversalLockId ??? Need to test
    */
   template<typename MCS_RW_IMPL>
   void        release_all_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl);
-  /** same as mcs_release_all_current_locks_after(address - 1) */
+  /** same as release_all_after(address - 1) */
   template<typename MCS_RW_IMPL>
   void        release_all_at_and_after(UniversalLockId address, MCS_RW_IMPL* mcs_rw_impl);
   /**

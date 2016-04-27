@@ -166,30 +166,6 @@ struct PageVersion CXX11_FINAL {
     status_.increment_version_counter();
   }
 
-  /**
-  * @brief Locks the page, spinning if necessary.
-  */
-  xct::McsBlockIndex lock(thread::Thread* context) ALWAYS_INLINE {
-    return lock_.acquire_lock(context);
-  }
-
-  /**
-  * @brief Unlocks the given page version, assuming the caller has locked it.
-  * @pre is_locked()
-  * @pre this thread locked it (can't check it, but this is the rule)
-  * @details
-  * This method also increments the version counter to declare a change in this page.
-  */
-  void unlock_changed(thread::Thread* context, xct::McsBlockIndex block) ALWAYS_INLINE {
-    increment_version_counter();
-    lock_.release_lock(context, block);
-  }
-  /** this one doesn't increment the counter. used when the lock owner didn't make any change */
-  void unlock_nochange(thread::Thread* context, xct::McsBlockIndex block) ALWAYS_INLINE {
-    lock_.release_lock(context, block);
-  }
-
-
   friend std::ostream& operator<<(std::ostream& o, const PageVersion& v);
 
   xct::McsWwLock      lock_;    // +8 -> 8

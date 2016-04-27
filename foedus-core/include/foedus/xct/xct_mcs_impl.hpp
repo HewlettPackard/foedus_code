@@ -202,6 +202,25 @@ class McsWwImpl {
   /** [WW] Unlcok an MCS lock acquired by this thread. */
   void           release(McsWwLock* lock, McsBlockIndex block_index);
 
+ private:
+  ADAPTOR adaptor_;
+};
+
+
+/**
+ * @brief A ownerless (contextless) interface for McsWwImpl.
+ * @ingroup XCT
+ * @details
+ * Conceptually this is part of McsWwImpl, but this doesn't depend on Adaptor
+ * because guests don't need any context in MCSg.
+ * We separate the methods to this class for easier use.
+ */
+class McsWwOwnerlessImpl {
+ public:
+  // only static methods
+  McsWwOwnerlessImpl() = delete;
+  ~McsWwOwnerlessImpl() = delete;
+
   /** [WW-Guest] Unconditionally takes exclusive-only \b guest lock on the given MCSg lock. */
   static void     ownerless_acquire_unconditional(McsWwLock* lock);
   /**
@@ -214,9 +233,6 @@ class McsWwImpl {
   static void     ownerless_initial(McsWwLock* lock);
   // No try/asynchronous versions for guests. Probably we don't need them.
   // TBD So far no RW versions for guests. We might need them later..
-
- private:
-  ADAPTOR adaptor_;
 };
 
 }  // namespace xct

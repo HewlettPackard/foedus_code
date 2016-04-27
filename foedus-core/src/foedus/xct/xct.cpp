@@ -386,7 +386,7 @@ void Xct::on_record_read_take_locks_if_needed(
         << ". We still go on because the locks here are not mandatory.";
       // At this point, no point to be advised by RLL any longer.
       // Let's clear it, and let's give-up all incomplete locks in CLL.
-      context_->mcs_giveup_all_current_locks_after(kNullUniversalLockId);
+      context_->cll_giveup_all_locks_after(kNullUniversalLockId);
       retrospective_lock_list_.clear_entries();
     }
   }

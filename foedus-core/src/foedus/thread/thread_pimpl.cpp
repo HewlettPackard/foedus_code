@@ -838,65 +838,20 @@ xct::McsRwExtendedBlock* Thread::get_mcs_rw_extended_blocks() {
 }
 
 // Put Thread methods here to allow inlining.
-xct::McsBlockIndex Thread::mcs_acquire_lock(xct::McsWwLock* mcs_lock) {
-  return pimpl_->mcs_acquire_lock(mcs_lock);
+void Thread::cll_release_all_locks() {
+  pimpl_->cll_release_all_locks();
 }
-xct::McsBlockIndex Thread::mcs_acquire_try_lock(xct::McsWwLock* mcs_lock) {
-  return pimpl_->mcs_acquire_try_lock(mcs_lock);
+void Thread::cll_release_all_locks_after(xct::UniversalLockId address) {
+  pimpl_->cll_release_all_locks_after(address);
 }
-
-xct::McsBlockIndex Thread::mcs_initial_lock(xct::McsWwLock* mcs_lock) {
-  return pimpl_->mcs_initial_lock(mcs_lock);
-}
-void Thread::mcs_release_lock(xct::McsWwLock* mcs_lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_release_lock(mcs_lock, block_index);
-}
-
-xct::McsBlockIndex Thread::mcs_acquire_reader_lock(xct::McsRwLock* mcs_rw_lock) {
-  return pimpl_->mcs_acquire_reader_lock(mcs_rw_lock);
-}
-xct::McsBlockIndex Thread::mcs_acquire_writer_lock(xct::McsRwLock* mcs_rw_lock) {
-  return pimpl_->mcs_acquire_writer_lock(mcs_rw_lock);
-}
-xct::McsBlockIndex Thread::mcs_try_acquire_writer_lock(xct::McsRwLock* lock) {
-  return pimpl_->mcs_try_acquire_writer_lock(lock);
-}
-xct::McsBlockIndex Thread::mcs_try_acquire_reader_lock(xct::McsRwLock* lock) {
-  return pimpl_->mcs_try_acquire_reader_lock(lock);
-}
-
-void Thread::mcs_release_reader_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_release_reader_lock(mcs_rw_lock, block_index);
-}
-
-void Thread::mcs_release_writer_lock(xct::McsRwLock* mcs_rw_lock, xct::McsBlockIndex block_index) {
-  pimpl_->mcs_release_writer_lock(mcs_rw_lock, block_index);
-}
-
-void Thread::mcs_release_all_current_locks_after(xct::UniversalLockId address) {
-  pimpl_->mcs_release_all_current_locks_after(address);
-}
-void Thread::mcs_giveup_all_current_locks_after(xct::UniversalLockId address) {
-  pimpl_->mcs_giveup_all_current_locks_after(address);
+void Thread::cll_giveup_all_locks_after(xct::UniversalLockId address) {
+  pimpl_->cll_giveup_all_locks_after(address);
 }
 ErrorCode Thread::cll_try_or_acquire_single_lock(xct::LockListPosition pos) {
   return pimpl_->cll_try_or_acquire_single_lock(pos);
 }
 ErrorCode Thread::cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos) {
   return pimpl_->cll_try_or_acquire_multiple_locks(upto_pos);
-}
-
-
-void Thread::mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock) {
-  ThreadPimpl::mcs_ownerless_initial_lock(mcs_lock);
-}
-
-void Thread::mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock) {
-  ThreadPimpl::mcs_ownerless_acquire_lock(mcs_lock);
-}
-
-void Thread::mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock) {
-  ThreadPimpl::mcs_ownerless_release_lock(mcs_lock);
 }
 
 /////////////////////////////////////////
@@ -914,102 +869,11 @@ xct::McsImpl< ThreadPimplMcsAdaptor< RW_BLOCK >, RW_BLOCK > get_mcs_impl(ThreadP
 }
 
 /////////////////////////////////////////
-/// WW-locks. These don't care the impl type of RW-lock, so always simple versions
-typedef xct::McsWwImpl< ThreadPimplMcsAdaptor<xct::McsRwSimpleBlock> > MyWwImpl;
-MyWwImpl get_mcs_ww_impl(ThreadPimpl* pimpl) {
-  ThreadPimplMcsAdaptor< xct::McsRwSimpleBlock > adaptor(pimpl);
-  return MyWwImpl(adaptor);
-}
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_lock(xct::McsWwLock* lock) {
-  auto impl(get_mcs_ww_impl(this));
-  return impl.acquire_unconditional(lock);
-}
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_try_lock(xct::McsWwLock* lock) {
-  auto impl(get_mcs_ww_impl(this));
-  return impl.acquire_try(lock);
-}
-xct::McsBlockIndex ThreadPimpl::mcs_initial_lock(xct::McsWwLock* lock) {
-  auto impl(get_mcs_ww_impl(this));
-  return impl.initial(lock);
-}
-void ThreadPimpl::mcs_release_lock(xct::McsWwLock* lock, xct::McsBlockIndex block_index) {
-  auto impl(get_mcs_ww_impl(this));
-  impl.release(lock, block_index);
-}
-
-void ThreadPimpl::mcs_ownerless_acquire_lock(xct::McsWwLock* lock) {
-  MyWwImpl::ownerless_acquire_unconditional(lock);
-}
-void ThreadPimpl::mcs_ownerless_initial_lock(xct::McsWwLock* lock) {
-  MyWwImpl::ownerless_initial(lock);
-}
-void ThreadPimpl::mcs_ownerless_release_lock(xct::McsWwLock* lock) {
-  MyWwImpl::ownerless_release(lock);
-}
-
-/////////////////////////////////////////
 /// RW-locks. These switch implementations.
 /// we could shorten it if we assume C++14 (lambda with auto),
 /// but not much. Doesn't matter.
-xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_writer_lock(xct::McsRwLock* lock) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.acquire_try_rw_writer(lock);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.acquire_try_rw_writer(lock);
-  }
-}
-xct::McsBlockIndex ThreadPimpl::mcs_try_acquire_reader_lock(xct::McsRwLock* lock) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.acquire_try_rw_reader(lock);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.acquire_try_rw_reader(lock);
-  }
-}
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_reader_lock(xct::McsRwLock* lock) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.acquire_unconditional_rw_reader(lock);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.acquire_unconditional_rw_reader(lock);
-  }
-}
 
-void ThreadPimpl::mcs_release_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    impl.release_rw_reader(lock, block_index);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    impl.release_rw_reader(lock, block_index);
-  }
-}
-
-xct::McsBlockIndex ThreadPimpl::mcs_acquire_writer_lock(xct::McsRwLock* lock) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    return impl.acquire_unconditional_rw_writer(lock);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    return impl.acquire_unconditional_rw_writer(lock);
-  }
-}
-
-void ThreadPimpl::mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index) {
-  if (is_simple_mcs_rw()) {
-    auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
-    impl.release_rw_writer(lock, block_index);
-  } else {
-    auto impl(get_mcs_impl<xct::McsRwExtendedBlock>(this));
-    impl.release_rw_writer(lock, block_index);
-  }
-}
-
-void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId address) {
+void ThreadPimpl::cll_release_all_locks_after(xct::UniversalLockId address) {
   xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
   if (is_simple_mcs_rw()) {
     auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));
@@ -1020,7 +884,7 @@ void ThreadPimpl::mcs_release_all_current_locks_after(xct::UniversalLockId addre
   }
 }
 
-void ThreadPimpl::mcs_giveup_all_current_locks_after(xct::UniversalLockId address) {
+void ThreadPimpl::cll_giveup_all_locks_after(xct::UniversalLockId address) {
   xct::CurrentLockList* cll = current_xct_.get_current_lock_list();
   if (is_simple_mcs_rw()) {
     auto impl(get_mcs_impl<xct::McsRwSimpleBlock>(this));

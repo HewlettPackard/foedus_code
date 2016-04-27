@@ -597,7 +597,7 @@ moved_retry:
         (last_locked_pos != kLockListPositionInvalid && last_locked_pos >= lock_pos)) {
         // We are not in canonical mode. Let's aggressively restore canonical mode.
         DVLOG(0) << "Aggressively releasing locks to restore canonical mode in precommit";
-        context->mcs_release_all_current_locks_after(lock_entry->universal_lock_id_ - 1U);
+        context->cll_release_all_locks_after(lock_entry->universal_lock_id_ - 1U);
 #ifndef NDEBUG
         const LockListPosition new_pos = cll->get_last_locked_entry();
         ASSERT_ND(new_pos == kLockListPositionInvalid || new_pos < lock_pos);
@@ -995,7 +995,7 @@ ErrorCode XctManagerPimpl::abort_xct(thread::Thread* context) {
 }
 
 void XctManagerPimpl::release_and_clear_all_current_locks(thread::Thread* context) {
-  context->mcs_release_all_current_locks_after(kNullUniversalLockId);
+  context->cll_release_all_locks();
   CurrentLockList* cll = context->get_current_xct().get_current_lock_list();
   cll->clear_entries();
 }

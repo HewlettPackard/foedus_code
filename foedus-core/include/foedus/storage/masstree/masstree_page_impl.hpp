@@ -165,14 +165,6 @@ class MasstreePage {
   PageVersion* get_version_address() ALWAYS_INLINE { return &header_.page_version_; }
   xct::McsWwLock* get_lock_address() ALWAYS_INLINE { return &header_.page_version_.lock_; }
 
-  /**
-   * @brief Locks the page, spinning if necessary.
-   */
-  void              lock(thread::Thread* context) ALWAYS_INLINE {
-    if (!header_.snapshot_) {
-      header_.page_version_.lock(context);
-    }
-  }
   bool              is_locked() const ALWAYS_INLINE { return header_.page_version_.is_locked(); }
   bool              is_moved() const ALWAYS_INLINE { return header_.page_version_.is_moved(); }
   bool              is_retired() const ALWAYS_INLINE { return header_.page_version_.is_retired(); }

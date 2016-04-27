@@ -28,6 +28,7 @@
 #include "foedus/storage/page.hpp"
 #include "foedus/thread/thread.hpp"
 #include "foedus/thread/thread_pimpl.hpp"
+#include "foedus/xct/xct_mcs_impl.hpp"
 
 namespace foedus {
 namespace xct {
@@ -74,232 +75,16 @@ void RwLockableXctId::hotter(thread::Thread* context) const {
   foedus::storage::to_page(this)->get_header().hotness_.increment(&context->get_lock_rnd());
 }
 
-McsBlockIndex McsWwLock::acquire_lock(thread::Thread* context) {
-  // not inlined. so, prefer calling it directly
-  return context->mcs_acquire_lock(this);
-}
-McsBlockIndex McsWwLock::initial_lock(thread::Thread* context) {
-  return context->mcs_initial_lock(this);
-}
-void McsWwLock::release_lock(thread::Thread* context, McsBlockIndex block) {
-  // not inlined. so, prefer calling it directly
-  context->mcs_release_lock(this, block);
-}
-
 void McsWwLock::ownerless_acquire_lock() {
-  thread::Thread::mcs_ownerless_acquire_lock(this);
+  McsWwOwnerlessImpl::ownerless_acquire_unconditional(this);
 }
 
 void McsWwLock::ownerless_release_lock() {
-  thread::Thread::mcs_ownerless_release_lock(this);
+  McsWwOwnerlessImpl::ownerless_release(this);
 }
 
 void McsWwLock::ownerless_initial_lock() {
-  thread::Thread::mcs_ownerless_initial_lock(this);
-}
-
-McsRwLockScope::McsRwLockScope(bool as_reader)
-  : context_(nullptr), lock_(nullptr), block_(0), as_reader_(as_reader) {}
-
-McsRwLockScope::McsRwLockScope(
-  thread::Thread* context,
-  RwLockableXctId* lock,
-  bool as_reader,
-  bool acquire_now,
-  bool is_try_acquire)
-  : context_(context), lock_(lock->get_key_lock()), block_(0), as_reader_(as_reader) {
-  if (acquire_now) {
-    acquire_general(is_try_acquire);
-  }
-}
-
-McsRwLockScope::McsRwLockScope(
-  thread::Thread* context,
-  McsRwLock* lock,
-  bool as_reader,
-  bool acquire_now,
-  bool is_try_acquire)
-  : context_(context), lock_(lock), block_(0), as_reader_(as_reader) {
-  if (acquire_now) {
-    acquire_general(is_try_acquire);
-  }
-}
-
-bool McsRwLockScope::acquire_general(bool is_try_acquire) {
-  if (is_try_acquire) {
-    return try_acquire();
-  } else {
-    unconditional_acquire();
-    return true;
-  }
-}
-void McsRwLockScope::initialize(
-  thread::Thread* context,
-  McsRwLock* lock,
-  bool as_reader,
-  bool acquire_now,
-  bool is_try_acquire) {
-  if (is_valid() && is_locked()) {
-    release();
-  }
-  context_ = context;
-  lock_ = lock;
-  block_ = 0;
-  as_reader_ = as_reader;
-  if (acquire_now) {
-    acquire_general(is_try_acquire);
-  }
-}
-
-McsRwLockScope::~McsRwLockScope() {
-  release();
-  context_ = nullptr;
-  lock_ = nullptr;
-}
-
-McsRwLockScope::McsRwLockScope(McsRwLockScope&& other) {
-  context_ = other.context_;
-  lock_ = other.lock_;
-  block_ = other.block_;
-  as_reader_ = other.as_reader_;
-  other.block_ = 0;
-}
-
-McsRwLockScope& McsRwLockScope::operator=(McsRwLockScope&& other) {
-  if (is_valid()) {
-    release();
-  }
-  context_ = other.context_;
-  lock_ = other.lock_;
-  block_ = other.block_;
-  as_reader_ = other.as_reader_;
-  other.block_ = 0;
-  return *this;
-}
-
-void McsRwLockScope::unconditional_acquire() {
-  if (is_valid()) {
-    if (block_ == 0) {
-      if (as_reader_) {
-        block_ = context_->mcs_acquire_reader_lock(lock_);
-      } else {
-        block_ = context_->mcs_acquire_writer_lock(lock_);
-      }
-      ASSERT_ND(block_);
-    }
-  }
-}
-bool McsRwLockScope::try_acquire() {
-  if (is_valid()) {
-    if (block_ == 0) {
-      if (as_reader_) {
-        block_ = context_->mcs_try_acquire_reader_lock(lock_);
-      } else {
-        block_ = context_->mcs_try_acquire_writer_lock(lock_);
-      }
-    }
-    return block_ != 0;
-  } else {
-    return false;
-  }
-}
-
-void McsRwLockScope::release() {
-  if (is_valid()) {
-    if (block_) {
-      if (as_reader_) {
-        context_->mcs_release_reader_lock(lock_, block_);
-      } else {
-        context_->mcs_release_writer_lock(lock_, block_);
-      }
-      block_ = 0;
-    }
-  }
-}
-
-McsWwLockScope::McsWwLockScope() : context_(nullptr), lock_(nullptr), block_(0) {}
-
-McsWwLockScope::McsWwLockScope(
-  thread::Thread* context,
-  LockableXctId* lock,
-  bool acquire_now,
-  bool non_racy_acquire)
-  : context_(context), lock_(lock->get_key_lock()), block_(0) {
-  if (acquire_now) {
-    acquire(non_racy_acquire);
-  }
-}
-
-McsWwLockScope::McsWwLockScope(
-  thread::Thread* context,
-  McsWwLock* lock,
-  bool acquire_now,
-  bool non_racy_acquire)
-  : context_(context), lock_(lock), block_(0) {
-  if (acquire_now) {
-    acquire(non_racy_acquire);
-  }
-}
-
-void McsWwLockScope::initialize(
-  thread::Thread* context,
-  McsWwLock* lock,
-  bool acquire_now,
-  bool non_racy_acquire) {
-  if (is_valid() && is_locked()) {
-    release();
-  }
-  context_ = context;
-  lock_ = lock;
-  block_ = 0;
-  if (acquire_now) {
-    acquire(non_racy_acquire);
-  }
-}
-
-McsWwLockScope::~McsWwLockScope() {
-  release();
-  context_ = nullptr;
-  lock_ = nullptr;
-}
-
-McsWwLockScope::McsWwLockScope(McsWwLockScope&& other) {
-  context_ = other.context_;
-  lock_ = other.lock_;
-  block_ = other.block_;
-  other.block_ = 0;
-}
-
-McsWwLockScope& McsWwLockScope::operator=(McsWwLockScope&& other) {
-  if (is_valid()) {
-    release();
-  }
-  context_ = other.context_;
-  lock_ = other.lock_;
-  block_ = other.block_;
-  other.block_ = 0;
-  return *this;
-}
-
-void McsWwLockScope::acquire(bool non_racy_acquire) {
-  if (is_valid()) {
-    if (block_ == 0) {
-      if (non_racy_acquire) {
-        block_ = context_->mcs_initial_lock(lock_);
-      } else {
-        block_ = context_->mcs_acquire_lock(lock_);
-      }
-    }
-  }
-}
-
-void McsWwLockScope::release() {
-  if (is_valid()) {
-    if (block_) {
-      context_->mcs_release_lock(lock_, block_);
-      block_ = 0;
-    }
-  }
+  McsWwOwnerlessImpl::ownerless_initial(this);
 }
 
 McsOwnerlessLockScope::McsOwnerlessLockScope() : lock_(nullptr), locked_by_me_(false) {}

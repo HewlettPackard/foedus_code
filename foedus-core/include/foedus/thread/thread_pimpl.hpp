@@ -281,31 +281,8 @@ class ThreadPimpl final : public DefaultInitializable {
   void switch_mcs_impl(FUNC func);
   bool is_simple_mcs_rw() const { return simple_mcs_rw_; }
 
-  /** Unconditionally takes MCS lock on the given mcs_lock. */
-  xct::McsBlockIndex  mcs_acquire_lock(xct::McsWwLock* mcs_lock);
-  /** Try to take MCS lock on the given mcs_lock. */
-  xct::McsBlockIndex  mcs_acquire_try_lock(xct::McsWwLock* mcs_lock);
-  /** This doesn't use any atomic operation to take a lock. only allowed when there is no race */
-  xct::McsBlockIndex  mcs_initial_lock(xct::McsWwLock* mcs_lock);
-  /** Unlcok an MCS lock acquired by this thread. */
-  void                mcs_release_lock(xct::McsWwLock* mcs_lock, xct::McsBlockIndex block_index);
-
-  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* lock);
-  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* lock);
-
-  /** One-shot CAS version */
-  xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* lock);
-  xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* lock);
-
-  void               mcs_release_reader_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
-  void               mcs_release_writer_lock(
-    xct::McsRwLock* mcs_rw_lock,
-    xct::McsBlockIndex block_index);
-
-  void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
-  void        mcs_giveup_all_current_locks_after(xct::UniversalLockId address);
+  void        cll_release_all_locks_after(xct::UniversalLockId address);
+  void        cll_giveup_all_locks_after(xct::UniversalLockId address);
 
   ErrorCode   cll_try_or_acquire_single_lock(xct::LockListPosition pos);
   ErrorCode   cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
@@ -332,10 +309,6 @@ class ThreadPimpl final : public DefaultInitializable {
     xct::SysxctWorkspace* sysxct_workspace,
     uint32_t lock_count,
     storage::Page** pages);
-
-  static void mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock);
-  static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
-  static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);
 
   // overload to be template-friendly
   void get_mcs_rw_my_blocks(xct::McsRwSimpleBlock** out) { *out = mcs_rw_simple_blocks_; }

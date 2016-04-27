@@ -273,75 +273,48 @@ class Thread CXX11_FINAL : public virtual Initializable {
   void          collect_retired_volatile_page(storage::VolatilePagePointer ptr);
 
   /** Unconditionally takes MCS lock on the given mcs_lock. */
-  /** @copydoc foedus::xct::McsWwImpl::acquire_unconditional() */
-  xct::McsBlockIndex  mcs_acquire_lock(xct::McsWwLock* mcs_lock);
-  /** @copydoc foedus::xct::McsWwImpl::acquire_try() */
-  xct::McsBlockIndex  mcs_acquire_try_lock(xct::McsWwLock* mcs_lock);
-  /** @copydoc foedus::xct::McsWwImpl::initial() */
-  xct::McsBlockIndex  mcs_initial_lock(xct::McsWwLock* mcs_lock);
-  /** @copydoc foedus::xct::McsWwImpl::release() */
-  void                mcs_release_lock(xct::McsWwLock* mcs_lock, xct::McsBlockIndex block_index);
-
-  /** @copydoc foedus::xct::McsImpl::acquire_unconditional_rw_reader() */
-  xct::McsBlockIndex mcs_acquire_reader_lock(xct::McsRwLock* lock);
-  /** @copydoc foedus::xct::McsImpl::acquire_unconditional_rw_writer() */
-  xct::McsBlockIndex mcs_acquire_writer_lock(xct::McsRwLock* lock);
-
-  /** @copydoc foedus::xct::McsImpl::acquire_try_rw_reader() */
-  xct::McsBlockIndex mcs_try_acquire_reader_lock(xct::McsRwLock* lock);
-  /** @copydoc foedus::xct::McsImpl::acquire_try_rw_writer() */
-  xct::McsBlockIndex mcs_try_acquire_writer_lock(xct::McsRwLock* lock);
-
-  /** @copydoc foedus::xct::McsImpl::release_rw_reader() */
-  void mcs_release_reader_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-  /** @copydoc foedus::xct::McsImpl::release_rw_writer() */
-  void mcs_release_writer_lock(xct::McsRwLock* lock, xct::McsBlockIndex block_index);
-
   xct::McsRwSimpleBlock* get_mcs_rw_simple_blocks();
   xct::McsRwExtendedBlock* get_mcs_rw_extended_blocks();
-  /**
-   * Release all locks in CLL of this thread whose addresses are canonically ordered
-   * before the parameter. This is used where we need to rule out the risk of deadlock.
-   * TODO(Hideaki) this has some bug when address!=kNullUniversalLockId ??? Need to test
-   */
-  void        mcs_release_all_current_locks_after(xct::UniversalLockId address);
-  /** same as mcs_release_all_current_locks_after(address - 1) */
-  void        mcs_release_all_current_locks_at_and_after(xct::UniversalLockId address) {
-    if (address == xct::kNullUniversalLockId) {
-      mcs_release_all_current_locks_after(xct::kNullUniversalLockId);
-    } else {
-      mcs_release_all_current_locks_after(address - 1U);
-    }
-  }
-  /**
-   * This \e gives-up locks in CLL that are not yet taken.
-   * preferred mode will be set to either NoLock or same as taken_mode,
-   * and all incomplete async locks will be cancelled.
-   */
-  void        mcs_giveup_all_current_locks_after(xct::UniversalLockId address);
-  void        mcs_giveup_all_current_locks_at_and_after(xct::UniversalLockId address) {
-    if (address == xct::kNullUniversalLockId) {
-      mcs_giveup_all_current_locks_after(xct::kNullUniversalLockId);
-    } else {
-      mcs_giveup_all_current_locks_after(address - 1U);
-    }
-  }
-
-  /** @copydoc foedus::xct::McsWwImpl::ownerless_acquire_unconditional() */
-  static void mcs_ownerless_acquire_lock(xct::McsWwLock* mcs_lock);
-  /** @copydoc foedus::xct::McsWwImpl::ownerless_release() */
-  static void mcs_ownerless_release_lock(xct::McsWwLock* mcs_lock);
-  /** @copydoc foedus::xct::McsWwImpl::ownerless_initial() */
-  static void mcs_ownerless_initial_lock(xct::McsWwLock* mcs_lock);
-
   ///////////////////////////////////////////////////////////////////////////////
   ///
   ///  Methods related to Current Lock List (CLL)
+  ///  These are the only interface in Thread to lock records. We previously had
+  ///  methods to directly lock without CLL, but we now prohibit bypassing CLL.
+  ///  CLL guarantees deadlock-free lock handling.
+  ///  CLL only handle record locks. In FOEDUS, normal transactions never
+  ///  take page lock. Only system transactions are allowed to take page locks.
   ///
   /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_single_lock() */
   ErrorCode cll_try_or_acquire_single_lock(xct::LockListPosition pos);
   /** @copydoc foedus::xct::CurrentLockList::try_or_acquire_multiple_locks() */
   ErrorCode cll_try_or_acquire_multiple_locks(xct::LockListPosition upto_pos);
+  /**
+   * This \e gives-up locks in CLL that are not yet taken.
+   * preferred mode will be set to either NoLock or same as taken_mode,
+   * and all incomplete async locks will be cancelled.
+   */
+  void      cll_giveup_all_locks_after(xct::UniversalLockId address);
+  void      cll_giveup_all_locks_at_and_after(xct::UniversalLockId address) {
+    if (address == xct::kNullUniversalLockId) {
+      cll_giveup_all_locks_after(xct::kNullUniversalLockId);
+    } else {
+      cll_giveup_all_locks_after(address - 1U);
+    }
+  }
+  /**
+   * Release all locks in CLL of this thread whose addresses are canonically ordered
+   * before the parameter. This is used where we need to rule out the risk of deadlock.
+   */
+  void      cll_release_all_locks_after(xct::UniversalLockId address);
+  /** same as mcs_release_all_current_locks_after(address - 1) */
+  void      cll_release_all_locks_at_and_after(xct::UniversalLockId address) {
+    if (address == xct::kNullUniversalLockId) {
+      cll_release_all_locks_after(xct::kNullUniversalLockId);
+    } else {
+      cll_release_all_locks_after(address - 1U);
+    }
+  }
+  void      cll_release_all_locks();
 
   ///////////////////////////////////////////////////////////////////////////////
   ///
