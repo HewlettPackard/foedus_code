@@ -48,8 +48,9 @@ DEFINE_TEST_CASE_PACKAGE(SimpleBringupTest, foedus.restart);
   // in the doxygen.  The goal was to just create a storage, see that
   // there were files in the FS, then see that the storage was already
   // created on restart.
-TEST(SimpleBringupTest, Empty) {
+void test(bool wait_durable) {
   EngineOptions options = get_tiny_options();
+  options.log_.flush_at_shutdown_ = wait_durable;
   {
     Engine engine(options);
     COERCE_ERROR(engine.initialize());
@@ -63,7 +64,9 @@ TEST(SimpleBringupTest, Empty) {
         COERCE_ERROR(engine.get_storage_manager()->create_storage(&mst_meta, &ep));
         // Taking a snapshot doesn't help (or hurt).
         // engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
-        COERCE_ERROR_CODE(engine.get_xct_manager()->wait_for_commit(ep));
+        if (wait_durable) {
+          COERCE_ERROR_CODE(engine.get_xct_manager()->wait_for_commit(ep));
+        }
       }
 
       COERCE_ERROR(engine.uninitialize());
@@ -96,6 +99,8 @@ TEST(SimpleBringupTest, Empty) {
   }
   cleanup_test(options);
 }
+TEST(SimpleBringupTest, Durable) { test(true); }
+TEST(SimpleBringupTest, NonDurable) { test(false); }
 
 
 }  // namespace restart

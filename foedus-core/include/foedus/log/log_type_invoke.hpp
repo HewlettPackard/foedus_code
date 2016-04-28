@@ -82,7 +82,7 @@ void invoke_assert_valid(void *log_buffer);
  * Thus not inlined here.
  * This writes out an XML representation of the log entry.
  */
-void invoke_ostream(void *buffer, std::ostream *ptr);
+void invoke_ostream(const void *buffer, std::ostream *ptr);
 
 #define X(a, b, c) case a: \
   reinterpret_cast< c* >(buffer)->apply_record(context, storage_id, owner_id, payload); return;
