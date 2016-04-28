@@ -19,12 +19,14 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstring>
 #include <ostream>
 
 #include "foedus/assert_nd.hpp"
 #include "foedus/fs/direct_io_file.hpp"
 #include "foedus/log/common_log_types.hpp"
+#include "foedus/log/log_type_invoke.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/soc/soc_manager.hpp"
 
@@ -50,18 +52,112 @@ ErrorStack MetaLogger::initialize_once() {
   // Open log file
   current_file_ = new fs::DirectIoFile(path, engine_->get_options().log_.emulation_);
   WRAP_ERROR_CODE(current_file_->open(true, true, true, true));
-  if (control_block_->durable_offset_ < current_file_->get_current_offset()) {
-    LOG(ERROR) << "Meta log file has a non-durable region. Probably there"
-      << " was a crash. Will truncate it to " << control_block_->durable_offset_
-      << " from " << current_file_->get_current_offset();
-    WRAP_ERROR_CODE(current_file_->truncate(control_block_->durable_offset_, true));
-  }
+  CHECK_ERROR(truncate_non_durable(engine_->get_savepoint_manager()->get_saved_durable_epoch()));
   ASSERT_ND(control_block_->durable_offset_ == current_file_->get_current_offset());
 
   stop_requested_ = false;
   logger_thread_ = std::move(std::thread(&MetaLogger::meta_logger_main, this));
   return kRetOk;
 }
+
+
+void on_non_durable_meta_log_found(
+  const log::LogHeader* entry,
+  Epoch durable_epoch,
+  uint64_t offset) {
+  std::stringstream ss;
+  ss << "    <Log offset=\"" << assorted::Hex(offset) << "\""
+    << " len=\"" << assorted::Hex(entry->log_length_) << "\""
+    << " type=\"" << assorted::Hex(entry->log_type_code_) << "\""
+    << " storage_id=\"" << assorted::Hex(entry->storage_id_) << "\"";
+  if (entry->log_length_ >= 8U) {
+    ss << " xct_id_epoch=\"" << entry->xct_id_.get_epoch_int() << "\"";
+    ss << " xct_id_ordinal=\"" << entry->xct_id_.get_ordinal() << "\"";
+  }
+  ss << ">";
+  log::invoke_ostream(entry, &ss);
+  ss << "</Log>";
+  LOG(WARNING) << "Found a meta log that is not in durable epoch (" << durable_epoch
+    << "). Probably the last run didn't invoke wait_for_commit(). The operation is discarded."
+    << " Log content:" << std::endl << ss.str();
+}
+
+ErrorStack MetaLogger::truncate_non_durable(Epoch saved_durable_epoch) {
+  ASSERT_ND(saved_durable_epoch.is_valid());
+  const uint64_t from_offset = control_block_->oldest_offset_;
+  const uint64_t to_offset = control_block_->durable_offset_;
+  ASSERT_ND(from_offset <= to_offset);
+  LOG(INFO) << "Truncating non-durable meta logs, if any. Right now meta logger's"
+    << " oldest_offset_=" << from_offset
+    << ", (meta logger's local) durable_offset_=" << to_offset
+    << ", global saved_durable_epoch=" << saved_durable_epoch;
+  ASSERT_ND(current_file_->is_opened());
+
+  // Currently, we need to read everything from oldest_offset_ to see from where
+  // We might have non-durable logs.
+  // TASK(Hideaki) We should change SavepointManager to emit globally_durable_offset_. later.
+  const uint64_t read_size = to_offset - from_offset;
+  if (read_size > 0) {
+    memory::AlignedMemory buffer;
+    buffer.alloc(read_size, 1U << 12, memory::AlignedMemory::kNumaAllocOnnode, 0);
+    WRAP_ERROR_CODE(current_file_->seek(from_offset, fs::DirectIoFile::kDirectIoSeekSet));
+    WRAP_ERROR_CODE(current_file_->read_raw(read_size, buffer.get_block()));
+
+    char* buf = reinterpret_cast<char*>(buffer.get_block());
+    uint64_t cur = 0;
+    uint64_t first_non_durable_at = read_size;
+    while (cur < read_size) {
+      log::BaseLogType* entry = reinterpret_cast<log::BaseLogType*>(buf + cur);
+      ASSERT_ND(entry->header_.get_kind() != log::kRecordLogs);
+      const uint32_t log_length = entry->header_.log_length_;
+      log::LogCode type = entry->header_.get_type();
+      ASSERT_ND(type != log::kLogCodeInvalid);
+      if (type == log::kLogCodeFiller || type == log::kLogCodeEpochMarker) {
+        // Skip filler/marker. These don't have XID
+      } else {
+        Epoch epoch = entry->header_.xct_id_.get_epoch();
+        if (epoch <= saved_durable_epoch) {
+          // Mostly this case.
+        } else {
+          // Ok, found a non-durable entry!
+          const uint64_t raw_offset = from_offset + cur;
+          on_non_durable_meta_log_found(&entry->header_, saved_durable_epoch, raw_offset);
+          ASSERT_ND(first_non_durable_at == read_size || first_non_durable_at < cur);
+          first_non_durable_at = std::min(first_non_durable_at, cur);
+          // We can break here, but let's read all and warn all of them. meta log should be tiny
+        }
+      }
+      cur += log_length;
+    }
+
+    if (first_non_durable_at < read_size) {
+      // NOTE: This happens. Although the meta logger itself immediately flushes all logs
+      // to durable storages, the global durable_epoch is min(all_logger_durable_epoch).
+      // Thus, when the user didn't invoke wait_on_commit, we might have to discard
+      // some meta logs that are "durable by itself" but "non-durable regarding the whole database"
+      LOG(WARNING) << "Found some meta logs that are not in durable epoch (" << saved_durable_epoch
+        << "). We will truncate non-durable regions. new durable_offset=" << first_non_durable_at;
+      control_block_->durable_offset_ = first_non_durable_at;
+      engine_->get_savepoint_manager()->change_meta_logger_durable_offset(first_non_durable_at);
+    }
+  } else {
+    // Even if all locally-durable regions are globally durable,
+    // there still could be locally-non-durable regions (=not yet fsynced).
+    // Will truncate such regions.
+    LOG(ERROR) << "Meta log file has a non-durable region. Probably there"
+      << " was a crash. Will truncate";
+  }
+
+  const uint64_t new_offset = control_block_->durable_offset_;
+  if (new_offset < current_file_->get_current_offset()) {
+    LOG(WARNING) << "Truncating meta log file to " << new_offset
+      << " from " << current_file_->get_current_offset();
+    WRAP_ERROR_CODE(current_file_->truncate(new_offset, true));
+  }
+  WRAP_ERROR_CODE(current_file_->seek(new_offset, fs::DirectIoFile::kDirectIoSeekSet));
+  return kRetOk;
+}
+
 
 ErrorStack MetaLogger::uninitialize_once() {
   ASSERT_ND(engine_->is_master());

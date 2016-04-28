@@ -74,6 +74,15 @@ class MetaLogger final : public DefaultInitializable {
    */
   ErrorStack  log_epoch_switch(Epoch new_epoch);
 
+  /**
+   * Called on startup to truncate non-durable logs in the file and adjust current/durable_offset.
+   * The truncation is based on \b global durable-epoch, not the meta-logger's own durable_offset.
+   * The global durable epoch is min of all loggers' durable-epoch, so we might have to discard
+   * meta logs that were durable by themselves, but not yet durable for the entire database.
+   * In that case, we also have to adjust durable_offset in the meta logger.
+   */
+  ErrorStack  truncate_non_durable(Epoch saved_durable_epoch);
+
   Engine* const               engine_;
   MetaLogControlBlock*        control_block_;
   std::thread                 logger_thread_;

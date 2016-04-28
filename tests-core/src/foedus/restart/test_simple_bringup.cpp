@@ -59,7 +59,6 @@ void test(bool wait_durable) {
       foedus::storage::masstree::MasstreeMetadata mst_meta("my_masstree");
       if (!engine.get_storage_manager()->get_storage("my_masstree")->exists()) {
         foedus::Epoch ep;
-        foedus::storage::masstree::MasstreeMetadata mst_meta("my_masstree");
         std::cout << "++++++++~~~~~~~~~~make the storage\n\n\n";
         COERCE_ERROR(engine.get_storage_manager()->create_storage(&mst_meta, &ep));
         // Taking a snapshot doesn't help (or hurt).
@@ -73,7 +72,7 @@ void test(bool wait_durable) {
     }
   }
 
-  {
+  for (uint16_t i = 0; i < 3U; ++i) {
     // Absolutely certain this is a different engine
     Engine engine(options);
 
@@ -88,10 +87,12 @@ void test(bool wait_durable) {
       if (!engine.get_storage_manager()->get_storage("my_masstree")->exists()) {
         // Should never get here.
         foedus::Epoch ep;
-        foedus::storage::masstree::MasstreeMetadata mst_meta("my_masstree");
         std::cout << "++++++++~~~~~~~~~~makeymakey storage\n\n\n";
         COERCE_ERROR(engine.get_storage_manager()->create_storage(&mst_meta, &ep));
-        engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
+        if (wait_durable) {
+          COERCE_ERROR_CODE(engine.get_xct_manager()->wait_for_commit(ep));
+          engine.get_snapshot_manager()->trigger_snapshot_immediate(true);
+        }
       }
 
       COERCE_ERROR(engine.uninitialize());

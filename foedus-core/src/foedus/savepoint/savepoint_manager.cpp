@@ -73,5 +73,10 @@ void SavepointManager::get_meta_logger_offsets(
   *durable_offset = pimpl_->control_block_->savepoint_.meta_log_durable_offset_;
 }
 
+void SavepointManager::change_meta_logger_durable_offset(uint64_t durable_offset) {
+  ASSERT_ND(pimpl_->control_block_->savepoint_.meta_log_durable_offset_ >= durable_offset);
+  pimpl_->control_block_->savepoint_.meta_log_durable_offset_ = durable_offset;
+}
+
 }  // namespace savepoint
 }  // namespace foedus

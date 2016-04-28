@@ -63,6 +63,7 @@ class RestartManagerPimpl final : public DefaultInitializable {
   RestartManagerControlBlock* control_block_;
 };
 
+
 static_assert(
   sizeof(RestartManagerControlBlock) <= soc::GlobalMemoryAnchors::kRestartManagerMemorySize,
   "RestartManagerControlBlock is too large.");
