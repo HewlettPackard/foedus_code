@@ -52,9 +52,9 @@ void invoke_apply_storage(void *buffer, Engine* engine, storage::StorageId stora
 #undef X
 
 
-#define X(a, b, c) case a: o << *reinterpret_cast< c* >(buffer); break;
-void invoke_ostream(void *buffer, std::ostream *ptr) {
-  LogHeader* header = reinterpret_cast<LogHeader*>(buffer);
+#define X(a, b, c) case a: o << *reinterpret_cast< const  c* >(buffer); break;
+void invoke_ostream(const void *buffer, std::ostream *ptr) {
+  const LogHeader* header = reinterpret_cast<const LogHeader*>(buffer);
   LogCode code = header->get_type();
   std::ostream &o = *ptr;
   switch (code) {

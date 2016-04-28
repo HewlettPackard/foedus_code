@@ -1,3 +1,3 @@
 add_foedus_test_individual(test_restart_meta "Empty;OneArray;OneArrayOneSequential;OneMasstree;CreateDropCreate")
 
-add_foedus_test_individual(test_simple_bringup "Empty")
+add_foedus_test_individual(test_simple_bringup "Durable;NonDurable")

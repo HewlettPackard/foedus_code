@@ -113,7 +113,11 @@ LogRange LoggerRef::get_log_range(Epoch prev_epoch, Epoch until_epoch) {
       }
     }
     if (pos == count) {
-      LOG(FATAL) << "No epoch mark found for " << prev_epoch << " in logger-" << id_;
+      LOG(INFO) << "No epoch mark found for " << prev_epoch << " in logger-" << id_
+        << " This usually happens when there was no transactional log before system shutdown";
+      result.end_file_ordinal = 0;
+      result.end_offset = 0;
+      return result;
     }
   }
 
