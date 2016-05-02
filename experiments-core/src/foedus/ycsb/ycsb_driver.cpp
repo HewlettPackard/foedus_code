@@ -79,6 +79,7 @@ DEFINE_bool(interleave_numa_alloc, false, "Whether to use ::numa_alloc_interleav
 DEFINE_bool(mmap_hugepages, false, "Whether to use mmap for 1GB hugepages."
   " This requies special setup written in the readme.");
 DEFINE_int32(log_buffer_mb, 256, "Size in MB of log buffer for each thread");
+DEFINE_int32(log_file_size_gb, 16, "File size in GB of each log file, or when to go to next file");
 DEFINE_bool(null_log_device, false, "Whether to disable log writing.");
 DEFINE_int64(duration_micro, 10000000, "Duration of benchmark in microseconds.");
 DEFINE_int32(hot_threshold, -1, "Threshold to determine hot/cold pages,"
@@ -275,7 +276,8 @@ int driver_main(int argc, char **argv) {
 
   options.log_.log_buffer_kb_ = FLAGS_log_buffer_mb << 10;
   std::cout << "log_buffer_mb=" << FLAGS_log_buffer_mb << "MB per thread" << std::endl;
-  options.log_.log_file_size_mb_ = 1 << 15;
+  options.log_.log_file_size_mb_ = (1ULL << 10) * FLAGS_log_file_size_gb;
+  std::cout << "log_file_size_mb_=" << options.log_.log_file_size_mb_ << std::endl;
   std::cout << "volatile_pool_size=" << FLAGS_volatile_pool_size << "GB per NUMA node" << std::endl;
   options.memory_.page_pool_size_mb_per_node_ = (FLAGS_volatile_pool_size) << 10;
 
@@ -332,6 +334,18 @@ int driver_main(int argc, char **argv) {
     << std::endl;
 
   std::cout << "sort keys before accessing: " << FLAGS_sort_keys << std::endl;
+
+#ifdef YCSB_HASH_STORAGE
+  // If we are using Hash with a huge number of records thus bins, we might need to
+  // increase partitioner_data_memory_mb_.
+  // (Recalculate this if you change kHashPreferredRecordsPerBin below)
+  // For 100M records, it required around 10MB. Let's say 1M rec=0.15 MB.
+  const float partitioner_required_mb_ = FLAGS_initial_table_size * 0.15 / 1000000;
+  if (options.storage_.partitioner_data_memory_mb_ < partitioner_required_mb_) {
+    std::cout << "Set partitioner_data_memory_mb_ to " << partitioner_required_mb_ << std::endl;
+    options.storage_.partitioner_data_memory_mb_ = partitioner_required_mb_;
+  }
+#endif
 
   // Get an engine, register procedures to run
   Engine engine(options);

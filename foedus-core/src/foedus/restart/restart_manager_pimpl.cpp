@@ -26,7 +26,6 @@
 #include "foedus/fs/direct_io_file.hpp"
 #include "foedus/log/common_log_types.hpp"
 #include "foedus/log/log_manager.hpp"
-#include "foedus/log/log_type_invoke.hpp"
 #include "foedus/memory/aligned_memory.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
@@ -101,27 +100,6 @@ ErrorStack RestartManagerPimpl::recover() {
   return kRetOk;
 }
 
-void on_non_durable_meta_log_found(
-  const log::LogHeader* entry,
-  Epoch durable_epoch,
-  uint64_t offset) {
-  std::stringstream ss;
-  ss << "    <Log offset=\"" << assorted::Hex(offset) << "\""
-    << " len=\"" << assorted::Hex(entry->log_length_) << "\""
-    << " type=\"" << assorted::Hex(entry->log_type_code_) << "\""
-    << " storage_id=\"" << assorted::Hex(entry->storage_id_) << "\"";
-  if (entry->log_length_ >= 8U) {
-    ss << " xct_id_epoch=\"" << entry->xct_id_.get_epoch_int() << "\"";
-    ss << " xct_id_ordinal=\"" << entry->xct_id_.get_ordinal() << "\"";
-  }
-  ss << ">";
-  log::invoke_ostream(entry, &ss);
-  ss << "</Log>";
-  LOG(WARNING) << "Found a meta log that is not in durable epoch (" << durable_epoch
-    << "). Probably the last run didn't invoke wait_for_commit(). The operation is discarded."
-    << " Log content:" << std::endl << ss.str();
-}
-
 ErrorStack RestartManagerPimpl::redo_meta_logs(Epoch durable_epoch, Epoch snapshot_epoch) {
   ASSERT_ND(!snapshot_epoch.is_valid() || snapshot_epoch < durable_epoch);
   LOG(INFO) << "Redoing metadata operations from " << snapshot_epoch << " to " << durable_epoch;
@@ -163,15 +141,10 @@ ErrorStack RestartManagerPimpl::redo_meta_logs(Epoch durable_epoch, Epoch snapsh
       continue;
     }
     Epoch epoch = entry->header_.xct_id_.get_epoch();
-    if (UNLIKELY(epoch > durable_epoch)) {
-      // NOTE: This happens. Although the meta logger itself immediately flushes all logs
-      // to durable storages, the global durable_epoch is min(all_logger_durable_epoch).
-      // Thus, when the user didn't invoke wait_on_commit, we might have to discard
-      // some meta logs that are "durable by itself" but "non-durable regarding the whole database"
-      on_non_durable_meta_log_found(&entry->header_, durable_epoch, cur - log_length);
-      continue;
+    if (epoch > durable_epoch) {
+      LOG(FATAL) << "WTF. This should have been checked in meta logger's startup??";
     }
-    if (snapshot_epoch.is_valid() && epoch < snapshot_epoch) {
+    if (snapshot_epoch.is_valid() && epoch <= snapshot_epoch) {
       continue;
     }
     switch (type) {

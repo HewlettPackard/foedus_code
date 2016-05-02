@@ -54,6 +54,12 @@ class SavepointManager CXX11_FINAL : public virtual Initializable {
 
   /** Returns the saved information of metadata logger in lateset savepoint */
   void get_meta_logger_offsets(uint64_t* oldest_offset, uint64_t* durable_offset) const;
+  /**
+   * Rewrites meta logger's durable_offset. This is required because meta logger might
+   * adjust its "locally durable" offset at startup. Once we emit "globally durable" offset
+   * of meta logger in savepoint, we won't need it. but we do for now.
+   */
+  void change_meta_logger_durable_offset(uint64_t durable_offset);
 
   Epoch get_initial_current_epoch() const;
   Epoch get_initial_durable_epoch() const;
