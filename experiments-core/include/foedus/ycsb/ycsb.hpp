@@ -356,6 +356,9 @@ class YcsbClientTask {
       rnd_xct_select_(882746 + inputs.worker_id_) {}
 
   ErrorStack run(thread::Thread* context);
+  ErrorStack run_s(
+    storage::masstree::MasstreeStorage* rmw_table,
+    storage::masstree::MasstreeStorage* scan_table);
 
   uint32_t select_random_record(uint32_t max) {
     return rnd_record_select_.uniform_within(0, max);

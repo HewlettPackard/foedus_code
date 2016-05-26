@@ -92,6 +92,7 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   channel_ = get_channel(engine_);
   outputs_->cur_bucket_ = 0;
   std::memset(outputs_->bucketed_throughputs_, 0, sizeof(outputs_->bucketed_throughputs_));
+
   // TODO(tzwang): so far we only support homogeneous systems: each processor has exactly the same
   // amount of cores. Add support for heterogeneous processors later and let get_total_thread_count
   // figure out how many cores we have (basically by adding individual core counts up).
@@ -113,6 +114,15 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   channel_->start_rendezvous_.wait();
   LOG(INFO) << "YCSB Client-" << worker_id_
     << " started working on workload " << workload_.desc_ << "!";
+
+
+  // Workload-S has a bit special code. We do this only in masstree version (due to cursor)
+  if (workload_.desc_ == 'S') {
+#ifndef YCSB_HASH_STORAGE
+    CHECK_ERROR(run_s(&user_table_, &extra_table_));
+#endif  // YCSB_HASH_STORAGE
+    return kRetOk;
+  }
 
   bool cur_flip_workload = channel_->shifted_workload_;
   uint32_t cur_bucket_throughput = 0;
@@ -356,6 +366,88 @@ ErrorStack YcsbClientTask::run(thread::Thread* context) {
   }
   outputs_->snapshot_cache_hits_ = context->get_snapshot_cache_hits();
   outputs_->snapshot_cache_misses_ = context->get_snapshot_cache_misses();
+  return kRetOk;
+}
+
+ErrorStack YcsbClientTask::run_s(
+  storage::masstree::MasstreeStorage* rmw_table,
+  storage::masstree::MasstreeStorage* scan_table) {
+  // HACK in this experiment, threshold=123 means a special "OCC+" scheme in [Thomas98]
+  // which starts with pure-OCC, then pure-2PL after aborts.
+  // No worry on RLL in this experiment. All accesses are ordered anyways.
+  bool is_thomas = context_->get_engine()->get_options().storage_.hot_threshold_ == 123U;
+  bool prev_aborted = false;
+  while (!is_stop_requested()) {
+    // In Workload-S, there is no randomness. All threads run the same transaction.
+    WRAP_ERROR_CODE(xct_manager_->begin_xct(context_, xct::kSerializable));
+    ErrorCode ret = kErrorCodeOk;
+
+    if (is_thomas) {
+      auto& cur_xct = context_->get_current_xct();
+      if (prev_aborted) {
+        cur_xct.set_hot_threshold_for_this_xct(0);  // pure 2PL
+      } else {
+        cur_xct.set_hot_threshold_for_this_xct(126);  // pure OCC
+      }
+    }
+
+    // Op-1: Read from the first record in rmw_table.
+    // Op-2: Scan all records in scan_table
+    // Op-3: Update the first record in rmw_table.
+    uint64_t value;
+    ret = rmw_table->get_record_primitive_normalized<uint64_t>(context_, 0, &value, 0, false);
+    if (ret == kErrorCodeOk) {
+      storage::masstree::MasstreeCursor cursor(*scan_table, context_);
+      ret = cursor.open();
+      if (ret == kErrorCodeOk) {
+        while (cursor.is_valid_record()) {
+          const uint64_t* payload = reinterpret_cast<const uint64_t*>(cursor.get_payload());
+          value += *payload;
+          ret = cursor.next();
+          if (ret != kErrorCodeOk) {
+            break;
+          }
+        }
+        if (ret == kErrorCodeOk) {
+          ret = rmw_table->overwrite_record_primitive_normalized<uint64_t>(context_, 0, value, 0);
+        }
+      }
+    }
+
+    // Done with data access, try to commit
+    Epoch commit_epoch;
+    if (ret == kErrorCodeOk) {
+      ret = xct_manager_->precommit_xct(context_, &commit_epoch);
+      if (ret == kErrorCodeOk) {
+        ASSERT_ND(!context_->is_running_xct());
+        prev_aborted = false;
+        continue;
+      }
+    } else {
+      ASSERT_ND(context_->is_running_xct());
+      WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+    }
+
+    ASSERT_ND(!context_->is_running_xct());
+
+    prev_aborted = true;
+    if (ret == kErrorCodeXctRaceAbort) {
+      increment_race_aborts();
+    } else if (ret == kErrorCodeXctLockAbort) {
+      increment_lock_aborts();
+    } else if (ret == kErrorCodeXctPageVersionSetOverflow ||
+      ret == kErrorCodeXctPointerSetOverflow ||
+      ret == kErrorCodeXctReadSetOverflow ||
+      ret == kErrorCodeXctWriteSetOverflow) {
+      // this usually doesn't happen, but possible.
+      increment_largereadset_aborts();
+    } else if (random_inserts_ && ret == kErrorCodeStrKeyAlreadyExists) {
+      increment_insert_conflict_aborts();
+    } else {
+      increment_unexpected_aborts();
+      LOG(WARNING) << "Unexpected error: " << get_error_name(ret);
+    }
+  }
   return kRetOk;
 }
 

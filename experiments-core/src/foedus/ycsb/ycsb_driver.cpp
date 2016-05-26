@@ -146,6 +146,9 @@ YcsbWorkload YcsbWorkloadF('F', 0,  0,    0,    0,    100U);  // Workload F - 10
 YcsbWorkload YcsbWorkloadG('G', 0,  0,    5U,   100U, 0);     // Workload G - 5% update, 95% scan
 YcsbWorkload YcsbWorkloadH('H', 0,  0,    0,    100U, 0);     // Workload H - 100% scan
 
+// Special insert-and-scan workload for MOCC paper
+YcsbWorkload YcsbWorkloadS('S', 0,  0,    0,    100U, 0);
+
 int64_t max_scan_length() {
   return FLAGS_max_scan_length;
 }
@@ -347,6 +350,10 @@ int driver_main(int argc, char **argv) {
   }
 #endif
 
+  if (FLAGS_workload == "S") {
+    options.xct_.max_read_set_size_ = FLAGS_extra_table_size * 2;
+  }
+
   // Get an engine, register procedures to run
   Engine engine(options);
   proc::ProcAndName load_proc("ycsb_load_task", ycsb_load_task);
@@ -414,6 +421,12 @@ ErrorStack YcsbDriver::run() {
     workload = YcsbWorkloadG;
   } else if (FLAGS_workload == "H") {
     workload = YcsbWorkloadH;
+  } else if (FLAGS_workload == "S") {
+    workload = YcsbWorkloadS;
+    FLAGS_reps_per_tx = 1;
+    workload.rmw_additional_reads_ = 1;
+    workload.extra_table_rmws_ = 0;
+    workload.extra_table_reads_ = 1;
   } else {
     COERCE_ERROR_CODE(kErrorCodeInvalidParameter);
   }
