@@ -2,6 +2,7 @@
 extra_table_size=1000
 extra_table_reads=0
 extra_table_rmws=0
+extended_rw_lock=1
 force_canonical_xlocks_in_precommit=1
 initial_table_size=1
 reps_per_tx=1

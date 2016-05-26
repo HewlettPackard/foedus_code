@@ -1,12 +1,12 @@
 # This is the "Experiment 2"
 loggers_per_node=2
-volatile_pool_size=16
+volatile_pool_size=2
 snapshot_pool_size=1
 reducer_buffer_size=1
 duration_micro=10000000
 thread_per_node=14
 numa_nodes=16
-log_buffer_mb=512
+log_buffer_mb=128
 machine_name="GryphonHawk"
 machine_shortname="gh"
 fork_workers=true

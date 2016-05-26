@@ -420,12 +420,13 @@ ErrorStack YcsbClientTask::run_s(
       ret = xct_manager_->precommit_xct(context_, &commit_epoch);
       if (ret == kErrorCodeOk) {
         ASSERT_ND(!context_->is_running_xct());
+        ++outputs_->processed_;
         prev_aborted = false;
         continue;
       }
     } else {
       ASSERT_ND(context_->is_running_xct());
-      WRAP_ERROR_CODE(xct_manager_->abort_xct(context_));
+      ret = xct_manager_->abort_xct(context_);
     }
 
     ASSERT_ND(!context_->is_running_xct());
