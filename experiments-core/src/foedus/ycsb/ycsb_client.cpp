@@ -374,7 +374,6 @@ ErrorStack YcsbClientTask::run_s(
   storage::masstree::MasstreeStorage* scan_table) {
   // HACK in this experiment, threshold=123 means a special "OCC+" scheme in [Thomas98]
   // which starts with pure-OCC, then pure-2PL after aborts.
-  // No worry on RLL in this experiment. All accesses are ordered anyways.
   bool is_thomas = context_->get_engine()->get_options().storage_.hot_threshold_ == 123U;
   bool prev_aborted = false;
   while (!is_stop_requested()) {
