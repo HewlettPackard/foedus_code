@@ -130,6 +130,20 @@ int main_impl(int /*argc*/, char **/*argv*/) {
   options.debugging_.debug_log_min_threshold_
     = debugging::DebuggingOptions::kDebugLogWarning;
 
+  // "tiny" options
+  options.log_.log_buffer_kb_ = 1 << 8;
+  options.memory_.page_pool_size_mb_per_node_ = 4;
+  options.memory_.private_page_pool_initial_grab_ = 32;
+  options.cache_.snapshot_cache_size_mb_per_node_ = 2;
+  options.cache_.private_snapshot_cache_initial_grab_ = 32;
+  options.snapshot_.snapshot_interval_milliseconds_ = 1 << 26;  // never
+  options.snapshot_.log_mapper_io_buffer_mb_ = 2;
+  options.snapshot_.log_reducer_buffer_mb_ = 2;
+  options.snapshot_.log_reducer_dump_io_buffer_mb_ = 2;
+  options.snapshot_.snapshot_writer_page_pool_size_mb_ = 2;
+  options.snapshot_.snapshot_writer_intermediate_pool_size_mb_ = 2;
+  options.storage_.max_storages_ = 128;
+
   // Savepoint/xlog/snapshot must be persistent.
   fs::Path log_folder = kMountPoint;
   log_folder /= "foedus_xlogs/node_$NODE$/logger_$LOGGER$";
