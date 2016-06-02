@@ -52,7 +52,9 @@ namespace nvdimm {
 
 // Note: Create this folder upfront AND set permission to read-writable for yourself.
 // Otherwise you need to run this program as sudo:
-// sudo rm -rf /mnt/pmem0/foedus_test; sudo mkdir -p /mnt/pmem0/foedus_test; sudo chmod 777 /mnt/pmem0/foedus_test
+// sudo rm -rf /mnt/pmem0/foedus_test
+// sudo mkdir -p /mnt/pmem0/foedus_test
+// sudo chmod 777 /mnt/pmem0/foedus_test
 const fs::Path kMountPoint(std::string("/mnt/pmem0/foedus_test"));
 
 const storage::StorageName kStorageName("aaa");

@@ -27,8 +27,10 @@
 
 #include "foedus/assorted/assorted_func.hpp"
 #include "foedus/externalize/tinyxml_wrapper.hpp"
+#include "foedus/fs/direct_io_file.hpp"
 #include "foedus/fs/filesystem.hpp"
 #include "foedus/fs/path.hpp"
+#include "foedus/memory/aligned_memory.hpp"
 
 namespace foedus {
 namespace externalize {
@@ -110,18 +112,37 @@ ErrorStack Externalizable::save_to_file(const fs::Path& path) const {
     }
   }
 
+  // Retrieve an XML representation. We initially used document.SaveFile(), but
+  // it is not ideal as it uses non-aligned non-O_DIRECT APIs.
+  // This caused a data loss in our NVDIMM environment.
+  tinyxml2::XMLPrinter xml_stream;
+  document.Print(&xml_stream);
+  const uint32_t non_aligned_size = xml_stream.CStrSize();
+  const uint32_t aligned_size = assorted::align<uint32_t, 1U << 12>(non_aligned_size);
+  memory::AlignedMemory xml_memory;
+  xml_memory.alloc(aligned_size, 1U << 12, memory::AlignedMemory::kPosixMemalign, 0);
+  if (xml_memory.is_null()) {
+    return ERROR_STACK_MSG(kErrorCodeConfCouldNotWrite, "Out of memory in posix_memalign");
+  }
+  char* buffer = reinterpret_cast<char*>(xml_memory.get_block());
+  std::memcpy(buffer, xml_stream.CStr(), non_aligned_size);
+  std::memset(buffer + non_aligned_size, '\n', aligned_size - non_aligned_size);  // LF padding
+
   // To atomically save a file, we write to a temporary file and call sync, then use POSIX rename.
   fs::Path tmp_path(path);
   tmp_path += ".tmp_";
   tmp_path += fs::unique_name("%%%%%%%%");
 
-  tinyxml2::XMLError save_error = document.SaveFile(tmp_path.c_str());
-  if (save_error != tinyxml2::XML_SUCCESS) {
-    std::stringstream custom_message;
-    custom_message << "problemtic file=" << path << ", tinyxml2 error=" << save_error
-       << ", GetErrorStr1()=" << document.GetErrorStr1()
-       << ", GetErrorStr2()=" << document.GetErrorStr2();
-    return ERROR_STACK_MSG(kErrorCodeConfCouldNotWrite, custom_message.str().c_str());
+  {
+    // Use Direct I/O to save this file. For all critical files, we always use
+    // open/write with O_DIRECT.
+    fs::DirectIoFile tmp_file(tmp_path);
+    WRAP_ERROR_CODE(tmp_file.open(false, true, true, true));
+    WRAP_ERROR_CODE(tmp_file.write(aligned_size, xml_memory));
+    tmp_file.close();
+    // TASK(Hideaki) We should not need the following fsync. Let's test this later.
+    // For now, do a safer thing.
+    fs::fsync(tmp_path, true);
   }
 
   if (!fs::durable_atomic_rename(tmp_path, path)) {
