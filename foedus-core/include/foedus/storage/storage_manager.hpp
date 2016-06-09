@@ -59,6 +59,11 @@ class StorageManager CXX11_FINAL : public virtual Initializable {
   ErrorStack  uninitialize() CXX11_OVERRIDE;
 
   /**
+   * Special method called only from recovery manager.
+   */
+  ErrorStack  reinitialize_for_recovered_snapshot();
+
+  /**
    * @brief Issue a unique and atomically/monotonically increasing storage ID for a new storage.
    * @details
    * The caller might later fail, so StorageId might have holes.
