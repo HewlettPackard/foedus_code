@@ -82,7 +82,6 @@ ErrorStack the_task(const proc::ProcArguments& args) {
     std::cout << "Read the record. done!" << std::endl;
   } else {
     std::cout << "the storage doesn't exist. This must be the initial run." << std::endl;
-    // TODO(Hideaki) if we make this a single-page storage, we hit a bug. fix it asap.
     storage::array::ArrayMetadata meta(kStorageName, sizeof(uint64_t), 1024);
     CHECK_ERROR(str_manager->create_array(&meta, &the_storage, &commit_epoch));
     ASSERT_ND(the_storage.exists());
@@ -102,18 +101,6 @@ ErrorStack the_task(const proc::ProcArguments& args) {
 
     std::cout << "Populated the storage. making it durable..." << std::endl;
     WRAP_ERROR_CODE(xct_manager->wait_for_commit(commit_epoch));
-
-    /*
-    {
-      WRAP_ERROR_CODE(xct_manager->begin_xct(args.context_, xct::kSerializable));
-      for (uint16_t i = 0; i < kRecords; ++i) {
-        uint64_t data = 0;
-        WRAP_ERROR_CODE(the_storage.get_record_primitive<uint64_t>(args.context_, i, &data, 0));
-        std::cout << "Record-" << i << "=" << data << std::endl;
-      }
-      WRAP_ERROR_CODE(xct_manager->precommit_xct(args.context_, &commit_epoch));
-    }
-    */
 
     std::cout << "Made it durable. Now we go into sleep. Kill the machine or Ctrl-C now!"
       << std::endl << std::flush;
