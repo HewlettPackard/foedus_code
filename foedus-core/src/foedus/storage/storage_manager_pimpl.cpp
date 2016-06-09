@@ -28,10 +28,12 @@
 #include "foedus/engine_options.hpp"
 #include "foedus/error_stack_batch.hpp"
 #include "foedus/assorted/atomic_fences.hpp"
+#include "foedus/cache/snapshot_file_set.hpp"
 #include "foedus/debugging/stop_watch.hpp"
 #include "foedus/log/log_manager.hpp"
 #include "foedus/log/meta_log_buffer.hpp"
 #include "foedus/log/thread_log_buffer.hpp"
+#include "foedus/memory/engine_memory.hpp"
 #include "foedus/savepoint/savepoint_manager.hpp"
 #include "foedus/snapshot/snapshot_manager.hpp"
 #include "foedus/snapshot/snapshot_metadata.hpp"
@@ -146,6 +148,60 @@ ErrorStack StorageManagerPimpl::initialize_read_latest_snapshot() {
   stop_watch.stop();
   LOG(INFO) << "Found " << active_storages
     << " active storages  in " << stop_watch.elapsed_ms() << " milliseconds";
+  return kRetOk;
+}
+
+ErrorStack StorageManager::reinitialize_for_recovered_snapshot() {
+  return pimpl_->reinitialize_for_recovered_snapshot();
+}
+ErrorStack StorageManagerPimpl::reinitialize_for_recovered_snapshot() {
+  LOG(INFO) << "Replacing existing, stale volatile root pages with the new root snapshot pages..";
+  auto* memory_manager = engine_->get_memory_manager();
+  const auto& resolver = memory_manager->get_global_volatile_page_resolver();
+  debugging::StopWatch stop_watch;
+  uint32_t refreshed_storages = 0;
+
+  cache::SnapshotFileSet fileset(engine_);
+  CHECK_ERROR(fileset.initialize());
+  UninitializeGuard fileset_guard(&fileset, UninitializeGuard::kWarnIfUninitializeError);
+  for (uint32_t id = 1; id <= control_block_->largest_storage_id_; ++id) {
+    StorageControlBlock* block = storages_ + id;
+    const SnapshotPagePointer snapshot_page_id = block->root_page_pointer_.snapshot_pointer_;
+    const VolatilePagePointer volatile_page_id = block->root_page_pointer_.volatile_pointer_;
+    if (!block->exists()) {
+      continue;
+    } else if (snapshot_page_id == 0) {
+      continue;
+    } else if (volatile_page_id.is_null()) {
+      // some storage type allows null volatile root pages. In that case,
+      // we don't have to do anything at this point. When the initial non-read-ony request
+      // is made, the root volatile page will be automatically created.
+      continue;
+    }
+
+    LOG(INFO) << "Re-initializing root of storage-" << id << " from the recovered snapshot."
+      << "Volatile page ID=" << volatile_page_id << ", Snapshot page ID=" << snapshot_page_id;
+    Page* volatile_page = resolver.resolve_offset(volatile_page_id);
+    ASSERT_ND(!volatile_page->get_header().snapshot_);
+    ASSERT_ND(volatile_page->get_header().storage_id_ == id);
+    ASSERT_ND(volatile_page->get_volatile_page_id() == volatile_page_id);
+
+    // Here, we assume that the initially-allocated volatile root page does NOT have
+    // any child volatile page (it shouldn't!). Otherwise, the following overwrite
+    // will cause leaked volatile pages.
+    WRAP_ERROR_CODE(fileset.read_page(snapshot_page_id, volatile_page));
+    ASSERT_ND(volatile_page->get_header().snapshot_);
+    ASSERT_ND(volatile_page->get_header().storage_id_ == id);
+    ASSERT_ND(volatile_page->get_snapshot_page_id() == snapshot_page_id);
+    volatile_page->get_header().snapshot_ = false;
+    volatile_page->get_header().page_id_ = volatile_page_id.word;
+    ++refreshed_storages;
+  }
+
+  CHECK_ERROR(fileset.uninitialize());
+  stop_watch.stop();
+  LOG(INFO) << "Refreshed " << refreshed_storages
+    << " storages with the recovered snapshot in " << stop_watch.elapsed_ms() << " milliseconds";
   return kRetOk;
 }
 
