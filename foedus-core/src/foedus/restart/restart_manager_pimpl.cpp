@@ -96,7 +96,14 @@ ErrorStack RestartManagerPimpl::recover() {
   snapshot::SnapshotManagerPimpl* snapshot_pimpl = engine_->get_snapshot_manager()->get_pimpl();
   snapshot::Snapshot the_snapshot;
   CHECK_ERROR(snapshot_pimpl->handle_snapshot_triggered(&the_snapshot));
-  LOG(INFO) << "Finished initial snapshot during start-up. Now we can start processing transaction";
+  LOG(INFO) << "Finished initial snapshot during start-up.";
+
+  // This fixes Bug #127.
+  // Right after the recovery-snapshot, any non-null volatile root pages becomes stale.
+  // we need to replace them with the new snapshot pages.
+  CHECK_ERROR(engine_->get_storage_manager()->reinitialize_for_recovered_snapshot());
+
+  LOG(INFO) << "Now we can start processing transaction";
   return kRetOk;
 }
 

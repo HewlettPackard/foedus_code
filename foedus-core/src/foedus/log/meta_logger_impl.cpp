@@ -94,7 +94,7 @@ ErrorStack MetaLogger::truncate_non_durable(Epoch saved_durable_epoch) {
   ASSERT_ND(current_file_->is_opened());
 
   // Currently, we need to read everything from oldest_offset_ to see from where
-  // We might have non-durable logs.
+  // we have non-durable logs, whose epochs are larger than the _globally_ durable epoch.
   // TASK(Hideaki) We should change SavepointManager to emit globally_durable_offset_. later.
   const uint64_t read_size = to_offset - from_offset;
   if (read_size > 0) {
@@ -141,11 +141,13 @@ ErrorStack MetaLogger::truncate_non_durable(Epoch saved_durable_epoch) {
       engine_->get_savepoint_manager()->change_meta_logger_durable_offset(first_non_durable_at);
     }
   } else {
-    // Even if all locally-durable regions are globally durable,
-    // there still could be locally-non-durable regions (=not yet fsynced).
-    // Will truncate such regions.
-    LOG(ERROR) << "Meta log file has a non-durable region. Probably there"
-      << " was a crash. Will truncate";
+    if (control_block_->durable_offset_ < current_file_->get_current_offset()) {
+      // Even if all locally-durable regions are globally durable,
+      // there still could be locally-non-durable regions (=not yet fsynced).
+      // Will truncate such regions.
+      LOG(ERROR) << "Meta log file has a non-durable region. Probably there"
+        << " was a crash. Will truncate";
+    }
   }
 
   const uint64_t new_offset = control_block_->durable_offset_;

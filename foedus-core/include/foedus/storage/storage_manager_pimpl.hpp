@@ -78,6 +78,17 @@ class StorageManagerPimpl final : public DefaultInitializable {
   ErrorStack  initialize_read_latest_snapshot();
   ErrorStack  uninitialize_once() override;
 
+  /**
+   * Special method called only from recovery manager.
+   * 1) initialize_once(), which calls initialize_read_latest_snapshot().
+   * 2) if there are non-snapshotted and durable logs, recovery manager triggers snapshotting
+   * 3) then, reinitialize only root pages with this method.
+   *
+   * Unlike usual snapshot, we can assume that there is no concurrent worker,
+   * so we can safely drop volatile root pages and re-create them with the new snapshot pages.
+   */
+  ErrorStack  reinitialize_for_recovered_snapshot();
+
   StorageId   issue_next_storage_id();
   StorageControlBlock*  get_storage(StorageId id) { return &storages_[id]; }
   StorageControlBlock*  get_storage(const StorageName& name);

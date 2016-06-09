@@ -19,6 +19,21 @@ set(test_snapshot_array_individuals
   HolesOneLogger
   HolesTwoLoggers
   HolesTwoPartitions
+  OverwritesOneLogger2Lv
+  OverwritesTwoLoggers2Lv
+  OverwritesTwoPartitions2Lv
+  IncrementsOneLogger2Lv
+  IncrementsTwoLoggers2Lv
+  IncrementsTwoPartitions2Lv
+  IncrementsTwiceOneLogger2Lv
+  IncrementsTwiceTwoLoggers2Lv
+  IncrementsTwiceTwoPartitions2Lv
+  TwoArraysOneLogger2Lv
+  TwoArraysTwoLoggers2Lv
+  TwoArraysTwoPartitions2Lv
+  HolesOneLogger2Lv
+  HolesTwoLoggers2Lv
+  HolesTwoPartitions2Lv
   OverwritesOneLogger3Lv
   OverwritesTwoLoggers3Lv
   OverwritesTwoPartitions3Lv
@@ -36,6 +51,8 @@ set(test_snapshot_array_individuals
   HolesTwoPartitions3Lv
   )
 add_foedus_test_individual(test_snapshot_array "${test_snapshot_array_individuals}")
+
+add_foedus_test_individual(test_snapshot_array_issue_127 "Reproduce")
 
 add_foedus_test_individual(test_snapshot_sequential "AppendsOneLogger;AppendsTwoLoggers;AppendsTwoPartitions")
 
