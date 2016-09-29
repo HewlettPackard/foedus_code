@@ -389,7 +389,7 @@ class CurrentLockList {
       return get_entry(last_locked_entry_)->universal_lock_id_;
     }
   }
-  /** Calculate last_locked_entry_ by really checking the whole list. Usually for sanity checks */
+  /** Calculate last_locked_entry_ by really checking the whole list. */
   LockListPosition calculate_last_locked_entry() const {
     return calculate_last_locked_entry_from(last_active_entry_);
   }
@@ -587,8 +587,12 @@ inline ErrorCode CurrentLockList::try_or_acquire_single_lock(
     // We can release any lock anytime.. great flexibility!
     mcs_rw_impl->release_rw_reader(lock_addr, lock_entry->mcs_block_);
     lock_entry->taken_mode_ = kNoLock;
-    last_locked_entry_ = calculate_last_locked_entry_from(pos - 1U);
-    assert_last_locked_entry();
+    lock_entry->mcs_block_ = 0;
+    // Calculate last_locked_entry_ by scanning the whole list - during upgrade
+    // a reader-lock might get released and re-acquired in writer mode, violating
+    // canonical mode. In these cases last_locked_entry_ should not change unless
+    // the lock being upgraded is indeed the last entry.
+    last_locked_entry_ = calculate_last_locked_entry();
   } else {
     // This method is for unconditional acquire and try, not aync/retry.
     // If we have a queue node already, something was misused.
