@@ -260,9 +260,6 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
   ASSERT_ND(capacity_ >= read_set_size + write_set_size);
 
   last_active_entry_ = kLockListPositionInvalid;
-  if (read_set_size == 0 && write_set_size == 0) {
-    return;
-  }
 
   for (uint32_t i = 0; i < read_set_size; ++i) {
     RwLockableXctId* lock = read_set[i].owner_id_address_;
@@ -292,6 +289,10 @@ void RetrospectiveLockList::construct(thread::Thread* context, uint32_t read_loc
       write_set[i].owner_id_address_,
       kWriteLock,
       kNoLock);
+  }
+
+  if (last_active_entry_ == kLockListPositionInvalid) {
+    return;
   }
 
   // Now, the entries are not sorted and we might have duplicates.
