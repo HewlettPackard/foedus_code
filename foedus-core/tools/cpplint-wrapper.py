@@ -13,6 +13,7 @@ import string
 import subprocess
 import sys
 import time
+import tempfile
 import unicodedata
 
 
@@ -177,14 +178,18 @@ def exec_cpplint(files, cpplint_arguments):
     sys.stdout.write('Launching cpplint for ' + str(len(index_now)) + ' files.\n')
     # sys.stdout.write('arguments: ' + ' '.join(args) + '\n')
     # sys.stdout.write('Launching cpplint (' + cpplint_file + ') for ' + str(len(files))
-    #                  + ' files. arguments: ' + ' '.join(args) + '\n')
-    proc = subprocess.Popen(args, bufsize=65536, stderr=subprocess.PIPE, close_fds=True)
+    #                 + ' files. arguments: ' + ' '.join(args) + '\n')
+
+    tmpfile = tempfile.TemporaryFile()
+    proc = subprocess.Popen(args, bufsize=65536, stderr=tmpfile, close_fds=True)
     proc.wait()
+    # go to first line of tmpfile
+    tmpfile.seek(0)
     has_error = False
     clean_index = {}
     clean_index.update(index_last)
     clean_index.update(index_now)
-    for line in proc.stderr:
+    for line in tmpfile:
         # This is annoying. Why cpplint writes this to _stderr_??
         if not line.startswith("Done processing "):
             has_error = True
