@@ -46,7 +46,7 @@ You can help us in different ways:
 2. Contributing code and sending a [Pull Request](https://github.com/hkimura/foedus_code/pulls).
 
 In order to contribute the code base of this project, you must agree to the Developer Certificate
-of Origin 1.1 for this project under GPLv2+.
+of Origin 1.1 for this project under GPLv2+ with classpath exception as indicated in the accompanying license.
 
     By making a contribution to this project, I certify that:
 
