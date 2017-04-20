@@ -1,4 +1,4 @@
-[Super-build] FOEDUS: Fast Optimistic Engine for Data Unification Services
+FOEDUS: Fast Optimistic Engine for Data Unification Services
 =================================
 
 Overview
