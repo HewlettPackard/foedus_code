@@ -95,7 +95,7 @@ libfoedus-core (For FOEDUS Users)
 -----------
 For more details of how your client program links to and uses our library,
 start from [foedus-core](foedus-core) and
-its API document(TBD).
+[its API document](https://large-scale-oltp-team.github.io/foedus_code/).
 Licensing, short get-started examples, etc for **users** are there.
 The sections below are for people developing FOEDUS itself.
 
