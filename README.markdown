@@ -95,31 +95,9 @@ libfoedus-core (For FOEDUS Users)
 -----------
 For more details of how your client program links to and uses our library,
 start from [foedus-core](foedus-core) and
-[its API document](http://cihead.labs.hpe.com/centos7/job/foedus-master-doxygen/doxygen/).
+its API document(TBD).
 Licensing, short get-started examples, etc for **users** are there.
 The sections below are for people developing FOEDUS itself.
-
-Current Build Status on Jenkins (For FOEDUS Developers)
---------
-|    Build Type            |     *master* Branch     |        *develop* Branch       |
-|--------------------------|:-----------------------:|:-----------------------------:|
-| x86 FC21 release         | [![Build Status: master-release](http://cihead.labs.hpe.com/centos7/job/foedus-master-release/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-master-release/) | [![Build Status: develop-release](http://cihead.labs.hpe.com/centos7/job/foedus-develop-release/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-develop-release/) |
-| x86 FC21 relwithdebinfo  | [![Build Status: master-relwithdebinfo](http://cihead.labs.hpe.com/centos7/job/foedus-master-relwithdbginfo/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-master-relwithdbginfo/) | [![Build Status: develop-relwithdebinfo](http://cihead.labs.hpe.com/centos7/job/foedus-develop-relwithdbginfo/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-develop-relwithdbginfo/) |
-| x86 FC21 debug           | [![Build Status: master-debug](http://cihead.labs.hpe.com/centos7/job/foedus-master-debug/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-master-debug/) | [![Build Status: develop-debug](http://cihead.labs.hpe.com/centos7/job/foedus-develop-debug/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-develop-debug/) |
-| x86 FC21 release-valgrind| [![Build Status: master-release-valgrind](http://cihead.labs.hpe.com/centos7/job/foedus-master-release-valgrind/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-master-release-valgrind/) | [![Build Status: develop-release-valgrind](http://cihead.labs.hpe.com/centos7/job/foedus-develop-release-valgrind/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-develop-release-valgrind/) |
-| x86 FC21 doxygen         | [![Build Status: master-doxygen](http://cihead.labs.hpe.com/centos7/job/foedus-master-doxygen/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-master-doxygen/) | [![Build Status: develop-doxygen](http://cihead.labs.hpe.com/centos7/job/foedus-develop-doxygen/badge/icon)](http://cihead.labs.hpe.com/centos7/job/foedus-develop-doxygen/) |
-| x86 UB15 release         | [![Build Status: master-release](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-release/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-release/) | [![Build Status: develop-release](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-release/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-release/) |
-| x86 UB15 relwithdebinfo  | [![Build Status: master-relwithdebinfo](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-relwithdbginfo/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-relwithdbginfo/) | [![Build Status: develop-relwithdebinfo](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-relwithdbginfo/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-relwithdbginfo/) |
-| x86 UB15 debug           | [![Build Status: master-debug](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-debug/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-debug/) | [![Build Status: develop-debug](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-debug/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-debug/) |
-| x86 UB15 release-valgrind| [![Build Status: master-release-valgrind](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-release-valgrind/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-master-ub-release-valgrind/) | [![Build Status: develop-release-valgrind](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-release-valgrind/badge/icon)](http://cihead.labs.hpe.com/ub1404/job/foedus-develop-ub-release-valgrind/) |
-| aarch64 release          | [![Build Status: master-release](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-release/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-release/) | [![Build Status: develop-release](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-release/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-release/) |
-| aarch64 relwithdebinfo   | [![Build Status: master-relwithdebinfo](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-relwithdbginfo/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-relwithdbginfo/) | [![Build Status: develop-relwithdebinfo](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-relwithdbginfo/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-relwithdbginfo/) |
-| aarch64 debug            | [![Build Status: master-debug](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-debug/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-debug/) | [![Build Status: develop-debug](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-debug/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-debug/) |
-| aarch64 release-valgrind | [![Build Status: master-release-valgrind](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-release-valgrind/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-master-aarch64-release-valgrind/) | [![Build Status: develop-release-valgrind](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-release-valgrind/badge/icon)](http://ms01915-003.labs.hpecorp.net:8080/job/foedus-develop-aarch64-release-valgrind/) |
-
-To get an email notification for build failure (aka the hall of embarrassment),
-join [our build-notification mailing list](https://groups.google.com/forum/#!forum/foedus-build-failure-notification-list).
-You can simply subscribe the Jenkins's RSS, too.
 
 Building Development Environment (For FOEDUS Developers)
 --------
